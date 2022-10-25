@@ -1,0 +1,1324 @@
+V 13
+4
+LANG:10001 51 RDB Setup & Configuration of User Defined Templates
+LANG:10004 39 RDB设置和配置用户定义的模板
+LANG:10000 63 RDB Erstellung und Parametrierung benutzerdefinierter Templates
+LANG:10027 110 Конфигурация и настройка РБД для пользовательских шаблонов
+PANEL,-1 -1 857 379 N "_3DFace" 2
+"$1"
+"$2"
+"main()
+{
+  if ($1==\"new\")
+  {
+    setValue(\"rbModus\",\"number\",0);
+    modusSwitch(TRUE);    
+  }
+  else
+  {
+    setValue(\"rbModus\",\"number\",1);
+    modusSwitch(FALSE);
+    //DebugN(\"$2\",$2?\"voll\":\"leer\");
+    if ($2)
+      loadTemplate($2);
+  }
+}" 0
+ E E E E 1 -1 -1 0  20 31
+""0  1
+E "//rputz: Load the function from the lib
+#uses \"udag.ctl\"
+
+bool bNewTemplate;
+
+//--------------------------------------------------------------------------
+/* moved to lib
+void msgError(string place, string text, string details=\"\")
+{
+  DebugN(\"Error\", place, text, details);
+  if (details!=\"\")
+    details = \"\\n(\"+details+\")\";
+  ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"), 
+    makeDynString(place+\": \"+getCatStr(\"RDBArchive\",text))+details);
+}
+
+//--------------------------------------------------------------------------
+
+void runSqlProc(string proc)
+{
+  DebugN(\"begin\\n  \"+proc+\";\\nend;\");
+  runRealSQL(\"begin\\n  \"+proc+\";\\nend;\");
+}
+
+//only functions returning integer;
+//void runSqlFunc(string func)
+//{
+//  DebugN(\"declare\\n  ret integer;\\nbegin\\n  ret := \"+func+\";\\nend;\");
+//  runRealSQL(\"declare\\n  ret integer;\\nbegin\\n  ret := \"+func+\";\\nend;\");
+//}
+
+//--------------------------------------------------------------------------
+
+string getOraType(int pvssType)
+{
+  switch(pvssType)
+  {
+    case DPEL_BIT32:
+    case DPEL_INT:
+    case DPEL_UINT:
+      return \"NUMBER(20)\";
+    case DPEL_BOOL:
+      return \"NUMBER(1)\";
+    case DPEL_CHAR:
+    case DPEL_DPID:
+    case DPEL_STRING:
+      return \"VARCHAR2(4000)\";
+    case DPEL_FLOAT:
+      return \"NUMBER\";
+    case DPEL_LANGSTRING:
+      return \"NUMBER\";
+    case DPEL_TIME:
+      return \"DATETIME\";
+    default:
+      //should never reach this point because of preceeding checks
+      return \"INVALID\";
+  }
+}
+
+//--------------------------------------------------------------------------
+
+bool checkDPNode(string dpNode, dyn_string &cols, dyn_int &pvsstypes)
+{
+  //Knoten eines DPTs oder DPT selbst mit mindestens einem DPE und ohne Knoten (ohne Verzweigungen)
+  //DPE-Typ unterhalb des Knotens dürfen keine Dyn-Variablen, Blobs oder Referenzen sein
+  dyn_dyn_string typestruct;
+  dyn_dyn_int typetypes;
+  int i, j, k;
+
+  string dpType = dpTypeName(dpNode);
+  int ret = dpTypeGet(dpType, typestruct, typetypes);
+  DebugN(\"checkDPNode\", dpType, dpNode, dynlen(typestruct), dynlen(typetypes));
+
+  if (ret < 0)
+  {
+    msgError(\"checkDPNode\", \"udag_err_runtime\", \"dpTypeGet\");
+    return false;
+  }
+
+  //Knoten innerhalb Typstruktur finden
+  dyn_string way_to_node = strsplit(dpNode, \".\");
+  bool node_found = false;
+  int ok;
+  int node_i, node_j;
+    
+  DebugN(\"way to node\",way_to_node);
+  
+  if (dynlen(way_to_node) > 1)
+  {
+    //ab 2. Zeile (1. Zeile / 1. Spalte bei typestruct: Typname, 1. Zeile bei way_to_node: DP-Namen
+	  for(i=2;i<=dynlen(typestruct) && !node_found;i++)
+	  {
+	    DebugN(i, node_found);
+	    for(j=2;j<=dynlen(typestruct[i]) && !node_found;j++)
+	    {
+	      DebugN(i, j, dynlen(typestruct[i]), typestruct[i][j], way_to_node[j]);
+	      if (way_to_node[j] == typestruct[i][j])
+	      {
+	        ok = j;
+	        DebugN(\"OK\", ok, i, j);
+	        i++;
+	      }
+	      else
+	        ok = 0;
+	      if (ok == dynlen(way_to_node))
+	      {
+	        node_found = true;
+	        node_i = i-1;
+	        node_j = j;
+	      }
+	    }
+	  }
+	}
+	else
+	{
+	  //DP = Knoten
+	  node_i=node_j=1;
+	}
+  DebugN(\"Node\",typestruct[node_i][node_j], node_i, node_j);
+
+	//find leaves = columns
+  i = node_i+1;
+  j = node_j+1;
+  k = 1;
+  while (i<=dynlen(typestruct) && j<=dynlen(typestruct[i]) && typestruct[i][j])
+  {
+    DebugN(\"Leaf\", typestruct[i][j]);
+    cols[k]=strtoupper(typestruct[i][j]);
+    if (cols[k]==\"ELEMENT_ID\" || cols[k]==\"TS\")
+    {
+      msgError(\"checkDPNode\", \"udag_err_reservedcolumns\");
+      return false;
+    }
+    pvsstypes[k]=typetypes[i][j];
+    i++; k++;
+  }
+  
+  if (dynlen(cols) == 0)
+  {
+    msgError(\"checkDPNode\", \"udag_err_noleaves\"); 
+    return false;
+  }
+  
+  for (i=1;i<=dynlen(pvsstypes);i++)
+  {
+    switch(pvsstypes[i])
+    {
+      case DPEL_BIT32:
+      case DPEL_BOOL:
+      case DPEL_CHAR:
+      case DPEL_DPID:
+      case DPEL_FLOAT:
+      case DPEL_INT:
+      case DPEL_LANGSTRING:
+      case DPEL_STRING:
+      case DPEL_TIME:
+      case DPEL_UINT:
+        break;
+      default:
+        msgError(\"checkDPNode\", \"udag_err_wrongtype\", \"DPE/Type: \"+dpNode+\".\"+cols[i]+\"/\"+pvsstypes[i]);
+        return false;
+    }
+  }
+  return true;
+}
+*/
+//--------------------------------------------------------------------------
+//------------   P A N E L   F U N C T I O N S   ---------------------------
+//--------------------------------------------------------------------------
+
+void modusSwitch(bool bNew)
+{
+  if (bNew)
+  {
+    setValue(\"tblFields\", \"tableMode\", TABLE_SELECT_MULTIPLE,
+                          \"selectByClick\", TABLE_SELECT_LINE);
+    
+    setValue(\"tblIndex\", \"tableMode\", TABLE_SELECT_BROWSE,
+                         \"selectByClick\", TABLE_SELECT_LINE,
+                         \"columnEditable\", 0, TRUE);
+  }
+  else
+  {
+    setValue(\"tblFields\", \"tableMode\", TABLE_SELECT_NOTHING,
+                          \"selectByClick\", TABLE_SELECT_NOTHING);
+    
+    setValue(\"tblIndex\", \"tableMode\", TABLE_SELECT_NOTHING,
+                         \"selectByClick\", TABLE_SELECT_NOTHING,
+                         \"columnEditable\", 0, FALSE);
+	  dyn_string dps = dpNames(\"*\", \"_RDBUserDefinedTemplates\");
+	  for (int i=1;i<=dynlen(dps);i++)
+	    dps[i]=strltrim(dpSubStr(dps[i], DPSUB_DP_EL), \"_\");
+	  cboTemplate.items = dps;
+  }
+
+  setValue(\"cboTemplate\", \"visible\", !bNew);
+  setValue(\"txtTemplate\", \"visible\", bNew);
+
+  setValue(\"pbSelect\", \"visible\", bNew);
+  setValue(\"cmdCreate\", \"visible\", bNew);
+  setValue(\"cmdAdd\", \"visible\", bNew);
+  setValue(\"pbDeleteIndex\", \"visible\", bNew);
+
+//  setValue(\"pbSelect\", \"enabled\", bNew);
+//  setValue(\"pbDeleteTemplate\", \"enabled\", !bNew);
+//  setValue(\"cmdCreate\", \"enabled\", bNew);
+//  setValue(\"cmdAdd\", \"enabled\", bNew);
+//  setValue(\"pbDeleteIndex\", \"enabled\", bNew);
+
+  bNewTemplate = bNew;
+}
+
+//--------------------------------------------------------------------------
+
+void loadTemplate(string template)
+{
+  if (bNewTemplate)
+    return;
+    
+  string node;
+  dyn_string commands, cols;
+  dyn_int pvsstypes;
+  dyn_string idxs;
+  
+  tblFields.deleteAllLines();
+	tblIndex.deleteAllLines();
+
+  string idp = \"_\"+template;
+  dpGet(idp+\".node\", node,
+        idp+\".commands\", commands,
+        idp+\".column.names\", cols,
+        idp+\".column.types\", pvsstypes,
+        idp+\".indexes\", idxs);
+
+  if (isDbgFlag(DBGFLAG_UDAG))
+    DebugTN(idp+\".node\", node,
+            idp+\".commands\", commands,
+            idp+\".column.names\", cols,
+            idp+\".column.types\", pvsstypes,
+            idp+\".indexes\", idxs);
+
+  for (int i = 1; i <= dynlen(cols); i++)
+  {
+    if (pvsstypes[i] == LONGSTRINGUDAG)        
+      tblFields.appendLine(\"column\", cols[i], \"type\", pvsstypes[i], \"typestring\", getPVSSTypeDynString(pvsstypes)[i], \"longstring\", (bool) (pvsstypes[i] == LONGSTRINGUDAG));
+    else
+      tblFields.appendLine(\"column\", cols[i], \"type\", pvsstypes[i], \"typestring\", getPVSSTypeDynString(pvsstypes)[i]);      
+  }
+  tblFields.columnEditable(3, false);
+  tblIndex.appendLines(dynlen(idxs), \"index\", idxs);
+  txtDpNode.text = node;
+  cboTemplate.text = template;
+}
+
+//--------------------------------------------------------------------------
+
+void loadTemplateNew(string dpNode)
+{
+  if (!bNewTemplate)
+    return;
+    
+  dyn_string cols;
+  dyn_int pvsstypes;
+  
+  //DebugN(\"vor\", dpNode);
+  if (!checkDPNode(dpNode, cols, pvsstypes))
+    return;
+  
+  tblFields.deleteAllLines();
+	tblIndex.deleteAllLines();
+
+  setValue( \"cmdCreate\", \"enabled\", true);
+  setValue( \"txtDpNode\", \"text\", dpNode);
+
+  for (int i = 1; i <= dynlen(cols); i++)
+  {
+    if (pvsstypes[i] == 25) //STRING
+    {
+      tblFields.appendLine(\"column\", cols[i], \"type\", pvsstypes[i], \"typestring\", getPVSSTypeDynString(pvsstypes)[i], \"longstring\", (bool) 0);
+    }
+    else
+    {
+      tblFields.appendLine(\"column\", cols[i], \"type\", pvsstypes[i], \"typestring\", getPVSSTypeDynString(pvsstypes)[i]);      
+    }
+  //tblFields.appendLines(dynlen(cols), \"column\", cols, \"type\", pvsstypes, \"typestring\", getPVSSTypeDynString(pvsstypes));
+  }
+  
+  if (isDbgFlag(DBGFLAG_UDAG))
+    DebugTN(\"New Node\", dpSubStr(dpNode, DPSUB_DP_EL));
+  string text = dpNode;
+  strreplace(text, \".\", \"_\");
+  text = strtoupper(strrtrim(strltrim(text, \"_\"),\"_\"));
+  if (strlen(text) > 21) //maximale Länge des Template-Namens
+  {
+    text = substr(text, 0, 21);
+    msgError(\"loadTemplate\", \"udag_wrn_templatetruncated\", text);
+  }
+  
+  //20.08.2012 rheiss IM109841: remove the Systemname, otherwise a dpCreate couldn't be done successfully
+  string sys = getSystemName();
+  strreplace(text, strtoupper(sys), \"\");  
+  txtTemplate.text = text;
+}
+
+//--------------------------------------------------------------------------
+
+//bei Auswahl von \"Erstellen\" bzw. \"OK\"
+int createTemplate(string template)
+{
+  if (!bNewTemplate)
+    return -1;
+
+  string idp = \"_\"+template;
+  if (dpExists(idp))
+  {
+    msgError(\"createTemplate\", \"udag_err_templateexists\");
+    return -1;
+  }
+
+  dyn_string cols;
+  dyn_int pvsstypes;
+  dyn_string idxs;
+  dyn_anytype line;
+  int i;
+  
+  //dyns aus Tabellen befüllen
+  for (i=0;i<tblFields.lineCount;i++)
+  {
+    line=tblFields.getLineN(i);
+    cols[i+1]=line[1];
+    
+    //LongString
+    if (line[4] == 1)
+    {
+      pvsstypes[i+1] = LONGSTRINGUDAG;
+    }
+    else
+    {
+      pvsstypes[i+1]=line[2];
+    }
+  }
+  for (i=0;i<tblIndex.lineCount;i++)
+  {
+    line=tblIndex.getLineN(i);
+    idxs[i+1]=line[1];
+  }
+  dynUnique(idxs); //falls z.B. Pfeil doppelt gedrückt wurde
+  if (isDbgFlag(DBGFLAG_UDAG))
+    DebugTN(cols, pvsstypes, idxs);
+
+  //wenn 2 DBHosts verwendet werden, müssen die Templates auf beiden DbHosts angelegt werden
+  string dbHosts, dbHost1, dbHost2;
+  int pos;
+  int ret = 0;
+  dpGet(\"_RDBArchive.db.host:_original.._value\",dbHosts); 
+  
+  strreplace(dbHosts, \" \", \"\");
+  pos = strpos(dbHosts, \",\", 0);
+  if (pos > 0)
+  {
+    
+    dbHost1 = substr(dbHosts, 0, pos);
+    dbHost2 = substr(dbHosts, pos + 1, strlen(dbHosts)- (pos+1));
+    setUseOnlyThisDbName(dbHost1);
+    ret = udag_createTemplate(template, txtDpNode.text, cols, pvsstypes, idxs);
+    setUseOnlyThisDbName(dbHost2);
+    return ret + udag_createTemplate(template, txtDpNode.text, cols, pvsstypes, idxs);
+  }  
+  else
+  {
+    return udag_createTemplate(template, txtDpNode.text, cols, pvsstypes, idxs);
+  }
+  
+//  
+//  string t_template_name;
+//  string t_dynamic;      //Y(es) or N(o)
+//  int    t_seq;
+//  string t_command;
+//  string t_pre_object_name = \"\";
+//  string t_suf_object_name;
+//  string t_object_right; //object_right: S (Select for Tables) oder N (None for the rest)
+//  
+//  string columns;
+//  string oratype;
+//  dyn_string sRunRealSql;
+//  int sr;
+//  
+  //Allgemein
+//  t_template_name = template;
+//
+  //1. Tabellen LASTVAL + HISTORY - Spaltenliste für beide
+  //fixe Spalten
+//  columns = \"\\n  ELEMENT_ID NUMBER(20) not null,\"
+//            \"\\n  TS TIMESTAMP(9)\";
+	//variable Spalten
+//	for (i=1;i<=dynlen(cols);i++)
+//	{
+//	  oratype = getOraType(pvsstypes[i]);
+//	  columns += \",\\n  \"+cols[i]+\" \"+oratype;
+//	}
+//  if (isDbgFlag(DBGFLAG_UDAG))
+//    DebugTN(\"columns\", columns);
+//  
+  //1a. Tabelle LASTVAL mit den angegebenen Spalten + ELEMENT_ID als Primary Key
+//  t_dynamic = \"N\";
+//  t_seq = 1;
+//  t_suf_object_name = \"LASTVAL\";
+//  t_object_right = \"S\";
+//
+//  sprintf(t_command, \"create global temporary table $name$ (%s)\\non commit delete rows\", columns); //nur mit OCCI
+//  sRunRealSql[++sr] = \"CreateTemplate('\"+t_template_name+\"','\"+t_dynamic+\"',\"+t_seq+\",'\"+t_command+\"','\"+t_pre_object_name+\"','\"+t_suf_object_name+\"','\"+t_object_right+\"')\";
+//  if (isDbgFlag(DBGFLAG_UDAG))
+//    DebugTN(\"LASTVAL\", t_command);
+//  
+  //no indexes for LASTVAL
+//    
+  //1b Tabelle HISTORY mit den angegebenen Spalten + Indizes + ELEMENT_ID und TS als Primary Key
+//  t_dynamic = \"Y\";
+//  t_seq++;
+//  t_suf_object_name = \"HISTORY_\";
+//  t_object_right = \"S\";
+  //zusätzliche Spalten HISTORY
+//  columns += \",\\n  BASE NUMBER(1) default 0\";
+//  sprintf(t_command, \"create table $name$ (%s)\\ntablespace $group_name$ storage $storage_clause$\", columns);
+//  sRunRealSql[++sr] = \"CreateTemplate('\"+t_template_name+\"','\"+t_dynamic+\"',\"+t_seq+\",'\"+t_command+\"','\"+t_pre_object_name+\"','\"+t_suf_object_name+\"','\"+t_object_right+\"')\";
+//  if (isDbgFlag(DBGFLAG_UDAG))
+//    DebugTN(\"HISTORY\", t_command);
+//  
+  //Primary Key
+//  t_dynamic = \"Y\";
+//  t_seq++;
+//  t_object_right = \"N\";
+//  t_command = \"alter table $name$ add constraint P$name$ primary key (ELEMENT_ID,TS) using index tablespace $group_name$ storage $storage_clause_idx$\";
+//  sRunRealSql[++sr] = \"CreateTemplate('\"+t_template_name+\"','\"+t_dynamic+\"',\"+t_seq+\",'\"+t_command+\"','\"+t_pre_object_name+\"','\"+t_suf_object_name+\"','\"+t_object_right+\"')\";
+//  if (isDbgFlag(DBGFLAG_UDAG))
+//    DebugTN(\"HISTORY PK\", t_command);
+//
+  //Indizes
+//  for (i=1;i<=dynlen(idxs);i++)
+//  {
+//    t_dynamic = 'Y';
+//    t_seq++;
+//    t_object_right = \"N\";
+//    t_command = \"create index I\"+(string)(i+2)+\"$name$ on $name$ (\"+idxs[i]+\") tablespace $group_name$ storage $storage_clause_idx$\";
+//    sRunRealSql[++sr] = \"CreateTemplate('\"+t_template_name+\"','\"+t_dynamic+\"',\"+t_seq+\",'\"+t_command+\"','\"+t_pre_object_name+\"','\"+t_suf_object_name+\"','\"+t_object_right+\"')\";
+//    if (isDbgFlag(DBGFLAG_UDAG))
+//      DebugTN(\"HISTORY Indexes\", t_command);
+//  }
+//
+  //2. Befehle absetzen
+//  for (i=1;i<=dynlen(sRunRealSql);i++)
+//    runSqlProc(\"ArchiveControl.\"+sRunRealSql[i]);
+//  
+  //3. Erzeugen IDP vom Typ _RDBUserDefinedTemplates
+//  string idp = \"_\"+template;
+//  dpCreate(idp, \"_RDBUserDefinedTemplates\");
+//  int err = dpSet(idp+\".node\", txtDpNode.text,
+//			            idp+\".commands\", sRunRealSql,
+//			            idp+\".column.names\", cols,
+//			            idp+\".column.types\", pvsstypes,
+//			            idp+\".indexes\", idxs);
+//  if (err)
+//  {
+//    msgError(\"createTemplate\", \"udag_err\");
+//    return -2;
+//  }
+//  return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 0
+"Text1"
+""
+1 20 39 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 41 81 56
+0 2 0 "0s" 0 0 0 192 0 0  22 41 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 8 DP Node:
+LANG:10004 9 DP节点:
+LANG:10000 10 DP-Knoten:
+LANG:10027 12 Узел DP:
+2 24
+"Text4"
+""
+1 20 78 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 80 80 95
+0 2 0 "0s" 0 0 0 192 0 0  22 80 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 9 Template:
+LANG:10004 7 模板:
+LANG:10000 9 Template:
+LANG:10027 13 Шаблон:
+30 35
+"Frame2"
+""
+1 500 98 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 500 30 750 100
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 9
+"Frame1"
+""
+1 10 325 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 10 840 330
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+19 34
+"rbModus"
+""
+1 513 44 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  511 42 725 96
+2
+T 
+4
+LANG:10001 3 New
+LANG:10004 6 新建
+LANG:10000 24 Neues Template erstellen
+LANG:10027 38 Создать новый шаблон
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 7 Details
+LANG:10004 6 详细
+LANG:10000 16 Template-Details
+LANG:10027 27 Детали шаблона
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  int n;
+  getValue(\"rbModus\", \"number\", n);
+  //DebugN(n);
+  modusSwitch (n==0);
+}" 0
+
+13 32
+"pbSelect"
+""
+1 363 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 select DP node
+LANG:10004 14 select DP node
+LANG:10000 20 DP-Knoten auswählen
+LANG:10027 26 выбрать узел DP
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 35 403 65
+
+P 
+4294967295
+"pictures/dpeMon_tree.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if (!bNewTemplate)
+    return;
+
+  string dpNode;
+  dpSelector(dpNode, true, \"OWN_SYSTEM_NAME_NO_SYS\");
+  if (dpNode != \"\")
+    loadTemplateNew(dpNode);
+}
+" 0
+ E E E
+14 33
+"txtDpNode"
+""
+1 100 38 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  98 36 360 63
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.editable=false;
+}" 0
+ E
+13 28
+"pbDeleteTemplate"
+""
+1 365 77 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  363 75 403 105
+
+P 
+13421721
+"pictures/del_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if (bNewTemplate)
+    return;
+
+  dyn_float df;
+  dyn_string ds;
+  string template;
+    
+  getValue(\"cboTemplate\",\"text\",template);
+  
+  if ( template != \"\" )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"bag\",\"templatedelete\"),
+                    getCatStr(\"para\",\"yes\"),
+                    getCatStr(\"para\",\"no\")), df, ds);
+    if (!df[1])
+      return;
+  }
+
+  runSqlProc(\"ArchiveControl.DeleteTemplate('\"+template+\"')\");
+  string idp = \"_\"+template;
+  int err = dpDelete(idp);
+  if (isDbgFlag(DBGFLAG_UDAG))
+    DebugTN(err, getLastError());
+}
+" 0
+ E E E
+22 29
+"cboTemplate"
+""
+1 100 78 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  98 76 360 103
+0
+
+E
+"main()
+{
+  loadTemplate(this.text);
+}" 0
+
+E
+ 0 0
+14 36
+"txtTemplate"
+""
+1 100 78 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  98 76 360 103
+3 "21s" 21 0 0 0 0 -1  E E E
+13 23
+"cmdHelp"
+""
+1 750 338 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  748 336 842 363
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+//  for (int i=51;i<100;i++)
+//    runRealSQL(\"insert into job_nextdate (job) values (\"+i+\")\");
+  runRealSQL(\"delete from job_nextdate where job > 50\");
+  runRealSQL(\"commit\");
+  //std_help(\"RDB_userdefTemplate\");
+}" 0
+ E E E
+13 37
+"cmdClose"
+""
+1 650 338 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  648 336 742 363
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOffReturn(makeDynFloat(0.0), makeDynString(\"\"));
+}" 0
+ E E E
+13 27
+"cmdCreate"
+""
+1 550 338 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  548 336 642 363
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  if (!bNewTemplate)
+    return;
+  if (txtTemplate.text==\"\" || txtDpNode.text==\"\")
+    return;
+  int err=createTemplate(txtTemplate.text);
+  if (!err)
+    PanelOffReturn(makeDynFloat(0.0), makeDynString(txtTemplate.text,txtDpNode.text));
+}" 0
+ E E E
+13 41
+"pbDeleteIndex"
+""
+1 800 200 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 delete selected index
+LANG:10004 21 删除选择的索引
+LANG:10000 26 Gewählten Index entfernen
+LANG:10027 46 Удалить выбранный индекс
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  798 198 832 228
+
+P 
+4294967295
+"pictures/dpeMon_del.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if (!bNewTemplate)
+    return;
+
+  dyn_string  selectedLines, ds;
+  dyn_float   df;
+  dyn_anytype selection;
+  string      sArchiveName;
+  int         idThread, iArchiveNumber, iErr;
+  
+  getValue(\"tblIndex\",\"getSelectedLines\",selectedLines);
+  if ( dynlen(selectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+//  if ( dynlen(selectedLines) == 1 )
+//  {
+//    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", getCatStr(\"para\", \"warning\"),
+//      makeDynString(getCatStr(\"my\",\"indexdelete\"),
+//                    getCatStr(\"para\",\"yes\"),
+//                    getCatStr(\"para\",\"no\")), df, ds);
+//    if (!df[1])
+//      return;
+//  }
+
+  //nur aktiv vor Erstellung eines Index, Löschen in der Datenbank deshalb nicht nötig,
+  //Löschen in der Tabelle reicht
+  tblIndex.deleteLineN(selectedLines[1]);
+}" 0
+ E E E
+13 39
+"cmdAdd"
+""
+1 410 200 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 32 use selected columns for indexes
+LANG:10004 30 使用选择的列作为索引
+LANG:10000 37 Gewählte Spalten als Index verwenden
+LANG:10027 82 использовать выбранные столбцы для индексов
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  408 198 442 228
+
+P 
+4294967295
+"pictures/arrowRight_bold.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if (!bNewTemplate)
+    return;
+
+	dyn_int     selectedLines;
+	anytype     col, type, islongstring;
+//	dyn_anytype line;
+	string      index;
+	int         i, j;
+	dyn_string  indexes;
+
+	selectedLines = tblFields.getSelectedLines();	
+  if ( dynlen(selectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  if (isDbgFlag(DBGFLAG_UDAG))
+    DebugTN(\"Selected Lines\", selectedLines);
+
+	for (i = 1; i <= dynlen(selectedLines); i++)
+	{
+	  if (index != \"\")
+	    index += \",\";
+	  if (isDbgFlag(DBGFLAG_UDAG))
+      DebugTN(index);
+	  getValue(\"tblFields\", \"cellValueRC\", selectedLines[i], \"column\", col);
+	  getValue(\"tblFields\", \"cellValueRC\", selectedLines[i], \"type\", type);
+          getValue(\"tblFields\", \"cellValueRC\", selectedLines[i], \"longstring\", islongstring);
+	  //DebugN(\"type\", type, DPEL_LANGSTRING);
+	  if (type==DPEL_LANGSTRING)
+	  {
+	    msgError(\"addIndex\",\"udag_err_langstringasindex\");
+	    col=\"\";
+	    continue;
+	  }
+    if (islongstring)
+    {
+      msgError(\"addIndex\",\"udag_err_langstringasindex\");
+	    col=\"\";
+	    continue;
+    }
+      
+	  if (isDbgFlag(DBGFLAG_UDAG))
+      DebugTN(i, col);
+	  index += col;
+	}
+	
+	//tblIndex.getColumnN(0, indexes);
+	getValue(\"tblIndex\", \"getColumnN\", 0, indexes);
+  if (isDbgFlag(DBGFLAG_UDAG))
+  	DebugN(\"Column0\",indexes, dynContains(indexes, index));
+	if (dynContains(indexes, index))
+	  return; //only unique elements
+	
+	if (tblIndex.lineCount < 9 && index != \"\")
+	  tblIndex.appendLine(\"index\", index);
+	if (tblIndex.lineCount >= 9)
+	  msgError(\"addIndex\", \"udag_err_max9indexes\");
+}" 0
+ E E E
+25 2
+"tblFields"
+""
+1 20 121 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 119 402 323
+E"main(int row, string column, string value)
+{
+  if (column == \"longstring\")
+  {
+    int type;
+    getValue(\"tblFields\",\"cellValueRC\", row, \"type\", type);
+
+    if (type == 25)
+    {
+      tblFields.columnEditable(column, true);
+    }
+    else
+    {
+      tblFields.columnEditable(column, false);
+    }
+  
+    DebugN(type);
+    //if (isDbgFlag(\"CS\"))
+     
+  }
+}
+
+" 0
+ 1 0 1 4 1 "column" 17 1 0 "s" 4
+LANG:10001 13 Table Columns
+LANG:10004 9 表格列
+LANG:10000 16 Tabellen-Spalten
+LANG:10027 29 Столбцы таблицы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "type" 4 0 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "typestring" 6 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "longstring" 6 1 1 "[0d,True,False,ALIGNMENT_BEGINNING,False]" 4
+LANG:10001 10 LongString
+LANG:10004 16 LongString类型
+LANG:10000 10 LongString
+LANG:10027 10 LongString
+E
+4
+LANG:10001 26 use column as 'LongString'
+LANG:10004 16 LongString类型
+LANG:10000 33 Spalte als 'LongString' verwenden
+LANG:10027 59 использовать столбец как 'LongString'
+
+80 
+20 20 "" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+25 40
+"tblIndex"
+""
+1 425 -67 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 119 792 323
+EE 1 0 1 1 1 "index" 28 1 1 "s" 4
+LANG:10001 11 Table Index
+LANG:10004 9 表索引
+LANG:10000 16 Tabellen-Indizes
+LANG:10027 27 Индекс таблицы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+320 
+20 20 "" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

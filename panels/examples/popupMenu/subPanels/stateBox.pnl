@@ -1,0 +1,257 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 169 51 N "_3DFace" 1
+"$INDEX"
+E E E E E 1 -1 -1 0  10 23
+""0  1
+E "#uses \"examples/popupMenu.ctl\"
+
+dyn_string stateColors;
+dyn_string deviceDPEs;
+
+/*
+  @author Grygorii Sokhrannyi
+  Set the background colors with respect to the alart state color
+  @params:
+    index - the index of the changed color
+    color - the color name which is changed
+*/
+void setColor(int index, string color)
+{
+  stateColors[index] = color;  // set the newly changed color
+  color = \"SiemensNaturalBlueLight\";  // the default color
+
+  for (int i = 1; i <= dynlen(stateColors); ++i )
+  {
+    // If an alert color is triggered, take it
+    if ( patternMatch(\"alert*\", stateColors[i]) )
+    {
+      color = stateColors[i];
+      break;
+    }
+
+    // If alert state color (no alert), then take a default color
+    if ( stateColors[i] != \"\" )
+      color = stateColors[i];
+  }
+
+  state.backCol(color);
+  arrow.backCol(color);
+}
+
+/*
+  @author Grygorii Sokhrannyi
+  The function which loads the appropriate panel
+  @param: sideIndex - the index of the side for which the panel should be loaded
+*/
+void loadMainPanel(string sideIndex)
+{
+  int levelNumber = 1;
+  int sideNumber = 1;
+
+  if ( sideIndex == \"\" )  // no side index -> main panel
+  {
+    // If the current panel is not loaded
+    if ( (diSelection[1] != levelNumber) || (diSelection[2] != levelNumber) )
+    {
+      invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openRootPanel\");
+      diSelection = makeDynInt(levelNumber, sideNumber);  // set the current loaded panel
+    }
+  }
+  else
+  {
+    ++levelNumber;  // not a main panel -> increase level
+
+    // Define the side number
+    for (int i = 1; i <= dynlen(menuLabels[levelNumber]); ++i)
+    {
+      if ( patternMatch(\"*\" + sideIndex, menuLabels[levelNumber][i]) )
+      {
+        sideNumber = i;
+        break;
+      }
+    }
+
+    // Check if this panel is already opened, if not load it
+    if ( (diSelection[1] != levelNumber) || (diSelection[2] != sideNumber) )
+    {
+      invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openSidePanel\", sideIndex);
+      diSelection = makeDynInt(levelNumber, sideNumber);  // set the current loaded panel
+    }
+  }
+
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 1
+"state"
+""
+1 42 32.15909090909091 E E E 1 E 1 E N "STD_textfield_text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"shadowOffset" "[8,8]"
+"shadowColor" "{63,63,63,131}"
+"shadowRadius" "18"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,17,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,17,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,17,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,17,5,50,0,0,0,0,0,Regular
+0  40 8 154 42
+2 "0s" 0 0 0 1 0 -1  "main(mapping event)
+{
+  loadMainPanel($INDEX);
+}
+" 0
+ "main()
+{
+  // When no index, then it is the main panel
+  if ( $INDEX != \"\" )
+    this.text(\"Site \" + $INDEX);
+  else
+    this.text(\"Main Belt\");
+
+  // Each device should get a color in the array
+  for (int i = 1; i <= dynlen(rowIndices); ++i)
+  {
+    dynAppend(stateColors, \"\");  // create empty array of the same size
+
+    if ( patternMatch($INDEX + \"*\", rowIndices[i]) )
+    {
+      dynAppend(deviceDPEs, rowDpes[i] + \".analog.value\");
+    }
+  }
+
+  // Call-Back function for each device
+  for (int i = 1; i <= dynlen(deviceDPEs); ++i)
+  {
+    if ( !dpExists(deviceDPEs[i]) )
+      break;
+
+    dpConnect(\"stateCB\", deviceDPEs[i] + \":_alert_hdl.._act_state_color\");
+
+  }
+}
+
+/*
+  @author Grygorii Sokhrannyi
+  The call back function which get the alert state color of the device
+  @param: device DPE
+*/
+void stateCB(string DPE, string colorName)
+{
+  int index;
+
+  DPE = dpSubStr(DPE, DPSUB_DP_EL);  // the DPE without an extension
+
+  for (int i = 1; i <= dynlen(deviceDPEs); ++i )
+  {
+    if ( DPE == deviceDPEs[i] )
+    {
+      index = i;
+      break;
+    }
+  }
+
+  setColor(index, colorName);
+}
+" 0
+ E
+9 3
+"arrow"
+""
+1 300 130 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  // No arrow needed for a main panel
+  if ( $INDEX == \"\" )
+    this.visible(false);
+}
+" 0
+ "main(mapping event)
+{
+  loadMainPanel($INDEX);
+}
+" 0
+ 0 1 3 1 1 E -0.1646574396150056 0 -0.1907051194334458 81.55323250755889 49.79166552634795 1 E 300 130 164.92423 164.92423
+ 0 460 170 440 100 1
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

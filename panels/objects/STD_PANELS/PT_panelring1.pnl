@@ -1,0 +1,385 @@
+V 13
+4
+LANG:10001 9 PanelRing
+LANG:10004 9 PanelRing
+LANG:10000 9 PanelRing
+LANG:10027 24 СигналПанели
+PANEL,-1 -1 215 42 N "_3DFace" 0
+"main()
+{
+  dyn_string PanelNames, Parameters;
+  
+//  dpGet(myUiDpName() + \".LatestPanels.PanelNames:_online.._value\", PanelNames);
+//  cmbPanels.items = PanelNames;
+
+  if ( myModuleName() != \"naviModule\" )
+  {
+    cmbPanels.text    = \"Wrong module\";
+    cmbPanels.enabled = false;
+    cmdLeft.enabled   = false;
+    cmdRight.enabled  = false;
+  }
+  else
+  if ( dpConnect( \"pt_panelRingCB\",
+                  myUiDpName()+\".RootPanelOrigOn.ModuleName:_online.._value\",
+                  myUiDpName()+\".RootPanelOrigOn.FileName:_online.._value\",
+                  myUiDpName()+\".RootPanelOrigOn.Parameter:_online.._value\") == -1
+       ||
+       dpConnect( \"pt_updateRingCB\",
+                 \"_PanelTopology.nodeName:_online.._value\",
+                 \"_PanelTopology.fileName:_online.._value\",
+                 \"_PanelTopology.parameter:_online.._value\") == -1
+     )
+  {
+    cmbPanels.text    = \"Connect error\";
+    cmbPanels.enabled = false;
+    cmdLeft.enabled   = false;
+    cmdRight.enabled  = false;
+  }
+}
+" 0
+ E E E E 1 -1 -1 0  10 10
+""0  1
+E "global int gNoOfPanelsInRing = 20;
+
+// call back function to check which panel has been opened
+pt_panelRingCB( string dp1, string ModuleName,
+                string dp2, string FileName,
+                string dp3, dyn_string Parameter )
+{
+  int            i, j, k, ptPos, uiPos;
+  string         par = \"\", s;
+  dyn_string     uiPanelNames, uiFileNames, uiParameters,
+                               ptFileNames, ptParameters;
+  dyn_langString ptNodeNames;
+
+  if ( ModuleName != \"mainModule\" )
+    return;
+
+  for ( i = 1; i<= dynlen(Parameter); i++)
+  {
+    par += Parameter[i];
+  }
+
+  dpGet(//myUiDpName()+\".LatestPanels.PanelNames:_online.._value\",uiPanelNames,
+        myUiDpName()+\".LatestPanels.FileNames:_online.._value\",uiFileNames,
+        myUiDpName()+\".LatestPanels.Parameters:_online.._value\",uiParameters,
+        \"_PanelTopology.nodeName:_online.._value\", ptNodeNames,
+        \"_PanelTopology.fileName:_online.._value\", ptFileNames,
+        \"_PanelTopology.parameter:_online.._value\", ptParameters );
+
+  ptPos = 0;
+  for (i = 1; i <= dynlen(ptFileNames); i++)
+  {
+    if ( ptFileNames[i] == FileName &&
+         ptParameters[i] == par )
+    {
+      ptPos = i; break;
+    }
+  }
+  
+  // in topology not found
+  if ( ptPos < 1 ) return;
+  
+  uiPos=0;
+  for (i = 1; i <= dynlen(uiFileNames); i++)
+  {
+    if ( uiFileNames[i] == FileName &&
+         uiParameters[i] == par )
+    {
+      uiPanelNames[i] = ptNodeNames[i];
+      uiPos = i;
+    }
+    else
+    {
+      k = 0;
+      for (j = 1; j <= dynlen(ptFileNames); j++)
+      {
+        if ( ptFileNames[j]  == uiFileNames[i] &&
+             ptParameters[j] == uiParameters[i] )
+        {
+          k = j; break;
+        }
+      }
+      if ( k > 0 )
+      {
+        uiPanelNames[i] = ptNodeNames[k];
+      }
+    }
+  }
+  
+  if ( uiPos > 0 )
+  {
+    cmbPanels.selectedPos = uiPos;
+    return;
+  }
+  
+  for ( i = dynlen(uiFileNames); i >= gNoOfPanelsInRing; i-- )
+  {
+    dynRemove( uiFileNames, 1 );
+    dynRemove( uiPanelNames, 1 );
+    dynRemove( uiParameters, 1 );
+  }
+
+  dynAppend( uiPanelNames, ptNodeNames[ptPos]);
+  dynAppend( uiFileNames, FileName);
+  dynAppend( uiParameters, par);
+
+  dpSet(myUiDpName()+\".LatestPanels.FileNames:_original.._value\", uiFileNames,
+        //myUiDpName()+\".LatestPanels.PanelNames:_original.._value\", uiPanelNames,
+        myUiDpName()+\".LatestPanels.Parameters:_original.._value\", uiParameters);
+  cmbPanels.items = uiPanelNames;
+  cmbPanels.selectedPos = cmbPanels.itemCount;
+}
+
+pt_panelRingGotoPanel(int pos)
+{
+  int            ptPos;
+  dyn_string     uiPanelNames, uiFileNames, uiParameters,
+                               ptFileNames, ptParameters;
+  dyn_langString ptNodeNames;
+  if ( myModuleName() != \"naviModule\" ||
+       !isModuleOpen(\"mainModule\")
+     )
+    return;
+
+  dpGet(//myUiDpName()+\".LatestPanels.PanelNames:_online.._value\",uiPanelNames,
+        myUiDpName()+\".LatestPanels.FileNames:_online.._value\",uiFileNames,
+        myUiDpName()+\".LatestPanels.Parameters:_online.._value\",uiParameters,
+        \"_PanelTopology.nodeName:_online.._value\", ptNodeNames,
+        \"_PanelTopology.fileName:_online.._value\", ptFileNames,
+        \"_PanelTopology.parameter:_online.._value\", ptParameters );
+
+  if ( pos < 1 || pos > dynlen(uiFileNames) || uiFileNames[pos] == \"\" )
+    return;
+  
+  ptPos = dynContains(ptFileNames, uiFileNames[pos]);
+  if ( uiParameters[pos] != ptParameters[ptPos]   )
+    return;
+  pt_panelOn3(ptPos, myModuleName());
+}
+
+pt_updateRingCB(string dp1, dyn_langString  ptNodeNames,
+                string dp2, dyn_string  ptFileNames,
+                string dp3, dyn_string  ptParameters)
+{
+  int        i, j, l, ptPos, pos = cmbPanels.selectedPos;
+  string     s;
+  dyn_string uiPanelNames, uiFileNames, uiParameters;
+
+  dpGet(//myUiDpName()+\".LatestPanels.PanelNames:_online.._value\",uiPanelNames,
+        myUiDpName()+\".LatestPanels.FileNames:_online.._value\",uiFileNames,
+        myUiDpName()+\".LatestPanels.Parameters:_online.._value\",uiParameters );
+  l = dynlen(uiPanelNames);
+  
+  for (i = dynlen(uiFileNames); i>0; i--)
+  {
+    ptPos = 0;
+    for ( j = 1; j <= dynlen(ptFileNames); j++)
+    {
+      if ( ptFileNames[j]  == uiFileNames[i]  &&
+           ptParameters[j] == uiParameters[i]   )
+      {
+        uiPanelNames[i] = ptNodeNames[j];
+        ptPos = i;
+      }
+    }
+    if ( ptPos < 1 )
+    {
+      dynRemove(uiPanelNames, i);
+      dynRemove(uiFileNames, i);
+      dynRemove(uiParameters, i);
+      if (pos == i) pos = 0;
+      else
+      if (i < pos ) pos--;
+    }
+  }
+  if ( dynlen(uiFileNames) != l)
+  {
+    dpSet(myUiDpName()+\".LatestPanels.FileNames:_original.._value\", uiFileNames,
+          //myUiDpName()+\".LatestPanels.PanelNames:_original.._value\", uiPanelNames,
+          myUiDpName()+\".LatestPanels.Parameters:_original.._value\", uiParameters);
+    cmbPanels.items = uiPanelNames;
+    if ( pos > 0 )
+    {
+      cmbPanels.selectedPos = pos;
+//      cmbPanels.text = 
+    }
+  }
+}
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+NC
+1
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+13 0
+"cmdLeft"
+""
+1 10 10 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 8 37 34
+
+P 
+4294967295
+"pictures/PT_arrowLeft_grey.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int pos = cmbPanels.selectedPos -1;
+  
+  if ( pos < 1 )
+    pos = cmbPanels.itemCount;
+  
+  if ( pos > 0 )
+    pt_panelRingGotoPanel(pos);
+}" 0
+ E E E
+13 1
+"cmdRight"
+""
+1 180 10 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  178 8 207 34
+
+P 
+4294967295
+"pictures/PT_arrowRight_grey.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int pos = cmbPanels.selectedPos + 1;
+  
+  if ( pos > cmbPanels.itemCount )
+    pos = 1;
+  
+  if ( pos <= cmbPanels.itemCount )
+    pt_panelRingGotoPanel(pos);
+}" 0
+ E E E
+22 3
+"cmbPanels"
+""
+1 35 10 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  33 8 182 35
+0
+
+E
+"main()
+{
+  int pos = this.selectedPos;
+  
+  pt_panelRingGotoPanel(pos);
+}" 0
+
+E
+ 0 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

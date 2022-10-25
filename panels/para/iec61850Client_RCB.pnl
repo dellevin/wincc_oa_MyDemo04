@@ -1,0 +1,3123 @@
+V 14
+4
+LANG:10001 19 IEC 61850/61400 rcb
+LANG:10004 19 IEC 61850/61400 rcb
+LANG:10000 19 IEC 61850/61400 rcb
+LANG:10027 19 IEC 61850/61400 rcb
+PANEL,-1 -1 800 580 N "_3DFace" 0
+"main()
+{
+  iec61850_rcbResponseErrorList(dsErrorList);
+  rcb_DevChangePnlRefresh(\"\");
+  sPrevIedDp = \"\";
+}
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  450 80
+""0  1
+E "#uses \"iec61850_plugin\"
+
+dyn_string dsErrorList, dsDatasetList;
+string sSelRcb, sPrevRcb, sPrevRcbDp, sPrevIedDp;
+bool bEntryIdModified, bDatasetModified, bEngRcbCfg;
+
+// ETM: these bool variables should be removed in the future
+bool wtrTrgOps, wtrOptFlds, wrtBufTm, wrtIntgPd, wrtDataSet, wrtRptID, wrtResvTms, wrtEntryId;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// function to update RCB on device change
+void rcb_DevChangePnlRefresh(string sIedName, string sRcbName = \"\")
+{
+  string sIedDp = iec61850_getIedDpName(sIedName);
+
+  // If datapoint not exists... clear all variables and clear RCB panel..
+  if ( !dpExists(sIedDp) )
+  {
+    sSelRcb = \"\";
+    sPrevRcb = \"\";
+    sPrevRcbDp = \"\";
+    sPrevIedDp = \"\";
+    iec61850_RCBPnl_initialize();
+    cbRCBFilter.enabled = 0;
+    btnRcbMgmt.enabled = 0;
+    return;
+  }
+
+  btnRcbMgmt.enabled = 1;
+
+  dyn_string dsRcbList, dsTempDatasetList;
+  dyn_int diUserData;
+  string sDeviceName;
+  int iDrvNum;
+
+  ptEngRcbCfg.visible = 1;
+
+  // Clear RCB panel..
+  iec61850_RCBPnl_initialize();
+  cbRCBFilter.selectedPos(1);
+  dynClear(dsDatasetList);
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES, dsRcbList);
+  //btnGetDevData.enabled = (dynlen(dsRcbList));
+
+  // If RCBs there in the list.. initial RCB panel with RCB attributes an connect to required DPEs
+  if ( dynlen(dsRcbList) > 0 )
+  {
+    dynSortAsc(dsRcbList);
+    RCB_NAME_LIST.items = dsRcbList;
+
+    // IM 116962 - do not reset the rcb list in combo box
+    if ( sRcbName != \"\" && dynContains(dsRcbList, sRcbName) )
+      RCB_NAME_LIST.selectedPos(dynContains(dsRcbList, sRcbName));
+
+    txtRCBName.text = RCB_NAME_LIST.text;
+    RCB_NAME_LIST.toolTipText = RCB_NAME_LIST.text;
+
+    //btSave.enabled = 1;
+    cbRCBFilter.enabled = 1;
+    bEntryIdModified = 0;
+    bDatasetModified = 0;
+
+    dynAppend(dsDatasetList, \"\");
+
+    dpGet(sIedDp + IEC61850_DPE_IDP_DATASETS     , dsTempDatasetList,
+          sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+
+    dynAppend(dsDatasetList, dsTempDatasetList);
+    dynSort(dsDatasetList);
+    dynUnique(dsDatasetList);
+
+    DATASET_NAME_LIST.items = dsDatasetList;
+
+    // disconnecting with previously connected device if previous datapoint exists..
+    if ( sPrevIedDp != \"\" && dpExists(sPrevIedDp) )
+    {
+      sDeviceName = sPrevIedDp;
+
+      if ( sDeviceName == sIedName )
+      {
+        dpDisconnect(\"ConnectDynDatasets\", sDeviceName + IEC61850_DPE_IDP_DATASETS              ,
+                                           sDeviceName + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS   ,
+                                           sDeviceName + IEC61850_DPE_IDP_CONFIG_DYN_MEMBERSLIST,
+
+                                           // engineering mode
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_RCBCFG            ,
+
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_DATSET            ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_RPTID             ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_OPTFIELDS         ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_BUFTIME           ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_TRGOPS            ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_INTGPD            ,
+                                           sDeviceName + IEC61850_DPE_IDP_ENG_RESVTMS           );
+      }
+    }
+
+    // connecting with new selected device..
+    sPrevIedDp = \"\";
+
+    if ( dpExists(sIedDp) )
+    {
+      sPrevIedDp = sIedDp;
+      sDeviceName = sPrevIedDp;
+
+      dpConnect(\"ConnectDynDatasets\", sDeviceName + IEC61850_DPE_IDP_DATASETS              ,
+                                      sDeviceName + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS   ,
+                                      sDeviceName + IEC61850_DPE_IDP_CONFIG_DYN_MEMBERSLIST,
+
+                                      // engineering mode
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_RCBCFG            ,
+
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_DATSET            ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_RPTID             ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_OPTFIELDS         ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_BUFTIME           ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_TRGOPS            ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_INTGPD            ,
+                                      sDeviceName + IEC61850_DPE_IDP_ENG_RESVTMS           );
+    }
+
+    // Update RCB panel with new selected device..
+    iec61850_ETool_updateRCBPanel(txtRCBPnlDevName.text, RCB_NAME_LIST.text);
+  }
+  else // if there are no RCBs.. clear global variables..
+  {
+    sSelRcb = \"\";
+    sPrevRcb = \"\";
+    sPrevRcbDp = \"\";
+  }
+
+  if ( cbEnable.state(0) )
+    cbReserve.enabled = false;
+
+  if ( txtResvTms.text == \"-1\" )
+  {
+    cbReserve.enabled = false;
+    cbReserve.state(0) = 1;
+    txtResvTms.enabled = false;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// connect function for stand alone projects driver instances..
+void ConnectDrvManagerInst(dyn_int diUserData, string dpName1, dyn_int drvNumList1, string dpName2, bool state)
+{
+  ConnectDrvManagerInst2( diUserData, dpName1, drvNumList1, dpName1, drvNumList1, dpName2, state);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// connect function for redundancy projects driver instances..
+void ConnectDrvManagerInst2(dyn_int diUserData,
+                            string dpName1, dyn_int drvNumList1,
+                            string dpName2, dyn_int drvNumList2,
+                            string dpName3, bool state)
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  // Checking whether connect function called for same device DP or not..
+  if ( dpSubStr(dpName3, DPSUB_DP) == sIedDp )
+  {
+    dynAppend(drvNumList1, drvNumList2);
+    dynUnique(drvNumList1);
+
+    if ( dynContains(drvNumList1, diUserData[1]) < 1 )
+    {
+      dyn_string dsRcbList, dpNamesList, dpValuesList;
+      string sTempRcbDp, sTempIedDp;
+
+      sTempIedDp = dpSubStr(dpName3, DPSUB_SYS_DP);
+      if ( !dpExists(sTempIedDp) )
+        return;
+
+      dpGet(sTempIedDp + IEC61850_DPE_IDP_RCB_NAMES, dsRcbList);
+
+      dyn_string dsRcbAllIndexData, dsRcbAllIndexOnly;
+      iec61850_getRcbDataIndexInfo(dsRcbList, dsRcbAllIndexData, dsRcbAllIndexOnly);
+
+      for ( int iLoop = 1; iLoop <= dynlen(dsRcbList); iLoop++ )
+      {
+        sTempRcbDp = iec61850_getRcbDpName(sTempIedDp, dsRcbList[iLoop]);
+
+        if ( !dpExists(sTempRcbDp) )
+          continue;
+
+        // writing Report status to \"disconnected\"
+        dynAppend(dpNamesList, sTempRcbDp + IEC61850_DPE_RCB_RCBSTATE);
+        dynAppend(dpValuesList, IEC61850_RCB_STATE_DISCONNECTED);
+      }
+
+      dpSet(dpNamesList, dpValuesList);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// connect function for selected RCB..
+void connectRcbData(string sNewRcb)
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sNewRcbDp;
+
+  if ( sNewRcb != \"\" )
+    sNewRcbDp = iec61850_getRcbDpName(sIedDp, sNewRcb);
+
+  if ( sNewRcbDp != \"\" && sPrevRcbDp == sNewRcbDp )
+    return;
+
+  // IM 119415 - disconnect only if dp exists
+  if ( ( sPrevRcbDp != \"\" && dpExists(sPrevRcbDp) ) || ( sNewRcb == \"\" && sPrevRcbDp != \"\" && dpExists(sPrevRcbDp) ) )
+  {
+    // IM 116962 - only 1 cb function for rcb config (merged cbs)
+
+    dpDisconnect(\"ConnectRcbConfig\", sPrevRcbDp + IEC61850_DPE_RCB_OVERFLOWTS ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_CONFREV    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_SQNUM      ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_TIMEOFENTRY,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_ENTRYID    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_BUFFERED   ,
+
+                                     // additional connects for correct view of complete config - especially in redundant systems
+                                     sPrevRcbDp + IEC61850_DPE_RCB_RPTID      ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_INTGPRD    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_BUFTIME    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_RESVTMS    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_DATSET     ,
+
+                                     sPrevRcbDp + IEC61850_DPE_RCB_OPTFLDS    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_TRGOPTS    );
+
+    dpDisconnect(\"ConnectRcbStatus\", sPrevRcbDp + IEC61850_DPE_RCB_RCBSTATE    ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_RESPONSECODE,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_RPTENA      ,
+                                     sPrevRcbDp + IEC61850_DPE_RCB_RESV        );
+
+    if ( sNewRcb == \"\" )
+      sPrevRcbDp = \"\";
+  }
+
+  if ( sNewRcbDp != \"\" && dpExists(sNewRcbDp) && sNewRcb != \"\" ) // Connecting DPEs
+  {
+
+    // IM 116962 - only 1 cb function for rcb config (merged cbs)
+    dpConnect(\"ConnectRcbConfig\", sNewRcbDp + IEC61850_DPE_RCB_OVERFLOWTS ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_CONFREV    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_SQNUM      ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_TIMEOFENTRY,
+                                  sNewRcbDp + IEC61850_DPE_RCB_ENTRYID    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_BUFFERED   ,
+
+                                  // additional connects for correct view of complete config - especially in redundant systems
+                                  sNewRcbDp + IEC61850_DPE_RCB_RPTID      ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_INTGPRD    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_BUFTIME    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_RESVTMS    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_DATSET     ,
+
+                                  sNewRcbDp + IEC61850_DPE_RCB_OPTFLDS    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_TRGOPTS    );
+
+    dpConnect(\"ConnectRcbStatus\", sNewRcbDp + IEC61850_DPE_RCB_RCBSTATE    ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_RESPONSECODE,
+                                  sNewRcbDp + IEC61850_DPE_RCB_RPTENA      ,
+                                  sNewRcbDp + IEC61850_DPE_RCB_RESV        );
+  }
+
+  if ( sNewRcb != \"\" )
+    sPrevRcbDp = sNewRcbDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// callback for Change in Datasets..
+// This function is used to update Datasets list in the RCB panel..
+// This will be used if Dynamic Datasets functionality is available..
+void ConnectDynDatasets(string dpName1, dyn_string dsValue1,
+                        string dpName2, dyn_string dsValue2,
+                        string dpName3, dyn_string dsValue3,
+                        string dpName4, bool bEngRcbCfg,
+
+                        string dpName11, bool b1,
+                        string dpName12, bool b2,
+                        string dpName13, bool b3,
+                        string dpName14, bool b4,
+                        string dpName15, bool b5,
+                        string dpName16, bool b6,
+                        string dpName17, bool b7)
+{
+  dyn_string dsDatasetList, dsElements;
+  string sTempDataset = DATASET_NAME_LIST.text;
+  string sRcb = RCB_NAME_LIST.text;
+  dyn_int posList, diList;
+  int iCount;
+  dynAppend(dsDatasetList, \"\");
+
+  if ( dynlen(dsValue2) != dynlen(dsValue3) )
+  {
+    for ( int iLoop = 1; iLoop <= dynlen(dsValue3); iLoop++ )
+    {
+      dsElements = strsplit(dsValue3[iLoop], \"|\");
+
+      if ( dynlen(dsElements) > 0 )
+        dynAppend(posList, dsElements[1]);
+    }
+
+    iCount = 1;
+
+    for ( int iLoop = 1; iLoop <= dynlen(dsValue2); iLoop++ )
+    {
+      if ( !dynContains(posList, iCount) > 0 )
+      {
+        dynRemove(dsValue2, iLoop);
+        iLoop--;
+      }
+      iCount++;
+    }
+  }
+
+  dynAppend(dsDatasetList, dsValue1);
+  dynAppend(dsDatasetList, dsValue2);
+  dynSort(dsDatasetList);
+  dynUnique(dsDatasetList);
+
+  if ( strpos(strtolower(sRcb), \"$br$\") != -1 )
+    for ( int i = dynlen(dsDatasetList); i >= 1; i-- )
+      if ( strpos(dsDatasetList[i], \"@\" ) != -1 )
+        dynRemove(dsDatasetList, i);
+
+  if ( dynContains(dsDatasetList, sTempDataset) < 1 && wrtDataSet )
+  {
+    DATASET_NAME_LIST.deleteAllItems();
+    DATASET_NAME_LIST.items = dsDatasetList;
+    DATASET_NAME_LIST.text = \"\";
+  }
+  else
+  {
+    DATASET_NAME_LIST.items = dsDatasetList;
+    // ETM: writing back correct data set name to selected rcb
+    DATASET_NAME_LIST.text = sTempDataset;
+  }
+
+  // engineering mode
+  ptEngRcbCfg.text = ( bEngRcbCfg ) ? getCatStr(\"iec61850\", \"EngRcbCfgOn\") : getCatStr(\"iec61850\", \"EngRcbCfgOff\");
+  btSave.enabled = bEngRcbCfg;
+
+  dyn_bool dbEngRtpSetTemp = makeDynBool(b1, b2, b3, b4, b5, b6, b7);
+  iec61850_RCBPnl_EngRcbCfg(bEngRcbCfg, dbEngRtpSetTemp);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// IM 116962 - only 1 cb function for rcb config (merged cbs)
+void ConnectRcbConfig(string sDp1,  time tOverflowTS,
+                      string sDp2,  int iCfgRev,
+                      string sDp3,  int iSeqNum,
+                      string sDp4,  string sTimeOfEntry,
+                      string sDp5,  string sEntryID,
+                      string sDp6,  bool bBuff,
+                      //string sDp7,  bool bResvTmsExists,
+
+                      // additional connects for correct view of complete config - especially in redundant systems
+                      string sDp8,  string sRptId,
+                      string sDp9,  string sIntgPd,
+                      string sDp10, string sBufTm,
+                      string sDp11, uint uiResvTms,
+                      string sDp12, string sDsName,
+
+                      string sDp13, bit32 b32OptFlds,
+                      string sDp14, bit32 b32TrgOpts)
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  sSelRcb = sRcbDp;
+
+  if ( dpSubStr(sDp1, DPSUB_DP) != sRcbDp )
+    return;
+
+  setMultiValue(\"txtOverflowVal\", \"text\", (tOverflowTS != (time)0) ? tOverflowTS : \"\",
+                \"txtConfRev\",     \"text\", iCfgRev,
+                \"txtSeqNum\",      \"text\", iSeqNum);
+
+  // tfs 48629
+  if ( bBuff )
+  {
+    string sIed = txtRCBPnlDevName.text;
+    string sIedDp = iec61850_getIedDpName(sIed);
+    bool bEngResvTms;
+    dpGet(sIedDp + IEC61850_DPE_IDP_ENG_RESVTMS, bEngResvTms);
+    setMultiValue(\"txtTimeOfEntry\", \"text\",    sTimeOfEntry,
+                  \"txtEntryID\",     \"text\",    sEntryID,
+                  \"txtResvTms\",     \"enabled\", bEngResvTms && bEngRcbCfg,
+                  \"cbReserve\",      \"enabled\", bEngResvTms && !cbEnable.state(0));
+  }
+
+  // additional connects for correct view of complete config - especially in redundant systems
+  if ( sDsName != \"\" )
+    setValue(\"DATASET_NAME_LIST\", \"text\", sDsName);
+
+  setMultiValue(\"txtReportID\", \"text\", sRptId,
+                \"txtIntgPd\",   \"text\", sIntgPd,
+                \"txtBufferTm\", \"text\", sBufTm,
+                \"txtResvTms\",  \"text\", ( uiResvTms < -1 || uiResvTms > 32767 ) ? IEC61850_DEFAULT_RESVTMS : uiResvTms,
+
+                \"chkTrgOps\", \"state\", 0, getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATACHG),
+                \"chkTrgOps\", \"state\", 1, getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_QLTYCHG),
+                \"chkTrgOps\", \"state\", 2, getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATAUPD),
+                \"chkTrgOps\", \"state\", 3, getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_GI),
+                \"chkTrgOps\", \"state\", 4, getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_INTG),
+
+                \"chkOptFlds\", \"state\", 0, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_SQNUM),
+                \"chkOptFlds\", \"state\", 1, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_RPTMS),
+                \"chkOptFlds\", \"state\", 2, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_REASON),
+                \"chkOptFlds\", \"state\", 3, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATSET),
+                \"chkOptFlds\", \"state\", 4, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATAREF),
+                \"chkOptFlds\", \"state\", 5, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_BUFOVRFL),
+                \"chkOptFlds\", \"state\", 6, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_ENTRYID),
+                \"chkOptFlds\", \"state\", 7, getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_CONVREV));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// callback Function for RCB status
+void ConnectRcbStatus(string sDp1, uint uiRcbState,
+                      string sDp2, uint uiRespCode,
+                      string sDp3, bool bRptEna,
+                      string sDp4, bool bRptRsv)
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  sSelRcb = sRcbDp;
+
+  // Checking whether connect function called for same device DP or not..
+  if ( dpSubStr(sDp1, DPSUB_DP) != sRcbDp )
+    return;
+
+  tfStateH1.text = getCatStr(\"iec61850\", \"RCBState\" + uiRcbState);
+
+  // IM 119633
+  iec61850_ETool_changeRCBPanelState(sIed, sRcb, bRptEna, bRptRsv);
+
+  // ETM: if rcb status is enabled and general interrogation is active in trigger options
+  if ( uiRcbState == IEC61850_RCB_STATE_ACTIVE && chkTrgOps.state(3) )
+    btnGI.enabled = 1;
+  else
+    btnGI.enabled = 0;
+
+  // IM 116962
+  cbEnable.state(0) = bRptEna;
+
+  if ( !(txtResvTms.text() == \"-1\") )
+    cbReserve.state(0) = bRptRsv;
+
+  if ( ( uiRcbState == IEC61850_RCB_STATE_UNAVAILABLE_MAN || uiRcbState == IEC61850_RCB_STATE_DATASET_MISMATCH || uiRcbState == IEC61850_RCB_STATE_ATTRIBUTE_MISMATCH ) &&
+       uiRespCode > 0 &&
+       ( cbEnable.state(0) || cbReserve.state(0) ) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RCBResponseFailed\") + \" \" + getCatStr(\"iec61850_error\", \"RCBRespError\" + uiRespCode));
+
+    bool bAsgnd;
+    int iResvTms;
+    bool bBuff;
+
+    string sTempRcbDp = dpSubStr(sDp1, DPSUB_DP);
+    dpGet(sTempRcbDp + IEC61850_DPE_RCB_ASSIGNED, bAsgnd,
+          sTempRcbDp + IEC61850_DPE_RCB_RESVTMS,  iResvTms,
+          sTempRcbDp + IEC61850_DPE_RCB_BUFFERED, bBuff);
+
+    bool bConfigReserve;
+
+    if ( uiRcbState == IEC61850_RCB_STATE_UNAVAILABLE_MAN )
+      bConfigReserve = false;
+    else
+    {
+      if ( bBuff )
+        bConfigReserve = ( iResvTms > 0 || bAsgnd );
+      else
+        bConfigReserve = true;
+    }
+
+    dpSetWait(sTempRcbDp + IEC61850_DPE_RCB_RPTENA, false,
+              sTempRcbDp + IEC61850_DPE_RCB_RESV  , bConfigReserve);
+
+    setMultiValue(\"cbEnable\",  \"state\", 0, false,
+                  \"cbReserve\", \"state\", 0, bConfigReserve,
+                  \"cbReserve\", \"enabled\",  ( iResvTms > 0 && !cbEnable.state(0) ) );
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getRcbDp()
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  return sRcbDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkRcbEnaState(string sRcbDp)
+{
+  bool bRptEna;
+  uint uiRcbState;
+
+  dpGet(sRcbDp + IEC61850_DPE_RCB_RCBSTATE, uiRcbState,
+        sRcbDp + IEC61850_DPE_RCB_RPTENA  , bRptEna);
+
+  if ( bRptEna && uiRcbState == IEC61850_RCB_STATE_NOT_ACTIVE )
+    return 0;
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void saveRcbCfg()
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  string sDatasetName = DATASET_NAME_LIST.text;
+
+  string sRptId = txtReportID.text, sEntryID, sPrevDataset;
+  dyn_string dsDPList, dsValueList;
+  dyn_mixed dmValueList;
+
+  int iValue, iResvTmsValue, iDefaultResvTms;
+  uint iBufValue, iIntgPdValue;
+  bool bIsBuffered, bEngResvTms;
+  bit32 b32OptFlds, b32TrgOpts;
+
+  iBufValue = txtBufferTm.text;
+  iIntgPdValue = txtIntgPd.text;
+  iResvTmsValue = txtResvTms.text;
+
+  // ETM: default reserve tms
+  if ( dpExists(sRcbDp) )
+    dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DEFAULTRESVTMS, iDefaultResvTms,
+          sIedDp + IEC61850_DPE_IDP_ENG_RESVTMS          , bEngResvTms,
+          sRcbDp + IEC61850_DPE_RCB_BUFFERED             , bIsBuffered);
+
+  // tfs 48629
+  if ( bEngResvTms && bIsBuffered && ( iResvTmsValue < -1 || iResvTmsValue > 32767 ) )
+  {
+    iResvTmsValue   = iDefaultResvTms;
+    txtResvTms.text = iDefaultResvTms;
+  }
+
+  // IM 117361 - check report id
+  int iRepCheck = iec61850_reportIdCheck(sRptId, sIedDp, sRcbDp);
+
+  // Validating RptID value
+  if ( txtReportID.text == \"\" )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"ReportIDBlank\"));
+    return;
+  }
+  else if ( iRepCheck < 0 )
+  {
+    if ( iRepCheck == -1 )
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"ReportIDInvalid\"));
+    else if ( iRepCheck == -2 )
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"ReportIDInUse\"));
+
+    return;
+  }
+
+  // Validating Buffer time value
+  if ( iBufValue < 0 || iBufValue > 3600000 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(\"Buffer Time: \" + getCatStr(\"iec61850\", \"RCBValueEntry\"));
+    return;
+  }
+
+  // Validating Integrity Period value
+  if ( iIntgPdValue < 0 || iIntgPdValue > 4294967295u )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(\"Integrity Period: \" + getCatStr(\"iec61850\", \"RCBValueEntry\"));
+    return;
+  }
+
+  if ( dpExists(sRcbDp) )
+  {
+    // Locking block
+    //------------------------------------------------------------------
+
+    bool bval, LockStatus;
+    bval = iec61850_getDPE_lockState(sRcbDp + IEC61850_DPE_RCB_RPTENA, LockStatus);
+
+    if ( !bval )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                getCatStr(\"para\",\"warning\"),
+                                makeDynString(getCatStr(\"iec61850\",\"DeviceLocked\")));
+
+      iec61850_ETool_changeBrowsePanelState(1);
+      return;
+    }
+
+    if ( !LockStatus )
+    {
+      // lock
+      iec61850_getDPE_Locked(sRcbDp + IEC61850_DPE_RCB_RPTENA);
+    }
+
+    //------------------------------------------------------------------
+
+    dpGet(sRcbDp + IEC61850_DPE_RCB_DATSET , sPrevDataset,
+          sRcbDp + IEC61850_DPE_RCB_ENTRYID, sEntryID);
+
+    if ( sEntryID != txtEntryID.text )
+      bEntryIdModified = 1;
+
+    if ( sPrevDataset != sDatasetName )
+      bDatasetModified = 1;
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_DATSET);
+    dynAppend(dmValueList, sDatasetName);
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_RPTID);
+    dynAppend(dmValueList, sRptId);
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_BUFTIME);
+    dynAppend(dmValueList, iBufValue);
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_INTGPRD);
+    dynAppend(dmValueList, iIntgPdValue);
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_ENTRYID);
+    dynAppend(dmValueList, txtEntryID.text);
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_RESVTMS);
+    dynAppend(dmValueList, iResvTmsValue);
+
+    // optional fields
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_SQNUM,    chkOptFlds.state(0));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_RPTMS,    chkOptFlds.state(1));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_REASON,   chkOptFlds.state(2));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATSET,   chkOptFlds.state(3));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATAREF,  chkOptFlds.state(4));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_BUFOVRFL, chkOptFlds.state(5));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_ENTRYID,  chkOptFlds.state(6));
+    setBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_CONVREV,  chkOptFlds.state(7));
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_OPTFLDS);
+    dynAppend(dmValueList, b32OptFlds);
+
+    // trigger options
+    setBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATACHG, chkTrgOps.state(0));
+    setBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_QLTYCHG, chkTrgOps.state(1));
+    setBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATAUPD, chkTrgOps.state(2));
+    setBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_GI,      chkTrgOps.state(3));
+    setBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_INTG,    chkTrgOps.state(4));
+
+    dynAppend(dsDPList, sRcbDp + IEC61850_DPE_RCB_TRGOPTS);
+    dynAppend(dmValueList, b32TrgOpts);
+
+    dpSetWait(dsDPList, dmValueList);
+
+    wtrTrgOps  = 0;
+    wtrOptFlds = 0;
+    wrtBufTm   = 0;
+    wrtIntgPd  = 0;
+    wrtDataSet = 0;
+    wrtRptID   = 0;
+    wrtResvTms = 0;
+    wrtEntryId = 0;
+
+    // IM 119770
+    clearOptFlds(sRcbDp);
+
+    // Unlocking
+    iec61850_getDPE_UnLocked(sRcbDp + IEC61850_DPE_RCB_RPTENA);
+
+//     if ( txtResvTms.text == \"-1\" )
+//     {
+//       cbReserve.state(0) = 1;
+//       cbReserve.enabled(0);
+//       txtResvTms.enabled(0);
+//     }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void clearOptFlds(string sRcbDp)
+{
+  // IM 119770
+  bool bReasonFI, bDataSet, bDataRef;
+
+  string sEmpty = \"\";
+  dyn_string dsEmpty = makeDynString();
+
+  getMultiValue(\"chkOptFlds\", \"state\", 2, bReasonFI,
+                \"chkOptFlds\", \"state\", 3, bDataSet,
+                \"chkOptFlds\", \"state\", 4, bDataRef);
+
+  if ( !bReasonFI )
+    dpSetWait(sRcbDp + IEC61850_DPE_RCB_INFOREASONFI, sEmpty);
+
+  if ( !bDataSet )
+    dpSetWait(sRcbDp + IEC61850_DPE_RCB_INFODATASET , sEmpty);
+
+  if ( !bDataRef )
+    dpSetWait(sRcbDp + IEC61850_DPE_RCB_INFODATAREF , dsEmpty);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int checkModeState(string sIedDp)
+{
+  uint uiConnState, uiBrowseSource;
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_DEVICE_STATE , uiConnState,
+        sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource);
+
+  if ( uiBrowseSource == 0 )
+  {
+    // abort --> not browsed - rcb mgmt cannot be opened
+    return 1;
+  }
+  else if ( uiBrowseSource == 2 && uiConnState != 1 )
+  {
+    // abort --> msg to user - go online
+    return 2;
+  }
+
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 151
+"btnGI"
+""
+1 659 564 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+151 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Trigger general interrogation
+LANG:10004 18 触发常规审讯
+LANG:10000 32 General Interrogation ausführen
+LANG:10027 40 Запускает общий опрос
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  658 465 776 493
+
+T 
+4
+LANG:10001 2 GI
+LANG:10004 2 GI
+LANG:10000 2 GI
+LANG:10027 2 GI
+"main()
+{
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission() )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\",\"permission\"));
+    return;
+  }
+
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+    dpSet(sRcbDp + IEC61850_DPE_RCB_GI, 1);
+}
+
+
+
+
+
+
+" 0
+ E E E
+22 82
+"RCB_NAME_LIST"
+""
+1 120.1321585903084 17.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 List of available RCBs
+LANG:10004 3 RCB
+LANG:10000 27 Liste der verfügbaren RCBs
+LANG:10027 35 Список доступных RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 50 776 76
+0
+
+E
+"main()
+{
+  string sRcb = RCB_NAME_LIST.text;
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  dyn_string dsDatasetList = DATASET_NAME_LIST.items;
+  dyn_string dsStatDs, dsDynDs;
+
+  // IM 119633
+  if ( sPrevRcb == \"\" )
+    sPrevRcb = txtRCBName.text;
+
+  // If same RCB is selected.. return
+  if ( txtRCBPnlDevName.text == \"\" || sPrevRcb == sRcb )
+    return;
+
+  // Check whether any RCB attribute modified.. If changed ask user whether to discard changes or not..
+  if ( wtrTrgOps || wtrOptFlds || wrtBufTm || wrtIntgPd || wrtDataSet || wrtRptID || wrtResvTms || wrtEntryId )
+  {
+    if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"RCBAttributesChanged\")) )
+    {
+      RCB_NAME_LIST.text = sPrevRcb;
+      RCB_NAME_LIST.toolTipText = RCB_NAME_LIST.text;
+      txtRCBName.text = sPrevRcb;
+      return;
+    }
+
+    // ETM: if user continues without saving the changes must be set back to false
+    wtrTrgOps  = 0;
+    wtrOptFlds = 0;
+    wrtBufTm   = 0;
+    wrtIntgPd  = 0;
+    wrtDataSet = 0;
+    wrtRptID   = 0;
+    wrtResvTms = 0;
+    wrtEntryId = 0;
+  }
+
+  // Update RCB panel with new selected RCB..
+  txtRCBName.text = sRcb;
+  sPrevRcb = sRcb;
+  RCB_NAME_LIST.toolTipText = RCB_NAME_LIST.text;
+
+  if ( strpos(strtolower(sRcb), \"$br$\") != -1 )
+  {
+    delay(0,10);
+    for ( int i = dynlen(dsDatasetList); i >= 1; i-- )
+    {
+      delay(0,10);
+      if ( strpos(dsDatasetList[i], \"@\" ) != -1 )
+      {
+        delay(0,10);
+        dynRemove(dsDatasetList, i);
+      }
+    }
+  }
+  else
+  {
+    dpGet(sIedDp + IEC61850_DPE_IDP_DATASETS            , dsStatDs,
+          sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS , dsDynDs);
+
+    dynAppend(dsDatasetList, dsStatDs);
+    dynAppend(dsDatasetList, dsDynDs);
+    dynSort(dsDatasetList);
+    dynUnique(dsDatasetList);
+  }
+
+  DATASET_NAME_LIST.items = dsDatasetList;
+
+  iec61850_ETool_updateRCBPanel(sIed, sRcb);
+  sPrevRcb = \"\";
+}
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+22 89
+"DATASET_NAME_LIST"
+""
+1 108.8546255506608 105 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 36 Dataset configured with selected RCB
+LANG:10004 9 数据集
+LANG:10000 31 Datensatz des selektierten RCBs
+LANG:10027 92 Набор данных сконфигурированный для выбранного RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 135 776 161
+0
+
+E
+"main()
+{
+  string sRcbDp = getRcbDp();
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+    wrtDataSet = 1;
+  }
+}
+
+
+
+
+
+" 0
+
+E
+ 0 0
+20 91
+"chkOptFlds"
+""
+1 446 -74 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 62 Optional fields to get additional information with the reports
+LANG:10004 12 可选字段
+LANG:10000 70 Optionale Felder um zusätzliche Informationen des Reports zu erhalten
+LANG:10027 102 Опции для получения дополнительной информации в отчете
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  263 213 416 396
+8
+T 
+4
+LANG:10001 15 Sequence number
+LANG:10004 9 序列号
+LANG:10000 15 Sequence Number
+LANG:10027 23 Номер отчета
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 16 Report timestamp
+LANG:10004 15 报表时间戳
+LANG:10000 16 Report TimeStamp
+LANG:10027 33 Метка врем. отчета
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Reason for inclusion
+LANG:10004 15 包含的原因
+LANG:10000 20 Reason for Inclusion
+LANG:10027 33 Причина включения
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 7 Dataset
+LANG:10004 9 数据集
+LANG:10000 7 Dataset
+LANG:10027 23 Набор данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Data reference
+LANG:10004 12 数据参考
+LANG:10000 14 Data Reference
+LANG:10027 25 Ссылка данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 15 Buffer overflow
+LANG:10004 15 缓冲区溢出
+LANG:10000 15 Buffer Overflow
+LANG:10027 32 Переполнение буф.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 Entry ID
+LANG:10004 9 条目号
+LANG:10000 7 EntryID
+LANG:10027 15 ID записи
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 17 Configuration rev
+LANG:10004 6 组态
+LANG:10000 17 Configuration Rev
+LANG:10027 24 Ревизия конф.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if ( txtRCBPnlDevName.text != \"\" )
+    wtrOptFlds = 1;
+}
+
+
+" 0
+30 92
+"frmOptionFields"
+""
+1 420 34 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+92 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E -0.5100000000000001 0 1.187500000000001 663.2 154.5117924528302 0 E 420 34 821 211
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Optional fields
+LANG:10004 12 可选字段
+LANG:10000 16 Optionale Felder
+LANG:10027 10 Опции
+20 93
+"chkTrgOps"
+""
+1 494 4 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Trigger options for getting reports
+LANG:10004 12 触发选项
+LANG:10000 38 Triggeroptionen um Reports zu erhalten
+LANG:10027 68 Опции триггера для получения отчетов
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  43 213 196 356
+5
+T 
+4
+LANG:10001 11 Data change
+LANG:10004 12 数据变化
+LANG:10000 11 Data Change
+LANG:10027 31 Изменение данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Quality change
+LANG:10004 12 质量变化
+LANG:10000 14 Quality Change
+LANG:10027 35 Изменение качества
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 11 Data update
+LANG:10004 12 数据更新
+LANG:10000 11 Data Update
+LANG:10027 34 Обновление данных 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 21 General interrogation
+LANG:10004 15 总召唤数值
+LANG:10000 21 General Interrogation
+LANG:10027 21 Общий опрос
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 16 Integrity period
+LANG:10004 9 完整性
+LANG:10000 16 Integrity Period
+LANG:10027 35 Период сохранности
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if ( txtRCBPnlDevName.text != \"\" )
+    wtrTrgOps = 1;
+}
+
+
+" 0
+30 94
+"frameTrgops"
+""
+1 420 34 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+94 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E -0.51 0 1.187500000000001 443.1999999999999 154.5117924528302 0 E 420 34 821 211
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Trigger options
+LANG:10004 12 触发选项
+LANG:10000 16 Trigger-Optionen
+LANG:10027 27 Опции триггера
+2 103
+"ptBufTmMs"
+""
+1 235 413 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 235 413 260 428
+0 2 2 "0s" 0 0 0 64 0 0  235 413 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 [ms]
+LANG:10004 4 [ms]
+LANG:10000 4 [ms]
+LANG:10027 6 [мс]
+2 104
+"ptIntPerMs"
+""
+1 155 363 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 155 363 180 378
+0 2 2 "0s" 0 0 0 64 0 0  155 363 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 [ms]
+LANG:10004 4 [ms]
+LANG:10000 4 [ms]
+LANG:10027 6 [мс]
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 126
+"ptDataset"
+""
+1 25 140 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+126 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 140 76 155
+0 2 2 "0s" 0 0 0 192 0 0  25 140 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Dataset:
+LANG:10004 9 数据集
+LANG:10000 10 Datensatz:
+LANG:10027 24 Набор данных:
+2 127
+"ptRepId"
+""
+1 25 170 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+127 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 170 85 185
+0 2 2 "0s" 0 0 0 192 0 0  25 170 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Report ID:
+LANG:10004 9 报表ID:
+LANG:10000 10 Report-ID:
+LANG:10027 16 ID отчета:
+2 128
+"ptSeqNum"
+""
+1 380 527 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+128 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 380 527 491 542
+0 2 2 "0s" 0 0 0 192 0 0  380 527 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Sequence number:
+LANG:10004 9 序列号
+LANG:10000 16 Sequence Number:
+LANG:10027 24 Номер отчета:
+2 129
+"ptTimeOfEntry"
+""
+1 485 220 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 485 220 566 235
+0 2 2 "0s" 0 0 0 192 0 0  485 220 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Time of entry:
+LANG:10004 13 进入时间:
+LANG:10000 13 Eingangszeit:
+LANG:10027 24 Время записи:
+2 130
+"ptResTMS"
+""
+1 485 279.8867924528301 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+130 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 485 279.8867924528301 566 295
+0 2 2 "0s" 0 0 0 192 0 0  485 279.8867924528301 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Reserve Tms:
+LANG:10004 10 保留 Tms
+LANG:10000 12 Reserve Tms:
+LANG:10027 23 Резерв врем.:
+2 132
+"ptEntryID"
+""
+1 485 250 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+132 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 485 250 538 265
+0 2 2 "0s" 0 0 0 192 0 0  485 250 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Entry ID:
+LANG:10004 9 条目号
+LANG:10000 12 Eingangs-ID:
+LANG:10027 16 ID записи:
+2 133
+"ptBufTm"
+""
+1 25 415 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+133 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 415 93 430
+0 2 2 "0s" 0 0 0 192 0 0  25 415 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 12 Buffer time:
+LANG:10004 13 缓冲时间:
+LANG:10000 11 Bufferzeit:
+LANG:10027 31 Интервал буф-ции:
+2 135
+"ptCfgRev"
+""
+1 580 527 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+135 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 580 527 708 542
+0 2 2 "0s" 0 0 0 192 0 0  580 527 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 Configuration revision:
+LANG:10004 12 组态版本
+LANG:10000 23 Configuration Revision:
+LANG:10027 37 Ревизия конфигурац.:
+30 136
+"frmBuffered"
+""
+1 883 209 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+136 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9419954395343646 0 1.034653465346535 -366.8966653451586 -21.35578180459567 0 E 883 209 1212 412
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Buffered reports
+LANG:10004 12 缓冲报表
+LANG:10000 18 Gebufferte Reports
+LANG:10027 45 Буферезированные отчеты
+14 138
+"txtTimeOfEntry"
+""
+1 754 214.8867924528301 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+138 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 37 Time of entry of last received report
+LANG:10004 27 最新收到报表的时间
+LANG:10000 44 Eingangszeit des letzten empfangenen Reports
+LANG:10027 63 Время последнего принятого отчета
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  578 213 756 238
+2 "0s" 0 0 0 0 0 -1  E E E
+14 139
+"txtResvTms"
+""
+1 664 321 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+139 0 0 0 0 0
+E "#uses \"iec61850_plugin\"
+
+main()
+{
+  int iNewResvTime = (int)this.text;
+
+  if ( iNewResvTime < 1 || iNewResvTime > 32767 )
+  {
+    ChildPanelOnCentralModal(\"Vision/MessageWarning\",
+                             getCatStr(\"general\", \"warning\"),
+                             makeDynString(\"$1:\" + getCatStr(\"iec61850\", \"WrongResvTmsRange\")),
+                             1, 1);
+
+    this.text = iec61850_getDefaultResvTms();
+  }
+}
+
+" 0
+ E
+0
+4
+LANG:10001 23 Reserve time in seconds
+LANG:10004 9 保留(s)
+LANG:10000 24 Reserve Time in Sekunden
+LANG:10027 47 Резерв времени в секундах
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  578 273 756 298
+2 "0d" 0 0 0 0 0 -1  "main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+
+    wrtResvTms = 1;
+  }
+
+  this.editable = dpExists(sRcbDp);
+}
+
+
+" 0
+ E E
+14 140
+"txtEntryID"
+""
+1 754 245 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+140 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Entry ID of the RCB
+LANG:10004 9 条目号
+LANG:10000 20 Eingangs-ID des RCBs
+LANG:10027 43 Идентификатор записи RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  578 243 756 268
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+
+    wrtEntryId = 1;
+  }
+
+  this.editable = dpExists(sRcbDp);
+}
+
+
+" 0
+ E E
+14 143
+"txtSeqNum"
+""
+1 630 522 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+143 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 39 Sequence number of last received report
+LANG:10004 9 序列号
+LANG:10000 45 Sequenznummer des letzten empfangenen Reports
+LANG:10027 63 Номер последнего принятого отчета
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 522 556 548
+2 "0s" 0 0 0 0 0 -1  E E E
+14 144
+"txtReportID"
+""
+1 517.6651982378854 201.5 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+144 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Unique report ID configured for RCB
+LANG:10004 24 RCB唯一配置的报告
+LANG:10000 29 Eindeutige Report-ID des RCBs
+LANG:10027 71 Уникальный идентификатор отчета для RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 165 776 191
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+
+    wrtRptID = 1;
+  }
+
+  this.editable = dpExists(sRcbDp);
+}
+
+
+" 0
+ E E
+14 145
+"txtConfRev"
+""
+1 878 38 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+145 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Configuration revision number
+LANG:10004 18 组态的版本号
+LANG:10000 33 Nummer der Konfigurationsrevision
+LANG:10027 50 Номер ревизии конфигурации
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  718 522 776 548
+2 "0s" 0 0 0 0 0 -1  E E E
+13 146
+"btnPurgeBuf"
+""
+1 504.0000000000015 490 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+146 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Clear RCB buffer
+LANG:10004 3 RCB
+LANG:10000 17 RCB Buffer leeren
+LANG:10027 31 Очистить буфер RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 465 536 493
+
+T 
+4
+LANG:10001 12 Purge buffer
+LANG:10004 15 清除缓冲区
+LANG:10000 13 Buffer leeren
+LANG:10027 27 Очистить буфер
+"main()
+{
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission() )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\",\"permission\"));
+    return;
+  }
+
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    bool bTempRptEnabledState;
+
+    // Write Purge buffer
+    dpGet(sRcbDp + IEC61850_DPE_RCB_RPTENA, bTempRptEnabledState);
+
+    if ( !bTempRptEnabledState )
+      dpSetWait(sRcbDp + IEC61850_DPE_RCB_PURGEBUFFER, 1);
+  }
+}
+
+" 0
+ E E E
+20 152
+"cbReserve"
+""
+1 461 404 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+152 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Reserve/unreserve RCB
+LANG:10004 20 保留/非保留 RCB
+LANG:10000 25 RCB reservieren/freigeben
+LANG:10027 34 Зарезервировать RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  103 466 206 489
+1
+T 
+4
+LANG:10001 7 Reserve
+LANG:10004 6 保留
+LANG:10000 11 Reservieren
+LANG:10027 17 Резервир.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission() )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\",\"permission\"));
+    return;
+  }
+
+  // IM 118195
+  if ( state )
+    saveRcbCfg();
+
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  int iResvTmsValue;
+  dyn_string dpeNamesList, dpValuesList;
+
+  if ( !dpExists(sRcbDp) || !dpExists(sIedDp) )
+    return;
+
+  if ( !checkRcbEnaState(sRcbDp) )
+    return;
+
+  bool bBuff;
+  dpGet(sRcbDp + IEC61850_DPE_RCB_BUFFERED, bBuff);
+
+  if ( bBuff ) // Save ResvTms settings during offline configuration
+  {
+    wrtResvTms = 0;
+
+    // IM 116962
+    iResvTmsValue = txtResvTms.text;
+
+    dynAppend(dpeNamesList, sRcbDp + IEC61850_DPE_RCB_RESVTMS);
+    dynAppend(dpValuesList, iResvTmsValue);
+  }
+
+  dynAppend(dpeNamesList, sRcbDp + IEC61850_DPE_RCB_RESV);
+  dynAppend(dpValuesList, state);
+
+  dpSet(dpeNamesList, dpValuesList);
+}
+
+
+
+
+
+
+
+
+
+" 0
+20 154
+"cbEnable"
+""
+1 40 43 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+154 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Enable/disable RCB
+LANG:10004 18 Enable/disable RCB
+LANG:10000 27 RCB aktivieren/deaktivieren
+LANG:10027 24 Активирует RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  223 466 326 489
+1
+T 
+4
+LANG:10001 6 Enable
+LANG:10004 6 启用
+LANG:10000 10 Aktivieren
+LANG:10027 24 Активировать
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission() )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\",\"permission\"));
+    return;
+  }
+
+  // IM 118195
+  if ( state )
+    saveRcbCfg();
+
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  string bufTm, IntgPd, EntryId, Dataset, RptID;
+
+  bool rcbEnableState, bIsBuffered, bEngResvTms, bDatChg, bQlyChg, bDatUpd, bIntg, bGI,
+       bSqNum, bRptMs, bReason, bDatset, bDataRef, bBufOvl, bOptEntry, bConvRev, bSeg;
+
+  dyn_string dsDpNamesList, dsDpValuesList;
+  bit32 b32OptFlds, b32TrgOpts;
+
+  // Check for DP exists and write Report Enable configuration..
+  if ( dpExists(sRcbDp) )
+  {
+    dpGet(sRcbDp + IEC61850_DPE_RCB_RPTID           , RptID,
+          sRcbDp + IEC61850_DPE_RCB_DATSET          , Dataset,
+          sRcbDp + IEC61850_DPE_RCB_INTGPRD         , IntgPd,
+          sRcbDp + IEC61850_DPE_RCB_BUFTIME         , bufTm,
+          sRcbDp + IEC61850_DPE_RCB_ENTRYID         , EntryId,
+
+          sRcbDp + IEC61850_DPE_RCB_TRGOPTS         , b32TrgOpts,
+          sRcbDp + IEC61850_DPE_RCB_OPTFLDS         , b32OptFlds,
+
+          // ETM: check if rcb is buffered or unbuffered
+          sRcbDp + IEC61850_DPE_RCB_BUFFERED        , bIsBuffered,
+          sIedDp + IEC61850_DPE_IDP_ENG_RESVTMS     , bEngResvTms);
+
+    // Checking whether any RCB attributes modified or not.. If changed ask user to save configuration and return..
+    if ( cbEnable.state(0)               &&
+         RptID     != txtReportID.text       ||
+         Dataset   != DATASET_NAME_LIST.text ||
+         IntgPd    != txtIntgPd.text         ||
+         bufTm     != txtBufferTm.text       ||
+         wrtEntryId                          ||
+
+         getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATACHG)  != chkTrgOps.state(0)  ||
+         getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_QLTYCHG)  != chkTrgOps.state(1)  ||
+         getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_DATAUPD)  != chkTrgOps.state(2)  ||
+         getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_GI)       != chkTrgOps.state(3)  ||
+         getBit(b32TrgOpts, IEC61850_RCB_BIT_TRGOPTS_INTG)     != chkTrgOps.state(4)  ||
+
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_SQNUM)    != chkOptFlds.state(0) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_RPTMS)    != chkOptFlds.state(1) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_REASON)   != chkOptFlds.state(2) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATSET)   != chkOptFlds.state(3) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_DATAREF)  != chkOptFlds.state(4) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_BUFOVRFL) != chkOptFlds.state(5) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_ENTRYID)  != chkOptFlds.state(6) ||
+         getBit(b32OptFlds, IEC61850_RCB_BIT_OPTFLDS_CONVREV)  != chkOptFlds.state(7) )
+    {
+      cbEnable.state(0) = !state;
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"SaveRCBConfig\"));
+      return;
+    }
+
+    // Checking whether Dataset field is empty or not..
+    if ( cbEnable.state(0) && DATASET_NAME_LIST.text == \"\" )
+    {
+      cbEnable.state(0) = false;
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetFieldEmpty\"));
+      return;
+    }
+
+    rcbEnableState = cbEnable.state(0);
+
+    // Writing Report Enable status into DPE..
+    dynAppend(dsDpNamesList, sRcbDp + IEC61850_DPE_RCB_RPTENA);
+    dynAppend(dsDpValuesList, rcbEnableState);
+
+    if ( bIsBuffered || ( !bIsBuffered && rcbEnableState ) )
+    {
+      // ETM: changes for correct handling of reservce check box
+      // IM 116962 - reserve tms existence
+      dynAppend(dsDpNamesList, sRcbDp + IEC61850_DPE_RCB_RESV);
+      dynAppend(dsDpValuesList, ( !state && bEngResvTms && bIsBuffered ) ? 1 : rcbEnableState);
+    }
+
+    dpSetWait(dsDpNamesList, dsDpValuesList);
+
+
+    // changes for correct handling of reserve check box
+    if ( bIsBuffered )
+    {
+      if ( bEngResvTms )
+        cbReserve.state(0) = true;
+      else
+        cbReserve.state(0) = rcbEnableState;
+    }
+    else
+      cbReserve.state(0) = true;
+
+    if ( txtResvTms.text() == \"-1\" )
+    {
+      cbReserve.state(0) = true;
+      cbReserve.enabled  = false;
+      txtResvTms.enabled = false;
+    }
+  }
+}
+
+
+
+
+
+
+
+" 0
+14 158
+"txtBufferTm"
+""
+1 145 431 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+158 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 46 Buffer time in milliseconds configured for RCB
+LANG:10004 3 RCB
+LANG:10000 36 Bufferzeit des RCBs in Millisekunden
+LANG:10027 74 Время буферизации для RCB в миллисекундах
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 408 231 434
+2 "0d" 0 0 0 0 0 -1  "main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+
+    wrtBufTm = 1;
+  }
+
+  this.editable = dpExists(sRcbDp);
+}
+
+
+
+
+" 0
+ E E
+14 159
+"txtIntgPd"
+""
+1 135 346 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+159 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 51 Integrity period in milliseconds configured for RCB
+LANG:10004 9 诚信期
+LANG:10000 42 Integrity Period des RCBs in Millisekunden
+LANG:10027 65 Период сохранности в миллисекундах
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  63 358 151 384
+2 "0d" 0 0 0 0 0 -1  "main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    if ( !checkRcbEnaState(sRcbDp) )
+      return;
+
+    wrtIntgPd = 1;
+  }
+
+  this.editable = dpExists(sRcbDp);
+}
+
+
+
+
+" 0
+ E E
+14 160
+"tfStateH1"
+""
+1 100 522 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+160 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 RCB state
+LANG:10004 3 RCB
+LANG:10000 15 Status des RCBs
+LANG:10027 22 Состояние RCB
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  103 522 356 548
+2 "0s" 0 0 0 0 0 -1  E E E
+2 161
+"txtStateH1"
+""
+1 25 527 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+161 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 527 91 542
+0 2 2 "0s" 0 0 0 192 0 0  25 527 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 RCB state:
+LANG:10004 3 RCB
+LANG:10000 11 RCB Status:
+LANG:10027 14 Сост. RCB:
+13 163
+"btSave"
+""
+1 888 324 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+163 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Save RCB attributes configuration
+LANG:10004 3 RCB
+LANG:10000 35 RCB Attributkonfiguration speichern
+LANG:10027 66 Сохранить конфигурацию атрибутов RCB
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  658 408 776 436
+
+T 
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 9 Speichern
+LANG:10027 18 Сохранить
+"main()
+{
+//   bool bEngResvTms = 0;
+//   string sIed = txtRCBPnlDevName.text;
+//   string sIedDp = iec61850_getIedDpName(sIed);
+
+  // IM 118195
+  saveRcbCfg();
+
+//   dpGet(sIedDp + IEC61850_DPE_IDP_ENG_RESVTMS, bEngResvTms);
+//
+//   if ( !(txtResvTms.text == \"-1\") && bEngResvTms )
+//     txtResvTms.enabled(1);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+30 165
+"frmState"
+""
+1 135 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+165 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.202491214214315 0 0.9606116068024104 -152.3363139189325 31.41847784641163 0 E 135 493 784 545
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+2 166
+"ptOverFlow"
+""
+1 485.0000000000001 310 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 485.0000000000001 310 539 325
+0 2 2 "0s" 0 0 0 192 0 0  485.0000000000001 310 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Overflow:
+LANG:10004 7 溢出:
+LANG:10000 9 Overflow:
+LANG:10027 25 Переполнение:
+14 167
+"txtOverflowVal"
+""
+1 580.0000000000001 313 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+167 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Displays report timestamp if buffer overflows
+LANG:10004 46 如果缓冲区溢出,则显示报表时间戳
+LANG:10000 50 Anzeige des Reportzeitstempels bei Bufferüberlauf
+LANG:10027 104 Отображает метку времени отчета при переполнении буфера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  578 303 756 328
+2 "0s" 0 1 0 0 0 -1  E E E
+13 168
+"btnResetOverflow"
+""
+1 553.0000000000001 484.8867924528301 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+168 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Reset overflow flag
+LANG:10004 12 重置溢出
+LANG:10000 22 Overflow zurücksetzen
+LANG:10027 50 Сбросить флаг переполнения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  538 465 656 493
+
+T 
+4
+LANG:10001 14 Reset overflow
+LANG:10004 12 重置溢出
+LANG:10000 18 Overflow zurücks.
+LANG:10027 28 Сброс переполн.
+"main()
+{
+  string sRcbDp = getRcbDp();
+
+  if ( dpExists(sRcbDp) )
+  {
+    dpSetWait(sRcbDp + IEC61850_DPE_RCB_OVERFLOWTS, 0);
+    //txtOverflowVal.text = \"\";
+  }
+}
+
+
+" 0
+ E E E
+14 169
+"txtRCBName"
+""
+1 240 558 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  delay(0, 50);
+  connectRcbData(newText);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  58 553 86 581
+2 "0s" 0 0 0 0 0 -1  E E E
+2 170
+"ptRcbFilter"
+""
+1 25 24.75 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+170 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 24.75 60 40
+0 2 2 "0s" 0 0 0 192 0 0  25 24.75 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Filter:
+LANG:10004 7 过滤:
+LANG:10000 7 Filter:
+LANG:10027 13 Фильтр:
+22 171
+"cbRCBFilter"
+""
+1 130 26.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+171 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Select RCB filter
+LANG:10004 3 RCB
+LANG:10000 18 RCB-Filter wählen
+LANG:10027 31 Выбрать фильтр RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 19.25 246 45.25
+3
+4
+LANG:10001 3 All
+LANG:10004 6 所有
+LANG:10000 4 Alle
+LANG:10027 6 Все
+
+0
+4
+LANG:10001 8 Reserved
+LANG:10004 6 保留
+LANG:10000 10 Reserviert
+LANG:10027 30 Зарезервировать
+
+0
+4
+LANG:10001 7 Enabled
+LANG:10004 9 已启用
+LANG:10000 9 Aktiviert
+LANG:10027 18 Разрешено
+
+0
+
+E
+"main()
+{
+  dyn_string dsRcbList, dsNewRcbList, dsDatasetList, dsTempDatasetList;
+  int iState = this.selectedPos();
+
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+  string sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+
+  bool bTempRptEnabledState, bTempRptReservedState;
+
+  if ( !dpExists(sIedDp) )
+    return;
+
+  // Get RCB list from the DPE..
+  //dpGet(sIedDp + IEC61850_DPE_IDP_RCB_NAMES, dsRcbList);
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES, dsRcbList);
+
+  for ( int iLoop = 1; iLoop <= dynlen(dsRcbList); iLoop++ )
+  {
+    string sRcbDp = iec61850_getRcbDpName(sIedDp, dsRcbList[iLoop]);
+
+    if ( !dpExists(sRcbDp) )
+      continue;
+
+    dpGet(sRcbDp + IEC61850_DPE_RCB_RPTENA, bTempRptEnabledState,
+          sRcbDp + IEC61850_DPE_RCB_RESV  , bTempRptReservedState);
+
+    if ( iState == 2 && bTempRptReservedState )      // Checking for Reserved RCBs
+    {
+      dynAppend(dsNewRcbList, dsRcbList[iLoop]);
+      continue;
+    }
+    else if ( iState == 3 && bTempRptEnabledState )  // Checking for Enabled RCBs
+    {
+      dynAppend(dsNewRcbList, dsRcbList[iLoop]);
+      continue;
+    }
+  }
+
+  // If selected option is \"ALL\".. write all RCBs
+  if ( iState == 1 )
+  {
+    dsNewRcbList = dsRcbList;
+
+    if ( dynlen(dsRcbList) > 0 )
+    {
+      dpGet(sIedDp + IEC61850_DPE_IDP_DATASETS, dsTempDatasetList);
+
+      dynAppend(dsDatasetList, dsTempDatasetList);
+      dynSort(dsDatasetList);
+      dynUnique(dsDatasetList);
+
+      DATASET_NAME_LIST.items = dsDatasetList;
+    }
+  }
+
+  // Save new RCBs list to the Cobmobox...
+  RCB_NAME_LIST.items = dsNewRcbList;
+
+  // If RCB selected item is blank.. Clear RCB panel..
+  if ( RCB_NAME_LIST.text == \"\" )
+  {
+    sSelRcb = \"\";
+    sPrevRcb = \"\";
+    //sPrevRcbDp = \"\";
+
+    iec61850_RCBPnl_initialize();
+  }
+  else
+  {
+    // Update RCB panel with new RCB displaying in the RCB combobox
+    iec61850_ETool_updateRCBPanel(txtRCBPnlDevName.text, RCB_NAME_LIST.text);
+  }
+
+  txtRCBName.text = RCB_NAME_LIST.text;
+  sPrevRcb = RCB_NAME_LIST.text;
+  RCB_NAME_LIST.toolTipText = RCB_NAME_LIST.text;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+14 162
+"txtRCBPnlDevName"
+""
+1 -108 383 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+162 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  rcb_DevChangePnlRefresh(newText);  
+}
+
+
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  33 553 61 581
+2 "0s" 0 0 0 0 0 -1  E E E
+30 175
+"frmRcb"
+""
+1 127 445 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+175 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.189680474657697 0 3.19676269291357 -141.0894202815275 -1417.2493299056 0 E 127 445 783 480
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 3 RCB
+LANG:10004 3 RCB
+LANG:10000 3 RCB
+LANG:10027 3 RCB
+30 176
+"frmCfg"
+""
+1 127 445 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+176 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.189626276855331 0 9.549780241308842 -140.8721975983776 -4129.961817405018 0 E 127 445 783 480
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Configuration
+LANG:10004 6 配置
+LANG:10000 13 Konfiguration
+LANG:10027 24 Конфигурации
+30 177
+"frmCmd"
+""
+1 135 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+177 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.202491214214315 0 0.9688434273981026 -152.3363139189325 -27.63980970726458 0 E 135 493 784 545
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+2 182
+"ptRcbName"
+""
+1 25 55 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+182 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 55 65 70
+0 2 2 "0s" 0 0 0 192 0 0  25 55 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 7 名称:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+13 184
+"btnRcbMgmt"
+""
+1 -120 115.875 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+184 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 78.875 246 106.875
+
+T 
+4
+LANG:10001 6 Manage
+LANG:10004 6 管理
+LANG:10000 9 Verwalten
+LANG:10027 20 Управление
+"main()
+{
+  string sIed = txtRCBPnlDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sRcb = RCB_NAME_LIST.text;
+
+  int iCheck = checkModeState(sIedDp);
+
+  if ( iCheck == 1 )
+  {
+    ChildPanelOnCentral(\"vision/MessageInfo1\",
+                        getCatStr(\"general\", \"information\"),
+                        makeDynString(getCatStr(\"iec61850\", \"IedNotBrowsed\")));
+    return;
+  }
+  else if ( iCheck == 2 )
+  {
+    ChildPanelOnCentral(\"vision/MessageInfo1\",
+                        getCatStr(\"general\", \"information\"),
+                        makeDynString(getCatStr(\"iec61850\", \"IedGoOnline\")));
+    return;
+  }
+
+  if ( txtRCBPnlDevName.text != \"\" && dpExists(sIedDp) )
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralModalReturn(IEC61850_RCB_MGMT_PANEL_PATH,
+                                   getCatStr(\"iec61850\", \"RcbMgmtTitle\"),
+                                   makeDynString(\"$Ied:\" + sIedDp),
+                                   df, ds);
+
+    //sPrevRcbDp = \"\";
+    rcb_DevChangePnlRefresh(sIed, sRcb);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+14 185
+"tfStateH2"
+""
+1 -160 555 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+185 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 RCB state
+LANG:10004 3 RCB
+LANG:10000 15 Status des RCBs
+LANG:10027 22 Состояние RCB
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  8 553 36 581
+2 "0s" 0 0 0 0 0 -1  E E E
+2 186
+"txtStateH2"
+""
+1 480 558.5 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+186 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 480 558.5 516 572
+0 2 2 "0s" 0 0 0 192 0 0  480 558.5 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Host 2:
+LANG:10004 8 主机2:
+LANG:10000 7 Host 2:
+LANG:10027 11 Хост 2:
+2 187
+"ptEngRcbCfg"
+""
+1 605 85.125 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+187 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 605 85.125 768 100
+0 2 2 "0s" 0 0 0 192 0 0  605 85.125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 24 Engineering mode: ON/OFF
+LANG:10004 19 工程模式:ON/OFF
+LANG:10000 26 Engineering Modus: EIN/AUS
+LANG:10027 50 Режим разработки: ВКЛ./ВЫКЛ.
+13 189
+"btnGetDevData"
+""
+1 308 110 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+189 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Revert to device configuration
+LANG:10004 18 恢复设备配置
+LANG:10000 38 Auf Gerätekonfiguration zurücksetzen
+LANG:10027 63 Вернуть к конфигурации устройства
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  538 408 656 436
+
+T 
+4
+LANG:10001 7 Restore
+LANG:10004 6 恢复
+LANG:10000 13 Zurücksetzen
+LANG:10027 24 Восстановить
+"main()
+{
+  if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"RcbDevConfig\")) )
+    return;
+
+  string sRcbDp = getRcbDp();
+  string sBrowseRptId;
+  time tBrowseRptIdTime;
+
+  dpGet(sRcbDp + IEC61850_DPE_RCB_BROWSE_RPTID, sBrowseRptId,
+        sRcbDp + IEC61850_DPE_RCB_BROWSE_RPTID + IEC61850_DPE_ONLINE_STIME, tBrowseRptIdTime);
+
+  if ( sBrowseRptId != \"\" || (float)tBrowseRptIdTime != 0 )
+  {
+    dpSet(sRcbDp + IEC61850_DPE_RCB_RPTID, \"\");
+    iec61850_ETool_updateRCBPanel(txtRCBPnlDevName.text, RCB_NAME_LIST.text);
+  }
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+1 0 "sgRcbCfg" -1
+27 0 
+92 94 103 104 126 127 129 130 132 133 136 138 140 163 166 167 169 162 189 176 89 144 93 91 159 158 139 
+
+"layoutAlignment" "AlignNone"
+"" ""
+0

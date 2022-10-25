@@ -1,0 +1,1029 @@
+V 14
+4
+LANG:10001 17 S7+ subscriptions
+LANG:10004 10 S7+ 订阅
+LANG:10000 17 S7+ Subscriptions
+LANG:10027 17 S7+ subscriptions
+PANEL,-1 -1 565 345 N "_3DFace" 1
+"$SYSTEM"
+"main()
+{
+  if ( isDollarDefined(\"$SYSTEM\") && $SYSTEM != \"\" )
+    usedSystem = $SYSTEM;
+  else
+    usedSystem = getSystemName();
+
+  if ( isDollarDefined(\"$fromPara\") )
+    fromPara = TRUE;
+  else
+    fromPara = FALSE;
+
+  initSubscr();
+
+  string sDptPollGroup = S7PLUS_CYCL + \"PollGroup\";
+
+  dpQueryConnectAll(\"reloadPollGroup\",
+                    TRUE,
+                    \"userData\",
+                    \"SELECT '.SyncMode:_online.._value','.PollInterval:_online.._value' FROM '*' WHERE _DPT = \\\"\" + sDptPollGroup + \"\\\"\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void reloadPollGroup(anytype at_userData, dyn_dyn_anytype dda_qres)
+{
+  // removing the header information from the query result
+  dynRemove(dda_qres, 1);
+
+  // check if the result contains poll group information
+  if (dynlen(dda_qres) < 1)
+    return;
+
+  for (int i = dynlen(dda_qres); i >= 1; i--)
+  {
+    if (dynlen(dda_qres[i]) == 3)
+    {
+      dynRemove(dda_qres[i], 3);
+      dynRemove(dda_qres[i], 2);
+    }
+  }
+
+  dsPG = dda_qres;
+
+  for (int i = dynlen(dsPG); i > 0; i-- )
+  {
+    dyn_string ds = strsplit(dsPG[i], \"_\");
+
+    if ((dynlen(ds) >= 2) && (ds[dynlen(ds)] == \"2\"))
+    {
+      dynRemove(dsPG, i);
+      continue;
+    }
+
+    dsPG[i] = dpSubStr(dsPG[i], DPSUB_DP);
+
+    if (strpos(dsPG[i], S7PLUS_CYCL, 0) != -1)
+      dsPG[i] = strltrim(dsPG[i], S7PLUS_CYCL);
+  }
+
+  if ( dpExists(S7PLUS_DPT_CFG) )
+  {
+    dpGet(S7PLUS_DPT_CFG + sSUB + \"Names\"     , dsSubNames,
+          S7PLUS_DPT_CFG + sSUB + \"Pollgroups\", dsSubPgs,
+          S7PLUS_DPT_CFG + sSUB + \"Options\"   , dsSubOpts);
+
+    for ( int i = 1; i <= dynlen(dsSubNames); i++ )
+      if ( dpExists(dsSubNames[i]) )
+        dpGet(dsSubNames[i] + \".Active\"      , dbPgActive[i],
+              dsSubNames[i] + \".PollInterval\", duiPgInterval[i]);
+
+    dyn_bool dbSubOpts;
+    for ( int i = 1; i <= dynlen(dsSubOpts); i++ )
+      dbSubOpts[i] = (bool)dsSubOpts[i];
+
+    for ( int i = 1; i <= dynlen(dsSubNames); i++ )
+      dsSubNames[i] = substr(dsSubNames[i], strlen(S7PLUS_CYCL));
+
+    tabSubs.deleteAllLines();
+    tabSubs.appendLines(dynlen(dsSubNames), \"#1\", dsSubNames,
+                                            \"#2\", duiPgInterval,
+                                            \"#3\", dbPgActive,
+                                            \"#4\", dbSubOpts);
+
+    for ( int i = 1; i <= dynlen(dsSubNames); i++ )
+      dsSubNames[i] = S7PLUS_CYCL + dsSubNames[i];
+  }
+
+  // save on init
+  dsInitSubs     = getCurrentSubs();
+  dsInitSubNames = getCurrentSubNames();
+
+  for ( int i = dynlen(dsInitSubNames); i >= 1; i-- )
+    if ( dynContains(dsPG, dsInitSubNames[i]) )
+      dynRemove(dsPG, dynContains(dsPG, dsInitSubNames[i]));
+
+  dynSort(dsPG);
+
+  cmbPollGroup.items = dsPG;
+  cmdAdd.enabled = dynlen(dsPG);
+
+  // delay(0, 500);
+}
+" 0
+ E E E E 1 -1 -1 0  450 80
+""0  1
+E "
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string sSUB = \".Subscriptions.\";
+
+string usedSystem;
+bool fromPara;
+
+dyn_string dsPG, dsSubNames, dsSubPgs, dsSubOpts;
+dyn_bool dbPgActive;
+dyn_uint duiPgInterval;
+
+dyn_string dsInitSubs, dsInitSubNames;
+
+bool bOptsChanged;
+bool bSubRemoved;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// init current subscriptions and configuration
+void initSubscr()
+{
+  tabSubs.sortOnClick(FALSE);
+  tabSubs.tableMode(TABLE_SELECT_MULTIPLE);
+  tabSubs.selectByClick(TABLE_SELECT_LINE);
+  tabSubs.enableColumnResize(FALSE);
+  tabSubs.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  tabSubs.columnEditable(1, TRUE);
+  tabSubs.columnEditable(2, TRUE);
+  tabSubs.columnEditable(3, TRUE);
+
+  bOptsChanged = FALSE;
+  bSubRemoved = FALSE;
+
+  cmdAdd.enabled = dynlen(cmbPollGroup.items);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// save subscriptions and configuration
+void saveSubscr()
+{
+  //dyn_string dsSel = getCurrentSubs();
+  dyn_string dsSelNames = getCurrentSubNames();
+  dyn_uint duiSelInterval = getCurrentPgInterval();
+  dyn_bool dbSelActive = getCurrentPgActive();
+  dyn_bool dbSelOpts = getCurrentSubOC();
+
+  bool bAdded = FALSE;
+  bool bChanged = FALSE;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  // add / change
+  for ( int i = 1; i <= dynlen(dsSelNames); i++ )
+  {
+    string sTempSelName = dsSelNames[i];
+    uint uiTempSelInterval = duiSelInterval[i];
+    bool bTempSelActive = dbSelActive[i];
+    bool bTempSelOpt = dbSelOpts[i];
+
+    if ( !dynContains(dsInitSubNames, dsSelNames[i]) )
+    {
+      dynAppend(dsSubNames,    S7PLUS_CYCL + sTempSelName);
+      dynAppend(duiPgInterval, uiTempSelInterval);
+      dynAppend(dbPgActive,    bTempSelActive);
+      dynAppend(dsSubOpts,     (int)bTempSelOpt);
+      bAdded = TRUE;
+    }
+    else if ( bOptsChanged && dpExists(S7PLUS_CYCL + dsInitSubNames[i]) )
+    {
+      dsSubNames[i]    = S7PLUS_CYCL + sTempSelName;
+      duiPgInterval[i] = uiTempSelInterval;
+      dbPgActive[i]    = bTempSelActive;
+      dsSubOpts[i]     = (int)bTempSelOpt;
+      bChanged = TRUE;
+    }
+  }
+
+  // remove
+  if ( bSubRemoved && dsSelNames != dsInitSubNames )
+  {
+    dynClear(dsSubNames);
+    dynClear(duiPgInterval);
+    dynClear(dbPgActive);
+    dynClear(dsSubOpts);
+
+    for ( int i = 1; i <= dynlen(dsSelNames); i++ )
+    {
+      dsSubNames[i]    = S7PLUS_CYCL + dsSelNames[i];
+      duiPgInterval[i] = duiSelInterval[i];
+      dbPgActive[i]    = dbSelActive[i];
+      dsSubOpts[i]     = (int)dbSelOpts[i];
+    }
+  }
+
+  dsSubPgs = dsSubNames;
+
+  if ( dpExists(S7PLUS_DPT_CFG) )
+  {
+    dpSetWait(S7PLUS_DPT_CFG + sSUB + \"Names\"     , dsSubNames,
+              S7PLUS_DPT_CFG + sSUB + \"Pollgroups\", dsSubPgs,
+              S7PLUS_DPT_CFG + sSUB + \"Options\"   , dsSubOpts);
+
+    if ( bAdded || bChanged )
+    {
+      for ( int i = 1; i <= dynlen(dsSubNames); i++ )
+      {
+        if ( !dpExists(dsSubNames[i]) )
+          dpCreate(dsSubNames[i], S7PLUS_CYCL + \"PollGroup\");
+
+        dpSetWait(dsSubNames[i] + \".Active\"      , dbPgActive[i],
+                  dsSubNames[i] + \".PollInterval\", duiPgInterval[i]);
+      }
+    }
+  }
+
+  cmdRemove.enabled = FALSE;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// on close or cancel - check if subscriptions were changed and not saved yet
+void checkSubscr()
+{
+  dyn_string dsCurrentSubs = getCurrentSubs();
+
+  if ( dsCurrentSubs != dsInitSubs )
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"s7plus\", \"s7plusSaveSubscr\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( dynlen(ds) > 0 && ds[1] == \"true\" )
+      saveSubscr();
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// return the current list of subscriptions
+dyn_string getCurrentSubs()
+{
+  int iSub = tabSubs.lineCount();
+  dyn_string dsReturn;
+
+  for ( int i = 1; i <= iSub; i++ )
+    getValue(\"tabSubs\", \"getLineN\", i-1, dsReturn[i]);
+
+  return dsReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// return the current list of subscription names
+dyn_string getCurrentSubNames()
+{
+  int iSub = tabSubs.lineCount();
+  dyn_string dsReturnNames;
+
+  for ( int i = 1; i <= iSub; i++ )
+  {
+    getValue(\"tabSubs\", \"getLineN\", i-1, dsReturnNames[i]);
+
+    dyn_string ds = strsplit(dsReturnNames[i], \"|\");
+
+    if ( dynlen(ds) )
+      dsReturnNames[i] = ds[1];
+
+    dsReturnNames[i] = strltrim(strrtrim(dsReturnNames[i], \" \"));
+  }
+
+  return dsReturnNames;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// return the current list of pollgroup interval (in ms)
+dyn_uint getCurrentPgInterval()
+{
+  int iSub = tabSubs.lineCount();
+  dyn_string dsReturnInterval;
+  dyn_uint duiReturnInterval;
+
+  for ( int i = 1; i <= iSub; i++ )
+  {
+    getValue(\"tabSubs\", \"getLineN\", i-1, dsReturnInterval[i]);
+    dyn_string ds = strsplit(dsReturnInterval[i], \"|\");
+
+    if ( dynlen(ds) > 1 )
+      dsReturnInterval[i] = ds[2];
+
+    dsReturnInterval[i] = strltrim(strrtrim(dsReturnInterval[i], \" \"));
+  }
+
+  for ( int i = 1; i <= dynlen(dsReturnInterval); i++ )
+    duiReturnInterval[i] = (uint)dsReturnInterval[i];
+
+  return duiReturnInterval;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// return the current list of pollgroup \"active\" state
+dyn_bool getCurrentPgActive()
+{
+  int iSub = tabSubs.lineCount();
+  dyn_string dsReturnActive;
+  dyn_bool dbReturnActive;
+
+  for ( int i = 1; i <= iSub; i++ )
+  {
+    getValue(\"tabSubs\", \"getLineN\", i-1, dsReturnActive[i]);
+    dyn_string ds = strsplit(dsReturnActive[i], \"|\");
+
+    if ( dynlen(ds) > 2 )
+      dsReturnActive[i] = ds[3];
+
+    dsReturnActive[i] = strltrim(strrtrim(dsReturnActive[i], \" \"));
+  }
+
+  for ( int i = 1; i <= dynlen(dsReturnActive); i++ )
+    dbReturnActive[i] = (bool)dsReturnActive[i];
+
+  return dbReturnActive;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// return the current list of subscription \"only changes\" state
+dyn_bool getCurrentSubOC()
+{
+  int iSub = tabSubs.lineCount();
+  dyn_string dsReturnOC;
+  dyn_bool dbReturnOC;
+
+  for ( int i = 1; i <= iSub; i++ )
+  {
+    getValue(\"tabSubs\", \"getLineN\", i-1, dsReturnOC[i]);
+    dyn_string ds = strsplit(dsReturnOC[i], \"|\");
+
+    if ( dynlen(ds) > 3 )
+      dsReturnOC[i] = ds[4];
+
+    dsReturnOC[i] = strltrim(strrtrim(dsReturnOC[i], \" \"));
+  }
+
+  for ( int i = 1; i <= dynlen(dsReturnOC); i++ )
+    dbReturnOC[i] = (bool)dsReturnOC[i];
+
+  return dbReturnOC;
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  checkSubscr();
+  PanelOff();
+}
+
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 220
+"cmdApply"
+""
+1 355.0000000000001 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+211 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  378 308 466 336
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  saveSubscr();
+  initSubscr();
+}
+" 0
+ E E E
+25 193
+"tabSubs"
+""
+1 -121.8200193490429 52.25446428571429 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+193 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 68 542 271
+E"main(int row, string column, string value)
+{
+  if ( column == \"#2\" || column == \"#3\" || column == \"#4\" )
+    bOptsChanged = TRUE;
+  
+  dyn_int diTabSubsSelected = this.getSelectedLines();  
+  cmdRemove.enabled = ( dynlen(diTabSubsSelected) );
+}
+
+
+
+
+
+
+" 0
+ 1 0 1 4 1 "#1" 17 1 0 "[0s,,,AlignLeft]" 4
+LANG:10001 13 Subscriptions
+LANG:10004 6 订阅
+LANG:10000 13 Subscriptions
+LANG:10027 16 Подписка
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+195 "#2" 8 1 0 "[0d,False,False,AlignLeft,False]" 4
+LANG:10001 13 Interval [ms]
+LANG:10004 10 周期[ms]
+LANG:10000 14 Intervall [ms]
+LANG:10027 23 Интервал [мс]
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "#3" 8 1 0 "s" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активна
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "#4" 8 1 0 "s" 4
+LANG:10001 12 Only Changes
+LANG:10004 12 封边则报
+LANG:10000 15 Nur Änderungen
+LANG:10027 31 Только изменения
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+103 
+16 16 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 0 7
+1 0
+30 187
+"frmPgMgmt"
+""
+1 127 445 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+187 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.8305343511450382 0 8.058823529411749 -95.47786259541996 -3576.176470588227 0 E 127 445 783 480
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 S7+ subscriptions
+LANG:10004 10 S7+ 订阅
+LANG:10000 17 S7+ Subscriptions
+LANG:10027 20 Подписки S7+
+13 194
+"cmdOk"
+""
+1 265.0000000000001 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+195 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  288 308 376 336
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  saveSubscr();
+
+  if ( fromPara )
+    PanelOffReturn(makeDynFloat(1), getCurrentSubNames());
+  else
+    PanelOff();
+}
+
+" 0
+ E E E
+13 195
+"cmdCancel"
+""
+1 445.0000000000001 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+196 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  468 308 556 336
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  checkSubscr();
+
+  if ( fromPara )
+    PanelOffReturn(makeDynFloat(), makeDynString());
+  else
+    PanelOff();
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 196
+"cmdHelp"
+""
+1 -15.49999999999989 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+197 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 16 Open online help
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 308 96 336
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7plus_subscriptions\");
+}
+
+
+
+" 0
+ E E E
+1 254 0 "" 0
+0
+22 245
+"cmbPollGroup"
+""
+1 115.0625 314.25 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+226 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select a poll group
+LANG:10004 15 选择轮询组
+LANG:10000 21 Pollgruppe auswählen
+LANG:10027 36 Выбор группы опроса
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 34 266 60
+0
+
+E
+"main()
+{
+  cmdAdd.enabled = dynlen(cmbPollGroup.items);
+}
+
+
+
+" 0
+
+E
+ 0 0
+13 248
+"cmdPollGroup"
+""
+1 74.50000000000011 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+227 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 18 Pollgruppe öffnen
+LANG:10001 16 Open poll groups
+LANG:10027 16 Open poll groups
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  98 308 186 336
+
+T 
+4
+LANG:10001 11 Poll groups
+LANG:10004 9 轮询组
+LANG:10000 11 Pollgruppen
+LANG:10027 19 Грп.опроса
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/poll_groups.pnl\",
+                                 \"Poll groups\",
+                                 makeDynString(),
+                                 df, ds);
+
+  for ( int i = dynlen(cmbPollGroup.items); i >= 1; i-- )
+    if ( !dynContains(dpNames(\"*\", S7PLUS_CYCL + \"PollGroup\"), getSystemName() + S7PLUS_CYCL + cmbPollGroup.items[i] ) )
+      cmbPollGroup.deletePos(i);
+}
+
+
+
+
+" 0
+ E E E
+13 251
+"cmdAdd"
+""
+1 280 45 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+228 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 39 Add existing poll group as subscription
+LANG:10004 33 将现有轮询组添加为订阅
+LANG:10000 50 Vorhandene Pollgruppe als Subscription hinzufügen
+LANG:10027 104 Добавить существующую группу опроса в качестве подписки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  273 33 361 61
+
+T 
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 16 Добавить
+"main()
+{
+  string sNewSubscr = cmbPollGroup.text;
+
+  cmbPollGroup.deletePos(dynContains(cmbPollGroup.items, sNewSubscr));
+
+  int iInterval;
+  bool bActive;
+
+  dpGet(S7PLUS_CYCL + sNewSubscr + \".PollInterval\", iInterval,
+        S7PLUS_CYCL + sNewSubscr + \".Active\"      , bActive);
+
+  tabSubs.appendLine(\"#1\", sNewSubscr,
+                     \"#2\", iInterval,
+                     \"#3\", bActive,
+                     \"#4\", TRUE);
+
+  this.enabled = dynlen(cmbPollGroup.items);
+}
+
+" 0
+ E E E
+13 252
+"cmdRemove"
+""
+1 455 40 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+229 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove subscription
+LANG:10004 12 删除订阅
+LANG:10000 22 Subscription entfernen
+LANG:10027 31 Удалить подписку
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  453 33 541 61
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  dyn_int diTabSubsSelected = tabSubs.getSelectedLines();
+  
+  if ( dynlen(diTabSubsSelected) )
+  {
+    dyn_float df;
+    dyn_string ds;
+    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"s7plus\", \"s7plusRemoveSubscr\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+    
+    if ( dynlen(df) < 1 || df[1] == 0 )
+      return;
+    
+    for ( int i = dynlen(diTabSubsSelected); i >= 1; i-- )
+    {      
+      dyn_string dsSelected = tabSubs.getLineN(diTabSubsSelected[i]);
+      
+      if ( dynlen(dsSelected) )
+      {
+        cmbPollGroup.appendItem(dsSelected[1]);
+        cmdAdd.enabled = dynlen(cmbPollGroup.items);
+        dyn_string dsItems = cmbPollGroup.items;
+        dynSort(dsItems);
+        cmbPollGroup.items = dsItems; 
+      }
+      
+      tabSubs.deleteLineN(diTabSubsSelected[i]);
+    }
+  }
+
+  bSubRemoved = TRUE;
+}
+
+
+
+
+
+" 0
+ E E E
+13 253
+"cmdCreate"
+""
+1 370 45 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+230 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 Create a new poll group and add as subscription
+LANG:10004 33 创建轮询组并添加到订阅
+LANG:10000 58 Neue Pollgruppe erstellen und als Subscription hinzufügen
+LANG:10027 108 Создать новую группу опроса и добавить в качестве подписки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  363 33 451 61
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  string sNewSubscr;
+
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\",
+                                 getCatStr(\"da\", \"createdp\"),
+                                 makeDynString(getCatStr(\"s7plus\", \"s7plusSubscrInput\"),
+                                               \"\",//cmbPollGroup.text,
+                                               \"$NOBLAKSALLOWED:1\"),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 || dynlen(ds) < 1)
+    return;
+
+  sNewSubscr = ds[1];
+
+  if ( strpos(sNewSubscr,\" \") != -1 || strpos(sNewSubscr,\"__\") != -1 || patternMatch(\"*_1\",sNewSubscr) || patternMatch(\"*_2\",sNewSubscr) || patternMatch(\"*_\",sNewSubscr) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscrInvalid\")));
+    return;
+  }
+  else if ( (sNewSubscr == \"\") || (sNewSubscr == S7PLUS_CYCL) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscrEmpty\")));
+    return;
+  }
+  else if ( dpExists(usedSystem + S7PLUS_CYCL + sNewSubscr) || dpExists(S7PLUS_CYCL + sNewSubscr) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscrExists\")));
+    return;
+  }
+
+  tabSubs.appendLine(\"#1\", sNewSubscr,
+                     \"#2\", 1000,
+                     \"#3\", FALSE,
+                     \"#4\", TRUE);
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 1 315 T 194 1.251922025869922 0 1 -1.75192202586981 -15
+0
+0

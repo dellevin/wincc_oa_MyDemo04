@@ -1,0 +1,650 @@
+V 14
+4
+LANG:10001 18 OPCUA server items
+LANG:10004 20 OPCUA服务器项目
+LANG:10000 18 OPCUA Server Items
+LANG:10027 37 Элементы OPCUA сервера
+PANEL,-1 -1 632 519 N "_3DFace" 5
+"$ALARM_TYPES"
+"$EVENT_SOURCE"
+"$METHOD"
+"$SERVER"
+"$VARIANT"
+"main()
+{
+  txtServer.text = $SERVER;
+
+  txtItems.visible = !$ALARM_TYPES;
+  txtAlarmTypes.visible = $ALARM_TYPES;
+  
+  g_opcuadrvdp = \"_\" + $SERVER;
+  g_requestId = myUiNumber() + \"_\" + myModuleName() + \"_\" + myPanelName();
+  rdbReturnVariant.number = $VARIANT;
+
+  dpGet(g_opcuadrvdp + \".Config.Separator:_original.._value\", g_separator);
+
+  g_parentId = \"\";
+
+  if ( $ALARM_TYPES )
+  {
+    int x, y, delta, oldY, dummy;
+    getValue(\"trItems\", \"position\", x, oldY);
+    getValue(\"browseOptionFrame\", \"position\", dummy, y);
+    setValue(\"trItems\", \"position\", x, y);
+    delta = oldY - y;
+    getValue(\"trItems\", \"size\", x, y);
+    setValue(\"trItems\", \"size\", x, y + delta);
+
+    trItems.addColumn(\"Alarm type\");
+    trItems.addColumn(\"Node ID\");  // shows Node Id only on Leafs
+
+    rdbReturnVariant.visible = false;
+    browseOptionFrame.visible = false;
+
+    dpConnect(\"buildAlarmTypeTree\", false, g_opcuadrvdp + \".Browse.DisplayNames\",
+                                           g_opcuadrvdp + \".Browse.BrowsePaths\",
+                                           g_opcuadrvdp + \".Browse.NodeIds\",
+                                           g_opcuadrvdp + \".Browse.DataTypes\",
+                                           g_opcuadrvdp + \".Browse.RequestId\");
+
+    dpSet(g_opcuadrvdp + \".Browse.GetAlarmTypes:_original.._value\", makeDynString(g_requestId));
+  }
+  else
+  {
+    trItems.addColumn(\"Display Name\");
+    trItems.addColumn(\"Browse Path\");
+    trItems.addColumn(\"Node ID\");  // shows Node Id only on Leafs
+    trItems.addColumn(\"nodeIdInternal\"); // stores Node IDs for branches
+    trItems.addColumn(\"Data Type\"); // stores data types
+
+    if ( !((int)$VARIANT) ) // Node Id is selected, for alarm types only browse path
+    {
+      // set Browse Path invisible
+      trItems.setColumnWidthMode(1, TREE_WIDTH_MANUAL);
+      trItems.setColumnWidth(1, 0);
+    }
+    else
+    {
+      // set Node Id invisible
+      trItems.setColumnWidthMode(2, TREE_WIDTH_MANUAL);
+      trItems.setColumnWidth(2, 0);
+    }
+
+    trItems.setColumnWidthMode(3, TREE_WIDTH_MANUAL);
+    trItems.setColumnWidth(3, 0);
+
+    trItems.setColumnWidthMode(4, TREE_WIDTH_MAXIMUM);
+
+    dpConnect(\"refreshTree\", false, g_opcuadrvdp + \".Browse.DisplayNames\",
+                                    g_opcuadrvdp + \".Browse.BrowsePaths\",
+                                    g_opcuadrvdp + \".Browse.NodeIds\",
+                                    g_opcuadrvdp + \".Browse.DataTypes\",
+                                    g_opcuadrvdp + \".Browse.ValueRanks\",
+                                    g_opcuadrvdp + \".Browse.NodeClasses\",
+                                    g_opcuadrvdp + \".Browse.RequestId\");
+
+    dpSet(g_opcuadrvdp + \".Browse.GetBranch:_original.._value\", makeDynString(g_requestId, \"ns=0;i=85\", 1, $EVENT_SOURCE));
+    trItems.enabled(false);
+    trItems.updatesEnabled(false);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void buildAlarmTypeTree(string dp1, dyn_string displayNames,
+                        string dp2, dyn_string browsePaths,
+                        string dp3, dyn_string nodeIds,
+                        string dp4, dyn_string dataTypes,
+                        string dp5, dyn_string requestId)
+{
+  if ( requestId != g_requestId )
+    return;
+
+  trItems.enabled(false);
+  trItems.updatesEnabled(false);
+
+  dyn_string parts;
+  string id;
+
+  for (int i = 1; i <= dynlen(displayNames); i++)
+  {
+    if ( !strlen(displayNames[i]) ) // browsing has no result for queried node
+      continue;
+
+    id = displayNames[i];
+    parts = strsplit(id, g_separator);
+    trItems.appendItemNC(substr(id, 0, strlen(id) - strlen(parts[dynlen(parts)]) - 1), id, parts[dynlen(parts)]);
+
+    trItems.setText(id, 1, nodeIds[i]);
+  }
+
+  trItems.enabled(true);
+  trItems.updatesEnabled(true);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void refreshTree(string dp1, dyn_string displayNames,
+                 string dp2, dyn_string browsePaths,
+                 string dp3, dyn_string nodeIds,
+                 string dp4, dyn_string dataTypes,
+                 string dp5, dyn_string valueRanks,
+                 string dp5, dyn_string nodeClasses,
+                 string dp6, dyn_string requestId)
+{
+
+  shape ltree = getShape(\"trItems\");
+  string id;
+
+  if ( requestId != g_requestId )
+  {
+    ltree.enabled(true);
+    ltree.updatesEnabled(true);
+    return;
+  }
+  dyn_string ids, row;
+  dyn_dyn_string cols;
+  string dt;
+
+  for (int i = 1; i <= dynlen(displayNames); i++)
+  {
+    if ( !strlen(displayNames[i]) ) // browsing has no result for queried node
+      continue;
+
+    dynAppend(ids, g_parentId + \".\" + displayNames[i]);
+
+    dt = dataTypes[i];
+    if (strpos(dt, \"Undefined \") == 0)
+      strreplace(dt, \"DataType - \", \"\");
+
+    if (valueRanks[i] == \"Array\")
+      dt = dt + \"[]\";
+
+    if ( ( $METHOD == \"FALSE\" && strlen(dataTypes[i]) ) || ( $METHOD == \"TRUE\" && nodeClasses[i] == \"OpcUa_NodeClass_Method\" ) )
+    {
+      dynAppend(row, displayNames[i]);
+      dynAppend(row, browsePaths[i]);
+      dynAppend(row, nodeIds[i]);
+      dynAppend(row, \"\");
+      dynAppend(row, dt);
+    }
+    else
+    {
+      dynAppend(row, displayNames[i]);
+      dynAppend(row, \"\");
+      dynAppend(row, \"\");
+      dynAppend(row, nodeIds[i]);
+      dynAppend(row, dt);
+    }
+
+    dynAppend(cols, row);
+    dynClear(row);
+  }
+
+  ltree.appendItems(g_parentId, ids, cols);
+  ltree.setExpandable(ids, true);
+  ltree.enabled(true);
+  ltree.updatesEnabled(true);
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "string g_opcuadrvdp;
+string g_separator;
+string g_parentId;
+string g_requestId;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void closeAndReturn()
+{
+  string ret;
+  string id;
+
+  dyn_string childs;
+
+  id = trItems.currentItem;
+
+  if ( strlen(id))
+  {
+    if ( $ALARM_TYPES )
+      ret = trItems.getText(id, 1);
+    else if ($METHOD)
+      ret = trItems.getText(id, (rdbReturnVariant.number == 0) ? 2 : 1) + \"$\" + trItems.getText(trItems.parent(id), 3);
+    else
+      ret = trItems.getText(id, (rdbReturnVariant.number == 0) ? 2 : 1);
+
+    PanelOffReturn(makeDynFloat(), makeDynString(ret, rdbReturnVariant.number));
+  }
+  else
+  {
+    //ChildPanelOnCentralModal(\"vision/MessageWarning\",
+    //                         getCatStr(\"para\", \"warning\"),
+    //                         makeDynString(getCatStr(\"para\", \"pleaseSelectALeaf\")));
+  }
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 19
+"txtAlarmTypes"
+""
+1 10 12 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 12 12 228 32
+0 2 0 "0s" 0 0 0 192 0 0  12 12 1
+4
+LANG:10001 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,18,5,50,0,0,0,0,0
+0 4
+LANG:10001 24 OPCUA server alarm types
+LANG:10004 26 OPCUA服务器报警类型
+LANG:10000 23 OPCUA Server Alarmtypen
+LANG:10027 44 Типы алармов OPCUA сервера
+30 0
+"browseOptionFrame"
+""
+1 10 44.2142857142857 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.111111111111111 0 1.186440677966102 -1.111111111111109 -7.457627118644068 0 E 10 40 560 100
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Browse options
+LANG:10004 12 浏览选项
+LANG:10000 15 Browse Optionen
+LANG:10027 29 Опции просмотра
+14 1
+"txtServer"
+""
+1 365.5351479915433 13.00000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  348 12 622 38
+2 "0s" 0 0 0 0 0 -1  E E E
+2 2
+"txtItems"
+""
+1 10 12 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 12 12 178 32
+0 2 0 "0s" 0 0 0 192 0 0  12 12 1
+4
+LANG:10001 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,18,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 OPCUA server items
+LANG:10004 20 OPCUA服务器项目
+LANG:10000 18 OPCUA Server Items
+LANG:10027 37 Элементы OPCUA сервера
+13 11
+"cmdCancel"
+""
+1 352 579 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  533 483 621 511
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(), makeDynString());
+}
+" 0
+ E E E
+13 12
+"cmdOk"
+""
+1 363 594 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  443 483 531 511
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  closeAndReturn();
+}
+" 0
+ E E E
+13 13
+"cmdHelp"
+""
+1 -72 594 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 483 96 511
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"opcua_items\");
+}
+" 0
+ E E E
+19 16
+"rdbReturnVariant"
+""
+1 20 60 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 58 182 102
+2
+T 
+4
+LANG:10001 11 Use Node ID
+LANG:10004 14 使用节点ID
+LANG:10000 17 Node ID verwenden
+LANG:10027 32 Отображать ID узла
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 15 Use Browse Path
+LANG:10004 18 使用浏览路径
+LANG:10000 21 Browse Pfad verwenden
+LANG:10027 29 Отображать путь
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  if ( button )
+  {
+    trItems.setColumnWidthMode(2, TREE_WIDTH_MANUAL);
+    trItems.setColumnWidth(2, 0);
+    
+    trItems.setColumnWidthMode(1, TREE_WIDTH_MAXIMUM);
+    trItems.adjustColumn(1);
+  }
+  else
+  {
+    trItems.setColumnWidthMode(1, TREE_WIDTH_MANUAL);
+    trItems.setColumnWidth(1, 0);
+    
+    trItems.setColumnWidthMode(2, TREE_WIDTH_MAXIMUM);
+    trItems.adjustColumn(2);
+  }
+}" 0
+
+29 17
+"trItems"
+""
+1 10 119.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"alternatingRowColors" "bool TRUE"
+"allColumnsShowFocus" "bool TRUE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10 120 620 460
+10 TreeWidget
+2
+0 "expanded" "(string id)"
+"  string nodeId;
+  if ( !$ALARM_TYPES && (dynlen(trItems.children(id)) == 0) )
+  {
+    g_parentId = id;
+    nodeId = trItems.getText(id, 3);
+    if (nodeId == \"\")
+    {
+      nodeId = trItems.getText(id, 2);
+    }
+    
+    dpSet(g_opcuadrvdp + \".Browse.GetBranch:_original.._value\", makeDynString(g_requestId, nodeId, 1, $EVENT_SOURCE));
+    this.enabled(false);
+    this.updatesEnabled(false);
+  }
+"
+0 "doubleClicked" "(string id, int column)"
+"  closeAndReturn();"
+E2 18
+"PRIMITIVE_TEXT11"
+""
+1 305 17 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 305 17 347 32
+0 2 2 "0s" 0 0 0 192 0 0  305 17 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Server:
+LANG:10004 10 服务器:
+LANG:10000 7 Server:
+LANG:10027 13 Сервер:
+1 20 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 30 460 T 20 1.272545090180361 0 1 -38.17635270541086 15
+0
+0

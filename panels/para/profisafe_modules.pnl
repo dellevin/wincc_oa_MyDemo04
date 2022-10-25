@@ -1,0 +1,1072 @@
+V 14
+4
+LANG:10001 17 PROFIsafe modules
+LANG:10004 16 PROFIsafe 模块
+LANG:10000 17 PROFIsafe modules
+LANG:10027 17 PROFIsafe modules
+PANEL,-1 -1 650 360 N "_3DFace" 1
+"$tab"
+"main()
+{
+  if ( isDollarDefined(\"$tab\") )
+    sTab = $tab;
+
+  int iActReg = getActReg();
+
+  setMultiValue(\"tableModules\", \"alternatingRowColors\",  makeDynString(\"_AlternatingRowColorLight\", \"_AlternatingRowColorDark\"),
+                \"tableModules\", \"tableMode\",             TABLE_SELECT_MULTIPLE,
+                \"tableModules\", \"selectByClick\",         TABLE_SELECT_LINE,
+                \"tableModules\", \"enableColumnResize\",    0,
+                \"tableModules\", \"enableRowResize\",       0,
+                \"tableModules\", \"sortOnClick\",           0,
+                \"tableModules\", \"columnStretchable\",     1,  1,
+                \"tableModules\", \"columnHeaderAlignment\", 6,  \"AlignVCenter | AlignHCenter\",
+
+                \"cmdEdit\",      \"enabled\", iActReg != 2,
+                \"cmdDone\",      \"enabled\", iActReg != 2,
+                \"cmdInsert\",    \"enabled\", iActReg != 2,
+                \"cmdAdd\",       \"enabled\", iActReg != 2,
+                \"cmdDeleteAll\", \"enabled\", iActReg != 2,
+                \"cmdDeleteSel\", \"enabled\", iActReg != 2,
+                \"cmdCopy\",      \"enabled\", iActReg == 2);
+
+
+//   DebugTN(getActReg());
+//   DebugTN(getTableShape());
+
+  if ( iActReg == 2 )
+  {
+    tfConn1.name = \"tfConn2\";
+    int iCountC = tableModules.columnCount();
+
+    for ( int i = 1; i <= iCountC; i++ )
+      tableModules.columnName(i-1, \"#\"+i+\"Redu\");
+
+    tableModules.name = \"tableModulesRedu\";
+
+    if ( tfConn2.text == \"\" )
+    {
+      getValue(getRootShape(\"cmbPlc\"), \"text\", sConn);
+      tfConn2.text = sConn;
+
+      sConn = PSPNINTL + tfConn2.text;
+    }
+  }
+  else
+  {
+    if ( tfConn1.text != \"\" )
+      sConn = PSPNINTL + tfConn1.text;
+  }
+
+  editModule(0);
+}
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// PROFIsafe modules
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string sCFG     = \".Config.\";
+string sCFGMODS = \".Config.Modules.\";
+string sCFGSYMB = \".Config.Symbolic.\";
+string sCMD     = \".Command.\";
+string sSTA     = \".State.\";
+string sSTASTAT = \".State.Statistics.\";
+
+string sORI = \":_original.._value\";
+string sONL = \":_online.._value\";
+string sOST = \":_online.._stime\";
+
+string sConn, sTab;
+
+dyn_uint duiSlot, duiSize, duiSil, duiFSource, duiFDest, duiFCrC;
+dyn_char dcArea;
+
+mapping mMD;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int getActReg()
+{
+  int iRet = 1;
+
+  int iActReg;
+  getValue(getRootShape(\"tabMain\"), \"activeRegister\", iActReg);
+
+  if ( sTab == \"2\" || iActReg == 1 )
+    iRet = 2;
+
+  return iRet;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addModule(int iOpt = 0)
+{
+  string sShape = getTableShape();
+  string sColRedu = ( getActReg() == 2 )? \"Redu\" : \"\";
+
+  int iLineC;
+  getValue(sShape, \"lineCount\", iLineC);
+
+  int iNewLine;
+
+  if ( iOpt == 1 )
+  {
+    dyn_int diSelLines;
+    getValue(sShape, \"getSelectedLines\", diSelLines);
+
+    iNewLine = ( dynlen(diSelLines) ) ? diSelLines[dynlen(diSelLines)] : 0;
+    setValue(sShape, \"insertLineN\", iNewLine, \"#1\" + sColRedu, iNewLine+1,
+                                              \"#2\" + sColRedu, \"Bidirectional\",
+                                              \"#3\" + sColRedu, \"1\",
+                                              \"#4\" + sColRedu, \"0\",
+                                              \"#5\" + sColRedu, \"0\",
+                                              \"#6\" + sColRedu, \"0\",
+                                              \"#7\" + sColRedu, \"0\");
+
+    for ( int i = 1; i <= iLineC+1; i++ )
+      setValue(sShape, \"cellValueRC\", i-1, \"#1\" + sColRedu, i);
+  }
+
+  if ( iOpt == 2 )
+  {
+    iNewLine = iLineC;
+    setValue(sShape, \"appendLine\", \"#1\" + sColRedu, iNewLine+1,
+                                   \"#2\" + sColRedu, \"Bidirectional\",
+                                   \"#3\" + sColRedu, \"0\",
+                                   \"#4\" + sColRedu, \"0\",
+                                   \"#5\" + sColRedu, \"0\",
+                                   \"#6\" + sColRedu, \"0\",
+                                   \"#7\" + sColRedu, \"0\");
+  }
+
+  setInputFocus(myModuleName(), myPanelName(), sShape);
+  setValue(sShape, \"selectLineN\", iNewLine);
+
+  editModule(1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void deleteModule(int iOpt = 0)
+{
+  string sShape = getTableShape();
+  string sColRedu = ( getActReg() == 2 )? \"Redu\" : \"\";
+
+  //tableModules.deleteAllLines();
+
+  //int iLineC;
+  //getValue(sShape, \"lineCount\", iLineC);
+
+  if ( iOpt == 1 )
+  {
+    dyn_int diSelLines;
+    getValue(sShape, \"getSelectedLines\", diSelLines);
+
+    for ( int i = dynlen(diSelLines); i >= 1; i-- )
+      setValue(sShape, \"deleteLineN\", diSelLines[i]);
+
+    int iLineC;
+    getValue(sShape, \"lineCount\", iLineC);
+
+//     dyn_anytype daSilData;
+//     getValue(sShape, \"getColumnN\", 0, daSilData);
+
+//     for ( int i = 1; i <= daSilData; i++ )
+//       if ( (int)daSilData[i] != i )
+//         daSilData[i] = i;
+
+    for ( int i = 1; i <= iLineC; i++ )
+      setValue(sShape, \"cellValueRC\", i-1, \"#1\" + sColRedu, i);
+  }
+
+  if ( iOpt == 2 )
+    setValue(sShape, \"deleteAllLines\");
+
+  //setValue(sShape, \"appendLine\", \"#1\" + sColRedu, \"\");
+  //tableModules.selectColumnN(iLineCount+1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void editModule(int iOpt)
+{
+  setTableEditable(getTableShape(), iOpt);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTableEditable(string sShape, int iOpt = 0)
+{
+//   DebugTN(__LINE__, \"sShape\", sShape);
+
+  int iColumnC;
+  getValue(sShape, \"columnCount\", iColumnC);
+  //DebugTN(__LINE__, \"iColumnC\", iColumnC);
+
+  //sShape = \"tableModules\";
+  string sColRedu = ( getActReg() == 2 ) ? \"Redu\" : \"\";
+
+  int iLineC;
+  getValue(sShape, \"lineCount\", iLineC);
+
+//   int iSelLine;
+//   getValue(sShape, \"selectLineN\", iSelLine);
+//   DebugTN(__LINE__, iSelLine);
+
+//   dyn_int diSelLines;
+//   getValue(sShape, \"getSelectedLines\", diSelLines);
+//   DebugTN(__LINE__, diSelLines);
+
+//   for ( int i = 1; i <= iColumnC; i++ )
+//     if ( dynlen(diSelLines) )
+//       setValue(sShape, \"cellBackColRC\", diSelLines[dynlen(diSelLines)], \"#\" + i + sColRedu, \"yellow\");
+
+  dyn_string dsAreaList = makeDynString(\"\", \"Input\", \"Output\", \"Bidirectional\");
+  dyn_string dsSilList = makeDynString(\"\", \"0\", \"3\");
+
+  if ( iLineC > 0 )
+    for ( int i = 1; i <= iLineC; i++ )
+      setMultiValue(sShape, \"cellWidgetRC\", i - 1, \"#2\" + sColRedu, \"ComboBox\", dsAreaList,
+                    sShape, \"cellWidgetRC\", i - 1, \"#4\" + sColRedu, \"ComboBox\", dsSilList);
+
+
+  for ( int i = 1; i <= iColumnC; i++ )
+  {
+    setValue(sShape, \"namedColumnEditable\", \"#\" + i + sColRedu, iOpt);
+
+    if ( iOpt == 1 && getActReg() == 1 && i <= 1 )
+      setValue(sShape, \"namedColumnEditable\", \"#\" + i + sColRedu, 0);
+
+    if ( iOpt == 1 && getActReg() == 2 && i <= 4 )
+      setValue(sShape, \"namedColumnEditable\", \"#\" + i + sColRedu, 0);
+  }
+
+  // etmj - if sil == 0 --> source, dest not editable - warning on change
+
+//   if ( iLineC > 0 )
+//   {
+//     for ( int i = 1; i <= iLineC; i++ )
+//     {
+//       uint uiSil;
+//       getValue(sShape, \"cellValueRC\", i - 1, \"#4\" + sColRedu, uiSil);
+//     }
+//   }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void clearModuleData()
+{
+  dynClear(duiSlot);
+  dynClear(dcArea);
+  dynClear(duiSize);
+  dynClear(duiSil);
+  dynClear(duiFSource);
+  dynClear(duiFDest);
+  dynClear(duiFCrC);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addModuleData(dyn_mixed dmMD)
+{
+  dynAppend(duiSlot,    (uint)dmMD[1]);
+  dynAppend(dcArea,     (char)dmMD[2]);
+  dynAppend(duiSize,    (uint)dmMD[3]);
+  dynAppend(duiSil,     (uint)dmMD[4]);
+  dynAppend(duiFSource, (uint)dmMD[5]);
+  dynAppend(duiFDest,   (uint)dmMD[6]);
+  dynAppend(duiFCrC,    (uint)dmMD[7]);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getTableShape()
+{
+  string sShape = \"tableModules\";
+  if ( getActReg() == 2 )
+    sShape += \"Redu\";
+
+  return sShape;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void openContextMenu(int iOpt = 0)
+{
+  int iAnswer;
+  dyn_string dsCM = makeDynString(\"PUSH_BUTTON,\" + getCatStr(\"profisafe\", \"moduleedit\")      + \", 1, 1\",
+                                  \"PUSH_BUTTON,\" + getCatStr(\"profisafe\", \"moduleinsert\")    + \", 2, 1\",
+                                  \"PUSH_BUTTON,\" + getCatStr(\"profisafe\", \"moduleadd\")       + \", 3, 1\",
+                                  \"PUSH_BUTTON,\" + getCatStr(\"profisafe\", \"moduledeletesel\") + \", 4, 1\",
+                                  \"PUSH_BUTTON,\" + getCatStr(\"profisafe\", \"moduledeleteall\") + \", 5, 1\");
+
+  popupMenu(dsCM, iAnswer);
+//   DebugTN(__LINE__, iAnswer);
+
+  switch ( iAnswer )
+  {
+    case 1: editModule(1); break;
+    case 2: addModule(1); break;
+    case 3: addModule(2); break;
+    case 4: deleteModule(1); break;
+    case 5: deleteModule(2); break;
+  }
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getRootShape(string sShapeName)
+{
+  string sModuleName = myModuleName();
+  string sPanelName = rootPanel();
+  string sRootShape = sModuleName+\".\"+sPanelName+\":\"+sShapeName;
+  return sRootShape;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 168
+"tableModules"
+""
+1 115 45 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main(int row, string column)
+{
+  openContextMenu();
+}
+" 0
+ "main(int row, string column)
+{
+  //DebugTN(row);
+  editModule(1);
+}
+" 0
+
+377 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"draggable" ""
+"acceptDrops" ""
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 13 596 316
+E"main(int row, string column, string value)
+{
+  string sShape = getTableShape();
+  setValue(sShape, \"selectLineN\", row);
+}
+" 0
+ 1 0 1 7 2 "#1" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 4 Slot
+LANG:10004 6 插槽
+LANG:10000 4 Slot
+LANG:10027 12 Ячейка
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#2" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 4 Area
+LANG:10004 6 区域
+LANG:10000 4 Area
+LANG:10027 8 Зона
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#3" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 4 Size
+LANG:10004 6 大小
+LANG:10000 4 Size
+LANG:10027 12 Размер
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#4" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 3 SIL
+LANG:10004 3 SIL
+LANG:10000 3 SIL
+LANG:10027 3 SIL
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#5" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 8 F-Source
+LANG:10004 8 F-Source
+LANG:10000 8 F-Source
+LANG:10027 8 F-Source
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#6" 7 1 1 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 13 F-Destination
+LANG:10004 8 F-目标
+LANG:10000 13 F-Destination
+LANG:10027 13 F-Destination
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "#7" 0 0 0 "[0s,,,ALIGNMENT_END]" 4
+LANG:10001 5 F-CRC
+LANG:10004 5 F-CRC
+LANG:10000 5 F-CRC
+LANG:10027 5 F-CRC
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+25 25 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+14 166
+"tfConn1"
+""
+1 280 86 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+375 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 31 IP address for first connection
+LANG:10004 26 第一个连接的IP地址
+LANG:10000 32 IP Adresse für erste Verbindung
+LANG:10027 51 IP-адрес первого подключения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 328 34 354
+2 "0s" 0 0 0 0 0 -1  E E E
+13 169
+"cmdAdd"
+""
+1 608 43 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+378 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  608 43 637 72
+
+P 
+13434828
+"pictures/StandardIcons/Insert_end_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  addModule(2);
+}
+
+" 0
+ E E E
+13 170
+"cmdDeleteSel"
+""
+1 608 133 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+379 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  608 133 637 162
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteModule(1);
+}
+
+" 0
+ E E E
+13 171
+"cmdEdit"
+""
+1 608 73 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+380 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  608 73 637 102
+
+P 
+13434828
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  editModule(1);
+}
+
+" 0
+ E E E
+13 172
+"cmdDeleteAll"
+""
+1 608 164 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+381 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 163 637 192
+
+P 
+12632256
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteModule(2);
+}
+
+" 0
+ E E E
+13 173
+"cmdInsert"
+""
+1 363 341 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+382 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"hoverbclr" "N \"STD_hover\""
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignHCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 13 637 42
+
+P 
+4294967295
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  addModule(1);
+}
+
+" 0
+ E E E
+13 174
+"cmdTest1"
+""
+1 608 259 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+383 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 258 637 287
+
+T 
+4
+LANG:10001 2 t1
+LANG:10004 2 t1
+LANG:10000 2 t1
+LANG:10027 2 t1
+"main()
+{
+  string sShape = getTableShape();
+
+  int iLineC;
+  getValue(sShape, \"lineCount\", iLineC);
+
+//   clearModuleData();
+
+  for ( int i = 1; i <= iLineC; i++ )
+  {
+    dyn_mixed dmMD;
+    getValue(sShape, \"getLineN\", i-1, dmMD);
+//     DebugTN(dmMD);
+//     addModuleData(dmMD);
+
+  }
+
+  int iColumnC;
+  getValue(sShape, \"lineCount\", iColumnC);
+
+  for ( int i = 0; i < iColumnC; i++ )
+  {
+    string sCol;
+    getValue(sShape, \"columnToName\", i);
+
+//     DebugTN(sCol);
+
+    dyn_anytype daMD;
+    getValue(sShape, \"getColumnN\", i, daMD);
+
+    if ( i == 1 )
+      daMD = (dyn_char)daMD;
+    else
+      daMD = (dyn_uint)daMD;
+
+//     DebugTN(daMD);
+
+    mMD[sCol] = daMD;
+  }
+
+//   DebugTN(mMD);
+
+
+}
+
+" 0
+ E E E
+13 175
+"cmdDone"
+""
+1 608 103 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+384 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  608 103 637 132
+
+P 
+4294967295
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  editModule(0);
+}
+
+" 0
+ E E E
+6 176
+"rectModules"
+""
+1 15 15 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ "main(mapping event)
+{
+  //openContextMenu();
+}
+" 0
+ "main(mapping event)
+{
+  //addModule(2);
+}
+" 0
+
+385 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  1 E 15 15 574 314
+13 177
+"cmdTest2"
+""
+1 608 289 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+386 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 288 637 317
+
+T 
+4
+LANG:10001 2 t2
+LANG:10004 2 t2
+LANG:10000 2 t2
+LANG:10027 2 t2
+"main()
+{
+  dyn_string txt;
+  int answer;
+  txt = makeDynString(\"PUSH_BUTTON, text1, 1, 1\",
+                      \"PUSH_BUTTON, text2, 2, 1\",
+                      \"SEPARATOR\",                  // separating line
+                      \"CASCADE_BUTTON, Level 2, 1\", // branch
+                      \"PUSH_BUTTON, text3, 3, 1\",
+                      \"Level 2\",                    // from here level 2
+                      \"PUSH_BUTTON, text4, 4, 0\",
+                      \"PUSH_BUTTON, text5, 5, 1\");
+
+  popupMenu(txt, answer);
+  //DebugTN(__LINE__, \"answer\", answer);
+}
+
+" 0
+ E E E
+13 178
+"cmdCopy"
+""
+1 608 194 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+387 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 193 637 222
+
+P 
+4294967295
+"pictures/StandardIcons/file_switch_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_uint   duiSlot1, duiSize1, duiSil1, duiFSource1, duiFDest1, duiFCrC1;
+
+  dyn_char   dcArea1;
+  dyn_string dsSymAddr1, dsAbsAddr1;
+  dyn_string dsArea1;
+
+  dyn_uint   duiSlot2, duiSize2, duiSil2, duiFSource2, duiFDest2, duiFCrC2;
+  dyn_char   dcArea2;
+
+//   dpGet(sConn + sCFGMODS + \"Slot\"               + sONL, duiSlot1,
+//         sConn + sCFGMODS + \"Area\"               + sONL, dcArea1,
+//         sConn + sCFGMODS + \"Size\"               + sONL, duiSize1,
+//         sConn + sCFGMODS + \"Sil\"                + sONL, duiSil1,
+//         sConn + sCFGMODS + \"FSource\"            + sONL, duiFSource1,
+//         sConn + sCFGMODS + \"FDest\"              + sONL, duiFDest1,
+//         sConn + sCFGMODS + \"FCrcSize\"           + sONL, duiFCrC1,
+//
+//         sConn + \"_2\" + sCFGMODS + \"Slot\"        + sONL, duiSlot2);
+
+//   dyn_anytype daSrc1, daDest1, daSrc2, daDest2;
+//   for ( int i = 1; i <= tableModules.lineCount; i++ )
+//   {
+//     tableModules.cellValueRC(i-1, \"#5\", da1[i]);
+//   }
+
+  string sShape1 = getRootShape(\"tableModules\");
+  string sShape2 = \"tableModulesRedu\";
+
+  getMultiValue(sShape1, \"getColumnN\", 0, duiSlot1,
+                sShape1, \"getColumnN\", 1, dcArea1,
+                sShape1, \"getColumnN\", 2, duiSize1,
+                sShape1, \"getColumnN\", 3, duiSil1,
+                sShape1, \"getColumnN\", 4, duiFSource1,
+                sShape1, \"getColumnN\", 5, duiFDest1,
+                sShape1, \"getColumnN\", 6, duiFCrC1,
+
+                sShape2, \"getColumnN\", 0, duiSlot2,
+                sShape2, \"getColumnN\", 1, dcArea2,
+                sShape2, \"getColumnN\", 2, duiSize2,
+                sShape2, \"getColumnN\", 3, duiSil2,
+                sShape2, \"getColumnN\", 4, duiFSource2,
+                sShape2, \"getColumnN\", 5, duiFDest2,
+                sShape2, \"getColumnN\", 6, duiFCrC2);
+
+  DebugTN(dcArea1, duiFSource1, duiFDest1, duiSil1);
+  DebugTN(dcArea2, duiFSource2, duiFDest2, duiSil2);
+
+  if ( dynlen(duiSlot2) && ( duiSlot1 != duiSlot2 ) || dcArea1 != dcArea2 || duiSize1 != duiSize2 || duiSil1 != duiSil2 )
+  {
+    dyn_float df;
+    dyn_string ds;
+
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                    getCatStr(\"para\", \"information\"),
+                                    makeDynString(getCatStr(\"profisafe\", \"modulecopyreplace\"),
+                                                  getCatStr(\"para\", \"yes\"),
+                                                  getCatStr(\"para\", \"no\")),
+                                    df, ds);
+
+    if ( dynlen(df) && df[1] == 0 )
+      return;
+  }
+
+  for ( int i = 1; i <= dynlen(dcArea1); i++ )
+  {
+    if ( dcArea1[i] == 'I' )
+      dsArea1[i] = \"Input\";
+    if ( dcArea1[i] == 'O' )
+      dsArea1[i] = \"Output\";
+    if ( dcArea1[i] == 'B' )
+      dsArea1[i] = \"Bidirectional\";
+
+    duiFSource1[i] = 0;
+    duiFDest1[i]   = 0;
+  }
+
+  string sColRedu = \"Redu\";
+  string sShape = getTableShape();
+
+  setValue(sShape, \"deleteAllLines\");
+  setValue(sShape, \"appendLines\", dynlen(duiSlot1), \"#1\" + sColRedu, duiSlot1,
+                                                    \"#2\" + sColRedu, dsArea1,
+                                                    \"#3\" + sColRedu, duiSize1,
+                                                    \"#4\" + sColRedu, duiSil1,
+                                                    \"#5\" + sColRedu, duiFSource1,
+                                                    \"#6\" + sColRedu, duiFDest1,
+                                                    \"#7\" + sColRedu, duiFCrC1);
+
+  dyn_string dsAreaList = makeDynString(\"\", \"Input\", \"Output\", \"Bidirectional\");
+  dyn_string dsSilList = makeDynString(\"\", \"0\", \"3\");
+
+  for ( int i = 1; i <= dynlen(duiSlot1); i++ )
+    setMultiValue(sShape, \"cellWidgetRC\", i-1, \"#2\" + sColRedu, \"ComboBox\", dsAreaList,
+                  sShape, \"cellWidgetRC\", i-1, \"#4\" + sColRedu, \"ComboBox\", dsSilList);
+
+  for ( int i = 1; i <= 4; i++ )
+    setValue(sShape, \"namedColumnEditable\", \"#\" + i + sColRedu, 0);
+}
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

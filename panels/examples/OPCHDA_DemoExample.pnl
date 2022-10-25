@@ -1,0 +1,2440 @@
+V 14
+4
+LANG:10001 14 OPC HDA Viewer
+LANG:10004 17 OPC HDA 查看器
+LANG:10000 0 
+LANG:10027 20 Пример OPC HDA
+PANEL,-1 -1 1280 720 N "_3DFace" 0
+"main()
+{
+  clearData();
+  wait_modul.backCol(\"WF_EwoWaitBackground\");
+  wait_modul.ModuleName = \"pls_wait\";
+  wait_modul.visible = TRUE;
+  
+  dyn_int diSize = getPanelSize(panelFileName(myModuleName(), myPanelName()));
+  wait_modul.size(diSize[1],diSize[2]);
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\", \"pls_wait\", \"pls_wait\", 
+                    makeDynString(\"$1:\"+diSize[1],\"$2:\"+diSize[2]));
+  
+  cbClients.items = opchda_getAllClients();
+  updateClient();
+  table.vScrollBarMode(\"AlwaysOn\");
+  
+  time ti = getCurrentTime();
+  
+  setMultiValue(\"tie_year\",   \"text\", year(ti),
+                \"tie_month\",  \"text\", month(ti),
+                \"tie_day\",    \"text\", day(ti),
+                \"tie_hour\",   \"text\", hour(ti),
+                \"tie_minute\", \"text\", minute(ti),
+                \"tie_second\", \"text\", second(ti));
+  
+  dyn_string tmp = dpNames(\"*\", \"_OPCHDAHistoryReadResponse\");
+  
+  for (int i = 1; i <= dynlen(tmp); ++i)
+    tmp[i] = substr(tmp[i], strpos(tmp[i], \":\") + 1);
+  
+  cbResponseDP.items = tmp;
+  
+  table.alternatingRowColors(makeDynString(\"_AlternatingRowColorLight\", \"_AlternatingRowColorDark\"));
+  
+  wait_modul.visible = FALSE;
+}
+" 0
+ E E E E 1 -1 -1 0  117 92
+""0  1
+E "#uses \"opchdaClient.ctl\"
+string dpOPCHDAClient;
+string dpOPCHDAResponse;
+string serverConnInfo = \"\";
+uint serverState = 0;
+int nextRequestId = 1;
+string lastHistoryReadRequest = \"\";
+int lastBrowseRequestNumber = 0;
+int browseCBs = 0;
+bool historyReadConnected = false;
+bool g_bFlatBrowse = FALSE;
+dyn_anytype values;
+dyn_time timeStamps;
+
+void updateClient()
+{
+  dyn_string dsServers = opchda_getServersFromClient(\"_\" + cbClients.selectedText);
+  
+  cbServers.items = dsServers;
+  
+  dpOPCHDAClient = \"_\" + cbClients.selectedText;
+  updateServerData(\"_\" + cbServers.selectedText);
+}
+
+void updateServerData(string dpOPCHDAServer)
+{
+  if(dpOPCHDAServer == \"\")
+    return;
+  
+  dpGet(dpOPCHDAServer + \".Config.ConnInfo\", serverConnInfo,
+        dpOPCHDAServer + \".State.ServerState\", serverState);
+  
+  txtServerState.text = (serverState == 0 ? \"disconnected\" : \"connected\");
+}
+
+void clearData()
+{
+  lblCount.text = \"0\";
+  table.deleteAllLines();
+  trend.curveRemoveData(\"#1\", makeTime(3000,12,31));
+}
+
+void fillData(string dpOPCHDAResponse)
+{
+  string requestId;
+  dyn_string dsTodo, dsDataType;  
+  string datatype;
+  int returnCode;
+  dyn_string dataValues;
+  dyn_bit32 valueStatusCodes;
+  string dataType;
+  dynClear(timeStamps);
+  dynClear(values);
+  int status = 0;
+  status = opchda_getHistoryReadValues(dpOPCHDAResponse, requestId, returnCode, timeStamps,
+                                       dataValues, valueStatusCodes, dataType);
+  
+  //not our last request
+  if(requestId != lastHistoryReadRequest)
+    return;
+  
+  tfReturnCode.text = returnCode;
+  tfReturnCode.backCol = (returnCode == 0 ? \"green\" : \"red\");
+  
+  lblCount.text = dynlen(timeStamps);
+  
+  string error = \"\";  
+  
+  if(status != 0)
+    error = getCatStr(\"opchdaClient\", \"histRead1\");
+  
+  if(returnCode != 0)
+    error = getCatStr(\"opchdaClient\", \"histRead2\") + returnCode;
+  
+  if(dynlen(timeStamps) != dynlen(dataValues) || dynlen(timeStamps) != dynlen(valueStatusCodes))
+    error = getCatStr(\"opchdaClient\", \"histRead3\");
+
+  if(dynlen(timeStamps) == 0)
+    error = getCatStr(\"opchdaClient\", \"histRead4\");
+
+  if(error != \"\")
+  {
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"History Read Failed\", makeDynString(error));
+    return;
+  }  
+  
+  switch(dataType)
+  {
+    
+    case \"VT_BOOL\":
+      datatype = \"bool\";
+      for(int i = 1; i <= dynlen(dataValues); ++i)
+        dynAppend(values, (bool)dataValues[i]);
+      break;
+    
+    case \"VT_I4\":
+      datatype = \"int\";
+      for(int i = 1; i <= dynlen(dataValues); ++i)
+        dynAppend(values, (int)dataValues[i]);
+      break;
+      
+    case \"VT_UI4\":
+      datatype = \"uint\";
+      for(int i = 1; i <= dynlen(dataValues); ++i)
+        dynAppend(values, (uint)dataValues[i]);
+      break;
+      
+    case \"VT_R8\":
+      datatype = \"real\";
+      for(int i = 1; i <= dynlen(dataValues); ++i)
+      {
+        strreplace(dataValues[i], \",\", \".\");
+        dynAppend(values, (float)dataValues[i]);
+      }
+      break;
+    
+    case \"VT_DATE\":
+      datatype = \"date\";
+      for(int i = 1; i <= dynlen(dataValues); ++i)
+        dynAppend(values, (time)dataValues[i]);
+      break;
+      
+    default:
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"History Read Failed\", makeDynString(getCatStr(\"opchdaClient\", \"histRead5\") + dataType));
+      return;
+  }
+  
+//   for(int i = 1; i <= dynlen(timeStamps); i++)
+//   {
+//     dynAppend(dsTodo, \"todo\");
+//     dynAppend(dsDataType, datatype);
+//   }
+
+  dyn_string valueQualities;
+  for(int i = 1; i <= dynlen(valueStatusCodes); ++i)
+  {
+    dyn_string tmp;
+    opchda_getQualityBitInformation(valueStatusCodes[i], tmp);
+    dynAppend(valueQualities, (string)tmp);
+  }
+    
+  
+  table.appendLines(dynlen(timeStamps), \"#1\", timeStamps, \"#2\", values, \"#3\", valueStatusCodes, \"#4\", valueQualities);
+  
+  for(int i = 1; i <= dynlen(values); ++i)
+  {
+    time t = (time)timeStamps[i];//scanTimeUTC(timeStamps[i]);
+    trend.curveVal(\"#1\", (float)values[i], t);
+//     table.appendLine(\"#1\", t, \"#2\", values[i], \"#3\", \"todo\", \"#4\", datatype);
+  }
+  trend.timeBegin(timeStamps[1] < timeStamps[dynlen(timeStamps)] ? timeStamps[1] : timeStamps[dynlen(timeStamps)]);
+  trend.pointType(\"#1\", 5);
+}
+
+string getStartTime()
+{
+  bool b;
+  string str;
+  time t;
+  
+  b = cbNoStart.state(0);
+
+  if (!b)
+  {
+    t = makeTime(tib_year.text, tib_month.text, tib_day.text,
+                 tib_hour.text, tib_minute.text, tib_second.text);
+    str = t;
+  }
+  else
+  {
+    str = \"\";
+  }
+  return str;
+}
+
+string getEndTime()
+{
+  bool b;
+  string str;
+  time t;
+  
+  b = cbNoEnd.state(0);
+  if (!b)
+  {
+    t = makeTime(tie_year.text, tie_month.text, tie_day.text,
+                 tie_hour.text, tie_minute.text, tie_second.text);
+    str = t;
+  }
+  else
+  {
+    str = \"\";
+  }
+  return str;
+}
+
+int getBounds()
+{
+  bool b;
+  
+  b = cbWithBounds.state(0);
+  
+  return (int)b;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+28 234
+"TAB1"
+""
+1 564.9999999999999 160 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+201 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  563 158 1256 574
+E2 "Table" 4
+LANG:10001 10 Table View
+LANG:10004 9 表视图
+LANG:10000 16 Tabellen-Ansicht
+LANG:10027 21 Вид таблицы
+1 "examples/OPCHDAClientResultTab.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Trend" 4
+LANG:10001 10 Trend View
+LANG:10004 12 趋势视图
+LANG:10000 13 Trend Ansicht
+LANG:10027 19 Вид тренда
+1 "examples/OPCHDAClientResultTrend.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+14 226
+"tfReturnCode"
+""
+1 646.6448758582642 588.8437601626018 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+195 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  645 583 748 608
+2 "0s" 0 0 0 0 0 -1  E E E
+1 235 0 "" 0
+0
+13 5
+"cancel"
+""
+1 1182 684 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schliessen
+LANG:10027 27 Закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1180 684 1268 712
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 9 Abbrechen
+LANG:10027 14 Закрыть
+"main()
+{
+  dyn_anytype da, daa;
+  
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa = makeDynString();
+  da[3] = daa;
+  panelOff(da);
+}" 0
+ E E E
+13 6
+"cmdHelp"
+""
+1 13 686 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 29 Открыть справку
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  11 684 99 712
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"opchda_example\");
+}" 0
+ E E E
+30 27
+"FRAME3"
+""
+1 18 17 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.387224827727281 0 11.97875597571315 525.0299531009089 -73.63885158712353 0 E 18 17 537 62
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Results:
+LANG:10004 7 结果:
+LANG:10000 11 Ergebnisse:
+LANG:10027 21 Результаты:
+14 40
+"txtServerState"
+""
+1 825 89 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  273 220 506 248
+3 "0s" 0 0 0 0 0 -1  E E E
+13 50
+"cmdExcel"
+""
+1 1228 578 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Export CSV
+LANG:10004 9 导出CSV
+LANG:10000 15 CSV exportieren
+LANG:10027 21 Экспорт в CSV
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1224 585 1252 613
+
+P 
+13160660
+"pictures/StandardIcons/export_to_excel_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string fileName;
+  fileSelector(fileName, \"/\", false, \"*.csv\", false);
+  if(strpos(fileName, \".csv\") == -1)
+    fileName += \".csv\";
+  table.writeToFile(fileName, TABLE_WRITE_ALL_COLUMNS, ';');
+}" 0
+ E E E
+2 81
+"PRIMITIVE_TEXT9"
+""
+1 26.83868083572185 255 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 28.83868083572185 257 113 272
+0 2 0 "0s" 0 0 0 192 0 0  28.83868083572185 257 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 Value Number:
+LANG:10004 13 数值编号:
+LANG:10000 13 Anzahl Werte:
+LANG:10027 29 Кол-во значений:
+21 82
+"sbMaxValues"
+""
+1 23.78975171652826 276 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  25 275 119 302
+0
+
+E
+E
+E
+
+N 0 100000 1 0 1 1
+30 86
+"FRAME7"
+""
+1 18 17 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+77 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9660976158078841 0 11.98458632561994 -2.389757084541918 -73.73796753553887 0 E 18 17 537 62
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+13 88
+"PUSH_BUTTON4"
+""
+1 442.7378863753543 535.0950406504066 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  377 558 500 586
+
+T 
+4
+LANG:10001 9 Run query
+LANG:10004 12 运行查询
+LANG:10000 15 Abfrage starten
+LANG:10027 31 Запустить запрос
+"main()
+{
+  dpOPCHDAResponse = cbResponseDP.selectedText;
+  if(txtItem.text == \"\")
+  {
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"History Read Failed\", makeDynString(getCatStr(\"opchdaClient\", \"histRead6\")));
+    return;
+  }
+  if(!dpExists(dpOPCHDAResponse))
+  {
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"History Read Failed\", makeDynString(getCatStr(\"opchdaClient\", \"histRead7\")));
+    return;
+  }
+  clearData();
+  if(!historyReadConnected)
+  {
+    dpConnect(\"getDataCB\", false, dpOPCHDAResponse + \".RequestId\");
+    historyReadConnected = true;
+  }
+  int status = 0;
+  lastHistoryReadRequest = \"REQUEST-\" + nextRequestId++;
+  
+  status = opchda_setHistoryRead(\"_\" + cbServers.selectedText, lastHistoryReadRequest, txtItem.text, 
+                                 getStartTime(),getEndTime(), sbMaxValues.text, (int)getBounds() , dpOPCHDAResponse);
+  if(status != 0)
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"History Read Failed\", makeDynString(getCatStr(\"opchdaClient\", \"histRead8\") + status));
+  else
+    wait_modul.visible = TRUE;
+}
+
+void getDataCB(string dp, string val)
+{
+  if(val == lastHistoryReadRequest)
+  {
+    fillData(dpOPCHDAResponse);
+    dpDisconnect(\"getDataCB\", dp);
+    historyReadConnected = false;
+    
+    wait_modul.visible = FALSE;
+  }
+}
+
+
+
+" 0
+ E E E
+13 101
+"dpsel"
+""
+1 1197 619 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Select datapoint
+LANG:10004 15 选择数据点
+LANG:10000 21 Datenpunkt auswählen
+LANG:10027 17 Выбрать DP
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1197 619 1225 647
+
+P 
+13160660
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dpe;
+  dpSelector(dpe);
+  if(dpExists(dpe))  
+    txtDp.text = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+  else
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"Error selecting DPE\", makeDynString(getCatStr(\"opchdaClient\", \"dpeError1\")));
+}
+
+" 0
+ E E E
+2 102
+"PRIMITIVE_TEXT13"
+""
+1 2031.999999999997 -266 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9999999999999999 0 1 45 -25 0 E 522 650 832 665
+0 2 0 "0s" 0 0 0 192 0 0  522 650 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 44 Write historical values to WinCC OA archive:
+LANG:10004 33 将历史数据写入到数据库
+LANG:10000 51 Historische Werte in ein WinCC OA Archiv schreiben:
+LANG:10027 78 Запись исторических значений в архив WinCC OA:
+13 103
+"PUSH_BUTTON7"
+""
+1 1224 619 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Write values into archive
+LANG:10004 30 将历史数据写入到归档
+LANG:10000 26 Werte ins Archiv schreiben
+LANG:10027 47 Записать значения в архив
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1224 619 1252 647
+
+P 
+13160660
+"pictures/SysMgm/16x16/DbConfig.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dpe = txtDp.text;
+  if(!dpExists(dpe))
+  {
+    ChildPanelOnCentral(\"vision/MessageWarning\", \"Write Data Failed\", makeDynString(getCatStr(\"opchdaClient\", \"dpeError2\")));
+    return; 
+  }
+  
+  opchda_writeDataToDPE(dpOPCHDAResponse, dpe);
+//   dpSet(dpOPCHDAResponse + \".WriteDataToDP\", dpe);
+  
+}
+
+" 0
+ E E E
+14 104
+"txtDp"
+""
+1 882.0007447654388 624 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  880 619 1195 647
+3 "0s" 0 0 0 0 0 -1  E E E
+22 114
+"cbClients"
+""
+1 26.78975171652826 173 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  25 167 197 195
+0
+
+E
+"main()
+{
+  updateClient();
+}" 0
+
+E
+ 0 0
+2 116
+"Text4"
+""
+1 33.28975171652826 374 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 35.28975171652826 374 82 389
+0 2 2 "0s" 0 0 0 192 0 0  35.28975171652826 374 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Hour:
+LANG:10004 7 小时:
+LANG:10000 7 Stunde:
+LANG:10027 9 Часы:
+2 117
+"Text2"
+""
+1 114.2897517165283 329 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 114.2897517165283 329 156 344
+0 2 2 "0s" 0 0 0 192 0 0  114.2897517165283 329 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Month:
+LANG:10004 4 月:
+LANG:10000 6 Monat:
+LANG:10027 11 Месяц:
+2 118
+"Text1"
+""
+1 33.28975171652826 329 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 35.28975171652826 329 65 344
+0 2 2 "0s" 0 0 0 192 0 0  35.28975171652826 329 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Year:
+LANG:10004 4 年:
+LANG:10000 5 Jahr:
+LANG:10027 7 Год:
+2 119
+"Text6"
+""
+1 171.2897517165283 374 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 173.2897517165283 374 230 389
+0 2 2 "0s" 0 0 0 192 0 0  173.2897517165283 374 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Second:
+LANG:10004 4 秒:
+LANG:10000 8 Sekunde:
+LANG:10027 15 Секунды:
+2 120
+"Text5"
+""
+1 114.2897517165283 374 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 114.2897517165283 374 159 389
+0 2 2 "0s" 0 0 0 192 0 0  114.2897517165283 374 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Minute:
+LANG:10004 7 分钟:
+LANG:10000 7 Minute:
+LANG:10027 13 Минуты:
+2 121
+"Text3"
+""
+1 171.2897517165283 329 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 173.2897517165283 329 199 344
+0 2 2 "0s" 0 0 0 192 0 0  173.2897517165283 329 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Day:
+LANG:10004 4 日:
+LANG:10000 4 Tag:
+LANG:10027 9 День:
+30 122
+"Frame2"
+""
+1 10 250 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+103 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.6514314095222496 0 0.952801759745935 20.82271139701492 186.614600713923 0 E 10 130 440 250
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 6 Beginn
+LANG:10027 12 Начало
+21 123
+"tib_hour"
+""
+1 31.28975171652825 390.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  31 390 106 416
+0
+
+E
+E
+E
+
+N 0 23 1 0 1 1
+21 124
+"tib_minute"
+""
+1 111.2897517165283 390.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  111 390 165 416
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+21 125
+"tib_second"
+""
+1 170.2897517165283 390.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  170 390 224 416
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+13 126
+"tib_today"
+""
+1 244.7897517165283 389.8150406504066 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  228 387 302 415
+
+T 
+4
+LANG:10001 3 Now
+LANG:10004 6 现在
+LANG:10000 5 Jetzt
+LANG:10027 12 Сейчас
+"main()
+{
+  time ti = getCurrentTime();
+  
+  setMultiValue(\"tib_year\",   \"text\", year(ti),
+                \"tib_month\",  \"text\", month(ti),
+                \"tib_day\",    \"text\", day(ti),
+                \"tib_hour\",   \"text\", hour(ti),
+                \"tib_minute\", \"text\", minute(ti),
+                \"tib_second\", \"text\", second(ti));
+}" 0
+ E E E
+21 127
+"tib_year"
+""
+1 31.28975171652825 345.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  31 345 106 371
+0
+
+E
+E
+E
+
+N 1970 2038 1 1970 1 1
+21 128
+"tib_month"
+""
+1 110.2897517165283 345.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  111 345 165 371
+0
+
+E
+E
+E
+
+N 1 12 1 1 1 1
+21 129
+"tib_day"
+""
+1 169.2897517165283 345.8150406504066 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  170 345 224 371
+0
+
+E
+E
+E
+
+N 1 31 1 1 1 1
+20 130
+"cbNoStart"
+""
+1 230.7897517165283 345.1849593495936 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  229 343 283 367
+1
+T 
+4
+LANG:10001 4 None
+LANG:10004 3 无
+LANG:10000 5 Keine
+LANG:10027 6 Нет
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE2 176
+"Text8"
+""
+1 33.78975171652826 448.8150406504067 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+157 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 35.78975171652826 448.8150406504067 65 464
+0 2 2 "0s" 0 0 0 192 0 0  35.78975171652826 448.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Year:
+LANG:10004 4 年:
+LANG:10000 5 Jahr:
+LANG:10027 7 Год:
+2 177
+"Text9"
+""
+1 114.7897517165283 448.8150406504067 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+158 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 114.7897517165283 448.8150406504067 156 464
+0 2 2 "0s" 0 0 0 192 0 0  114.7897517165283 448.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Month:
+LANG:10004 4 月:
+LANG:10000 6 Monat:
+LANG:10027 11 Месяц:
+2 178
+"Text10"
+""
+1 171.7897517165283 448.8150406504067 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+159 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 173.7897517165283 448.8150406504067 199 464
+0 2 2 "0s" 0 0 0 192 0 0  173.7897517165283 448.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Day:
+LANG:10004 4 日:
+LANG:10000 4 Tag:
+LANG:10027 9 День:
+2 179
+"Text11"
+""
+1 33.78975171652826 493.8150406504067 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+160 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 35.78975171652826 493.8150406504067 82 509
+0 2 2 "0s" 0 0 0 192 0 0  35.78975171652826 493.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Hour:
+LANG:10004 7 小时:
+LANG:10000 7 Stunde:
+LANG:10027 9 Часы:
+2 180
+"Text12"
+""
+1 114.7897517165283 493.8150406504067 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+161 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 114.7897517165283 493.8150406504067 159 509
+0 2 2 "0s" 0 0 0 192 0 0  114.7897517165283 493.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Minute:
+LANG:10004 7 分钟:
+LANG:10000 7 Minute:
+LANG:10027 13 Минуты:
+2 181
+"Text13"
+""
+1 171.7897517165283 493.8150406504067 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+162 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 173.7897517165283 493.8150406504067 230 509
+0 2 2 "0s" 0 0 0 192 0 0  173.7897517165283 493.8150406504067 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Second:
+LANG:10004 4 秒:
+LANG:10000 8 Sekunde:
+LANG:10027 15 Секунды:
+30 182
+"Frame3"
+""
+1 10 385 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+163 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.6518046627592793 0 0.9692928039702233 21.16460816195801 174.7170897637919 0 E 10 260 440 385
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 3 End
+LANG:10004 6 结束
+LANG:10000 4 Ende
+LANG:10027 18 Окончание
+21 183
+"tie_hour"
+""
+1 31.78975171652826 510.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+164 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  32 510 106 536
+0
+
+E
+E
+E
+
+N 0 23 1 0 1 1
+21 184
+"tie_minute"
+""
+1 111.7897517165283 510.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+165 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  111 510 165 536
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+21 185
+"tie_second"
+""
+1 170.7897517165283 510.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  170 510 224 536
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+13 186
+"tie_today"
+""
+1 245.7897517165283 511.8113533347727 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+167 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  229 509 303 537
+
+T 
+4
+LANG:10001 3 Now
+LANG:10004 6 现在
+LANG:10000 5 Jetzt
+LANG:10027 12 Сейчас
+"main()
+{
+  time ti = getCurrentTime();
+  
+  setMultiValue(\"tie_year\",   \"text\", year(ti),
+                \"tie_month\",  \"text\", month(ti),
+                \"tie_day\",    \"text\", day(ti),
+                \"tie_hour\",   \"text\", hour(ti),
+                \"tie_minute\", \"text\", minute(ti),
+                \"tie_second\", \"text\", second(ti));
+}" 0
+ E E E
+21 187
+"tie_year"
+""
+1 31.78975171652826 465.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+168 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  32 465 106 491
+0
+
+E
+E
+E
+
+N 1970 2038 1 1970 1 1
+21 188
+"tie_month"
+""
+1 110.7897517165283 465.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  111 465 165 491
+0
+
+E
+E
+E
+
+N 1 12 1 1 1 1
+21 189
+"tie_day"
+""
+1 169.7897517165283 462.8113533347727 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+170 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  170 462 224 488
+0
+
+E
+E
+E
+
+N 1 31 1 1 1 1
+20 190
+"cbNoEnd"
+""
+1 231.3747510251516 467.8113533347727 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+171 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  230 466 284 490
+1
+T 
+4
+LANG:10001 4 None
+LANG:10004 3 无
+LANG:10000 5 Keine
+LANG:10027 6 Нет
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE20 191
+"cbWithBounds"
+""
+1 25.78975171652826 561 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+172 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  24 560 146 584
+1
+T 
+4
+LANG:10001 11 With Bounds
+LANG:10004 13 带有 Bounds
+LANG:10000 11 Mit Grenzen
+LANG:10027 21 С границами
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE22 195
+"cbServers"
+""
+1 205 173 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+174 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  203 167 375 195
+0
+
+E
+"main()
+{
+  updateServerData(\"_\" + cbServers.selectedText);
+}
+" 0
+
+E
+ 0 0
+2 196
+"PRIMITIVE_TEXT14"
+""
+1 27.89487585826413 600 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+175 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 27.89487585826413 600 147 615
+0 2 2 "0s" 0 0 0 192 0 0  27.89487585826413 600 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Response Data Point:
+LANG:10004 18 响应数据点DP:
+LANG:10000 19 Antwort Datenpunkt:
+LANG:10027 37 Точка данных ответа:
+22 207
+"cbResponseDP"
+""
+1 26.00000000000011 624 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+182 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  24 618 282 646
+0
+
+E
+E
+E
+ 0 0
+13 210
+"PUSH_BUTTON8"
+""
+1 289.4694444444444 554 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+183 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  297 618 500 646
+
+T 
+4
+LANG:10001 26 Create Response Data Point
+LANG:10004 23 创建响应数据点DP
+LANG:10000 27 Erstelle Antwort Datenpunkt
+LANG:10027 51 Создать точку данных ответа
+"main()
+{
+  for(int i = 1; i <= 100; ++i)
+  {
+    if(dpExists(\"_opchdaResponse\"+i))
+      continue;
+    if(dpCreate(\"_opchdaResponse\"+i, \"_OPCHDAHistoryReadResponse\") == -1)
+    {
+      DebugN(getLastError());
+      return;
+    }
+    
+    while(!dpExists(\"_opchdaResponse\" + i))
+      delay(0, 100);
+    
+    dpSet(\"_opchdaResponse\" + i + \".DataType:_original.._last_value_storage_off\", TRUE,
+          \"_opchdaResponse\" + i + \".RequestId:_original.._last_value_storage_off\", TRUE,
+          \"_opchdaResponse\" + i + \".Timestamps:_original.._last_value_storage_off\", TRUE,
+          \"_opchdaResponse\" + i + \".DataValues:_original.._last_value_storage_off\", TRUE,
+          \"_opchdaResponse\" + i + \".ValueStatusCodes:_original.._last_value_storage_off\", TRUE,
+          \"_opchdaResponse\" + i + \".ReturnCode:_original.._last_value_storage_off\", TRUE);
+    
+    dyn_string items = cbResponseDP.items;
+    dynAppend(items, \"_opchdaResponse\"+i);
+    cbResponseDP.items = items;
+    return;
+  }
+}" 0
+ E E E
+13 213
+"cmdBrowse"
+""
+1 440 144 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+184 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  382 167 506 195
+
+T 
+4
+LANG:10001 11 Get Item ID
+LANG:10004 14 获取对象ID
+LANG:10000 11 Get Item ID
+LANG:10027 21 ИД элемента
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+
+  string sOpcHdaServer = \"_\" + cbServers.selectedText();
+
+  if ( isRedundant() )
+  {
+    string sSystem = getSystemName();
+    int iAnswer;
+    reduActive(iAnswer, sSystem);
+
+    if ( iAnswer == 2 )
+      sOpcHdaServer += \"_2\";
+  }
+
+  ChildPanelOnCentralModalReturn(\"examples/OPCHDAClientBrowser.pnl\", \"OPC HDA Server Items\",
+                                 makeDynString(\"$SERVER:\" + sOpcHdaServer), df, ds);
+
+  if(dynlen(ds) > 0)
+    txtItem.text = ds[1];
+}
+" 0
+ E E E
+2 216
+"lblClient"
+""
+1 27 149.6501303464123 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+185 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 27.10375017284412 149.6501303464123 66 165
+0 0 0 "0s" 0 0 0 192 0 0  27.10375017284412 149.6501303464123 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Client:
+LANG:10004 12 客户端：
+LANG:10000 7 Client:
+LANG:10027 13 Клиент:
+2 217
+"lblServer"
+""
+1 205.2102482834717 150.1377281062214 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+186 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 205.3139984563159 150.1377281062214 247 165
+0 0 0 "0s" 0 0 0 192 0 0  205.3139984563159 150.1377281062214 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Server:
+LANG:10004 10 服务器:
+LANG:10000 7 Server:
+LANG:10027 13 Сервер:
+2 218
+"lblServerState"
+""
+1 274.7897517165283 201.9751955196184 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+187 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 274.8935018893724 201.9751955196184 352 217
+0 0 0 "0s" 0 0 0 192 0 0  274.8935018893724 201.9751955196184 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Server state:
+LANG:10004 16 服务器状态:
+LANG:10000 13 Serverstatus:
+LANG:10027 34 Состояние сервера:
+2 219
+"PRIMITIVE_TEXT17"
+""
+1 26.7378766301062 202.4875977598092 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+188 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 26.84162680295032 202.4875977598092 57 217
+0 0 0 "0s" 0 0 0 192 0 0  26.84162680295032 202.4875977598092 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Item:
+LANG:10004 7 项目:
+LANG:10000 5 Item:
+LANG:10027 15 Элемент:
+14 221
+"txtItem"
+""
+1 837.2102482834717 89 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+190 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  25 220 258 248
+3 "0s" 0 0 0 0 0 -1  E E E
+6 222
+"RECTANGLE3"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+191 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.46430101075908 0 0.9234975961538456 0 25.26807963163603 1 E 0 80 880 -50
+2 223
+"lblHeader"
+""
+1 25 6 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+192 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 6 420 36
+0 2 2 "0s" 0 0 0 64 0 0  25 6 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 40 OPC Historical Data Access Example panel
+LANG:10004 33 OPC历史数据访问示例面板
+LANG:10000 40 OPC Historical Data Access Beispielpanel
+LANG:10027 39 Пример OPC Historical Data Access
+2 224
+"shortdesc"
+""
+1 51 27 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+193 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 51 27 766 144
+0 1 1 "0s" 0 0 0 192 0 0  51 27 7
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 107 In this example panel the OPC Historical Data Access functionality of the WinCC OA OPC HDA client is shown.
+LANG:10004 73 本例为WinCC OA OPC HDA 客户端的OPC Historical Data Access功能。
+LANG:10000 118 In diesem Beispielpanel wird die OPC Historical Data Access Funktionalität des WinCC OA OPC HDA Clients demonstriert.
+LANG:10027 180 Данный пример демонстрирует функциональность клиента WinCC OA OPC HDA по получению исторических данных.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 85 Through this feature the access to historical data of the OPC HDA server is possible.
+LANG:10004 52 通过此功能访问OPC HDA服务器的历史数据
+LANG:10000 81 Hierdurch wird der Zugriff auf historische Daten des OPC HDA Servers ermöglicht.
+LANG:10027 159 Данная функциональность позволяет получить доступ к историческим данным сервера OPC HDA.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 63 The query can be started and defined via an internal datapoint.
+LANG:10004 44 可通过内部DP点来启动和定义检索
+LANG:10000 86 Die Datenabfrage kann über einen internen Datenpunkt ausgelöst und definiert werden.
+LANG:10027 126 Запрос может быть запущен и определен через внутреннюю точку данных.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 60 The queried data will be written to an internal response DP.
+LANG:10004 41 检索数据写入到内部的响应DP中
+LANG:10000 71 Die abgefragten Daten werden auf einen internen Antwort DP geschrieben.
+LANG:10027 124 Запрошенные данные записываются во внутреннюю точку данных ответа.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+29 225
+"wait_modul"
+""
+1 -1.787937159836504e-17 0 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+194 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 0 51 32
+15 Canvas.Canvas.1
+0
+E2 228
+"PRIMITIVE_TEXT1"
+""
+1 1097.894875858264 586.6875203252032 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+197 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 1054 586.6875203252032 1097.894875858264 602
+0 2 2 "0s" 0 0 0 194 0 0  1097.894875858264 586.6875203252032 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Count:
+LANG:10004 7 计数:
+LANG:10000 7 Anzahl:
+LANG:10027 12 Кол-во:
+2 229
+"lblCount"
+""
+1 1144.894875858264 586.6875203252032 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+198 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 1103 586.6875203252032 1144.894875858264 602
+0 2 2 "0s" 0 0 0 194 0 0  1144.894875858264 586.6875203252032 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 999
+LANG:10004 3 999
+LANG:10000 6 999999
+LANG:10027 3 999
+2 230
+"PRIMITIVE_TEXT2"
+""
+1 566.8948758582642 587.8437601626016 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+199 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 566.8948758582642 587.8437601626016 644 603
+0 2 2 "0s" 0 0 0 192 0 0  566.8948758582642 587.8437601626016 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Return Code:
+LANG:10004 13 返回代码:
+LANG:10000 12 Return Code:
+LANG:10027 18 Возвр.код:
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 500 T 2 2.568448168563292 0 1 -0.4936655405405402 175
+0
+0

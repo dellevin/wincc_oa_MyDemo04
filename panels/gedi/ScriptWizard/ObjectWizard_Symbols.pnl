@@ -1,0 +1,2348 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1000 600 N "_3DFace" 0
+" #uses \"objwObjectWizard.ctl\"
+main()
+{
+  dyn_string dsTypes;
+  dyn_string dsBaseTypes=makeDynString(\"char\",\"uint\",\"int\",\"float\",\"bool\",\"bit32\",\"string\",\"time\",\"TypeIndependent\");
+
+  Button_Ack.enabled(false);
+  Button_Delete.enabled(false);  
+  Button_Insert.enabled(false);
+  
+  TREE.clear();
+  TREE.addColumn(\"Typ\");
+  TREE.setColumnWidth(1,0);
+  TREE.showHeader(false);
+  //TREE.setSorting(0,TRUE);
+
+  dyn_string dsCBTypes;
+  dyn_string dsDpNames=dpTypes(\"*\");
+  string sSystemName=getSystemName();
+  for (int i=dynlen(dsDpNames);i>0;i--)
+  {
+    strreplace(dsDpNames[i],sSystemName,\"\");
+    if (strpos(dsDpNames[i],\"_\")!=0)
+    {
+      dynAppend(dsCBTypes,dsDpNames[i]);
+    }
+  }
+  dynSortAsc(dsCBTypes);
+  dynAppend(dsCBTypes,dsBaseTypes);
+  bool bCreate=false;
+  for (int i=1;i<=dynlen(dsCBTypes);i++)
+  {
+    if (!dpExists(\"_objWizard_\"+dsCBTypes[i]))
+    {
+      dpCreate(\"_objWizard_\"+dsCBTypes[i],\"_objWizardSymbolsPerType\");
+      dpCreate(\"_objwSymbolsPerType_\"+dsCBTypes[i],\"_objWizard_SymbolsPerType\");
+      bCreate=true;
+    }
+  }
+
+  // Lets sort the dsTypes for an engineer
+  
+  dyn_string strTypeName;
+  dyn_string strIconName;
+  
+  dpQueryConnectAll(\"CBCallbackQuery\",
+                    TRUE,\"ObjectWizardQuery\",
+                    \"SELECT '_original.._value' FROM '{_objwSymbolsPerType_*,_objWizard_*}'\");
+}//\"System1:_SymbolsPerType_ANALOG1.ShortNames\"
+//SELECT '_original.._value' FROM '{_SymbolsPerType_*.ShortNames,objWizard_*.faceplateDefaultFeatures}'
+void CBCallbackQuery(string ident,dyn_dyn_anytype tab)
+{
+  // HUGE TODO Convert so the Output of the Query is used to build the TREE +bhoer
+  // Supended cause of lack of time
+  CBCallback(\"\",\"\",\"\",\"\",\"\",\"\");
+  return;
+}
+void CBCallback(string dp1, dyn_string strCBTypeName,string dp2,dyn_string strCBIconName,string dp3, dyn_string dsCBTypes)
+{
+  TREE.updatesEnabled = false;  
+  TREE.clear();
+  if (dpExists(\"_objWizardInformation\"))
+  {
+    dpGet(\"_objWizardInformation.Icons.TypeName\", strCBTypeName,
+          \"_objWizardInformation.Icons.Icon\",     strCBIconName);
+  }
+  else
+  {
+    dynClear(strCBTypeName);
+    dynClear(strCBIconName);
+  }
+  dynClear(dsCBTypes);
+  dyn_string dsDpNames=dpTypes(\"*\");
+  string sSystemName=getSystemName();
+  for (int i=dynlen(dsDpNames);i>0;i--)
+  {
+    strreplace(dsDpNames[i],sSystemName,\"\");
+    if (strpos(dsDpNames[i],\"_\")!=0)
+    {
+      dynAppend(dsCBTypes,dsDpNames[i]);
+    }
+  }
+  
+  dynSortAsc(dsCBTypes);
+  
+  // Now lets iterate through them, adding them to the tree
+  for (int i = 1; i <= dynlen(dsCBTypes); i++)
+  {
+    //obFillElement(dsCBTypes[i]);
+    TREE.appendItemNC(\"\",\"TYPE|\"+dsCBTypes[i], dsCBTypes[i]);
+    
+    int pos = dynContains(strCBTypeName, dsCBTypes[i]);
+    if ( pos > 0 )
+    {
+      TREE.setIcon(\"TYPE|\"+dsCBTypes[i], 0, strCBIconName[pos]);
+    }
+    else
+    {
+      TREE.setIcon(\"TYPE|\"+dsCBTypes[i], 0, \"dptree/dptype.png\");
+    }
+//     TREE.setOpen(\"TYPE|\"+dsCBTypes[i],true);
+    if (i==1&&sGlobalTreeSelect==\"\")
+    {
+      TREE.setSelectedItem(\"TYPE|\"+dsCBTypes[i],TRUE);
+    }
+    if (dpExists(\"_objWizard_\"+dsCBTypes[i]))
+    {
+      bit32 bFeatures;
+      dyn_string dsShortName;
+      dpGet(\"_objWizard_\"+dsCBTypes[i]+\".faceplateDefaultFeatures\",bFeatures,
+            \"_objwSymbolsPerType_\"+dsCBTypes[i]+\".ShortNames\",dsShortName);
+      TREE.appendItemNC(\"TYPE|\"+dsCBTypes[i],\"FACEPLATENODE|\"+dsCBTypes[i],getCatStr(\"SimpleSymbols\",\"FaceplateNode\"));
+      TREE.setIcon(\"FACEPLATENODE|\"+dsCBTypes[i], 0, \"folder.png\");
+      if (getBit(bFeatures,0))
+      {
+        //DebugN(\"VALUES\");
+        //DebugN(\"dsShortName:\",dsShortName);
+        TREE.appendItemNC(\"FACEPLATENODE|\"+dsCBTypes[i],\"VALUES|\"+dsCBTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabValues\"));
+        TREE.setIcon(\"VALUES|\"+dsCBTypes[i], 0, \"tab.png\");
+      }
+      if (getBit(bFeatures,1))
+      {
+        //DebugN(\"CHANGES\");
+        TREE.appendItemNC(\"FACEPLATENODE|\"+dsCBTypes[i],\"CHANGES|\"+dsCBTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabChanges\"));
+        TREE.setIcon(\"CHANGES|\"+dsCBTypes[i], 0, \"tab.png\");
+      }
+      if (getBit(bFeatures,2))
+      {
+        //DebugN(\"PHERIPHERY\");
+        TREE.appendItemNC(\"FACEPLATENODE|\"+dsCBTypes[i],\"PHERIPHERY|\"+dsCBTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabAddresses\"));
+        TREE.setIcon(\"PHERIPHERY|\"+dsCBTypes[i], 0, \"tab.png\");
+      }  
+      TREE.appendItemNC(\"TYPE|\"+dsCBTypes[i],\"SYMBOLSNODE|\"+dsCBTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsNode\"));
+      TREE.setIcon(\"SYMBOLSNODE|\"+dsCBTypes[i], 0, \"folder.png\");
+      for (int j=1;j<=dynlen(dsShortName);j++)
+      {
+        //DebugN(\"Shortname here\");
+        TREE.appendItemNC(\"SYMBOLSNODE|\"+dsCBTypes[i],\"SYMBOLS|\"+dsCBTypes[i]+\";\"+dsShortName[j],dsShortName[j]);
+        TREE.setIcon(\"SYMBOLS|\"+dsCBTypes[i]+\";\"+dsShortName[j], 0, \"vision.png\");
+      }    
+    }
+    else
+    {
+//       dpCreate(\"_objWizard_\"+dsCBTypes[i],\"_objWizardSymbolsPerType\");
+//       dpCreate(\"_objwSymbolsPerType_\"+dsCBTypes[i],\"_objWizard_SymbolsPerType\");
+    }
+    
+    
+  }
+  dyn_string dsBaseTypes=makeDynString(\"char\",\"uint\",\"int\",\"float\",\"bool\",\"bit32\",\"string\",\"time\",\"TypeIndependent\");
+  dyn_string dsBaseTypesIcon=makeDynString(\"dptree/char.png\",\"dptree/uint.png\",\"dptree/int.png\",\"dptree/float.png\",\"dptree/bit.png\",\"dptree/32bit.png\",\"dptree/text.png\",\"dptree/time.png\",\"dptree/struct.png\");
+  for (int i=1;i<=dynlen(dsBaseTypes);i++)
+  {
+//     TREE.appendItemNC(\"\",\"BASETYPE|\"+dsBaseTypes[i], dsBaseTypes[i]);
+    TREE.appendItemNC(\"\",\"BASETYPE|\"+dsBaseTypes[i], getCatStr(\"SimpleSymbols\",dsBaseTypes[i]));
+    TREE.setIcon(\"BASETYPE|\"+dsBaseTypes[i],0,dsBaseTypesIcon[i]);
+    if (dpExists(\"_objWizard_\"+dsBaseTypes[i]))
+    {
+      bit32 bFeatures;
+      dyn_string dsShortName;
+      dpGet(\"_objWizard_\"+dsBaseTypes[i]+\".faceplateDefaultFeatures\",bFeatures,
+            \"_objwSymbolsPerType_\"+dsBaseTypes[i]+\".ShortNames\",dsShortName);
+      if (getBit(bFeatures,0))
+      {
+        //DebugN(\"VALUES\");
+        //DebugN(\"dsShortName:\",dsShortName);
+        TREE.appendItemNC(\"BASETYPE|\"+dsBaseTypes[i],\"VALUES|\"+dsBaseTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabValues\"));
+        TREE.setIcon(\"VALUES|\"+dsBaseTypes[i], 0, \"tab.png\");
+      }
+      if (getBit(bFeatures,1))
+      {
+        //DebugN(\"CHANGES\");
+        TREE.appendItemNC(\"BASETYPE|\"+dsBaseTypes[i],\"CHANGES|\"+dsBaseTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabChanges\"));
+        TREE.setIcon(\"CHANGES|\"+dsBaseTypes[i], 0, \"tab.png\");
+      }
+      if (getBit(bFeatures,2))
+      {
+        //DebugN(\"PHERIPHERY\");
+        TREE.appendItemNC(\"BASETYPE|\"+dsBaseTypes[i],\"PHERIPHERY|\"+dsBaseTypes[i],getCatStr(\"SimpleSymbols\",\"SymbolsPanelTabAddresses\"));
+         TREE.setIcon(\"PHERIPHERY|\"+dsBaseTypes[i], 0, \"tab.png\");
+      }  
+      for (int j=1;j<=dynlen(dsShortName);j++)
+      {
+        //DebugN(\"Shortname here\");
+        TREE.appendItemNC(\"BASETYPE|\"+dsBaseTypes[i],\"SYMBOLS|\"+dsBaseTypes[i]+\";\"+dsShortName[j],dsShortName[j]);
+        TREE.setIcon(\"SYMBOLS|\"+dsBaseTypes[i]+\";\"+dsShortName[j], 0, \"vision.png\");
+      }    
+    }
+    else
+    {
+//       dpCreate(\"_objWizard_\"+dsBaseTypes[i],\"_objWizardSymbolsPerType\");
+//       dpCreate(\"_objwSymbolsPerType_\"+dsBaseTypes[i],\"_objWizard_SymbolsPerType\");
+    }
+  }
+//   DebugTN(\"before\"+sGlobalTreeSelect);
+  TREE.adjustColumn(0); 
+//   DebugN(\"Global Initialise:\"+sGlobalTreeSelect);
+  if (sGlobalTreeSelect!=\"\")
+  {
+//     DebugTN(\"inside1:\"+sGlobalTreeSelect);
+    if(TREE.itemExists(sGlobalTreeSelect))
+    {
+//       DebugTN(\"inside2:\"+sGlobalTreeSelect);
+      TREE.setSelectedItem(sGlobalTreeSelect,TRUE);
+      TREE.ensureItemVisible(sGlobalTreeSelect);
+      //DebugN(\"Global Initialise:\"+sGlobalTreeSelect);
+    }
+  }
+
+  if (!isdir(getPath(PANELS_REL_PATH)+\"objects\"))
+  {
+    mkdir(getPath(PANELS_REL_PATH)+\"objects\");
+  }
+  if (!isdir(getPath(PANELS_REL_PATH)+\"objects//SimpleSymbols\"))
+  {
+    mkdir(getPath(PANELS_REL_PATH)+\"objects//SimpleSymbols\");
+  } 
+  TREE.updatesEnabled = true;   
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  10 12
+""0  1
+E "#uses \"CtrlXml\" 
+
+string obDpForSymbolsPerDpType;
+string obSelectedType;
+string obSelectedElement;
+string sGlobalTreeSelect=\"\";
+string sPath=\"objects//SimpleSymbols//\";
+string objwSelectedTypeDpFilter;
+string sOldTreeId;
+bool bGotSaved;
+
+void objwCreateXMLPanel(string sFileName)
+{
+  file fSymbol=fopen(sFileName,\"w\");
+  fclose(fSymbol);
+  
+  return;
+}
+
+void objwFillXMLPanel(string sFileName,string sFileRefSymbol, dyn_dyn_string ddsDollars, int iPanelSizeX=0,int iPanelSizeY=0)
+{
+  int iDocNum = xmlNewDocument();  
+ 
+  xmlAppendChild(iDocNum, -1, XML_PROCESSING_INSTRUCTION_NODE, \"xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"\");//Add header 
+ 
+  int iPanelNode = xmlAppendChild(iDocNum, -1, XML_ELEMENT_NODE, \"panel\");//add panel node 
+  int iPropertiesNode = xmlAppendChild(iDocNum, iPanelNode, XML_ELEMENT_NODE, \"properties\");//add properties node
+  int iPropNode;
+   
+  //size
+  dyn_int diPanelSize=diPanelSize=getPanelSize(sFileRefSymbol);
+  if (iPanelSizeX!=0&&iPanelSizeY!=0)//Wrapper for normal Symbol 
+  {
+    diPanelSize=makeDynInt(iPanelSizeX,iPanelSizeY);
+  }
+
+  string sSize;
+  
+  if (dynlen(diPanelSize)>=2)
+    sSize = diPanelSize[1] + \" \" + diPanelSize[2];
+  
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"Size\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, sSize);
+  //size
+ 
+  //BackColor
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"BackColor\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, \"_3DFace\");
+  //BackColor
+  
+  //RefPoint
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"RefPoint\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, \"0 0\");
+  //RefPoint
+
+  //InitAndTermRef
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"InitAndTermRef\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, \"True\");
+  //InitAndTermRef
+
+  //SendClick
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"SendClick\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, \"False\");
+  //SendClick
+ 
+  int iShapesNode = xmlAppendChild(iDocNum, iPanelNode, XML_ELEMENT_NODE, \"shapes\");//add shapes node 
+  int iReferenceNode = xmlAppendChild(iDocNum, iShapesNode, XML_ELEMENT_NODE, \"reference\");//add reference node
+  xmlSetElementAttribute(iDocNum, iReferenceNode, \"referenceId\", \"0\");
+  xmlSetElementAttribute(iDocNum, iReferenceNode, \"Name\", \"PANEL_REF0\");
+  xmlSetElementAttribute(iDocNum, iReferenceNode, \"parentSerial\", \"-1\"); 
+  iPropertiesNode = xmlAppendChild(iDocNum, iReferenceNode, XML_ELEMENT_NODE, \"properties\");//add properties node
+  
+  //FileName
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"FileName\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, sFileRefSymbol);
+  //FileName
+
+  //Location
+  dyn_int diPanelLocation=getPanelLocation(sFileRefSymbol);
+  string sLocation,sGeometry;
+  if (iPanelSizeX==0&&iPanelSizeY==0)//Wrapper for normal Symbol 
+  {
+    if (dynlen(diPanelLocation)>=2)
+      sLocation =diPanelLocation[1]+\" \"+diPanelLocation[2];
+    sGeometry= \"1 0 0 1 1 1\";
+  }
+  else
+  {
+    sLocation =\"0 0\";
+    diPanelSize=getPanelSize(sFileRefSymbol);
+    if (dynlen(diPanelLocation)>=2&&dynlen(diPanelSize)>=2)
+    {
+      float fScale=0;
+      if (diPanelSize[1]>iPanelSizeX)
+      {
+        fScale=iPanelSizeX/(float)diPanelSize[1];
+      }
+      else if (diPanelSize[2]>iPanelSizeY)
+      {
+        float fScaleTemp;
+        fScaleTemp=iPanelSizeY/(float)diPanelSize[2];
+        if (fScaleTemp>fScale)
+        {
+          fScale=fScaleTemp;
+        }
+      }
+      else
+      {
+        fScale=1; // original Size of the Reference
+      }
+      float fXT,fYT;
+      int iXT,iYT;
+      if (diPanelSize[1]>=iPanelSizeX)
+      {
+        fXT=0;
+      }
+      else
+      {
+        if (fScale==0)
+        {
+          fXT=iPanelSizeX/(2.0*fScale)+diPanelLocation[1]/(float)fScale-diPanelSize[1]/(2.0*fScale);
+        }
+        else
+        {
+          fXT=(iPanelSizeX-diPanelSize[1]*fScale)/2;
+        }
+      }
+      if (diPanelSize[2]>=iPanelSizeY)
+      {
+        fYT=0;
+      }
+      else
+      {
+        if (fScale==0)
+        {
+          fYT=iPanelSizeY/(2.0*fScale)+diPanelLocation[2]/(float)fScale-diPanelSize[2]/(2.0*fScale); 
+        }
+        else
+        {
+          fYT=(iPanelSizeY-diPanelSize[2]*fScale)/2;
+        }
+      }
+      iXT=fXT;
+      iYT=fYT;
+      //sGeometry gives the Inforamtion for the Transformationsmatrix, where (xtf 0 0 ytf xt yt)
+      //xtf= scalefactor in x direction
+      //ytf= scalefactor in y direction
+      //the two 0 are for rotation and not applicable here
+      //xt and yt gives the translation of the object in x or y direction, where the translation is done with the ref Point of the object
+      sGeometry= fScale+\" 0 0 \"+fScale+\" \"+iXT+\" \"+iYT;
+    }
+    else 
+    {
+      sGeometry= \"1 0 0 1 1 1\";
+    }
+  }
+
+  
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"Location\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, sLocation);
+  //Location
+  
+  //Geometry
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"Geometry\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, sGeometry);
+  //Geometry  
+  
+  //TabOrder
+  iPropNode = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add prop node
+  xmlSetElementAttribute(iDocNum, iPropNode, \"name\", \"TabOrder\");
+  xmlAppendChild(iDocNum, iPropNode, XML_TEXT_NODE, \"0\");
+  //TabOrder
+  
+  //dollarParameters
+  int iDollarParameters = xmlAppendChild(iDocNum, iPropertiesNode, XML_ELEMENT_NODE, \"prop\");//add dollarParameters node
+  xmlSetElementAttribute(iDocNum, iDollarParameters, \"name\", \"dollarParameters\");
+  //dollarParameters
+  
+  for(int i = 1; i <= dynlen(ddsDollars); i++)
+  {
+    int iDollarNode = xmlAppendChild(iDocNum, iDollarParameters, XML_ELEMENT_NODE, \"prop\");//add dollarParameter node
+    xmlSetElementAttribute(iDocNum, iDollarNode, \"name\", \"dollarParameter\");
+    
+    int iDollarName = xmlAppendChild(iDocNum, iDollarNode, XML_ELEMENT_NODE, \"prop\");//add dollarname node
+    xmlSetElementAttribute(iDocNum, iDollarName, \"name\", \"Dollar\");
+    xmlAppendChild(iDocNum, iDollarName, XML_TEXT_NODE, ddsDollars[i][1]);
+    
+    iDollarName = xmlAppendChild(iDocNum, iDollarNode, XML_ELEMENT_NODE, \"prop\");//add dollarname node
+    xmlSetElementAttribute(iDocNum, iDollarName, \"name\", \"Value\");
+    xmlAppendChild(iDocNum, iDollarName, XML_TEXT_NODE, (ddsDollars[i][1]==\"$SYMBOL_FILE\")?\"\\\"\"+ddsDollars[i][2]+\"\\\"\":ddsDollars[i][2]);
+  }
+  
+  xmlDocumentToFile(iDocNum, sFileName);
+  xmlCloseDocument(iDocNum);
+  
+  return;
+}
+
+dyn_int getPanelLocation(string sPanelRef) // Function needed cause there is no CTRL way to get the Ref Point of a Panel
+{
+  dyn_int diReturn;
+  string sFile;
+  
+//   DebugN(\"Path: \"+getPath(PANELS_REL_PATH,sPanelRef));
+  if (!fileToString(getPath(PANELS_REL_PATH,sPanelRef),sFile));
+  {
+//     DebugN(\"There was an error opening the Panelfile\");
+//     return diReturn;
+  }
+  int iFirstPos=strpos(sFile,\"  <prop name=\\\"RefPoint\\\">\");
+  int iSecondPos=strpos(sFile,\"</prop>\",iFirstPos);
+  string sString=substr(sFile,iFirstPos+24,iSecondPos-iFirstPos-24);
+  strreplace(sString,\"</prop>\",\"\");
+  diReturn=strsplit(sString,\" \");
+//   DebugN(\"diReturn\"+diReturn);
+  
+  return diReturn;
+}
+
+
+bool saveSettings(string sSaveId=\"\")
+{
+  //dsTabNames to objwDlsTabNames
+  string id;
+  if (sSaveId==\"\")
+  {  
+    id=TREE.selectedItem();
+  }
+  else
+  {
+    id=sSaveId;
+  }
+  dyn_string dsTabFeatures;
+  dyn_int diDelete;
+ 
+  
+  if (strpos(id,\"FACEPLATENODE|\")==0)
+  {
+    bGotSaved=true;
+    sGlobalTreeSelect=TREE.selectedItem();;
+    string sDPTName;
+    bit32 bDefaultFeatures;
+    shape schkValues=getShape(\"chkValues\");
+    shape schkAlarmBanner=getShape(\"chkAlarmBanner\");
+    bool bBool1,bBool2;
+    dyn_string dsTabPanels;//dsTabNames,
+    dyn_string dsDollarParams;
+    strreplace(id,\"FACEPLATENODE|\",\"\");
+    sDPTName=id;
+    id=\"_objWizard_\"+id;
+    if (!dpExists(id))
+    {
+      dpCreate(id,\"_objWizardSymbolsPerType\");
+    }
+
+    //DebugN(\"DP: \"+id);
+    for (int i=0;i<=2;i++)
+    {
+      getValue(schkValues,\"state\",i,bBool1);
+      if (bBool1)
+      {
+        setBit(bDefaultFeatures,i,bBool1);
+      }
+      getValue(schkAlarmBanner,\"state\",i,bBool2);
+      if (bBool2)
+      {
+        setBit(bDefaultFeatures,i+3,bBool2);
+      }
+    }
+    bool bMissing=false;
+    for (int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"&&TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+      {
+      }
+      else if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"||TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+      {
+        bMissing=true;
+        dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));
+        dynAppend(dsDollarParams,TABLE1.cellValueRC(i,\"DOLLAR\"));
+      }
+      else
+      {
+        dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));
+        dynAppend(dsDollarParams,TABLE1.cellValueRC(i,\"DOLLAR\"));        
+      }
+    }
+    bool bSet=false;
+    if (bMissing)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                                     makeDynString(\"$1:\"+getCatStr(\"SimpleSymbols\",\"UserTabsError\"),
+                                                   \"$2:\"+getCatStr(\"para\",\"yes\"),
+                                                   \"$3:\"+getCatStr(\"para\",\"no\")), 
+                                     df,ds);
+      if (df[1]!=1) //NO
+      {
+      }
+      else // Yes
+      {
+        bSet=true;
+      }
+    }  
+    else
+    {
+      bSet=true;
+    }
+    if (!isfile(getPath(PANELS_REL_PATH,SHORT.text()))&&SHORT.text()!=\"\")
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                                     makeDynString(\"$1:\"+getCatStr(\"SimpleSymbols\",\"FaceplateMainNoFile\"),
+                                                   \"$2:\"+getCatStr(\"para\",\"yes\"),
+                                                   \"$3:\"+getCatStr(\"para\",\"no\")), 
+                                     df,ds);
+      if (df[1]!=1) //NO
+      {
+        bSet=false;
+      }
+      else // Yes
+      {
+        bSet=true;
+      }      
+    }
+    else
+    {
+    }
+    if (bSet)
+    {
+      dpSet(id+\".faceplateMain\", SHORT.text,
+            id+\".DPTName\",sDPTName,
+            id+\".faceplateDefaultFeatures\",bDefaultFeatures,
+            id+\".faceplateUserDefTabNames\",objwDlsTabNames,
+            id+\".faceplateUserDefTabPanels\",dsTabPanels,
+            id+\".faceplateUserDefTabDollarParams\", dsDollarParams,
+            id+\".defaultFeatureConfig.noteDPE\",TEXT_NOTES.text);   
+    }
+    dynClear(objwDlsTabNames);
+    
+     // Do some stuff with the Main Panel so it is working for UL   
+    if (isfile(getPath(PANELS_REL_PATH,SHORT.text())))
+    {
+      string sFileText=SHORT.text();
+      dyn_string dsSplit1=strsplit(sFileText,\"//\");
+      if (dynlen(dsSplit1)>=1)
+      {
+        dyn_dyn_string ddsDollars=makeDynString();
+        string sSymbolDPT=id;
+        strreplace(sSymbolDPT,\"_objWizard_\",\"\");
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath);
+        }        
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT);
+        }
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\"))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\");
+        }
+        dynAppend(ddsDollars,makeDynString(\"$DP\",\"$DP\"));
+        string sWrapperPath=sPath+sSymbolDPT+\"/faceplate/\"+dsSplit1[dynlen(dsSplit1)];
+        strreplace(sWrapperPath,\"//\",\"/\");
+        dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FILE\",sWrapperPath,SHORT.text()));
+        remove(getPath(PANELS_REL_PATH)+sPath+sSymbolDPT+\"//faceplate//\"+dsSplit1[dynlen(dsSplit1)]);
+        dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FACEPLATE_CONFIG\",sSymbolDPT));        
+        objwFillXMLPanel(getPath(PANELS_REL_PATH)+sPath+\"\"+sSymbolDPT+\"//faceplate//\"+dsSplit1[dynlen(dsSplit1)],
+                         SHORT.text(),
+                         ddsDollars);
+//         if (SHORT.text()!=SHORT_TEMP.text()) // Panel got changed and old Wrapper panel needs to be destroyed //TODO
+//         {
+//         }
+      }
+    }
+    else
+    {
+      if (SHORT.text()!=\"\")
+      {
+        dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+      }
+    }
+  }
+  else if (strpos(id,\"VALUES|\")==0)
+  {
+    sGlobalTreeSelect=TREE.selectedItem();;
+    strreplace(id,\"VALUES|\",\"\");
+    id=\"_objWizard_\"+id;
+    if (!dpExists(id))
+    {
+      dpCreate(id,\"_objWizardSymbolsPerType\");
+    }
+    if (TABLE1.lineCount()<=0)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      sGlobalTreeSelect=id;
+      return false;
+    }
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }  
+    objwSetTabsDP(id+\".defaultFeatureConfig.displayValues\",dsTabFeatures);
+  }
+  else if (strpos(id,\"CHANGES|\")==0)
+  {
+    sGlobalTreeSelect=TREE.selectedItem();;
+    strreplace(id,\"CHANGES|\",\"\");
+    id=\"_objWizard_\"+id;
+    if (!dpExists(id))
+    {
+      dpCreate(id,\"_objWizardSymbolsPerType\");
+    }
+    if (TABLE1.lineCount()<=0)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      sGlobalTreeSelect=id;
+      return false;
+    }    
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }  
+    objwSetTabsDP(id+\".defaultFeatureConfig.changingValues\",dsTabFeatures);
+  }
+  else if (strpos(id,\"PHERIPHERY|\")==0)
+  {
+    sGlobalTreeSelect=TREE.selectedItem();;
+    strreplace(id,\"PHERIPHERY|\",\"\");
+    id=\"_objWizard_\"+id;
+    if (!dpExists(id))
+    {
+      dpCreate(id,\"_objWizardSymbolsPerType\");
+    }
+    if (TABLE1.lineCount()<=0)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"TableEmpty\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      sGlobalTreeSelect=id;
+      return false;
+    }    
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }  
+    objwSetTabsDP(id+\".defaultFeatureConfig.peripheryAddress\",dsTabFeatures);
+  }
+  else if (strpos(id,\"SYMBOLS|\")==0||strpos(id,\"SYMBOLSNODE|\")==0||strpos(id,\"BASETYPE|\")==0)//
+  {
+    string sOldTreeId=id;
+    sGlobalTreeSelect=TREE.selectedItem();
+//     DebugN(\"In If drinnen\");
+
+    if (FILE.text()==\"\")    
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      return false;
+    }
+    bool bNewSymbol=false;
+    if (strpos(id,\"SYMBOLSNODE|\")==0||strpos(id,\"BASETYPE|\")==0)
+    {
+      bNewSymbol=true;
+    }
+    strreplace(id,\"SYMBOLS|\",\"\");
+    strreplace(id,\"SYMBOLSNODE|\",\"\");
+    strreplace(id,\"BASETYPE|\",\"\");
+    dyn_string dsSplit=strsplit(id,\";\");
+    string sShortId;
+    if (dynlen(dsSplit)>=2||bNewSymbol)
+    {
+      if (bNewSymbol)
+      {
+        dynAppend(dsSplit,SHORT.text());
+      }
+      sShortId=dsSplit[2];
+      strreplace(id,\";\"+dsSplit[2],\"\");
+      dyn_string dsShortNames,dsFileNames,dsDollars,dsStoredDollarValues;
+      string sDPTName=\"_objwSymbolsPerType_\"+id;
+      dpGet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames,
+            sDPTName+\".Dollars\",dsDollars,
+            sDPTName+\".DollarValues\",dsStoredDollarValues);
+
+       dyn_string dsStoredDollars = dsDollars;     
+      
+      if (dynlen(dsSplit)<2)
+      {
+        dynAppend(dsSplit,\"\");
+      }
+//       if(dynContains(dsShortNames,sGlobalTreeSelect)!=0||(sShortId!=sOldShortName&&dynContains(dsShortNames,sShortId)!=0))//If the new name does already exists  if(dynContains(dsShortNames,sGlobalTreeSelect)!=0)//If the new name does already exists
+      if ((SHORT.text()!=dsSplit[2]&&dynContains(dsShortNames,SHORT.text())!=0)||//if existign Smbol get renamed and new name exists already
+          (strpos(sOldTreeId,\"SYMBOLSNODE|\")==0&&dynContains(dsShortNames,SHORT.text())!=0)||// if new Symbol has a name that exists already.
+          (strpos(sOldTreeId,\"BASETYPE|\")==0&&dynContains(dsShortNames,SHORT.text())!=0))
+      {
+        dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"NameExistsAlready\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"NameExistsAlready\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+        return false;
+      }
+      if(dynContains(dsShortNames,SHORT.text())!=0&&bNewSymbol)//If the new name does already exists  if(dynContains(dsShortNames,sGlobalTreeSelect)!=0)//If the new name does already exists
+      {
+        dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"NameExistsAlready\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"NameExistsAlready\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+        return false;
+      }
+      if(SHORT.text()==\"\")//If the new name is empty
+      {
+        dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolNameEmpty\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolNameEmpty\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+        return false;
+      }
+      
+      //IM 109815
+      dyn_string dsDollarValues = TABLE1.getColumnN(1);
+      
+      if ( dynContains(dsDollarValues, \"\") )
+      {
+        dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",\"a\",
+                                       makeDynString(\"$1:\"+getCatStr(\"SimpleSymbols\",\"EmptyDollarValues\"),
+                                                     \"$2:\"+getCatStr(\"para\",\"yes\"),
+                                                     \"$3:\"+getCatStr(\"para\",\"no\")), 
+                                       df,ds);
+        if (df[1]!=1) //NO
+        {
+          return false;
+        }
+        
+      }
+      
+      if (bNewSymbol)
+      {
+        sGlobalTreeSelect=\"SYMBOLS|\"+id+\";\"+SHORT.text();
+//         DebugN(\"sGlobalTreeSelect:\"+sGlobalTreeSelect);
+      }
+      int pos=dynContains(dsShortNames,sShortId);
+      if (pos!=0)
+      {
+        dsShortNames[pos]=SHORT.text();
+        dsFileNames[pos]=FILE.text();
+      }
+      else
+      {
+        dynAppend(dsShortNames,SHORT.text());
+        dynAppend(dsFileNames,FILE.text());
+      }
+      //DebugN(\"sShortId:\"+sShortId+\" Short.text:\"+SHORT.text());
+
+      if (sShortId==SHORT.text()) // if the shortname has not been changed than only update the Dollarvalues
+      {
+        //DebugN(\"Name NOT changed\");
+        for (int j=0;j<TABLE1.lineCount();j++)
+        {
+          string sTableDollar=TABLE1.cellValueRC(j,\"DOLLAR\");
+          bool bFound=false;
+          for (int i=1;i<=dynlen(dsDollars);i++)
+          {
+            dyn_string dsSplit=strsplit(dsDollars[i],\"|\");
+
+            if (dynlen(dsSplit)>=2)
+            {
+              //DebugN(\"i:\"+i+\" dsDollars[i]:\"+dsDollars[i]+\" sTableDollar:\"+sTableDollar);
+              if (dsSplit[1]==sShortId && dsSplit[2]==sTableDollar)
+              {
+                dsDollarValues[i]=TABLE1.cellValueRC(j,\"VALUE\");
+                bFound=true;
+              }
+            }
+          }
+          if (!bFound)
+          {            
+            bool bReached;
+            for ( int i = 1; i <= dynlen(dsDollars); i++ )
+            {
+              if ( strpos(dsDollars[i], sShortId+\"|\") != -1 )
+                bReached = true;
+              
+              if ( bReached && strpos(dsDollars[i], sShortId+\"|\") == -1 )
+              {
+                dynInsertAt(dsDollars, sShortId+\"|\"+TABLE1.cellValueRC(j,\"DOLLAR\"), i);
+                dynInsertAt(dsDollarValues, TABLE1.cellValueRC(j,\"VALUE\"), i);
+                break;
+              }
+            }
+          }
+        }
+        dynClear(diDelete);
+        for (int i=1;i<=dynlen(dsDollars);i++) // If Dollars are not here anymore delete them again
+        {
+          dyn_string dsSplite=strsplit(dsDollars[i],\"|\");
+          if (dynlen(dsSplite)>=2)
+          {
+//             DebugN(\"dsSplite[1]\"+dsSplite[1]+\"==sShortId\"+sShortId);
+            if (dsSplite[1]==sShortId)
+            {
+//               DebugN(\"drinnen\");
+              bool bFoundY=false;
+              for(int j=0;j<TABLE1.lineCount();j++)
+              {
+                //DebugN(\"dsSplite[2]:\"+dsSplite[2]+\"==\"+TABLE1.cellValueRC(j,\"DOLLAR\"));
+                //DebugN(\"Table Value\"+TABLE1.cellValueRC(j,\"DOLLAR\"));
+                if (dsSplite[2]==TABLE1.cellValueRC(j,\"DOLLAR\"))
+                {
+                  bFoundY=true;
+                  break;
+                }
+              }
+              //DebugN(\"bFoundY:\"+bFoundY+\"dsSplite[1]:\"+dsSplite[1]+\" dsSplite[2]\"+dsSplite[2]);
+//               DebugN(\"vor Remove append \"+bFoundY);
+              if (!bFoundY)
+              {
+                dynAppend(diDelete,i);
+              }
+            }
+          }
+        }
+        //DebugN(\"diDelete\"+diDelete);
+        for (int i=dynlen(diDelete);i>=1;i--)
+        {
+          dynRemove(dsDollars,diDelete[i]);
+          dynRemove(dsDollarValues,diDelete[i]);
+        }
+      }
+      else// if the Shortname has been changed than the old Values need to be updated and the Dollarvalues set to the new
+      {
+        strreplace(sGlobalTreeSelect,sShortId,SHORT.text());
+//         DebugN(\"dsDollars before NAmechange and dollarchange: \",dsDollars);
+        //sShortId==SHORT.text();
+//         DebugN(\"Name changed\");
+        for (int j=0;j<TABLE1.lineCount();j++)
+        {
+          string sTableDollar=TABLE1.cellValueRC(j,\"DOLLAR\");
+          bool bFound=false;
+          for (int i=1;i<=dynlen(dsDollars);i++)
+          {
+            dyn_string dsSplit=strsplit(dsDollars[i],\"|\");
+            if (dynlen(dsSplit)>=2)
+            {
+//               DebugN(\"i:\"+i+\" dsDollars[i]:\"+dsDollars[i]+\" sTableDollar:\"+sTableDollar);
+              if (dsSplit[1]==sShortId && dsSplit[2]==sTableDollar)
+              {
+                dsDollarValues[i]=TABLE1.cellValueRC(j,\"VALUE\");
+                dsDollars[i]=SHORT.text()+\"|\"+dsSplit[2];
+                bFound=true;
+              }
+            }
+          }
+          if (!bFound)
+          {
+            dynAppend(dsDollarValues,TABLE1.cellValueRC(j,\"VALUE\"));
+            dynAppend(dsDollars,SHORT.text()+\"|\"+TABLE1.cellValueRC(j,\"DOLLAR\"));
+          }
+        } 
+//         DebugN(\"dsDollars after NAmechange and dollarchange: \",dsDollars);
+        dynClear(diDelete);
+        for (int i=1;i<=dynlen(dsDollars);i++) // If Dollars are not here anymore delete them again
+        {
+          dyn_string dsSplite=strsplit(dsDollars[i],\"|\");
+          if (dynlen(dsSplite)>=2)
+          {
+            if (dsSplite[1]==sShortId)
+            {
+              bool bFoundY=false;
+              for(int j=0;j<TABLE1.lineCount();j++)
+              {
+                bFoundY=false;
+                if (dsSplite[2]==TABLE1.cellValueRC(j,\"DOLLAR\"))
+                {
+                  bFoundY=true;
+                  break;
+                }
+              }
+              if (bFoundY==false)
+              {
+                dynAppend(diDelete,i);
+              }
+            }
+          }
+        }  
+//         DebugN(\"diDelete\"+diDelete);
+        for (int i=dynlen(diDelete);i>=1;i--)
+        {
+          dynRemove(dsDollars,diDelete[i]);
+          dynRemove(dsDollarValues,diDelete[i]);
+        }
+      }
+      
+      int iFirstPos = -1;
+      int iLastPos = -1;
+
+      
+      for (int i = dynlen(dsDollars); i > 0; i--)
+      {
+        dyn_string dsSplite=strsplit(dsDollars[i], \"|\");
+        
+        if ( dsSplite[1] != sShortId )
+          dynRemove(dsDollarValues, i);
+      }
+      
+      for ( int i = 1; i <= dynlen(dsStoredDollars); i++ )
+      {
+        if ( strpos(dsStoredDollars[i], sShortId + \"|\") != -1 && iFirstPos == -1 )
+        {
+          iFirstPos = i;
+        }
+        if ( strpos(dsStoredDollars[i], sShortId + \"|\") != -1 )
+        {
+          iLastPos = i;
+        }
+      }
+      
+      if ( iFirstPos != -1 )
+      {
+        for ( int i = iLastPos; i >= iFirstPos  ; i-- )
+        {
+          dynRemove(dsStoredDollarValues, i);
+        }
+        dynInsertAt(dsStoredDollarValues, dsDollarValues, iFirstPos);
+      }
+            
+      
+      dpSet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames,
+            sDPTName+\".Dollars\",dsDollars,
+            sDPTName+\".DollarValues\",dsStoredDollarValues); 
+      
+      
+    dyn_dyn_string ddsDollars=makeDynString();
+    int y=0;
+    int iLast=0;
+    for (int x=1; x<= dynlen(dsDollars);x++)
+    {
+      if (strpos(dsDollars[x],SHORT.text())==0)
+      {
+        y++;
+        dynAppend(ddsDollars,makeDynString(dsDollars[x],dsStoredDollarValues[x]));
+        strreplace(ddsDollars[y][1],SHORT.text()+\"|\",\"\");
+      }
+      iLast=x;
+    }
+    
+    string sParent=TREE.parent(sOldTreeId);
+    if (strlen(sParent)>0)
+    {
+//       if (strpos(sParent,\"BASETYPE|\")==0)
+//       {
+//       }
+//       else
+//       {
+        string sSymbolDPT=id;
+        strreplace(sSymbolDPT,\"\",\"\");
+        dynAppend(ddsDollars,makeDynString(\"$DP\",\"$DP\"));
+        string sWrapperPath=sPath+sSymbolDPT+\"/symbol/\"+SHORT.text()+\".xml\";
+        strreplace(sWrapperPath,\"//\",\"/\");
+        dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FILE\",sWrapperPath,FILE.text()));
+        dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FACEPLATE_CONFIG\",sSymbolDPT));
+        remove(getPath(PANELS_REL_PATH)+sPath+sSymbolDPT+\"//symbol//\"+sShortId+\".xml\");
+        remove(getPath(PANELS_REL_PATH)+sPath+sSymbolDPT+\"//faceplate//\"+sShortId+\".xml\");
+        string sShortText=SHORT.text();
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath);
+        }        
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT);
+        }
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//symbol\"))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//symbol\");
+        }
+        if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\"))
+        {
+          mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\");
+        }        
+        // for normal Wrapper Panel unsed everywhere
+          objwFillXMLPanel(  getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//symbol//\"+SHORT.text()+\".xml\",
+                             FILE.text(),
+                             ddsDollars);
+        // for ULC Faceplate
+          objwFillXMLPanel(  getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate//\"+SHORT.text()+\".xml\",
+                             sPath+\"/\"+sSymbolDPT+\"/symbol/\"+SHORT.text()+\".xml\",
+                             ddsDollars,
+                             180,
+                             415);  
+//           objwFillXMLPanel(  getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate//\"+SHORT.text()+\".xml\",
+//                              FILE.text(),
+//                              ddsDollars,
+//                              180,
+//                              415);           
+//         objwFillXMLPanel(getPath(PANELS_REL_PATH)+sPath+\"\"+sSymbolDPT+\"//faceplate//\"+dsSplit1[dynlen(dsSplit1)],
+//                          SHORT.text(),
+//                          ddsDollars);          
+          if (!dpExists(\"_ds_\"+sSymbolDPT))
+          {
+            dpCreate(\"_ds_\"+sSymbolDPT,\"_DynamicDptSettings\");
+            delay(0,10);
+          }
+          dyn_string dsSymbolsForPara;
+          dpGet(\"_ds_\"+sSymbolDPT+\".symbols\",dsSymbolsForPara);
+          dynRemove(dsSymbolsForPara,dynContains(dsSymbolsForPara,\"/panels/\"+sSymbolDPT+\"/symbol/\"+sShortId+\".xml\"));
+          string sAppend=\"/objects/SimpleSymbols/\"+sSymbolDPT+\"/symbol/\"+sShortText+\".xml\";
+          dynAppend(dsSymbolsForPara,sAppend);
+          dynUnique(dsSymbolsForPara);
+          dpSet(\"_ds_\"+sSymbolDPT+\".symbols\",dsSymbolsForPara);
+//         }
+      }
+    }   
+  }
+  return true;
+//   else if (strpos(id,\"BASETYPE|\")==0)
+//   {
+//     sGlobalTreeSelect=id;
+//     string sDPTName;
+//     bit32 bDefaultFeatures;
+//     shape schkValues=getShape(\"chkValues\");
+//     shape schkAlarmBanner=getShape(\"chkAlarmBanner\");
+//     bool bBool1,bBool2;
+//     dyn_string dsTabPanels;//dsTabNames,
+//     strreplace(id,\"BASETYPE|\",\"\");
+//     sDPTName=id;
+//     id=\"_objWizard_\"+id;
+//     if (!dpExists(id))
+//     {
+//       dpCreate(id,\"_objWizardSymbolsPerType\");
+//     }
+// 
+    //DebugN(\"DP: \"+id);
+//     for (int i=0;i<=2;i++)
+//     {
+//       getValue(schkValues,\"state\",i,bBool1);
+//       if (bBool1)
+//       {
+//         setBit(bDefaultFeatures,i,bBool1);
+//       }
+//       getValue(schkAlarmBanner,\"state\",i,bBool2);
+//       if (bBool2)
+//       {
+//         setBit(bDefaultFeatures,i+3,bBool2);
+//       }
+//     }    
+//     bool bMissing=false;
+//     for (int i=0;i<TABLE1.lineCount();i++)
+//     {
+//       if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"&&TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+//       {
+//       }
+//       else if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"||TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+//       {
+//         bMissing=true;
+//         dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));
+//       }
+//       else
+//       {
+//         dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));        
+//       }
+//     }
+//     bool bSet=false;
+//     if (bMissing)
+//     {
+//       dyn_string ds;
+//       dyn_float df;
+//       ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+//                                      makeDynString(\"$1:\"+getCatStr(\"SimpleSymbols\",\"UserTabsError\"),
+//                                                    \"$2:\"+getCatStr(\"para\",\"yes\"),
+//                                                    \"$3:\"+getCatStr(\"para\",\"no\")), 
+//                                      df,ds);
+//       if (df[1]!=1) //NO
+//       {
+//       }
+//       else // Yes
+//       {
+//         bSet=true;
+//       }
+//     }  
+//     else
+//     {
+//       bSet=true;
+//     }
+//     if (!isfile(getPath(PANELS_REL_PATH,SHORT.text()))&&SHORT.text()!=\"\")
+//     {
+//       dyn_string ds;
+//       dyn_float df;
+//       ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+//                                      makeDynString(\"$1:\"+getCatStr(\"SimpleSymbols\",\"FaceplateMainNoFile\"),
+//                                                    \"$2:\"+getCatStr(\"para\",\"yes\"),
+//                                                    \"$3:\"+getCatStr(\"para\",\"no\")), 
+//                                      df,ds);
+//       if (df[1]!=1) //NO
+//       {
+//         bSet=false;
+//       }
+//       else // Yes
+//       {
+//         bSet=true;
+//       }      
+//     }
+//     else
+//     {
+//     }
+//     if (bSet)
+//     {
+//       dpSet(id+\".faceplateMain\", SHORT.text,
+//             id+\".DPTName\",sDPTName,
+//             id+\".faceplateDefaultFeatures\",bDefaultFeatures,
+//             id+\".faceplateUserDefTabNames\",objwDlsTabNames,
+//             id+\".faceplateUserDefTabPanels\",dsTabPanels,
+//             id+\".defaultFeatureConfig.noteDPE\",TEXT_NOTES.text);   
+//     }
+//     dynClear(objwDlsTabNames); 
+     // Do some stuff with the Main Panel so it is working for UL   
+//     if (isfile(getPath(PANELS_REL_PATH,SHORT.text())))
+//     {
+//       string sFileText=SHORT.text();
+//       dyn_string dsSplit1=strsplit(sFileText,\"//\");
+//       if (dynlen(dsSplit1)>=1)
+//       {
+//         dyn_dyn_string ddsDollars=makeDynString();
+//         string sSymbolDPT=id;
+//         strreplace(sSymbolDPT,\"_objWizard_\",\"\");
+//         if (!isdir(getPath(PANELS_REL_PATH)+sPath))
+//         {
+//           mkdir(getPath(PANELS_REL_PATH)+sPath);
+//         }        
+//         if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT))
+//         {
+//           mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT);
+//         }
+//         if (!isdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\"))
+//         {
+//           mkdir(getPath(PANELS_REL_PATH)+sPath+\"//\"+sSymbolDPT+\"//faceplate\");
+//         }
+//         dynAppend(ddsDollars,makeDynString(\"$DP\",\"$DP\"));
+//         string sWrapperPath=sPath+sSymbolDPT+\"/faceplate/\"+dsSplit1[dynlen(dsSplit1)];
+//         strreplace(sWrapperPath,\"//\",\"/\");
+//         dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FILE\",sWrapperPath,SHORT.text()));
+//         remove(getPath(PANELS_REL_PATH)+sPath+sSymbolDPT+\"//faceplate//\"+dsSplit1[dynlen(dsSplit1)]);
+//         dynAppend(ddsDollars,makeDynString(\"$SYMBOL_FACEPLATE_CONFIG\",sSymbolDPT));        
+//         objwFillXMLPanel(getPath(PANELS_REL_PATH)+sPath+\"\"+sSymbolDPT+\"//faceplate//\"+dsSplit1[dynlen(dsSplit1)],
+//                          SHORT.text(),
+//                          ddsDollars);
+//         if (SHORT.text()!=SHORT_TEMP.text()) // Panel got changed and old Wrapper panel needs to be destroyed //TODO
+//         {
+//         }
+//       }
+//     }
+//     else
+//     {
+//       if (SHORT.text()!=\"\")
+//       {
+//         dyn_string ds;
+//         dyn_float df;
+//         ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+//         makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+//                       getCatStr(\"para\",\"close\")), 
+//         df,ds);
+//       }
+//     }    
+//     DebugN(\"Ack LangString: dp Set2\", objwDlsTabNames);
+//     dpSet(id+\".faceplateMain\", SHORT.text,
+//           id+\".DPTName\",sDPTName,
+//           id+\".faceplateDefaultFeatures\",bDefaultFeatures,
+//           id+\".faceplateUserDefTabNames\",objwDlsTabNames,
+//           id+\".faceplateUserDefTabPanels\",dsTabPanels);
+//           
+//   }
+
+  
+  //TREE.setSelectedItem(\"BASETYPE|char\",TRUE);
+//   DebugN(\"Button ACK:\"+sGlobalTreeSelect);
+}
+void objwSetTabsDP(string sDP,dyn_string dsValues)
+{
+  dpSet(sDP,dsValues);
+  return;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" "  main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"CloseWithoutSaveing\"),
+  makeDynString(getCatStr(\"SimpleSymbols\",\"CloseWithoutSaveing\"),
+                getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+  df,ds);
+  if (dynlen(df)<1)//X Close
+  { 
+    return; 
+  }
+  else if (df[1]!=1)//No
+  {
+    PanelOff();  
+  }
+  else if (df[1]==1)//Yes
+  {
+    if ( saveSettings() )
+      PanelOff();   
+  }
+  
+}
+" 0
+
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 5
+"FRAME2"
+""
+1 10 12 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.503571428571429 0 1.594674556213018 -24.03571428571425 -14.13609467455621 0 E 10 12 291 351
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 32 Assign Symbols to Datapointtypes
+LANG:10004 23 为DP类型分配符号
+LANG:10000 37 Symbol <-> Datenpunkttyp Verknüpfung
+LANG:10027 72 Присвоение символов типам точек данных
+29 9
+"TREE"
+""
+1 20 45.81963927855712 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  26 36 305 526
+10 TreeWidget
+1
+0 "selectionChanged" "(string id)"
+"  if ( id == sOldTreeId)
+    return;
+  
+  string sTempOldTreeId=id;
+  dyn_string shortNames;
+  dyn_string fileNames;
+  dyn_string dollars;
+  dyn_string elements;
+  string sOldTreeIdConst=sOldTreeId;
+  string element;
+  dyn_bool bArchives;
+  dyn_bool bAlerts;
+  dyn_bool bPVRange;
+  const int x=340;
+  const int y=27;
+//   DebugN(\"TreeID:\"+id);
+  
+  Button_Ack.enabled(false);
+  Button_Delete.enabled(false);  
+  Button_Insert.enabled(false);
+  
+  bool bSaveNeeded=false;
+
+  if (strpos(sOldTreeId,\"TYPE|\")==0)
+  {
+    // Nothing to save here
+  }
+  else if (strpos(sOldTreeId,\"SYMBOLSNODE|\")==0||strpos(sOldTreeId,\"BASETYPE|\")==0)
+  {
+    if (shapeExists(\"paramRef\"))
+    {
+      if (SHORT.text()!=\"\"||FILE.text()!=\"\"||TABLE1.lineCount()>0)
+      {
+        bSaveNeeded=true;
+      }
+    }
+  }  
+  else if (strpos(sOldTreeId,\"SYMBOLS|\")==0)
+  {
+  if (shapeExists(\"paramRef\"))
+  {
+      string sShortName, sShortNameOld,sFileName,sFileNameOld;
+      dyn_string dsDollars, dsDollarsOld, dsDollarValue, dsDollarValueOld;
+      sShortName=SHORT.text();
+      sFileName=FILE.text();
+      sShortNameOld=SHORT1.text();
+      sFileNameOld=FILE1.text();
+      if (TABLE1.lineCount()==TABLE2.lineCount())
+      {
+      for (int i=0;i<TABLE1.lineCount();i++)
+        {
+          dynAppend(dsDollarValue,TABLE1.cellValueRC(i,\"VALUE\"));
+          dynAppend(dsDollars,TABLE1.cellValueRC(i,\"DOLLAR\"));
+          dynAppend(dsDollarValueOld,TABLE2.cellValueRC(i,\"VALUE\"));
+          dynAppend(dsDollarsOld,TABLE2.cellValueRC(i,\"DOLLAR\"));
+        }
+      }
+      else
+      {
+        bSaveNeeded=true;
+      }
+      if (dsDollarValue!=dsDollarValueOld||
+          dsDollars!=dsDollarsOld||
+          sShortName!=sShortNameOld||
+          sFileName!=sFileNameOld)
+      {
+        bSaveNeeded=true;
+      }
+    }
+  }
+  else if (strpos(sOldTreeId,\"FACEPLATENODE|\")==0)
+  {
+//     DebugN(\"FACEPLATENODE\");
+    bit32 bDefaultFeatures;
+    shape schkValues=getShape(\"chkValues\");
+    shape schkAlarmBanner=getShape(\"chkAlarmBanner\");
+    bool bBool1,bBool2;
+    dyn_string dsTabPanels;//dsTabNames,
+    for (int i=0;i<=2;i++)
+    {
+      getValue(schkValues,\"state\",i,bBool1);
+      if (bBool1)
+      {
+        setBit(bDefaultFeatures,i,bBool1);
+      }
+      getValue(schkAlarmBanner,\"state\",i,bBool2);
+      if (bBool2)
+      {
+        setBit(bDefaultFeatures,i+3,bBool2);
+      }
+    }
+    for (int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"&&TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+      {
+      }
+      else if (TABLE1.cellValueRC(i,\"TABNAME\")==\"\"||TABLE1.cellValueRC(i,\"PANEL\")==\"\")
+      {
+        dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));
+      }
+      else
+      {
+        dynAppend(dsTabPanels,TABLE1.cellValueRC(i,\"PANEL\"));        
+      }
+    }
+  string sFile=SHORT.text();  
+  string sNoteDPE=TEXT_NOTES.text();
+  string sFileOld,sNoteDPEOld, sDPTNameOld;
+  dyn_string dsTabPanelsOld;
+  dyn_langString objwDlsTabNamesOld;
+  bit32 bDefaultFeaturesOld;
+  strreplace(sOldTreeId,\"FACEPLATENODE|\",\"\");
+  sOldTreeId=\"_objWizard_\"+sOldTreeId;
+  if(dpExists(sOldTreeId))
+  {
+    dpGet(sOldTreeId+\".faceplateMain\", sFileOld,
+          sOldTreeId+\".faceplateDefaultFeatures\",bDefaultFeaturesOld,
+          sOldTreeId+\".faceplateUserDefTabNames\",objwDlsTabNamesOld,
+          sOldTreeId+\".faceplateUserDefTabPanels\",dsTabPanelsOld,
+          sOldTreeId+\".defaultFeatureConfig.noteDPE\",sNoteDPEOld); 
+    if (sFileOld!=sFile||
+        bDefaultFeaturesOld!=bDefaultFeatures||
+        objwDlsTabNamesOld!=objwDlsTabNames||
+        dsTabPanelsOld!=dsTabPanels||
+        sNoteDPEOld!=sNoteDPE)
+    {
+      bSaveNeeded=true;
+    }    
+  }
+    
+    
+  }
+  else if (strpos(sOldTreeId,\"VALUES|\")==0)
+  {
+//     DebugN(\"VALUES\");
+    dyn_string dsTabFeatures;
+    strreplace(sOldTreeId,\"VALUES|\",\"\");
+    sOldTreeId=\"_objWizard_\"+sOldTreeId;
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }
+    dyn_string dsTabFeaturesOld;
+    for(int i=0;i<TABLE2.lineCount();i++)
+    {
+      if (TABLE2.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeaturesOld,TABLE2.cellValueRC(i,\"DPE\"));
+      }
+    }
+    if (dsTabFeaturesOld!=dsTabFeatures)
+    {
+      bSaveNeeded=true;
+    }
+  }
+  else if (strpos(sOldTreeId,\"CHANGES|\")==0)
+  {
+//     DebugN(\"CHANGES\");
+    dyn_string dsTabFeatures;
+    strreplace(sOldTreeId,\"CHANGES|\",\"\");
+    sOldTreeId=\"_objWizard_\"+sOldTreeId;
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }
+    dyn_string dsTabFeaturesOld;
+    for(int i=0;i<TABLE2.lineCount();i++)
+    {
+      if (TABLE2.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeaturesOld,TABLE2.cellValueRC(i,\"DPE\"));
+      }
+    }
+    if (dsTabFeaturesOld!=dsTabFeatures)
+    {
+      bSaveNeeded=true;
+    }
+  }
+  else if (strpos(sOldTreeId,\"PHERIPHERY|\")==0)
+  {
+//     DebugN(\"PHERIPHERY\");
+    dyn_string dsTabFeatures;
+    strreplace(sOldTreeId,\"PHERIPHERY|\",\"\");
+    sOldTreeId=\"_objWizard_\"+sOldTreeId;
+    for(int i=0;i<TABLE1.lineCount();i++)
+    {
+      if (TABLE1.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeatures,TABLE1.cellValueRC(i,\"DPE\"));
+      }
+    }
+    dyn_string dsTabFeaturesOld;
+    for(int i=0;i<TABLE2.lineCount();i++)
+    {
+      if (TABLE2.cellValueRC(i,\"DPE\")!=\"\")
+      {
+        dynAppend(dsTabFeaturesOld,TABLE2.cellValueRC(i,\"DPE\"));
+      }
+    }
+    if (dsTabFeaturesOld!=dsTabFeatures)
+    {
+      bSaveNeeded=true;
+    }
+  }
+//   DebugN(\"bSaveNeeded:\"+bSaveNeeded);
+  if (bSaveNeeded==true&&bGotSaved==false)
+  {
+    if (TREE.itemExists(id)==false)
+    {
+      return;
+    }
+    dyn_string ds;
+    dyn_float df;
+  
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"SaveBeforeNewKonfiguration\"),
+    makeDynString(getCatStr(\"SimpleSymbols\",\"SaveBeforeNewKonfiguration\"),
+                  getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+    df,ds);
+    if (dynlen(df)<1)//X Close
+    { 
+      bGotSaved=false;
+      return; 
+    }
+    else if (df[1]!=1)//No
+    {
+    }
+    else if (df[1]==1)//Yes
+    { 
+      if ( !saveSettings(sOldTreeIdConst) )
+      {
+        TREE.setSelectedItem(sOldTreeId);
+        return;
+      }
+    }
+  } 
+  if ( shapeExists(\"paramRef\"))
+  {
+    removeSymbol(myModuleName(), myPanelName(), \"paramRef\");
+  }  
+  // TYPE|FB_LEVEL_454545
+  //  FACEPLATENODE|FB_LEVEL_454545
+  //    VALUES|FB_LEVEL_454545
+  //    CHANGES|FB_LEVEL_454545
+  //    PHERIPHERY|FB_LEVEL_454545
+  //  SYMBOLSNODE|FB_LEVEL_454545
+  //    SYMBOLS|FB_LEVEL_454545;MOTOR1
+  if (strpos(id,\"TYPE|\")==0)
+  {
+    sGlobalTreeSelect=id;
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(false);
+    addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/TypeProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"), x, y, 0, 1, 1);
+  }
+  else if (strpos(id,\"FACEPLATENODE|\")==0)
+  {
+    sGlobalTreeSelect=id;
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    Button_Delete.enabled(false);
+    strreplace(id,\"FACEPLATENODE|\",\"\");
+    if(!dpExists(\"_objWizard_\"+id))
+    {
+      dpCreate(\"_objWizard_\"+id,\"_objWizardSymbolsPerType\");
+      delay(0,10);
+    }
+    if(!dpExists(\"_objwSymbolsPerType_\"+id))
+    {
+      dpCreate(\"_objwSymbolsPerType_\"+id,\"_objWizard_SymbolsPerType\");
+      delay(0,10);
+    }    
+    objwSelectedTypeDpFilter=\"_mp_\"+id;
+    addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/FaceplateProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+  }
+  else if (strpos(id,\"SYMBOLSNODE|\")==0)
+  {
+    Button_Delete.enabled(false);
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    if (TREE.itemExists(id)==TRUE)
+    {
+      string sParent=TREE.parent(id);
+      if (strlen(sParent)>0)
+      {
+        if (strpos(sParent,\"BASETYPE|\")==0)
+        {
+          objwSelectedTypeDpFilter=\"\";
+          strreplace(id,\"SYMBOLS|\",\"\");
+          dyn_string dsSplit=strsplit(id,\";\");
+          if (dynlen(dsSplit)>=2)
+          {
+            strreplace(id,\";\"+dsSplit[2],\"\");
+          }
+          objwSelectedTypeDpFilter=id;
+          addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/SymbolBaseTypeProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+        }
+        else
+        {
+//           addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/SymbolProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"), x, y, 0, 1, 1);
+        }    
+      }
+    }
+    
+  }
+  else if (strpos(id,\"VALUES|\")==0)
+  {
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    Button_Delete.enabled(false);
+    string sParent=TREE.parent(id);
+    if (strlen(sParent)>0)
+    {
+      if (strpos(sParent,\"BASETYPE|\")==0)
+      {
+        objwSelectedTypeDpFilter=\"\";
+      }
+      else
+      {
+        strreplace(id,\"VALUES|\",\"\");
+        objwSelectedTypeDpFilter=\"_mp_\"+id;
+      }
+    }
+    addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/TabPropertiesValues.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+  }
+  else if (strpos(id,\"CHANGES|\")==0)
+  {
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    Button_Delete.enabled(false);
+    string sParent=TREE.parent(id);
+    if (strlen(sParent)>0)
+    {
+      if (strpos(sParent,\"BASETYPE|\")==0)
+      {
+        objwSelectedTypeDpFilter=\"\";
+      }
+      else
+      {
+        strreplace(id,\"CHANGES|\",\"\");
+        objwSelectedTypeDpFilter=\"_mp_\"+id;
+      }
+    }
+    addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/TabPropertiesValues.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+  }
+  else if (strpos(id,\"PHERIPHERY|\")==0)
+  {
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    Button_Delete.enabled(false);
+    string sParent=TREE.parent(id);
+    if (strlen(sParent)>0)
+    {
+      if (strpos(sParent,\"BASETYPE|\")==0)
+      {
+        objwSelectedTypeDpFilter=\"\";
+      }
+      else
+      {
+        strreplace(id,\"PHERIPHERY|\",\"\");
+        objwSelectedTypeDpFilter=\"_mp_\"+id;
+      }
+    }
+    addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/TabPropertiesValues.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+  }
+  else if (strpos(id,\"SYMBOLS|\")==0)
+  {
+    Button_Delete.enabled(true);
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    if (TREE.itemExists(id)==false)
+    {
+      return;
+    }
+    string sParent=TREE.parent(id);
+    if (strlen(sParent)>0)
+    {
+      if (strpos(sParent,\"BASETYPE|\")==0)
+      {
+        objwSelectedTypeDpFilter=\"\";
+        strreplace(id,\"SYMBOLS|\",\"\");
+        dyn_string dsSplit=strsplit(id,\";\");
+        if (dynlen(dsSplit)>=2)
+        {
+          strreplace(id,\";\"+dsSplit[2],\"\");
+        }
+        objwSelectedTypeDpFilter=id;
+        addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/SymbolBaseTypeProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+      }
+      else
+      {
+        strreplace(id,\"SYMBOLS|\",\"\");
+        dyn_string dsSplit=strsplit(id,\";\");
+        if (dynlen(dsSplit)>=2)
+        {
+          strreplace(id,\";\"+dsSplit[2],\"\");
+          objwSelectedTypeDpFilter=\"_mp_\"+id;
+        }
+        addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/SymbolProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"+objwSelectedTypeDpFilter), x, y, 0, 1, 1);
+      }    
+    }
+    
+  }
+  else if (strpos(id,\"BASETYPE|\")==0)
+  {
+    Button_Insert.enabled(true);
+    Button_Ack.enabled(true);
+    Button_Delete.enabled(false);
+//     addSymbol(myModuleName(), myPanelName(), \"gedi/ScriptWizard/SymbolBaseTypeProperties.pnl\", \"paramRef\", makeDynString(\"$DP:\"), x, y, 0, 1, 1);
+  }
+  sOldTreeId=sTempOldTreeId;
+  bGotSaved=false;"
+E13 25
+"Button_Insert"
+""
+1 315 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Insert new symbol to the marked DPT
+LANG:10004 30 将新符号插入标记的DPT
+LANG:10000 46 Neues Symbol zu dem markierten Typ hinzufügen
+LANG:10027 74 Вставить новый символ в отмеченный тип DP
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  313 33 341 61
+
+P 
+4294967295
+"pictures/StandardIcons/Insert_end_20.png"
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 16 Добавить
+"main()
+{
+  
+  string id=TREE.selectedItem();
+  string type,sBaseid=id;
+  string sId;
+  string sDPTName;
+  int iNextNumber = 1;
+//    DebugN(\"id:\"+id);
+  sId=id;
+  if (strpos(id,\"TYPE|\")!=0)
+  {
+    id =TREE.parent(id);
+    sId=id;
+    //DebugN(\"Parent id:\"+id);
+  }
+  if (strpos(id,\"TYPE|\")!=0)
+  {
+    id =TREE.parent(id);
+    sId=id;
+    //DebugN(\"Parent id:\"+id);
+  }
+  if (strpos(id,\"TYPE|\")==0)
+  {
+    strreplace(id,\"TYPE|\",\"\");
+    dyn_string dsSplit=strsplit(id,\";\");
+    string sShortId;
+    strreplace(id,\"TYPE|\",\"\");
+    sDPTName=\"_objwSymbolsPerType_\"+id;
+    dyn_string dsShortNames,dsFileNames;
+    dpGet(sDPTName+\".ShortNames\",dsShortNames,
+          sDPTName+\".FileNames\",dsFileNames);
+    
+    while(dynContains(dsShortNames,id+\"_\"+iNextNumber))
+      iNextNumber++;
+
+    if (dynContains(dsShortNames,id+\"_\"+iNextNumber)!=0)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo1\",getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"NewSymbolAlreadyExists\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+    }
+    else
+    {
+      dynAppend(dsShortNames,id+\"_\"+iNextNumber);
+      dynAppend(dsFileNames,\"\");
+      dpSet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames);
+      dsSplit=strsplit(sId,\";\");
+      if(dynlen(dsSplit)>=1)
+      {
+        strreplace(dsSplit[1],\"TYPE|\",\"SYMBOLS|\");
+        sGlobalTreeSelect=dsSplit[1]+\";\"+id+\"_\"+iNextNumber;
+      }
+//       objwCreateXMLPanel(getPath(PANELS_REL_PATH)+sPath+\"//\"+id+\"//\"+id+\"_1.xml\");
+    }
+  }
+  id=sBaseid;
+  //DebugN(\"Before Strpos BaseType: \"+id);
+  if (strpos(id,\"BASETYPE|\")!=0)
+  {
+    id =TREE.parent(id);
+    //DebugN(\"Parent id:\"+id);
+  }
+  if(strpos(id,\"BASETYPE|\")==0)
+  {
+    //DebugN(\"id after strpos:\"+id);
+    strreplace(id,\"BASETYPE|\",\"\");
+    sDPTName=\"_objwSymbolsPerType_\"+id;
+//     DebugN(\"sDPTName Basetype: \"+sDPTName);
+    dyn_string dsShortNames,dsFileNames;
+    dpGet(sDPTName+\".ShortNames\",dsShortNames,
+          sDPTName+\".FileNames\",dsFileNames);
+    
+    while(dynContains(dsShortNames,id+\"_\"+iNextNumber))
+      iNextNumber++;
+        
+    if (dynContains(dsShortNames,id+\"_\"+iNextNumber)!=0)
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo1\",getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"NewSymbolAlreadyExists\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+    }
+    else
+    {
+      dynAppend(dsShortNames,id+\"_\"+iNextNumber);
+      dynAppend(dsFileNames,\"\");
+      dpSet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames);
+      dyn_string dsSplit=strsplit(sBaseid,\";\");
+//       DebugN(\"dsSplit: \",dsSplit+ \" sID:\"+sBaseid );
+      if(dynlen(dsSplit)>=1)
+      {
+//         DebugN(\"inside the if Dynlen(dsSPli)\");
+        strreplace(dsSplit[1],\"BASETYPE|\",\"SYMBOLS|\");
+        sGlobalTreeSelect=dsSplit[1]+\";\"+id+\"_\"+iNextNumber;
+      }
+//       objwCreateXMLPanel(getPath(PANELS_REL_PATH)+sPath+\"//\"+id+\"//\"+id+\"_1.xml\");
+    }
+  }
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 26
+"Button_Delete"
+""
+1 315 96 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Delete the selected Symbol configuration
+LANG:10004 6 删除
+LANG:10000 41 Enfernt die markierte Symbolkonfiguration
+LANG:10027 73 Удалить выбранную конфигурацию символа
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  313 94 341 122
+
+P 
+4294967295
+"pictures/StandardIcons/delete_20.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 14 Удалить
+"main()
+{
+  
+  string id=TREE.selectedItem();
+  dyn_int diFound;
+  string sShortId;
+  dyn_string ds;
+  dyn_float df;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"DeleteSymbol\"),
+  makeDynString(getCatStr(\"SimpleSymbols\",\"DeleteSymbol\"),
+                getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+  df,ds);
+  if (dynlen(df)<1)//X Close
+  { 
+    return; 
+  }
+  else if (df[1]!=1)//No
+  {
+    return;
+  }
+  else if (df[1]==1)//Yes
+  {
+    // Do nothing and proceed with the function to delete the symbol    
+   bSettingsChanged=false; 
+  }  
+  
+  if (strpos(id,\"SYMBOLS\")==0)
+  {
+    sGlobalTreeSelect=TREE.parent(id);
+    strreplace(id,\"SYMBOLS|\",\"\");
+    dyn_string dsSplit=strsplit(id,\";\");
+
+    if (dynlen(dsSplit)>=2)
+    {
+      sShortId=dsSplit[2];
+      strreplace(id,\";\"+dsSplit[2],\"\");
+      dyn_string dsShortNames,dsFileNames,dsDollars,dsDollarValues;
+      string sDPTName=\"_objwSymbolsPerType_\"+id;
+      dpGet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames,
+            sDPTName+\".Dollars\",dsDollars,
+            sDPTName+\".DollarValues\",dsDollarValues);  
+      
+      int pos=dynContains(dsShortNames,sShortId);
+      if (pos!=0)
+      {
+        dynRemove(dsShortNames,pos);
+        dynRemove(dsFileNames,pos);
+      }
+      for (int i=1;i<=dynlen(dsDollars);i++)
+      {
+        dyn_string dsSplit=strsplit(dsDollars[i],\"|\");
+        if (dynlen(dsSplit)>=2)
+        {
+          if (dsSplit[1]==sShortId)
+          {
+            dynAppend(diFound,i);
+          }
+        }
+      }
+      for (int i=dynlen(diFound);i>=1;i--)
+      {
+        dynRemove(dsDollars,diFound[i]);
+        dynRemove(dsDollarValues,diFound[i]);
+      }
+      dpSet(sDPTName+\".ShortNames\",dsShortNames,
+            sDPTName+\".FileNames\",dsFileNames,
+            sDPTName+\".Dollars\",dsDollars,
+            sDPTName+\".DollarValues\",dsDollarValues);  
+    }
+    remove(getPath(PANELS_REL_PATH)+sPath+\"//\"+id+\"//faceplate//\"+sShortId+\".xml\");
+    remove(getPath(PANELS_REL_PATH)+sPath+\"//\"+id+\"//symbol//\"+sShortId+\".xml\");
+  }
+  
+  
+  
+  removeSymbol(myModuleName(), myPanelName(), \"paramRef\");
+}
+
+
+
+
+
+
+" 0
+ E E E
+13 43
+"Button_Ack"
+""
+1 95.00000000000011 -135 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Save configuration
+LANG:10004 12 保存配置
+LANG:10000 23 Konfiguration speichern
+LANG:10027 43 Сохранить конфигурацию
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 36 MS Shell Dlg 2,7.8,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  313 63 341 91
+
+P 
+4294967295
+"pictures/StandardIcons/apply_20.png"
+4
+LANG:10001 9 Speichern
+LANG:10004 9 Speichern
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main ()
+{
+  saveSettings();
+  bGotSaved=true;
+}
+
+
+" 0
+ E E E
+1 53 0 "" 0
+0
+13 46
+"Button_Close"
+""
+1 943 575 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+45 1 0 0 83 0
+E E E
+0
+4
+LANG:10001 27 Close Panel, without action
+LANG:10004 6 关闭
+LANG:10000 46 Panel schließen, ohne eine Aktion auszulösen
+LANG:10027 42 Закрыть без сохранения
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  901 563 989 591
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"CloseWithoutSaveing\"),
+  makeDynString(getCatStr(\"SimpleSymbols\",\"CloseWithoutSaveing\"),
+                getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+  df,ds);
+  if (dynlen(df)<1)//X Close
+  { 
+    return; 
+  }
+  else if (df[1]!=1)//No
+  {
+    PanelOff();  
+  }
+  else if (df[1]==1)//Yes
+  {
+    if ( saveSettings() )
+      PanelOff();   
+  }
+  
+}
+
+
+" 0
+ E E E
+13 48
+"PUSH_BUTTON3"
+""
+1 10.99999999999989 565 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 1 0 0 72 0
+E E E
+0
+4
+LANG:10001 16 Open Online Help
+LANG:10004 18 打开在线帮助
+LANG:10000 19 Onlinehilfe öffnen
+LANG:10027 29 Открыть справку
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  9 563 97 591
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+E E "main()
+{
+  std_help(\"simple_symbols_basics\");
+}
+
+" 0
+ E
+13 51
+"Button_Apply"
+""
+1 850 575 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+48 1 0 0 65 0
+E E E
+0
+4
+LANG:10001 31 Save, without closing the panel
+LANG:10004 25 保存,无需关闭面板
+LANG:10000 38 Speichern ohne das Panel zu schließen
+LANG:10027 40 Сохранить не закрывая
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  808 563 896 591
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  saveSettings();
+  bGotSaved=true;
+}
+
+
+
+" 0
+ E E E
+13 52
+"Button_OK"
+""
+1 756 575 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+49 1 0 0 79 0
+E E E
+0
+4
+LANG:10001 34 Close Panel, and save the settings
+LANG:10004 6 关闭
+LANG:10000 45 Panel schließen, und Einstellungen speichern
+LANG:10027 55 Закрыть и сохранить настройки
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  714 563 802 591
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( saveSettings() )
+    PanelOff();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF10" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 452 653 T 44 2.020040080160321 0 1 -913.0581162324651 -98
+0
+0

@@ -1,0 +1,690 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 992 621 N "_3DFace" 0
+"main()
+{
+  int          a,e,i,o,x,u, la, iFrom = 1;
+  string       name;
+  dyn_string   actions; 
+  dyn_string   dsActions; 
+
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+    
+  // IM 63780: Number of lines to show in log has to be limited because of table performance problems
+  SC_MAX_NUM_OF_LOG = 1000;
+
+  //Check user permission
+  if(!getUserPermission(2) || !getUserPermission(3))
+    tab1.enabled(FALSE);
+ 
+  Row2.text(\"\");
+  Column2.text(\"\");
+  Value2.text(\"\");
+  
+  tab1.sortOnClick = TRUE;
+  tab1.tableMode(TABLE_SELECT_BROWSE);
+  //tab1.tableMode(TABLE_SELECT_MULTIPLE);
+  tab1.selectByClick(TABLE_SELECT_LINE);  
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    tab1.visible(FALSE);
+    
+    //Loading table
+    load2.text() = \"1\";
+    if ( isFunctionDefined(\"sc_loadReady\") )
+      sc_loadReady();
+    else
+      return;
+  
+    //Clear tab
+    tab1.deleteAllLines();
+    dynClear(actions);
+    
+    //Get all actions
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      if(dpExists(p_dsSysNames[i]+\":\"+p_sScCom+\".actionLog:_original.._value\"))
+      {
+        dpGet(getSystemName()+\"\"+p_sScCom+\".actionLog:_original.._value\", actions);
+      }
+    }
+    la = dynlen(actions);
+    if (la >= 1)
+    {
+      // IM 63780: Number of lines to show in log has to be limited because of table performance problems
+      if ( la > SC_MAX_NUM_OF_LOG )
+        iFrom = la - SC_MAX_NUM_OF_LOG + 1;
+
+      for (a=iFrom; a<=dynlen(actions); a++)
+      {
+        //Split into 4 parts
+        dsActions    = strsplit(actions[a], \"|\");
+        dsActions[1] = strrtrim(dsActions[1], \" \");
+        dsActions[2] = strrtrim(dsActions[2], \" \");
+        dsActions[3] = strrtrim(dsActions[3], \" \");
+        dsActions[4] = strrtrim(dsActions[4], \" \");
+        dsActions[1] = strltrim(dsActions[1], \" \");
+        dsActions[2] = strltrim(dsActions[2], \" \");
+        dsActions[3] = strltrim(dsActions[3], \" \");
+        dsActions[4] = strltrim(dsActions[4], \" \");
+
+        name = dsActions[1];
+            
+        //sc_checkSys(dsActions[2], dsActions[2]);  //dsActions[1] = dpSubStr(dsActions[1], DPSUB_SYS_DP);
+      
+        //Append the table
+        tab1.appendLine(\"name\",    name,
+                        \"dp\",      dsActions[2], 
+                        \"action\",  dsActions[3], 
+                        \"time\",    dsActions[4]);
+      
+        color(tab1.lineCount()-1);                 
+      }
+      p_actionOld = actions[la];  //Save old actions log
+    }
+      
+    //Loading table is ready
+    load2.text() = \"0\";
+    sc_loadReady();
+    
+    tab1.visible(TRUE);
+  }
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    //Connect to actionLog - only on the system that contains the _ScCom
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      if(dpExists(p_dsSysNames[i]+\":\"+p_sScCom+\".actionLog:_original.._value\"))
+      {
+        dpConnect(\"workCB\", FALSE, p_dsSysNames[i]+\":\"+p_sScCom+\".action:_original.._value\");
+      }
+    }                                
+  }  
+}
+
+//******************************
+workCB(string dpe, string action)
+{  
+  int          a,e,i,o,x, u;
+  bool         relOP;
+  string       name;
+  dyn_string   dsActions; //, actions;  
+               
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    //Loading table
+    load2.text() = \"1\";
+    sc_loadReady();
+  
+    //If action != empty
+    if (strlen(action) >= 1)
+    {
+      //If action has changed
+      if (p_actionOld != action)
+      {
+        dsActions    = strsplit(action, \"|\");
+        dsActions[1] = strltrim(dsActions[1], \" \");
+        dsActions[2] = strltrim(dsActions[2], \" \");
+        dsActions[3] = strltrim(dsActions[3], \" \");
+        dsActions[4] = strltrim(dsActions[4], \" \");
+        dsActions[1] = strrtrim(dsActions[1], \" \");
+        dsActions[2] = strrtrim(dsActions[2], \" \");
+        dsActions[3] = strrtrim(dsActions[3], \" \");
+        dsActions[4] = strrtrim(dsActions[4], \" \");
+
+        name = dsActions[1];
+
+        //sc_checkSys(dsActions[2], dsActions[2]);  //dsActions[1] = dpSubStr(dsActions[1], DPSUB_SYS_DP);
+
+        //Append the table
+        tab1.appendLine(\"name\",    name,
+                        \"dp\",      dsActions[2], 
+                        \"action\",  dsActions[3], 
+                        \"time\",    dsActions[4]);
+      
+        a = tab1.lineCount() - 1;
+        color(a);
+        
+        if (tab1.lineCount() >= 100)
+          tab1.deleteLineN(0);
+    
+        //Place tab cursor
+        getValue(\"tab1\",\"lineRangeVisible\", o, u);
+        x = tab1.lineCount()-1;
+    
+        if(o<=x && x<=u)
+          tab1.selectLineN(x);
+        else
+        {
+          if ( x >= o )
+          {
+           tab1.lineVisible(o);
+           tab1.selectLineN(x);
+          }
+          else
+          {
+            tab1.lineVisible(x-19);
+            tab1.selectLineN(x);
+          }
+        }
+      }
+      p_actionOld = action;  //Save old actions log
+    }
+    else
+    {
+      ; //tab1.deleteAllLines();
+    }
+     
+    //Loading table is ready
+    load2.text() = \"0\";
+    sc_loadReady();
+  } 
+}" 0
+ E E E E 1 -1 -1 0  66 22
+"refFileName"0  1
+E "  string          p_sScCom = \"_ScCom\",
+                  p_actionOld;
+  dyn_string      p_dsSysNames; 
+  dyn_uint        p_duiSysIds;
+  dyn_dyn_anytype p_ddaDependances;
+  
+  // IM 63780: Number of lines to show in log has to be limited because of table performance problems
+  int             SC_MAX_NUM_OF_LOG;
+// ============================================================================
+// Function:  color()
+// Parameter: a
+// ============================================================================
+color(int a)
+{
+  int i;
+  
+  //red if error
+  if(tab1.cellValueRC(a, \"action\") == getCatStr(\"ac\",\"dpNoAvailable\")+\"!\")
+  {
+    for(i=0; i<=3; i++)
+    {
+      tab1.currentCell(a, i);
+      tab1.cellBackCol(\"red\");
+      tab1.cellForeCol(\"white\");
+    }    
+  }
+  //light orange = INIT
+  if(tab1.cellValueRC(a, \"action\") == getCatStr(\"scheduler\",\"m3\"))
+  {
+    for(i=0; i<=3; i++)
+    {
+      tab1.currentCell(a, i);
+      tab1.cellBackCol(\"STD_trend_pen6\");
+    }    
+  }
+  //light green = ONLINE
+  if(tab1.cellValueRC(a, \"action\") == getCatStr(\"scheduler\",\"m35\"))
+  {
+    for(i=0; i<=3; i++)
+    {
+      tab1.currentCell(a, i);
+      tab1.cellBackCol(\"STD_led_On\");
+    }    
+  }
+}" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 264
+"tab1"
+""
+1 15 15 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ "main()
+{
+  int        iRow, 
+             answer;
+  string     sRow, dpe, type;
+  dyn_string popUpText,
+             allPartsNew,
+             edit,
+             sDelete,
+             activate,
+             deactivate,
+             copy,
+             print,
+             dsEn;
+             
+  //Check user permission
+  if(!getUserPermission(3))
+    dsEn[5] = 0;
+      
+  edit           = strsplit(getCatStr(\"scheduler\", \"edit\"), \",\");
+  edit[1]        = strltrim(edit[1]);
+  allPartsNew    = strsplit(getCatStr(\"scheduler\", \"fileNew\"), \",\");
+  allPartsNew[1] = strltrim(allPartsNew[1]);
+  sDelete[1]      = getCatStr(\"scheduler\", \"delete2\");
+  activate[1]    = getCatStr(\"scheduler\", \"activate\");
+  deactivate[1]  = getCatStr(\"scheduler\", \"deactivate\");
+  copy[1]        = getCatStr(\"scheduler\", \"copy\");
+  print[1]       = getCatStr(\"scheduler\", \"print\");
+  print[2]       = getCatStr(\"scheduler\", \"table\");
+  print[3]       = getCatStr(\"scheduler\", \"details\");
+  
+  //Enable, disable menu items
+  if (tab1.lineCount() <= 0)
+  {
+    dsEn[2] = 0;
+    dsEn[3] = 0;
+    dsEn[5] = 0;
+    dsEn[7] = 0;
+    dsEn[8] = 0;
+    dsEn[21] = 0;
+    dsEn[22] = 0;
+  }
+  else
+  {
+    dsEn[2] = 0;
+    dsEn[3] = 0;
+    dsEn[5] = 1;
+    dsEn[7] = 0;
+    dsEn[8] = 0;
+    dsEn[21] = 1;
+    dsEn[22] = 1;
+  }
+  
+  popUpText = makeDynString(\"CASCADE_BUTTON, \"+allPartsNew[1]+\", 1\",    //New
+                            \"PUSH_BUTTON, \"+edit[1]+\", 1, \"+dsEn[2]+\"\",           //Edit
+                            \"PUSH_BUTTON, \"+copy[1]+\", 5, \"+dsEn[3]+\"\",           //Copy
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+sDelete[1]+\", 2, \"+dsEn[5]+\"\",         //Delete
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+activate[1]+\", 3, \"+dsEn[7]+\"\",       //Activate
+                            \"PUSH_BUTTON, \"+deactivate[1]+\", 4, \"+dsEn[8]+\"\",     //Deactivate
+                            \"SEPARATOR\",                                //----------                            
+                            \"CASCADE_BUTTON, \"+print[1]+\", 1\",          //Print
+                            \"\"+allPartsNew[1]+\"\",                       //News 1st level
+                            \"CASCADE_BUTTON, \"+allPartsNew[2]+\", 1\",    //Time schedule
+                            \"PUSH_BUTTON, \"+allPartsNew[6]+\", 6, 1\",    //Reaction program
+                            \"PUSH_BUTTON, \"+allPartsNew[7]+\", 7, 1\",    //Info action
+                            \"PUSH_BUTTON, \"+allPartsNew[8]+\", 11, 1\",   //Special day
+                            \"\"+allPartsNew[2]+\"\",                       //News 2nd level
+                            \"PUSH_BUTTON, \"+allPartsNew[3]+\", 8, 1\",    //Day
+                            \"PUSH_BUTTON, \"+allPartsNew[4]+\", 9, 1\",    //Week
+                            \"PUSH_BUTTON, \"+allPartsNew[5]+\", 10, 1\",  //Free
+                            \"\"+print[1]+\"\",                             //Print 1st level
+                            \"PUSH_BUTTON, \"+print[2]+\", 12, \"+dsEn[21]+\"\",         //Table
+                            \"PUSH_BUTTON, \"+print[3]+\", 13, \"+dsEn[22]+\"\");        //Details
+  popupMenu(popUpText, answer);
+  if (Row2.text() == 0)
+  {
+    sc_nolineselected();  return;
+  }
+  tab1.currentCell(Row2.text(),1);
+  dpe = tab1.cellValue();
+  dpe = dpSubStr(dpe,DPSUB_SYS_DP);
+  if(dpe != \"\")
+    dpGet(dpe+\".type:_online.._value\", type);
+  type = strtoupper(type);
+  
+  sRow = Row2.text();
+  sRow = strltrim(sRow, \"\\\"\");
+  sRow = strrtrim(sRow, \"\\\"\");
+  //iRow = sRow;
+    
+  if(answer == 1)
+    sc_editCas(type, dpe);
+  if(answer == 2)
+  {
+    sc_delAcLog();
+  }
+  if(answer == 8)
+    sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 9)
+    sc_newCas(\"/vision/scheduler/sc_weekSchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 10)
+    sc_newCas(\"/vision/scheduler/sc_freeSchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 6)
+    sc_newCas(\"/vision/scheduler/sc_reactionProg.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 7)
+    sc_newInfoAction();
+  if(answer == 11)
+    sc_newCas(\"/vision/scheduler/sc_specialDays.pnl\", getCatStr(\"scheduler\", \"panelName\"));  
+  if(answer == 12)
+    sc_printTableDetails(\"tab1\", \"p3\");
+  if(answer == 13)
+    sc_printScDetails(\"\", sRow, \"dp\", \"scDetails\", \"p10\");
+}" 0
+ "main()
+{
+  string dpe, type;
+  
+  if (Row2.text() == 0)
+  {
+    sc_nolineselected();  return;
+  }
+  
+  tab1.currentCell(Row2.text(),1);
+  dpe = tab1.cellValue();
+  if (dpe != \"\")
+  {
+    dpe = dpSubStr(dpe,DPSUB_SYS_DP);
+    dpGet(dpe+\".type:_online.._value\", type);
+    type = strtoupper(type);
+
+    sc_editCas(type, dpe);
+  }
+}" 0
+
+249 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 13 962 565
+E"main(int row, string column, string value)
+{
+  Row2.text(row);
+  Column2.text(column);
+  Value2.text(value);
+}" 0
+ 1 0 1 4 1 "name" 22 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 13 Schedule name
+LANG:10004 12 调度名称
+LANG:10000 12 Programmname
+LANG:10027 27 Имя расписания
+
+250 "dp" 22 1 0 "s" 4
+LANG:10001 9 Datapoint
+LANG:10004 2 DP
+LANG:10000 10 Datenpunkt
+LANG:10027 23 Точка данных
+E
+4
+LANG:10001 18 Schedule datapoint
+LANG:10004 8 调度DP
+LANG:10000 18 Programmdatenpunkt
+LANG:10027 23 DP расписания
+
+250 "action" 22 1 0 "s" 4
+LANG:10001 6 Action
+LANG:10004 6 动作
+LANG:10000 6 Aktion
+LANG:10027 16 Действие
+E
+4
+LANG:10001 15 Schedule action
+LANG:10004 12 调度动作
+LANG:10000 14 Programmaktion
+LANG:10027 37 Действие расписания
+
+253 "time" 13 1 0 "s" 4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Zeit
+LANG:10027 10 Время
+E
+4
+LANG:10001 10 Time stamp
+LANG:10004 9 时间戳
+LANG:10000 9 Zeitpunkt
+LANG:10027 25 Метка времени
+
+158 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 265
+"Value2"
+""
+1 10 50 E E E 1 E 0 E N "_3DText" E N {204,0,0} E E
+ E E
+249 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 48 22 62
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+13 266
+"Column2"
+""
+1 10 30 E E E 1 E 0 E N "_3DText" E N {255,153,0} E E
+ E E
+250 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 28 22 42
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+13 267
+"Row2"
+""
+1 10 10 E E E 1 E 0 E N "_3DText" E N {0,153,0} E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 8 22 22
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+25 268
+"scDetails"
+""
+1 15 320 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 318 962 502
+EE 1 0 1 2 1 "name" 41 1 0 "s" 4
+LANG:10001 17 Datapoint element
+LANG:10004 3 DPE
+LANG:10000 17 Datenpunktelement
+LANG:10027 17 DP элемент
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+464 "detail" 41 1 0 "s" 4
+LANG:10001 24 Parameterization details
+LANG:10004 6 参数
+LANG:10000 18 Parametrierdetails
+LANG:10027 45 Детали параметрирования
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+463 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 269
+"load2"
+""
+1 10 100 E E E 1 E 0 E N {255,255,255} E N {0,51,204} E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 98 32 122
+
+T 
+4
+LANG:10001 1 L
+LANG:10004 1 L
+LANG:10000 1 L
+LANG:10027 1 L
+E E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

@@ -1,0 +1,1399 @@
+V 14
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 440 280 N "_3DFace" 0
+"main()
+{
+  diPeers.columnHeaderVisibility = false;
+  diPeers.selectByClick(TABLE_SELECT_LINE);
+  diPeers.tableMode(TABLE_SELECT_BROWSE);
+  
+  diSystemNumber.text = gMap[\"diSystemNumber\"];
+  diSystemName.text = gMap[\"diSystemName\"];
+//   diPeers.items = gMap[\"diPeers\"];
+  diPeers.appendLines(dynlen(gMap[\"diPeers\"]),\"SYS\",gMap[\"diPeers\"],\"VISIBLE\",gMap[\"diVisible\"]);
+  
+  for ( int i = 1; i <= dynlen(gMap[\"diVisible\"]); i++ )
+  {
+    diPeers.cellFillRC(i-1,\"ICON\",\"[pattern,[center,any,\"+(gMap[\"diVisible\"][i]?\"systemVisible.png\":\"oneWay.png\")+\"]]\");
+    diPeers.cellToolTipRC(i-1, \"ICON\", (gMap[\"diVisible\"][i]?getCatStr(\"pa\",\"systemVisible\"):getCatStr(\"pa\",\"oneWay\")));
+  }
+  
+  diPeerNumber.text = gMap[\"diPeerNumber\"];
+  diPeerName.text = gMap[\"diPeerName\"];
+//   diPeers.selectedPos = 0;
+  
+  if ( dynlen(gMap[\"diPeers\"]) )
+  {
+//     diPeers.selectedPos = dynlen(gMap[\"diPeers\"]);
+    diPeers.selectLineN(dynlen(gMap[\"diPeers\"])-1);
+    peersChanged();
+  }
+  
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "setReduFields()
+{
+  bool   ena = (diHost_1_1.text != \"\");
+  string s,
+         h11 = diHost_1_1.text,
+         h12 = diHost_1_2.text;
+  
+  diRedu.enabled = ena;
+  diRedunet.enabled = ena;
+  diSelector_1_2.enabled = diRedu.state(0);
+  //diHost_1_1.enabled = (diRedu.state(0) || diRedunet.state(0));
+  diHost_1_2.enabled = (ena && diRedu.state(0));
+  diHost_2_1.enabled = (ena && diRedunet.state(0));
+  diHost_2_2.enabled = (ena && diRedu.state(0) && diRedunet.state(0));
+  
+//  diHost_1_1.text = diPeerName.text;
+  s = diHost_1_1.text; strreplace(s, \"-1\", \"\");
+  diHost_1_1.text = s;
+  if ( diRedunet.state(0) )
+  {
+    string s = diHost_1_1.text;
+    diHost_1_1.text = diHost_1_1.text+\"-1\";
+    diHost_2_1.text = s+\"-2\";
+    if ( diRedu.state(0) )
+    {
+      if ( (s=diHost_1_2.text)!=\"\" && strpos(s,\"-1\")!=strlen(s)-2 )
+      {
+        diHost_1_2.text = s+\"-1\";
+      }
+      s=diHost_1_2.text; strreplace(s, \"-1\", \"-2\");
+      diHost_2_2.text = s;
+    }
+  }
+  else
+  {
+    s = diHost_1_1.text; strreplace(s, \"-1\", \"\");
+    diHost_1_1.text = s;
+    if ( diRedu.state(0) )
+    {
+      if ( (s=diHost_1_2.text)!=\"\" && strpos(s,\"-1\")==strlen(s)-2 )
+      {
+        strreplace(s, \"-1\", \"\");
+        diHost_1_2.text = s;
+      }
+    }
+  }
+}
+//----------------------------------------------------------------------
+getReduHosts(string sData, string &h11, string &h12, string &h21, string &h22, bool bPorts = false)
+{
+  int        posComma  = strpos(sData, \",\"),
+             posColon  = strpos(sData, \":\"),
+             posDollar = strpos(sData, \"$\"),
+             i1 = -1, i2 = -1, i3 = -1, i4 = -1;
+
+  h11 = \"\"; h12 = \"\"; h21 = \"\"; h22 = \"\";
+  strreplace(sData, \"$\", \" $ \");
+  strreplace(sData, \":\", \" : \");
+  strreplace(sData, \",\", \" , \");
+
+  if ( posComma < 0 && posColon < 0 )
+  {
+    sscanf(sData, \"%s $ %s\", h11, h12);
+  }
+  else
+  if ( posComma > 0 && posColon < 0 )
+  {
+    sscanf(sData, \"%s , %s $ %s , %s\", h11, h21, h12, h22);
+  }
+  else
+  if ( posComma < 0 && posColon > 0 )
+  {
+    sscanf(sData, \"%s : %d $ %s : %d\", h11, i1, h12, i2);
+    if ( bPorts )
+    {
+      if ( i1 > 0 )
+        h11 += \":\" + i1;
+      if ( i2 > 0 )
+        h12 += \":\" + i2;
+    }
+  }
+  else
+  if ( posComma > 0 && posColon > 0 )
+  {
+    sscanf(sData, \"%s : %d , %s : %d $ %s : %d , %s : %d\", h11, i1, h21, i2, h12, i3, h22, i4);
+    if ( bPorts )
+    {
+      if ( i1 > 0 )
+        h11 += \":\" + i1;
+      if ( i2 > 0 )
+        h21 += \":\" + i2;
+      if ( i1 > 0 )
+        h12 += \":\" + i3;
+      if ( i2 > 0 )
+        h22 += \":\" + i4;
+    }
+  }
+}
+//----------------------------------------------------------------------
+getRedunetHosts(string sData, string &h11, string &h21, bool bPorts = false)
+{
+  int        posColon = strpos(sData, \":\"),
+             i1 = -1, i2 = -1, i3 = -1, i4 = -1;
+
+  h11 = \"\"; h21 = \"\";
+  strreplace(sData, \":\", \" : \");
+  strreplace(sData, \",\", \" , \");
+
+  if ( posColon < 0 )
+  {
+    sscanf(sData, \"%s , %s\", h11, h12);
+  }
+  else
+  {
+    sscanf(sData, \"%s : %d $ %s : %d\", h11, i1, h12, i2);
+    if ( bPorts )
+    {
+      if ( i1 > 0 )
+        h11 += \":\" + i1;
+      if ( i2 > 0 )
+        h12 += \":\" + i2;
+    }
+  }
+}
+
+peersChanged()
+{
+  string     s, h11, h12, h21, h22;  
+  dyn_string ds = strsplit(diPeers.getColumnN(0)[diPeers.selectLineN+1], \" \");
+  
+  if ( dynlen(ds) )
+  {
+    diPeerNumber.text = ds[1];
+
+    if ( ds[2] != \"\" && strpos(ds[2], \"$\") > 0 )
+    {
+      getReduHosts(ds[2], h11, h12, h21, h22, true);
+
+      diRedu.state(0) = (h12!=\"\");
+      diRedunet.state(0) = (h21!=\"\");
+      diRedu.enabled = true;
+      diRedunet.enabled = true;
+      diHost_1_1.text = h11;
+      diHost_1_2.text = h12;
+      diHost_2_1.text = h21;
+      diHost_2_2.text = h22;
+      //diHost_1_1.enabled = diRedu.state(0);
+      diHost_1_2.enabled = diRedu.state(0);
+      diHost_2_1.enabled = diRedunet.state(0);
+      diHost_2_2.enabled = (diRedu.state(0) && diRedunet.state(0));
+      diSelector_1_2.enabled = diRedu.state(0);
+    }
+    else
+    if ( ds[2] != \"\" && strpos(ds[2], \",\") > 0 )
+    {
+      string     h11, h21;
+      getRedunetHosts(sData, h11, h21, true);
+      diRedu.state(0) = false;
+      diRedunet.state(0) = (h21!=\"\");
+      diRedu.enabled = true;
+      diRedunet.enabled = true;
+      diHost_1_1.text = h11;
+      diHost_1_2.text = \"\";
+      diHost_2_1.text = h21;
+      diHost_2_2.text = \"\";
+      //diHost_1_1.enabled = diRedu.state(0);
+      diHost_1_2.enabled = diRedu.state(0);
+      diHost_2_1.enabled = diRedunet.state(0);
+      diHost_2_2.enabled = (diRedu.state(0) && diRedunet.state(0));
+      diSelector_1_2.enabled = diRedu.state(0);
+    }
+    else
+    {
+      diRedu.state(0) = false;
+      diRedunet.state(0) = false;
+      diRedu.enabled = true;
+      diRedunet.enabled = true;
+      diHost_1_1.text = ds[2];
+      diHost_1_2.text = \"\";
+      diHost_2_1.text = \"\";
+      diHost_2_2.text = \"\";
+      //diHost_1_1.enabled = diRedu.state(0);
+      diHost_1_2.enabled = diRedu.state(0);
+      diHost_2_1.enabled = diRedunet.state(0);
+      diHost_2_2.enabled = (diRedu.state(0) && diRedunet.state(0));
+      diSelector_1_2.enabled = diRedu.state(0);
+    }
+    
+    cmdDeletePeer.enabled = true;
+  }
+}
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 1
+"txtNumberTxt"
+""
+1 20 30 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 22 32 119 46
+0 2 0 "0s" 0 0 0 192 0 0  22 32 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 System number:
+LANG:10004 12 系统编号
+LANG:10000 13 Systemnummer:
+LANG:10027 26 Номер системы:
+2 2
+"txtNameTxt"
+""
+1 190 30 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 192 32 274 46
+0 2 0 "0s" 0 0 0 192 0 0  192 32 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 System name:
+LANG:10004 13 系统名称:
+LANG:10000 11 Systemname:
+LANG:10027 22 Имя системы:
+30 6
+"frmUi"
+""
+1 10 60 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 10 430 60
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 33  Settings of the new own project 
+LANG:10004 21 新建项目的设置
+LANG:10000 43  Einstellungen des neuen eigenen Projektes 
+LANG:10027 72  Настройки нового собственного проекта
+30 17
+"txtDistport"
+""
+1 10 260 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 63 430 270
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19  Connected Systems 
+LANG:10004 12 连接系统
+LANG:10000 20  Verbundene Systeme 
+LANG:10027 34  Связанные системы
+2 24
+"Text4"
+""
+1 263 180 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 265 182 321 196
+0 2 0 "0s" 0 0 0 192 0 0  265 182 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Number:
+LANG:10004 7 编号:
+LANG:10000 7 Nummer:
+LANG:10027 11 Номер:
+2 29
+"t1"
+""
+1 20 198 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 22 200 62 214
+0 2 0 "0s" 0 0 0 192 0 0  22 200 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Host 1
+LANG:10004 7 主机1
+LANG:10000 6 Host 1
+LANG:10027 10 Хост 1
+2 30
+"t2"
+""
+1 210 198 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 212 200 252 214
+0 2 0 "0s" 0 0 0 192 0 0  212 200 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Host 2
+LANG:10004 7 主机2
+LANG:10000 6 Host 2
+LANG:10027 10 Хост 2
+30 39
+"Frame1"
+""
+1 10 270 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 160 390 270
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 19
+"diRedu"
+""
+1 20 178 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"showBackground" "0"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 176 112 198
+1
+T 
+4
+LANG:10001 9 Redundant
+LANG:10004 6 冗余
+LANG:10000 9 Redundant
+LANG:10027 20 С резервир.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  setReduFields();
+}" 0
+20 34
+"diRedunet"
+""
+1 120 178 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"showBackground" "0"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 176 252 200
+1
+T 
+4
+LANG:10001 12 Redu network
+LANG:10004 12 冗余网络
+LANG:10000 13 Redu-Netzwerk
+LANG:10027 26 Резервир. сеть
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  setReduFields();
+}" 0
+21 25
+"diPeerNumber"
+""
+1 320 178 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Peer system number
+LANG:10004 18 对等系统编号
+LANG:10000 17 Peer Systemnummer
+LANG:10027 39 Номер системы пир (peer)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  318 176 382 203
+0
+
+E
+"main()
+{
+//  diPeerName.text = \"dist_\" + this.text;
+  gMap[\"diPeerNumber\"] = diPeerNumber.text;
+}" 0
+
+E
+
+N 1 2048 1 1 1 1
+14 11
+"diHost_1_1"
+""
+1 20 216 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E "main()
+{
+  int i;
+  
+  diRedu.enabled = (this.text != \"\" );
+  diRedunet.enabled = (this.text != \"\" );
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 214 162 241
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  int i;
+  
+  diRedu.enabled = (this.text != \"\" );
+  diRedunet.enabled = (this.text != \"\" );
+
+}" 0
+
+13 12
+"cmdProjectDist"
+""
+1 170 216 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Selecting host
+LANG:10004 12 选择主机
+LANG:10000 16 Host selektieren
+LANG:10027 23 Выбрать хост
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  168 214 198 241
+
+P 
+4294967295
+"pictures/StandardIcons/DBConfig.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int    iErr;
+  string sPath, sConfig, sData, Hostname, Projname;
+  
+  folderSelector(sPath);
+
+  diRedu.enabled = ( sPath != \"\" );
+  diRedunet.enabled = ( sPath != \"\" );
+  if ( sPath == \"\" ) return;
+  
+  sPath = strrtrim(strltrim(sPath));
+  if ( sPath[strlen(sPath)-1] == \"/\" )
+    strrtrim(sPath, \"/\");
+
+//setTrace(2);
+  iErr = paGetHostProjFromPath(sPath, Hostname, Projname);
+  diPeerName.text = Hostname;
+  diHost_1_1.text = Hostname;
+
+  if ( paCheckProj(sPath, 3) == 0 )
+  {
+    if ( Hostname == getHostname() )
+    {
+//      paCfgReadValue(sPath+\"/config/config\", \"general\", \"data\", sData);
+      paGetProjAttr(Projname, \"data\", sData);
+    }
+    else
+    {
+      paGetRemoteProjAttr(sPath+\"/\", \"data\", sData);
+    }
+    if ( sData != \"\" && strpos(sData, \"$\") > 0 )
+    {
+      string     h11, h12, h21, h22;
+
+      getReduHosts(sData, h11, h12, h21, h22);
+
+      diRedu.state(0) = true;
+//      diRedunet.state(0) = (h21!=\"\");
+      diRedunet.state(0) = false;
+      diRedu.enabled = true;
+      diRedunet.enabled = true;
+      if ( strpos(h11, \"-1\") == strlen(h11)-2 )
+        h11 = substr(h11, 0, strlen(h11) - 2);
+      diHost_1_1.text = h11;
+      if ( strpos(h12, \"-1\") == strlen(h12)-2 )
+        h12 = substr(h12, 0, strlen(h12) - 2);
+      diHost_1_2.text = h12;
+      diHost_2_1.text = h21;
+      diHost_2_2.text = h22;
+      //diHost_1_1.enabled = diRedu.state(0);
+      diHost_1_2.enabled = diRedu.state(0);
+      diHost_2_1.enabled = diRedunet.state(0);
+      diHost_2_2.enabled = (diRedu.state(0) && diRedunet.state(0));
+      diSelector_1_2.enabled = diRedu.state(0);
+    }
+    else
+    if ( sData != \"\" && strpos(sData, \",\") > 0 )
+    {
+      string     h11, h21;
+
+      getRedunetHosts(sData, h11, h21);
+
+      diRedu.state(0) = false;
+//      diRedunet.state(0) = (h21!=\"\");
+      diRedunet.state(0) = false;
+      diRedu.enabled = true;
+      diRedunet.enabled = true;
+      if ( strpos(h11, \"-1\") == strlen(h11)-2 )
+        h11 = substr(h11, 0, strlen(h11) - 2);
+      diHost_1_1.text = h11;
+      if ( strpos(h12, \"-1\") == strlen(h12)-2 )
+        h12 = substr(h12, 0, strlen(h12) - 2);
+      diHost_1_2.text = \"\";
+      diHost_2_1.text = h21;
+      diHost_2_2.text = \"\";
+      //diHost_1_1.enabled = diRedu.state(0);
+      diHost_1_2.enabled = diRedu.state(0);
+      diHost_2_1.enabled = diRedunet.state(0);
+      diHost_2_2.enabled = (diRedu.state(0) && diRedunet.state(0));
+      diSelector_1_2.enabled = diRedu.state(0);
+    }
+  }
+  else
+  {
+    setReduFields();
+  }
+  
+  return;
+}" 0
+ E E E
+14 36
+"diHost_1_2"
+""
+1 210 216 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E "main()
+{
+  int i;
+  
+//  setReduFields();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  208 214 352 241
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  int i;
+  
+//  setReduFields();
+}" 0
+
+13 41
+"diSelector_1_2"
+""
+1 355 215 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Selecting host
+LANG:10004 12 选择主机
+LANG:10000 16 Host selektieren
+LANG:10027 23 Выбрать хост
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  353 213 383 240
+
+P 
+4294967295
+"pictures/StandardIcons/DBConfig.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string Hostname, Projname, sPath;
+  
+  folderSelector(sPath);
+
+  if ( sPath == \"\" ) return;
+  
+  sPath = strrtrim(strltrim(sPath));
+  if ( sPath[strlen(sPath)-1] == \"/\" )
+    strrtrim(sPath, \"/\");
+
+  int        iErr = paGetHostProjFromPath(sPath, Hostname, Projname);
+  diHost_1_2.text = Hostname;
+
+  setReduFields();
+}
+" 0
+ E E E
+14 32
+"diHost_2_1"
+""
+1 20 240 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 238 162 265
+3 "0s" 0 0 0 0 0 -1  E E E
+14 33
+"diHost_2_2"
+""
+1 210 240 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  208 238 352 265
+3 "0s" 0 0 0 0 0 -1  E E E
+13 18
+"cmdAppendPeer"
+""
+1 395 198 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Append/change peer
+LANG:10004 19 添加/更改同行
+LANG:10000 21 Peer anfügen/ändern
+LANG:10027 47 Добавить/изменить пир (peer)
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  393 196 423 226
+
+P 
+4294967295
+"pictures/StandardIcons/apply.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string dsPeers = diPeers.getColumnN(0);
+  string     Hostname, Projname, sPath = diPeerName.text,
+             sPeer = \"\", sp = \" \";
+
+  int        iErr = paGetHostProjFromPath(sPath, Hostname, Projname),
+             iKey = diPeerNumber.text;
+
+  dyn_errClass dE = getLastError();
+
+  if ( diSystemNumber.text == diPeerNumber.text )
+  {
+    pmon_warningOutput(\"errSameSystemNumber\", -1);
+    return;
+  }
+
+  if ( diHost_1_1.text == \"\" )
+  {
+    pmon_warningOutput(\"errEmptyServerName\", -1);
+    return;
+  }
+
+  sPeer = diHost_1_1.text;
+  
+  // dist only
+  if ( !diRedu.state(0) && !diRedunet.state(0) )
+  {
+    addPeer(iKey, sPeer);
+    return;
+  }
+  
+  // dist with redu, no redunet
+  if ( diRedu.state(0) && !diRedunet.state(0) )
+  {
+    if ( diHost_1_2.text == \"\" )
+    {
+      pmon_warningOutput(\"errEmptyServerName\", -1);
+      return;
+    }
+    if ( diHost_1_1.text == diHost_1_2.text )
+    {
+      pmon_warningOutput(\"errSameReduHost\", -1);
+      return;
+    }
+
+    sPeer = diHost_1_1.text + \"$\" + diHost_1_2.text;
+    addPeer(iKey, sPeer);
+    return;
+  }
+
+  // dist with redunet, no redu
+  if ( !diRedu.state(0) && diRedunet.state(0) )
+  {
+    if ( diHost_2_1.text == \"\" )
+    {
+      pmon_warningOutput(\"errEmptyServerName\", -1);
+      return;
+    }
+
+    if ( diHost_1_1.text == diHost_2_1.text )
+    {
+      pmon_warningOutput(\"errSameReduHost\", -1);
+      return;
+    }
+
+    sPeer = diHost_1_1.text + \",\" + diHost_2_1.text;
+    addPeer(iKey, sPeer);
+    return;
+  }
+
+  // dist with redu and redunet
+  if ( diRedu.state(0) && diRedunet.state(0) )
+  {
+    if ( diHost_1_2.text == \"\" ||
+         diHost_2_1.text == \"\" || diHost_2_2.text == \"\" )
+    {
+      pmon_warningOutput(\"errEmptyServerName\", -1);
+      return;
+    }
+    if ( diHost_1_1.text == diHost_1_2.text ||
+         diHost_1_1.text == diHost_2_1.text ||
+         diHost_1_1.text == diHost_2_2.text ||
+         diHost_1_2.text == diHost_2_1.text ||
+         diHost_1_2.text == diHost_2_2.text ||
+         diHost_2_1.text == diHost_2_2.text
+       )
+    {
+      pmon_warningOutput(\"errSameReduHost\", -1);
+      return;
+    }
+
+    sPeer = diHost_1_1.text + \",\" + diHost_2_1.text + \"$\" +
+            diHost_1_2.text + \",\" + diHost_2_2.text;
+    addPeer(iKey, sPeer);
+    return;
+  }
+}
+
+addPeer(int iKey, string sPeer)
+{
+  int    iIdx = peerExists(iKey, sPeer);
+  string sLine = iKey + \" \" + sPeer;
+
+  if ( iIdx == -1 )
+  {
+    pmon_warningOutput(\"errPeerInList\", -1);
+    return;
+  }
+  else
+  if ( iIdx == -2 )
+  {
+    int         x, y;
+    dyn_anytype daResult;
+    
+    getChildPanelCentralPosition(\"vision/MessageInfo\", x, y);
+    gParams[1]  = myModuleName();
+    gParams[3]  = myPanelName();
+    gParams[2]  = \"vision/MessageInfo\";
+    gParams[4]  = getCatStr(\"para\",\"information\");
+    gParams[5]  = x;
+    gParams[6]  = y;
+    gParams[9]  = makeDynString(getCatStr(\"pmon\", \"warningSamePeer\"),
+                                getCatStr(\"para\",\"yes\"),
+                                getCatStr(\"para\",\"no\"));
+    childPanel(gParams, daResult);
+  
+    if ( dynlen(daResult) < 1 || daResult[1] == 0.0 )
+    {
+      return;
+    }
+    else
+    {
+//       diPeers.appendItem(sLine);
+//       diPeers.selectedPos = diPeers.itemCount;
+//       diPeers.bottomPos = diPeers.itemCount;
+      diPeers.appendLine(\"SYS\", sLine, \"VISIBLE\", true);
+      diPeers.cellFillRC(0,\"ICON\",\"[pattern,[center,any,systemVisible.png]]\");
+      diPeers.cellToolTipRC(0, \"ICON\", getCatStr(\"pa\",\"systemVisible\"));
+      diPeers.selectLineN(diPeers.lineCount-1);
+    }
+  }
+  else
+  if ( iIdx == 0 )
+  {
+//     diPeers.appendItem(sLine);
+//     diPeers.selectedPos = diPeers.itemCount;
+//     diPeers.bottomPos = diPeers.itemCount;
+    diPeers.appendLine(\"SYS\", sLine, \"VISIBLE\", true);
+    diPeers.cellFillRC(diPeers.lineCount-1,\"ICON\",\"[pattern,[center,any,systemVisible.png]]\");
+    diPeers.cellToolTipRC(diPeers.lineCount-1, \"ICON\", getCatStr(\"pa\",\"systemVisible\"));
+    diPeers.selectLineN(diPeers.lineCount-1);
+  }
+  else
+  if ( iIdx > 0 )
+  {
+    diPeers.cellValueRC(iIdx-1,\"SYS\",sLine);
+//     diPeers.replacePos(iIdx, sLine);
+//     diPeers.selectedPos = iIdx;
+//     diPeers.bottomPos = iIdx;
+  }
+  cmdDeletePeer.enabled = true;
+  gMap[\"diPeers\"] = diPeers.getColumnN(0);
+  gMap[\"diVisible\"] = diPeers.getColumnN(1);
+}
+
+int peerExists(int iKey, string sPeer)
+{
+  int        iIdx = 0, iNr, iSysnum = 0, iPeer = 0;
+  string     s;
+  dyn_string ds = diPeers.getColumnN(0), dss;
+  
+  for ( int i = 1; i <= dynlen(ds); i++ )
+  {
+    dss = strsplit(ds[i], \" \");
+    iNr = (dynlen(dss)>0)?dss[1]:0;
+    s   = (dynlen(dss)>1)?dss[2]:\"\";
+    if ( iNr == iKey  ) iSysnum = i;
+    if ( s   == sPeer ) iPeer   = i;
+  }
+  if ( iSysnum < 1 && iPeer < 1 )
+    return (0); // ok, no system number, no peer => appending
+  else
+  if ( iSysnum > 0 && iPeer > 0 )
+    return (-1); // not ok, same system number and peer => error message
+  else
+  if ( iSysnum < 1 && iPeer > 0 )
+    return (-2); // peer already exists => warning
+  else
+  if ( iSysnum > 0  && iPeer < 1 )
+    return (iSysnum); // ok, system number found => changing peer
+  else
+    return (iPeer);
+}
+" 0
+ E E E
+13 40
+"cmdDeletePeer"
+""
+1 395 168 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 1 0 0 88 0
+E E E
+0
+4
+LANG:10001 11 Remove peer
+LANG:10004 12 删除同行
+LANG:10000 14 Peer entfernen
+LANG:10027 28 Удалить пир (peer)
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  393 166 423 196
+
+P 
+4294967295
+"pictures/StandardIcons/trash.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int idx = diPeers.selectLineN+1;
+  
+  diPeers.deleteLineN(diPeers.selectLineN);
+  if ( idx <= diPeers.lineCount )
+  {
+    diPeers.selectLineN = idx-1;
+  }
+  else
+  if ( diPeers.lineCount > 0 )
+  {
+    diPeers.selectLineN = diPeers.lineCount-1;
+  }
+  delay(0,1);
+  
+  cmdDeletePeer.enabled = diPeers.lineCount > 0;
+  gMap[\"diPeers\"] = diPeers.getColumnN(0);
+  gMap[\"diVisible\"] = diPeers.getColumnN(1);
+}" 0
+ E E "main()
+{
+  if ( !isMotif() ) return;
+  
+  string s = this.toolTipText;
+  
+  s = substr(s, 0, strpos(s, \"[\"));
+  this.toolTipText = s;
+
+}" 0
+
+21 4
+"diSystemNumber"
+""
+1 130 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 System number
+LANG:10004 6 系统
+LANG:10000 12 Systemnummer
+LANG:10027 25 Номер системы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  128 28 182 55
+0
+
+E
+"main()
+{
+  diSystemName.text = \"dist_\" + this.text;
+  gMap[\"diSystemNumber\"] = diSystemNumber.text;
+  gMap[\"diSystemName\"] = diSystemName.text;
+}" 0
+
+E
+
+N 1 2048 1 1 1 1
+14 5
+"diSystemName"
+""
+1 280 28 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 System name
+LANG:10004 12 系统名称
+LANG:10000 10 Systemname
+LANG:10027 21 Имя системы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  278 26 422 53
+3 "0s" 0 0 0 0 0 -1  E E E
+14 42
+"diPeerName"
+""
+1 420 260 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E "main()
+{
+  int i;
+  
+  setReduFields();
+}" 0
+ E
+0
+4
+LANG:10001 11 System name
+LANG:10004 12 系统名称
+LANG:10000 10 Systemname
+LANG:10027 21 Имя системы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  418 258 442 285
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  int i;
+  
+  setReduFields();
+}" 0
+
+25 43
+"diPeers"
+""
+1 20 78 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  peersChanged();
+}"
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 76 422 160
+"main()
+{
+
+}" 0
+"main(int row, string column, string value)
+{
+  if(column == \"ICON\")
+  {
+    bool bValue = this.cellValueRC(row,\"VISIBLE\");
+    this.cellValueRC(row, \"VISIBLE\", !bValue);
+    this.cellFillRC(row, \"ICON\", \"[pattern,[center,any,\"+(!bValue?\"systemVisible.png\":\"oneWay.png\")+\"]]\");
+    this.cellToolTipRC(row, \"ICON\", (!bValue?getCatStr(\"pa\",\"systemVisible\"):getCatStr(\"pa\",\"oneWay\")));
+    gMap[\"diVisible\"] = diPeers.getColumnN(1);    
+  }
+}" 0
+ 1 0 1 3 0 "SYS" 31 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+350 "VISIBLE" 3 0 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+49 "ICON" 3 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+49 
+16 16 10 0
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

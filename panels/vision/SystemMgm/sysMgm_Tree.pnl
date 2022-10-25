@@ -1,0 +1,370 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 345 600 N "_3DFace" 0
+"#uses \"sysMgm.ctl\"
+
+main()
+{
+  
+}" 0
+ E E E E 1 -1 -1 0  30 20
+""0  1
+E "//mapping g_m_smRootSettings;
+//mapping g_m_smItemSettings;
+
+setParaPanel()
+{
+  bool bIsSelected, bIsRootSelected=false, bIsItemSelected=false;
+  bool isFirstChild=true, isLastChild=true;
+  bool isFirstRoot=true, isLastRoot=true;
+  
+  if (!smIsParaMode()) return;
+  
+  bIsSelected = (dynlen(sysMgmTree.selectedItems())>=1);
+  
+  if (bIsSelected)
+  {
+    string id, idAbove, idBelow;
+    id = sysMgmTree.selectedItem();
+    idAbove = sysMgmTree.itemAbove(id);
+    idBelow = sysMgmTree.itemBelow(id);
+    //DebugN(id, idAbove, idBelow);
+    
+    bIsRootSelected = (strpos(id, \"root\")==0);
+    bIsItemSelected = !bIsRootSelected;
+    
+    isFirstChild = (strpos(idAbove, \"root\")==0);
+    isLastChild = (strpos(idBelow, \"root\")==0 || idBelow==\"\");
+    
+    isFirstRoot = ( idAbove == \"\" );
+    isLastRoot = ( strpos(idBelow, \"root\") < 0 || idBelow == \"\" );
+  }
+  
+  
+  //cmdOK.enabled = true;  //Ist immer enabled
+  //cmdSave.enabled = bChanged;  //Wird je nach dem ob sich was geÃ¤ndert hat enabled
+  //cmdCancel.enabled = true;  //Ist immer enabled
+  cmdEdit.enabled = bIsSelected;
+  //cmdNewGroupe.enabled = true;  //ist immer enabled
+  cmdDelete.enabled = bIsSelected;
+  cmdAddChild.enabled = bIsRootSelected;
+  cmdAddBrotherBefore.enabled = bIsItemSelected;
+  cmdAddBrotherAfter.enabled = bIsItemSelected;
+  
+  // TFS 8263
+  cmdUp.enabled = ( !isFirstChild && bIsItemSelected ) || ( !isFirstRoot && bIsRootSelected );
+  cmdDown.enabled = ( !isLastChild && bIsItemSelected ) || ( !isLastRoot && bIsRootSelected );
+  
+  //cmdExport.enabled = !bChanged;
+  
+}
+
+
+setDescriptionView()
+{
+  string id;
+  string descript;
+  string select;
+  string s;
+  
+  if (!shapeExists(\"txtDescription\"))  //Wenn Description Feld nicht vorhanden
+    return;
+  
+  //Werte auslesen
+  id = sysMgmTree.selectedItem();
+  select = sysMgmTree.getText(id, TREECOLUMN_SYSMGM);
+  descript = sysMgmTree.getText(id, TREECOLUMN_DESCRIPTION);
+  
+  s = smDbGetItemSetting(id, COLUMN_ICON_LARGE);
+  if (s==\"\") s = DEFAULT_CHILD_ICON_LARGE;
+  brdLargeIconPreview.fill(\"[pattern,[tile,png,\"+s+\"]]\");
+  
+  //Werte in Textfeld schreiben
+  txtDescription.text = \"<p><b>\"+select+\"</b></p>\\n\"+
+                        \"<p>\"+descript+\"</p>\";
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  smDbClear();
+  smDbRemoveIdLock();
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 0
+"sysMgmTree"
+""
+1 15 35.07042253521127 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"allColumnsShowFocus" "bool FALSE"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  15 15 329 584
+10 TreeWidget
+3
+0 "selectionChanged" "(string id)"
+"  //ToDo: Falls angegeben benutzerdefiniertes Script für Tree ausführen
+  setParaPanel();
+  
+  //Wenn vorhanden rechts die Details befüllen
+  smLoadDetailView(id);
+  
+  //Wenn vorhanden Description anzeigen
+  setDescriptionView();"
+0 "doubleClicked" "(string id, int column)"
+"  if (smIsParaMode())  //Wenn in Parapanel nichts tun
+  {
+    smOpenParamPanel(id);
+  }
+  else
+  {  
+    smStartAction(id);
+  }"
+0 "rightClicked" "(string id, int column)"
+"  dyn_string dsMenu;
+  int iAnswer, i;
+  
+  const int ACTION_OPEN = 1;
+  const int ACTION_EXP_ALL_SUB = 2;
+  const int ACTION_COL_ALL_SUB = 3;
+  const int ACTION_EXP_ALL = 4;
+  const int ACTION_COL_ALL = 5;
+  
+  const int ACTION_EDIT = 11;
+  const int ACTION_ROOT_ADD = 12;
+  const int ACTION_ITEM_ADD_CHILD = 13;
+  const int ACTION_ITEM_ADD_BEFORE = 14;
+  const int ACTION_ITEM_ADD_AFTER = 15;
+  const int ACTION_ITEM_MOVE_UP = 16;
+  const int ACTION_ITEM_MOVE_DOWN = 17;
+  const int ACTION_DELETE = 18;
+  
+  // TFS 8263
+  const int ACTION_ROOT_MOVE_UP = 19;
+  const int ACTION_ROOT_MOVE_DOWN = 20;
+  
+  //Menü zusammen stellen
+  if (smIsParaMode())  //Wenn in Parapanel nichts tun
+  {
+    bool bIsRootSelected=false, bIsItemSelected=false, bIsSelected;
+    bool isFirstChild=true, isLastChild=true;
+    bool isFirstRoot=true, isLastRoot=true;
+    
+    bIsSelected = (dynlen(sysMgmTree.selectedItems())>=1);
+    if (bIsSelected)
+    {
+      string idAbove, idBelow;
+      
+      idAbove = sysMgmTree.itemAbove(id);
+      idBelow = sysMgmTree.itemBelow(id);
+      
+      bIsRootSelected = (strpos(id, \"root\")==0);
+      bIsItemSelected = !bIsRootSelected;
+      
+      isFirstChild = (strpos(idAbove, \"root\")==0);
+      isLastChild = (strpos(idBelow, \"root\")==0 || idBelow==\"\");
+      
+      isFirstRoot = ( idAbove == \"\" );
+      isLastRoot = ( strpos(idBelow, \"root\") < 0 || idBelow == \"\" );
+    }
+    
+    if (bIsSelected)
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdEdit.toolTipText+\", \"+ACTION_EDIT+\", 1\";
+    dsMenu[++i] = \"PUSH_BUTTON, \"+cmdNewGroupe.toolTipText+\", \"+ACTION_ROOT_ADD+\", 1\";
+    
+    if (bIsRootSelected)
+    {
+      dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdAddChild.toolTipText+\", \"+ACTION_ITEM_ADD_CHILD+\", 1\";
+      dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdUp.toolTipText+\", \"+ACTION_ROOT_MOVE_UP+\", \"+(int)!isFirstRoot;
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdDown.toolTipText+\", \"+ACTION_ROOT_MOVE_DOWN+\", \"+(int)!isLastRoot;
+    }
+    
+    if (bIsItemSelected)  //Nur wenn Item selektiert ist
+    {
+      dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdAddBrotherBefore.toolTipText+\", \"+ACTION_ITEM_ADD_BEFORE+\", 1\";
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdAddBrotherAfter.toolTipText+\", \"+ACTION_ITEM_ADD_AFTER+\", 1\";
+      dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdUp.toolTipText+\", \"+ACTION_ITEM_MOVE_UP+\", \"+(int)!isFirstChild;
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdDown.toolTipText+\", \"+ACTION_ITEM_MOVE_DOWN+\", \"+(int)!isLastChild;
+    }
+    
+    if (bIsSelected)
+    {
+      dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+      dsMenu[++i] = \"PUSH_BUTTON, \"+cmdDelete.toolTipText+\", \"+ACTION_DELETE+\", 1\";
+    }
+  }
+  else
+  {
+    dsMenu[++i] = \"PUSH_BUTTON, \"+getCatStr(\"SysMgm\", \"open\")+\", \"+ACTION_OPEN+\", 1\";
+    //dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+    //dsMenu[++i] = \"PUSH_BUTTON, \"+getCatStr(\"SysMgm\", \"expandAllSub\")+\", \"+ACTION_EXP_ALL_SUB+\", 1\";
+    //dsMenu[++i] = \"PUSH_BUTTON, \"+getCatStr(\"SysMgm\", \"collapsAllSub\")+\", \"+ACTION_COL_ALL_SUB+\", 1\";
+    //dsMenu[++i] = \"SEPARATOR\";  //Trennlinie
+    //dsMenu[++i] = \"PUSH_BUTTON, \"+getCatStr(\"SysMgm\", \"expandAll\")+\", \"+ACTION_EXP_ALL+\", 1\";
+    //dsMenu[++i] = \"PUSH_BUTTON, \"+getCatStr(\"SysMgm\", \"collapsAll\")+\", \"+ACTION_COL_ALL+\", 1\";
+    //ToDo: Kontexmenü mit benutzerdefinierter Struktur für benutzerdefinierte Funktionen (AS 3)
+  }
+  
+  //Popup aufschalten
+  popupMenu(dsMenu, iAnswer);
+  
+  //Antwort auswerten und Aktion ausführen
+  switch (iAnswer)
+  {
+    case ACTION_OPEN: smStartAction(id); break;
+    case ACTION_EXP_ALL_SUB: break;
+    case ACTION_COL_ALL_SUB: break;
+    case ACTION_EXP_ALL: break;
+    case ACTION_COL_ALL: break;
+    case ACTION_EDIT:     smOpenParamPanel(id); break;
+    case ACTION_ROOT_ADD: smParamAddRoot(); break;
+    case ACTION_ITEM_ADD_CHILD:  smParamAddItem(id, 1); break;
+    case ACTION_ITEM_ADD_BEFORE: smParamAddItem(id, 2); break;
+    case ACTION_ITEM_ADD_AFTER:  smParamAddItem(id, 3); break;
+    case ACTION_ITEM_MOVE_UP:  smParamMoveItem(id, true); break;
+    case ACTION_ITEM_MOVE_DOWN:  smParamMoveItem(id, false); break;
+    case ACTION_DELETE:  smParamDelete(id); break;
+    // TFS 8263
+    case ACTION_ROOT_MOVE_UP:  smParamMoveRoot(id, true); break;
+    case ACTION_ROOT_MOVE_DOWN:  smParamMoveRoot(id, false); break;
+    default: break;
+  }"
+"synchronized main()
+{
+  dyn_string dps;
+  
+  this.clear();
+  
+  //Spalten hinzufÃ¼gen
+  this.addColumn(getCatStr(\"SysMgm\",\"sysMgmMenue\"));
+  this.addColumn(getCatStr(\"SysMgm\",\"columnDescription\"));
+  
+  //Spalten entsprechend unsichtbar schalten
+  if (smIsParaMode())  //Bei Parametrierung nicht notwenig
+    this.hideColumn(TREECOLUMN_DESCRIPTION);
+  //Sonst: Bis ToolTips mÃ¶glich bleibt diese sichtbar (siehe IM 79545)
+  
+  //Die Kopfzeile braucht man hier nicht
+  if (!shapeExists(\"ptxtIsGedi\") && !shapeExists(\"txtDescription\"))  //AuÃŸer bei DockWindow im Gedi und TreeView
+    this.showHeader(false);
+  
+  if (shapeExists(\"listview\"))  //Wenn Listenansicht auch vorhanden
+  {
+    listview.clear();
+    
+    //Spalten hinzufÃ¼gen
+    listview.addColumn(\"SysMgm\");
+    listview.addColumn(getCatStr(\"SysMgm\",\"columnDescription\"));
+  }
+  
+  //ÃœberprÃ¼fen ob SyMgm noch nciht offen ist
+  if (!smDbSetIdLock())  //Lock konnte nicht erzeugt werden
+  {
+    dyn_float df;
+    dyn_string ds;
+    
+    ChildPanelOnCentralReturn(\"vision/MessageWarning\", 
+                              getCatStr(\"general\",\"warning\"), 
+                              makeDynString(getCatStr(\"SysMgm\",\"oneLoad\")+\" \"+smDbGetId()), 
+                              df, ds);
+    PanelOff();
+    return;
+  }
+  
+  //Alles aus globalen Variable lÃ¶schen (sicherheitshalber)
+  smDbClear();
+  
+  dps = smGetDps(true);
+  
+  //Root-Knoten laden
+  for (int i=1; i<=dynlen(dps); i++)
+  {
+    smDbLoadRoot(dps[i]);  //Aus PVSS in globale Var laden
+    smLoadRoot(dps[i]);    //aus globalen Var in grafische Objekte laden
+  }
+  //this.setSorting(TREECOLUMN_SYSMGM, TRUE);  //Root Ebene sortieren
+  
+  //Tree mit Unterelementen befÃ¼llen
+  for (int i=1; i<=dynlen(dps); i++)
+  {
+    smDbLoadItems(dps[i]);  //Aus PVSS in globale Var laden
+    smLoadItems(dps[i]);    //aus globalen Var in grafische Objekte laden
+  }
+}
+
+" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

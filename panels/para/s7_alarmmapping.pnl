@@ -1,0 +1,790 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 700 400 N "_3DFace" 0
+"main()
+{
+  dyn_string dsAvS7AC;
+  dyn_int    diAvS7ACPrio;
+  dyn_string dsS7AC;
+  dyn_string dsAC;
+  
+  dpGet(getSystemName() + \"_S7_Config.AvailableS7AlarmClasses\", dsAvS7AC,
+        getSystemName() + \"_S7_Config.AvailableS7ACPrios\",      diAvS7ACPrio,
+        getSystemName() + \"_S7_Config.S7AlarmClass\",            dsS7AC,
+        getSystemName() + \"_S7_Config.AlarmClass\",              dsAC);
+  
+  if ( !dynlen(dsAvS7AC) )
+    dsAvS7AC = initAvS7AC();
+  if ( !dynlen(diAvS7ACPrio) )
+    diAvS7ACPrio = initAvS7ACPrio();
+  if ( !dynlen(dsS7AC) )
+    dsS7AC = initS7AC();
+  if ( !dynlen(dsAC) )
+    dsAC = initAC();
+  
+  dyn_string s7Alerts, s7AlertKeys;
+  dyn_int s7Prios;
+  
+  for ( int i = 1; i <= dynlen(dsS7AC); i++ )
+  {
+    dyn_string tmp = splitS7Alert(dsS7AC[i]);
+    dynAppend(s7Alerts, tmp[1]);
+    dynAppend(s7AlertKeys, tmp[1]);
+    dynAppend(s7Prios, (int)tmp[2]);
+  }
+  
+  for ( int i = 1; i <= dynlen(s7Alerts); i++ )
+    s7Alerts[i] = getCatStr(\"s7\", s7Alerts[i]);
+  
+  // fill shapes
+  dyn_string dsTemp = dpNames(\"*\", \"_AlertClass\");
+  for ( int i = 1; i <= dynlen(dsTemp); i++ )
+    dsTemp[i] = dpSubStr(dsTemp[i], DPSUB_DP);
+  
+  setMultiValue(\"cmbWinCCOAAC\", \"items\",       dsTemp, 
+                \"cmbS7AC\",      \"items\",       getAlertMsgCat(),
+                \"tabMapping\",   \"appendLines\", dynlen(s7Alerts), \"#1\", s7Alerts,
+                                                                 \"#2\", s7Prios,
+                                                                 \"#3\", dsAC,
+                                                                 \"#4\", s7AlertKeys);
+  
+  setValue(\"tabMapping\", \"lineVisible\", 0);
+  
+  // apply initial configuration if nothing is configured yet
+  dyn_string ds1, ds2, ds3;
+  dyn_int di1;
+  
+  dpGet(getSystemName() + \"_S7_Config.AvailableS7AlarmClasses\", ds1, 
+        getSystemName() + \"_S7_Config.AvailableS7ACPrios\",      di1, 
+        getSystemName() + \"_S7_Config.S7AlarmClass\",            ds2, 
+        getSystemName() + \"_S7_Config.AlarmClass\",              ds3);
+  
+  if ( dynlen(ds1) == 0 && dynlen(ds2) == 0 && dynlen(ds3) == 0 && dynlen(di1) == 0 )
+    apply();
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "void apply()
+{
+  dyn_string dsS7AC = makeDynString(),
+             dsAC = makeDynString(),
+             dsTemp = makeDynString();
+  
+  for ( int i = 0; i < tabMapping.lineCount; i++ )
+  {
+    dyn_anytype da;
+    getValue(\"tabMapping\", \"getLineN\", i, da);
+    
+    dynAppend(dsS7AC, mergeS7Alert((string)da[4], (int)da[2]));
+    dynAppend(dsAC, (string)da[3]);
+  }
+
+  dpSet(getSystemName() + \"_S7_Config.AvailableS7AlarmClasses\", initAvS7AC(),
+        getSystemName() + \"_S7_Config.AvailableS7ACPrios\",      initAvS7ACPrio(),
+        getSystemName() + \"_S7_Config.S7AlarmClass\",            dsS7AC, 
+        getSystemName() + \"_S7_Config.AlarmClass\",              dsAC);
+}
+
+void close()
+{
+  PanelOff();
+}
+
+string mergeS7Alert(const string &alert, int prio)
+{
+  return alert + \";\" + (string)prio;
+}
+
+dyn_string splitS7Alert(const string &alert)
+{
+  return strsplit(alert, \";\");
+}
+
+
+// BT 3062 - multi lingual alert classes
+dyn_string initAvS7AC()
+{
+  dyn_string dsInitAvS7AC = makeDynString();
+  for ( int i = 1; i <= 16; i++ )
+    dynAppend(dsInitAvS7AC, \"AvailableS7AC\" + i);
+  return dsInitAvS7AC;
+}
+
+dyn_int initAvS7ACPrio()
+{
+  dyn_int diInitAvS7ACPrio = makeDynInt();
+  for ( int i = 0; i <= 16; i++ )
+    dynAppend(diInitAvS7ACPrio, i);
+  return diInitAvS7ACPrio;
+}
+
+dyn_string initS7AC()
+{
+  dyn_string dsInitS7AC = makeDynString();
+  
+  for ( int i = 1; i <= 16; i++ )
+    dynAppend(dsInitS7AC, \"AvailableS7AC\"+i+\";1\");
+  
+  return dsInitS7AC;
+}
+
+dyn_string initAC()
+{
+  dyn_string dsInitAC = makeDynString(\"S7_Alarm\", 
+                                      \"S7_Alarm\", 
+                                      \"S7_Warning\", 
+                                      \"S7_Warning\", 
+                                      \"S7_Tolerance\", 
+                                      \"S7_Tolerance\", 
+                                      \"S7_AS\", 
+                                      \"S7_AS\", 
+                                      \"S7_OS\", 
+                                      \"S7_Maintenance\", 
+                                      \"S7_Process\", 
+                                      \"S7_Operating\", 
+                                      \"S7_OP_Request\", 
+                                      \"S7_OP\", 
+                                      \"S7_State\", 
+                                      \"S7_State\");
+  return dsInitAC;
+}
+
+dyn_string getAlertMsgCat()
+{
+  dyn_string dsInfo = makeDynString();
+  for ( int i = 1; i <= 16; i++ )
+    dynAppend(dsInfo, getCatStr(\"s7\", \"AvailableS7AC\" + i));
+  return dsInfo;
+}
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 0
+"cmdCancel"
+""
+1 598.950495049505 364 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  598 363 686 391
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  close();
+}
+" 0
+ E E E
+13 1
+"cmdOk"
+""
+1 417.9999999999999 365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 363 506 391
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  apply();
+  close();
+}
+" 0
+ E E E
+13 2
+"cmdHelp"
+""
+1 13.95049504950487 364 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 363 101 391
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7_items\");
+}
+" 0
+ E E E
+1 22 0 "" 0
+0
+13 6
+"cmdApply"
+""
+1 510 365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 363 596 391
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  apply();
+}
+" 0
+ E E E
+22 8
+"cmbWinCCOAAC"
+""
+1 406.5 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  423 308 646 336
+0
+
+E
+E
+E
+ 0 0
+25 9
+"tabMapping"
+""
+1 20 25.00000000000001 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+  if ( dynlen(lines) < 1 )
+    return;
+
+  dyn_anytype da;
+  getValue(\"tabMapping\", \"getLineN\", lines[1], da);
+
+  if ( dynlen(da) >= 4 )
+    setMultiValue(\"sbPrio\",       \"text\", (int)da[2],
+                  \"cmbS7AC\",      \"text\", (string)da[1],
+                  \"cmbWinCCOAAC\", \"text\", (string)da[3]);  
+}
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 23 646 306
+"main()
+{
+  setValue(\"\", \"selectByClick\", TABLE_SELECT_LINE ,
+  	           \"selectColors\",  \"[0,0,0]\", \"[100,100,100]\",
+  	           \"tableMode\",     TABLE_SELECT_BROWSE, 
+               \"sortOnClick\",   true);
+}
+
+
+" 0
+E 1 0 1 4 0 "#1" 28 1 0 "s" 4
+LANG:10001 13 S7 Alertclass
+LANG:10004 12 S7 报警类
+LANG:10000 14 S7 Alarmklasse
+LANG:10027 24 Аларм-класс S7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+320 "#2" 6 1 0 "s" 4
+LANG:10001 11 S7 Priority
+LANG:10004 11 S7优先级
+LANG:10000 13 S7 Priorität
+LANG:10027 21 S7 приоритет
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "#3" 17 1 0 "s" 4
+LANG:10001 20 WinCC OA  Alertclass
+LANG:10004 19 WinCC OA  报警类
+LANG:10000 21 WinCC OA  Alarmklasse
+LANG:10027 30 Аларм-класс WinCC OA
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+205 "#4" 8 0 0 "s" 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 
+20 20 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+21 10
+"sbPrio"
+""
+1 289 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 308 421 336
+0
+
+E
+E
+E
+
+N 0 16 1 1 1 1
+30 13
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.096930533117932 0 3.424242424242425 -0.9693053311793215 -166.2121212121213 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Alertclass mapping
+LANG:10004 15 映射报警类
+LANG:10000 21 Alarmklassenabbildung
+LANG:10027 52 Сопоставление аларм-классов
+13 15
+"bu_set"
+""
+1 755 130 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  653 308 681 336
+
+P 
+4294967295
+"pictures/StandardIcons/apply_20.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+  if (dynlen(lines) < 1)
+    return;
+
+  dyn_anytype da;
+  getValue(\"tabMapping\", \"getLineN\", lines[1], da);
+  
+  if ( dynlen(da) >= 4 )
+    setMultiValue(\"tabMapping\", \"cellValueRC\", lines[1], \"#1\", cmbS7AC.text,
+                  \"tabMapping\", \"cellValueRC\", lines[1], \"#2\", sbPrio.text,
+                  \"tabMapping\", \"cellValueRC\", lines[1], \"#3\", cmbWinCCOAAC.text,
+                  \"tabMapping\", \"cellValueRC\", lines[1], \"#4\", \"AvailableS7AC\" + cmbS7AC.selectedPos);
+}
+" 0
+ E E E
+13 18
+"bu_insertafter"
+""
+1 653 248 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  653 248 681 276
+
+P 
+13434828
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+  if (dynlen(lines) < 1)
+    return;
+
+  dyn_anytype da;
+  getValue(\"tabMapping\", \"getLineN\", lines[1], da);
+
+  if ( dynlen(da) >= 4 ) 
+  {
+    int line = lines[1] + 1;
+    setValue(\"tabMapping\", \"insertLineN\", line);
+    
+    setMultiValue(\"tabMapping\", \"cellValueRC\", line, \"#1\", cmbS7AC.text,
+                  \"tabMapping\", \"cellValueRC\", line, \"#2\", sbPrio.text,
+                  \"tabMapping\", \"cellValueRC\", line, \"#3\", cmbWinCCOAAC.text,
+                  \"tabMapping\", \"cellValueRC\", line, \"#4\", \"AvailableS7AC\" + cmbS7AC.selectedPos);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 19
+"bu_insertbefore"
+""
+1 653 278 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  653 278 681 306
+
+P 
+13434828
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+  if ( dynlen(lines) < 1 )
+    return;
+
+  dyn_anytype da;
+  getValue(\"tabMapping\", \"getLineN\", lines[1], da);
+
+  if ( dynlen(da) >= 4 ) 
+  {
+    int line = lines[1];
+    setValue(\"tabMapping\", \"insertLineN\", line);
+    setMultiValue(\"tabMapping\", \"cellValueRC\", line, \"#1\", cmbS7AC.text,  
+                  \"tabMapping\", \"cellValueRC\", line, \"#2\", sbPrio.text,  
+                  \"tabMapping\", \"cellValueRC\", line, \"#3\", cmbWinCCOAAC.text,
+                  \"tabMapping\", \"cellValueRC\", line, \"#4\", \"AvailableS7AC\" + cmbS7AC.selectedPos);  
+  }
+}
+
+
+
+
+
+
+" 0
+ E E E
+13 20
+"bu_del"
+""
+1 653 218 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  653 218 681 246
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+  
+  if ( dynlen(lines) < 1 )
+    return;
+  
+  setValue(\"tabMapping\", \"deleteLineN\", lines[1]);
+}
+
+
+
+
+
+" 0
+ E E E
+22 21
+"cmbS7AC"
+""
+1 -3 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 308 341 336
+0
+
+E
+E
+E
+ 0 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 515 T 0 1.400801603206413 0 1 -21.01202404809619 -160
+0
+0

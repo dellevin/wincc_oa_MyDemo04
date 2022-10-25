@@ -1,0 +1,1432 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 641 82 N "_3DFace" 2
+"$1"
+"$range"
+"main()
+{
+  mkey = myModuleName();
+  langString ls;
+  ls = RangeNr.text();
+  
+  dyn_string ds;
+  ds = ls;
+  for (int i=1; i<=dynlen(ds); i++)
+    ds[i]=$range;
+  ls = ds;
+  RangeNr.text(ls);
+  if ($range==\"1\")
+  {
+    for (int i=1; i<=dynlen(ds); i++)
+      ds[i]=\"= \"+getCatStr(\"para\", \"discretGoodRange\");  //good range (*, no alert class)
+    ls = ds;
+    ptEqual.text(ls);
+  }
+  if ($range==\"2\")
+  {
+    for (int i=1; i<=dynlen(ds); i++)
+      ds[i]=\"= \"+getCatStr(\"para\", \"multiinstanceBadRange\");  //bad range
+    ls = ds;
+    ptEqual.text(ls);
+  }
+}
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "int iRange;
+string mkey;
+string ds0;
+string ds1;
+bool bDiscretAlarm;
+bool bMultiinstanceAlarm;
+bool bHighestRange;
+bool bMinOrMaxType;
+bool bEnable;
+
+displayRange()
+{
+  if ( (bool)gMAlert[mkey][\"PvssBelow_3_8\"]==true )
+    tbWent.visible = false;
+  
+  //wait until mapping is filled
+  while (!mappingHasKey(gMAlert,mkey))
+    delay(0,10);
+  while (!mappingHasKey(gMAlert[mkey], \"loading\"))
+    delay(0,10);
+  while (gMAlert[mkey][\"loading\"]==true)
+    delay(0,10);
+  
+  dyn_string d_incl=makeDynString(\"<\",\"<=\"), dsNegate=makeDynString(\"=\", \"!=\");
+
+  if (mappingHasKey(gMAlert[mkey],\"alarmMode\") && gMAlert[mkey][\"alarmMode\"]== PARA_ALARM_MODE_EXTENDED)
+  {
+    bMinOrMaxType = true;
+    d_incl=makeDynString(\"<\",\"<=\",\">\",\">=\");
+  }
+  else
+    bMinOrMaxType = false;
+
+
+  enableInput();
+  
+  ds0 = $range;
+  ds1=((int)$range)-1;
+  
+
+  bDiscretAlarm = false;
+  bHighestRange = ($range == gMAlert[mkey][\"ranges\"]);
+
+  initRange();  
+  
+  if (gMAlert[mkey][\"alarmMode\"]==PARA_ALARM_MODE_DISCRET)
+  {
+    d_incl=makeDynString(\"=\");
+    bDiscretAlarm = true;
+  }
+  else if(!bMinOrMaxType)
+  {
+    if ((int)$range == gMAlert[mkey][\"ranges\"])  //last range
+    {
+      d_incl = makeDynString(\">\",\">=\");
+    }    
+    else
+    {
+      d_incl = makeDynString(\"<\",\"<=\");
+    }
+  }
+  bMultiinstanceAlarm = false;
+  if (gMAlert[mkey][\"alarmMode\"]==PARA_ALARM_MODE_MULTIINSTANCE )
+  {
+    bMultiinstanceAlarm = true;
+  }
+
+  moveValueTb(bDiscretAlarm, bMinOrMaxType, (int)$range, (int)gMAlert[mkey][\"ranges\"]);
+  if (!bDiscretAlarm)
+  {
+    bool isHyst = false;
+    bool hasAlertText = gMAlert[mkey][$range][\"rangeAlertClass\"] != \"\";
+    
+    if ( !bHighestRange && !bMultiinstanceAlarm )
+    {
+      if ( mappingHasKey(gMAlert[mkey], (string)(((int)ds0) + 1)) && (getType(gMAlert[mkey][(string)(((int)ds0) + 1)][\"_l_hyst_limit\"]) == LANGSTRING_VAR) )
+        gMAlert[mkey][(string)(((int)ds0) + 1)][\"_l_hyst_limit\"] = 0;
+
+      if ( !bMinOrMaxType )
+        isHyst = gMAlert[mkey][ds0][\"_hyst_type\"] && (mappingHasKey(gMAlert[mkey], (string)(((int)ds0) + 1)) && gMAlert[mkey][(string)(((int)ds0) + 1)][\"_hyst_type\"]) &&
+                ((gMAlert[mkey][ds0][\"_u_hyst_limit\"] != 0) || (gMAlert[mkey][(string)(((int)ds0) + 1)][\"_l_hyst_limit\"] != 0 ));
+      else
+        isHyst = gMAlert[mkey][ds0][\"_hyst_type\"] &&
+                ((gMAlert[mkey][ds0][\"_u_hyst_limit\"] != 0) || (gMAlert[mkey][ds0][\"_l_hyst_limit\"] != 0 ));
+    }
+    else if ( bMinOrMaxType )
+      isHyst = gMAlert[mkey][ds0][\"_hyst_type\"];
+    
+    if (ds1!=0)
+    {
+      string sLimit;
+      if ( !bMinOrMaxType && (int)$range>1 )
+      {
+        if (bHighestRange)
+        {
+          switch(gMAlert[mkey][ds1][\"rangeType\"])
+          {
+            case \"<\": sLimit = \">=\";
+              break;
+            default:
+              sLimit = \">\";
+              break;
+          }
+          gMAlert[mkey][ds0][\"rangeType\"] = sLimit;
+        }
+        else if(strpos(gMAlert[mkey][ds0][\"rangeType\"], \">\")>=0) //on adding one range change > to <= and >= to <
+        {
+          switch(gMAlert[mkey][ds0][\"rangeType\"])
+          {
+            case \">=\": sLimit = \"<\";
+              break;
+            default:
+              sLimit = \"<=\";
+              break;
+          }
+          gMAlert[mkey][ds0][\"rangeType\"] = sLimit;
+        }        
+      }
+      
+      setMultiValue(\"tbVal\",\"format\",gMAlert[mkey][\"format\"],
+                    \"cbHyst\", \"visible\", ((!bMinOrMaxType && !bHighestRange) || (bMinOrMaxType && hasAlertText)),
+                    \"tbHyst_u\",\"format\",gMAlert[mkey][\"format\"],
+                    \"tbHyst_l\",\"format\",gMAlert[mkey][\"format\"],
+                    \"cbHyst\", \"state\", 0, isHyst,
+                    \"tbVal\", \"text\", gMAlert[mkey][bHighestRange && !bMinOrMaxType ? ds1 : ds0][\"_u_limit\"],
+                    \"tbVal\", \"enabled\", (bDiscretAlarm || (!bHighestRange || bMinOrMaxType)) && bEnable && !bMultiinstanceAlarm,
+                    \"tbHyst_u\", \"visible\", !bMultiinstanceAlarm && isHyst && (hasAlertText || !bMinOrMaxType),
+                    \"tbHyst_l\", \"visible\", !bMultiinstanceAlarm && isHyst && (hasAlertText || !bMinOrMaxType),
+                    \"txt_plus\", \"visible\", !bMultiinstanceAlarm && isHyst && (hasAlertText || !bMinOrMaxType),
+                    \"txt_minus\", \"visible\", !bMultiinstanceAlarm && isHyst && (hasAlertText || !bMinOrMaxType),
+                    \"tbHyst_u\", \"text\", (!bMultiinstanceAlarm && bMinOrMaxType ? gMAlert[mkey][ds0][\"_u_hyst_limit\"] : ( !bHighestRange && mappingHasKey(gMAlert[mkey], (string)(((int)ds0) + 1)) ? gMAlert[mkey][(string)(((int)ds0) + 1)][\"_l_hyst_limit\"] : 0 )),
+                    \"tbHyst_l\", \"text\", (!bMultiinstanceAlarm && bMinOrMaxType ? gMAlert[mkey][ds0][\"_l_hyst_limit\"] : gMAlert[mkey][ds0][\"_u_hyst_limit\"]),
+                    \"cbAlertClass\", \"items\", (dyn_string)gMAlert[mkey][\"alertClasses\"],
+                    \"cbAlertClass\", \"text\", gMAlert[mkey][$range][\"rangeAlertClass\"],
+                    \"tbCame\", \"text\", (string)gMAlert[mkey][ds0][\"_text\"],  //mehrsprachig!!!
+                    \"tbWent\", \"text\", (string)gMAlert[mkey][ds0][\"_went_text\"],  //mehrsprachig!!!
+//                    \"cbLimit\", \"visible\", !bDiscretAlarm,
+                    \"ptEqual\", \"visible\", bDiscretAlarm || bMultiinstanceAlarm,
+                    \"cbEquals\", \"visible\", bDiscretAlarm && !bMultiinstanceAlarm,
+                    \"cbLimit\", \"items\", d_incl,
+                    \"cbLimit\", \"text\", gMAlert[mkey][ds0][\"rangeType\"],
+//                    \"cbLimit\", \"selectedPos\", ((int)$range == gMAlert[mkey][\"ranges\"])?gMAlert[mkey][ds0][\"_l_incl\"]+1:gMAlert[mkey][ds0][\"_u_incl\"]+1
+                    \"cbLimit\", \"enabled\", (bDiscretAlarm || (!bHighestRange || bMinOrMaxType)) && bEnable && !bMultiinstanceAlarm,
+                    \"pbUserBits\", \"visible\", false,
+                    \"rcUserBitsConfigurated\", \"visible\", false);
+    }
+    else
+    {
+      setMultiValue(\"tbVal\",\"format\", (bDiscretAlarm?\"[0s,,,ALIGNMENT_BEGINNING]\":gMAlert[mkey][\"format\"]),
+                    \"cbHyst\", \"visible\", !bDiscretAlarm && (hasAlertText || !bMinOrMaxType) && !bMultiinstanceAlarm,
+                    \"tbHyst_u\",\"format\",gMAlert[mkey][\"format\"],
+                    \"tbHyst_l\",\"format\",gMAlert[mkey][\"format\"],
+                    \"cbHyst\", \"state\", 0, isHyst,
+                    \"tbVal\", \"text\", gMAlert[mkey][ds0][\"_u_limit\"],
+                    \"tbHyst_u\", \"visible\", isHyst && (hasAlertText || !bMinOrMaxType) && !bMultiinstanceAlarm,
+                    \"tbHyst_l\", \"visible\", isHyst && (hasAlertText || !bMinOrMaxType) && !bMultiinstanceAlarm,
+                    \"txt_plus\", \"visible\", isHyst && (hasAlertText || !bMinOrMaxType) && !bMultiinstanceAlarm,
+                    \"txt_minus\", \"visible\", isHyst && (hasAlertText || !bMinOrMaxType) && !bMultiinstanceAlarm,
+                    \"tbHyst_u\", \"text\", bMinOrMaxType ? gMAlert[mkey][ds0][\"_u_hyst_limit\"] : ( !bHighestRange && mappingHasKey(gMAlert[mkey], (string)(((int)ds0) + 1)) ? gMAlert[mkey][(string)(((int)ds0) + 1)][\"_l_hyst_limit\"] : 0 ),
+                    \"tbHyst_l\", \"text\", bMinOrMaxType ? gMAlert[mkey][ds0][\"_l_hyst_limit\"] : gMAlert[mkey][ds0][\"_u_hyst_limit\"],
+  //                  \"tbHyst_l\", \"text\", gMAlert[mkey][ds1][\"_l_hyst_limit\"],
+                    \"cbAlertClass\", \"items\", (dyn_string)gMAlert[mkey][\"alertClasses\"],
+                    \"cbAlertClass\", \"text\", gMAlert[mkey][$range][\"rangeAlertClass\"],
+                    \"tbCame\", \"text\", (string)gMAlert[mkey][ds0][\"_text\"],  //mehrsprachig!!!
+                    \"tbWent\", \"text\", (string)gMAlert[mkey][ds0][\"_went_text\"],  //mehrsprachig!!!
+//                    \"cbLimit\", \"visible\", !bDiscretAlarm,
+                    \"ptEqual\", \"visible\", bDiscretAlarm || bMultiinstanceAlarm,
+                    \"cbEquals\", \"visible\", bDiscretAlarm && !bMultiinstanceAlarm,
+                    \"cbLimit\", \"items\", d_incl,
+                    \"cbLimit\", \"text\", gMAlert[mkey][ds0][\"rangeType\"],
+                    \"pbUserBits\", \"visible\", false,
+                    \"rcUserBitsConfigurated\", \"visible\", false);
+    }
+    if(bMultiinstanceAlarm)
+      setMultiValue(\"tbVal\", \"visible\", false,
+                    \"cbEquals\", \"visible\", false,
+                    \"cbLimit\", \"visible\", false,
+                    \"cbHyst\", \"visible\", false);
+
+  }
+  else
+  {
+    bool bUserBits = false;
+    if (strpos(gMAlert[mkey][$range][\"rangeStateBits\"], \"0\")>=0 || strpos(gMAlert[mkey][$range][\"rangeStateBits\"], \"1\")>=0)
+      bUserBits = true;
+    
+      setMultiValue(\"tbVal\",\"format\", \"[0s,,,ALIGNMENT_BEGINNING]\",
+                    \"cbHyst\", \"visible\", false,
+                    \"tbVal\", \"text\", gMAlert[mkey][$range][\"match\"],
+                    \"tbVal\", \"enabled\", bEnable,
+                    \"tbVal\", \"visible\", $range!=\"1\",
+                    \"tbHyst_u\", \"visible\", false,
+                    \"tbHyst_l\", \"visible\", false,
+                    \"cbAlertClass\", \"items\", (dyn_string)gMAlert[mkey][\"alertClasses\"],
+                    \"cbAlertClass\", \"text\", gMAlert[mkey][$range][\"rangeAlertClass\"],//bHighestRange?gMAlert[mkey][ds1][\"rangeAlertClass\"]:gMAlert[mkey][ds0][\"rangeAlertClass\"],
+                    \"tbCame\", \"text\", (string)gMAlert[mkey][$range][\"_text\"],  //mehrsprachig!!!
+                    \"tbWent\", \"text\", (string)gMAlert[mkey][$range][\"_went_text\"],  //mehrsprachig!!!
+//                    \"cbLimit\", \"visible\", false,
+                    \"ptEqual\", \"visible\", $range==\"1\",
+                    \"cbEquals\", \"visible\", $range!=\"1\",
+                    \"cbEquals\", \"items\", dsNegate,
+                    \"cbEquals\", \"text\", dsNegate[gMAlert[mkey][$range][\"bNegate\"]==true?2:1],
+                    \"pbUserBits\", \"visible\", $range!=\"1\",
+                    \"rcUserBitsConfigurated\", \"visible\", bUserBits);
+  }
+  if ($range==\"1\")
+  {
+    setMultiValue(\"cbAlertClass\", \"visible\", !bDiscretAlarm && !bMultiinstanceAlarm,
+                  \"pbAcSelector\", \"visible\", !bDiscretAlarm && !bMultiinstanceAlarm);
+  }
+
+  gMAlert[mkey][$range][\"rangeType\"] = cbLimit.text;
+}
+
+openLangEditorOnKlick(bool came=true)
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  if (came)
+    ds = gMAlert[mkey][$range][\"_text\"];
+  else
+    ds = gMAlert[mkey][$range][\"_went_text\"];
+  
+  ls = ds;
+  
+  if ( getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }    
+  
+  if (came)
+    gMAlert[mkey][$range][\"_text\"] = ls;
+  else
+    gMAlert[mkey][$range][\"_went_text\"] = ls;
+  displayRange();
+}
+
+changeAlertValue()
+{
+  if (!bDiscretAlarm)
+  {
+    anytype a = this.text;
+    anytype aOldValue = gMAlert[mkey][$range][\"_u_limit\"];
+
+    if ( gMAlert[mkey][\"dpeType\"]==DPEL_FLOAT)
+    {
+      gMAlert[mkey][$range][\"_u_limit\"] = (float)this.text;
+    }
+    else if ( gMAlert[mkey][\"dpeType\"]==DPEL_LONG) 
+    {
+      gMAlert[mkey][$range][\"_u_limit\"] = (long)this.text;
+    }
+    else if( gMAlert[mkey][\"dpeType\"]==DPEL_ULONG )
+    {
+      gMAlert[mkey][$range][\"_u_limit\"] = (ulong)this.text;
+    }
+    else
+    {
+      gMAlert[mkey][$range][\"_u_limit\"] = (int)this.text;
+    }
+
+    tbRefresh.text((int)tbRefresh.text+1);
+ 
+    string ds0, ds1;
+    ds0=$range;
+    ds1=\"\"+((int)$range+1);
+    if (bMinOrMaxType)
+    {
+//      gMAlert[mkey][$range][\"_l_incl\"] = !(bool)gMAlert[mkey][ds0][\"_u_incl\"];
+      gMAlert[mkey][$range][\"_l_limit\"] = gMAlert[mkey][$range][\"_u_limit\"];
+    }
+  
+    else if (!bHighestRange)
+    {
+      gMAlert[mkey][ds1][\"_l_incl\"] = !(bool)gMAlert[mkey][ds0][\"_u_incl\"];
+      gMAlert[mkey][ds1][\"_l_limit\"] = gMAlert[mkey][ds0][\"_u_limit\"];
+      int tmp;
+      getValue(myModuleName()+\".\"+\"alert_hdl_ranges:\"+\"range\"+ds1+\".tbRefresh\",\"text\", tmp);
+      setValue(myModuleName()+\".\"+\"alert_hdl_ranges:\"+\"range\"+ds1+\".tbRefresh\",\"text\", tmp+1);
+    }
+
+  }
+  else
+  {
+    gMAlert[mkey][$range][\"match\"] = this.text();
+  }
+}
+
+initRange()
+{
+  mapping mTmp;
+  langString ls;
+
+  if (!mappingHasKey(gMAlert[mkey],ds0))
+  {
+    gMAlert[mkey][ds0] = mTmp;
+  }
+  if (gMAlert[mkey][\"alarmMode\"]!=PARA_ALARM_MODE_DISCRET)
+  {
+    if (!mappingHasKey(gMAlert[mkey],ds1))
+      gMAlert[mkey][ds1] = mTmp;
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_u_limit\") || (string)gMAlert[mkey][ds0][\"_u_limit\"]==\"\")
+      gMAlert[mkey][ds0][\"_u_limit\"]=0;  //for initializing of new range
+    if (!mappingHasKey(gMAlert[mkey][ds1],\"_u_limit\") || (string)gMAlert[mkey][ds1][\"_u_limit\"]==\"\")
+      gMAlert[mkey][ds1][\"_u_limit\"]=0;  //for initializing of new range
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_l_limit\") || (string)gMAlert[mkey][ds0][\"_l_limit\"]==\"\")
+      gMAlert[mkey][ds0][\"_l_limit\"]=0;  //for initializing of new range
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_hyst_type\"))
+      gMAlert[mkey][ds0][\"_hyst_type\"]=0;
+    if (!mappingHasKey(gMAlert[mkey][ds1],\"_hyst_type\"))
+      gMAlert[mkey][ds1][\"_hyst_type\"]=0;
+
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_l_incl\"))
+    {
+      if ( ((int)ds1 > 0) && (mappingHasKey(gMAlert[mkey][ds1], \"_u_incl\")) )
+      {
+        gMAlert[mkey][ds0][\"_l_incl\"] = !(bool)gMAlert[mkey][ds1][\"_u_incl\"];
+      }
+      else
+      {
+        gMAlert[mkey][ds0][\"_l_incl\"] = 0;
+        gMAlert[mkey][ds1][\"_u_incl\"] = 1;
+      }
+    }
+    
+    if ( !mappingHasKey(gMAlert[mkey][ds1], \"_u_incl\") )
+    {
+      gMAlert[mkey][ds1][\"_u_incl\"] = !((bool)gMAlert[mkey][ds0][\"_l_incl\"]);
+    }
+        
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_u_incl\"))
+    {
+      gMAlert[mkey][ds0][\"_u_incl\"]=0;
+    }
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_u_hyst_limit\"))
+      gMAlert[mkey][ds0][\"_u_hyst_limit\"]=ls;
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"_l_hyst_limit\"))
+      gMAlert[mkey][ds0][\"_l_hyst_limit\"]=ls;
+    if (!mappingHasKey(gMAlert[mkey][ds1],\"rangeType\"))
+    {
+      if ( !bDiscretAlarm && gMAlert[mkey][\"ranges\"] == ds0 )
+      {
+        if ( !mappingHasKey(gMAlert[mkey][ds1], \"rangeType\") )
+          gMAlert[mkey][ds1][\"rangeType\"] = \"<\";
+        string sRangeType1 = gMAlert[mkey][ds1][\"rangeType\"];
+        switch(sRangeType1)
+        {
+          case \"<=\":
+            gMAlert[mkey][ds0][\"rangeType\"]=\"<\";
+            break;
+          case \">=\":
+            gMAlert[mkey][ds0][\"rangeType\"]=\">\";
+            break;
+
+          default:
+            gMAlert[mkey][ds0][\"rangeType\"]=\">=\";
+            break;
+        }
+      }
+    }
+    if ( !mappingHasKey(gMAlert[mkey][ds0],\"rangeType\"))
+      gMAlert[mkey][ds0][\"rangeType\"] = \">\";
+    
+    if ( !mappingHasKey(gMAlert[mkey][ds1], \"rangeType\") )
+          gMAlert[mkey][ds1][\"rangeType\"] = \"<\";
+  }
+  else //discret Alarm
+  {
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"match\"))
+      gMAlert[mkey][ds0][\"match\"]=\"\";
+    if (!mappingHasKey(gMAlert[mkey][ds0],\"negate\"))
+      gMAlert[mkey][ds0][\"negate\"]=false;
+  }
+  
+  if (!mappingHasKey(gMAlert[mkey][ds0],\"_text\"))
+    gMAlert[mkey][ds0][\"_text\"]=ls;
+  if (!mappingHasKey(gMAlert[mkey][ds0],\"_went_text\"))
+    gMAlert[mkey][ds0][\"_went_text\"]=ls;
+
+  if (!mappingHasKey(gMAlert[mkey][$range],\"rangeAlertClass\"))
+    gMAlert[mkey][$range][\"rangeAlertClass\"]=\"\";
+
+  
+  if (!mappingHasKey(gMAlert[mkey][ds0],\"_class\"))
+    gMAlert[mkey][ds0][\"_class\"]=\"\";
+  if (!mappingHasKey(gMAlert[mkey][$range],\"bNegate\"))
+    gMAlert[mkey][$range][\"bNegate\"] = false;
+  if (!mappingHasKey(gMAlert[mkey][$range],\"rangeStateBits\"))
+    gMAlert[mkey][$range][\"rangeStateBits\"] = \"\";
+}
+
+void enableInput()
+{
+  bEnable = gMAlert[mkey][\"enabled\"];
+
+  setMultiValue(\"cbLimit\", \"enabled\", bEnable,
+                \"cbEquals\", \"enabled\", bEnable,
+                \"cbHyst\", \"enabled\", bEnable,
+                \"cbAlertClass\", \"enabled\", bEnable,
+                \"tbVal\", \"enabled\", bEnable,
+                \"tbHyst_l\", \"enabled\", bEnable,
+                \"tbHyst_u\", \"enabled\", bEnable,
+                \"tbCame\", \"enabled\", bEnable,
+                \"tbWent\", \"enabled\", bEnable,
+                \"pbAcSelector\", \"enabled\", bEnable,
+                \"pbUserBits\", \"enabled\", true);
+}
+
+void moveValueTb(bool bDiscret, bool bMinOrMax, int iRange, int iNumRanges)
+{
+  int x1 =16 , x2 = 56, y = ((iNumRanges-iRange)*70);
+  bool bVis1 = !bDiscret && ((iRange!=iNumRanges && !bMinOrMax) || (bMinOrMax && gMAlert[mkey][$range][\"rangeAlertClass\"]!=\"\"));
+  bool bVis2 = bDiscret || (iRange!=iNumRanges && !bMinOrMax) || (bMinOrMax && gMAlert[mkey][$range][\"rangeAlertClass\"]!=\"\");
+  int x_tbhyst = 518, x_cbhyst = 492;
+  int y_tbhyst_l = y , y_tbhyst_u = y, y_cbhyst = y;
+  bool bMinMaxGoodRange =bMinOrMax && gMAlert[mkey][$range][\"rangeAlertClass\"]==\"\";
+
+  if (!bDiscret && !bMinOrMax)
+  {
+    y-=10;
+    y_tbhyst_l += 13;
+    y_tbhyst_u += -30;
+    y_cbhyst += -16;
+  }
+  else
+  {
+    y+=20;
+    y_tbhyst_l += 46;
+    y_tbhyst_u += 3;
+    y_cbhyst += 17;
+  }
+  
+  setMultiValue(\"cbLimit\", \"position\", x1,y,
+                \"tbVal\", \"position\", x2,y,
+                \"cbLimit\", \"visible\",bVis1 && !bMinMaxGoodRange,                
+                \"tbVal\", \"visible\",bVis2 && !bMinMaxGoodRange && gMAlert[mkey][\"alarmMode\"]!=PARA_ALARM_MODE_MULTIINSTANCE,
+                \"tbHyst_l\", \"position\", x_tbhyst, y_tbhyst_l,
+                \"tbHyst_u\", \"position\", x_tbhyst, y_tbhyst_u,
+                \"cbHyst\", \"position\", x_cbhyst, y_cbhyst);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 17
+"cbHyst"
+""
+1 492 -16 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  490 -14 577 19
+1
+T 
+4
+LANG:10001 10 Hysteresis
+LANG:10004 6 滞后
+LANG:10000 9 Hysterese
+LANG:10027 20 Гистерезис
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, int state)
+{
+  bool bState;
+  bState = (bool)state;
+
+  tbHyst_l.visible(bState);
+  tbHyst_u.visible(bState);
+  txt_plus.visible(bState);
+  txt_minus.visible(bState);
+  
+  if ( !((bool)state) )
+  {
+    if ( !bMinOrMaxType )
+    {
+      if ( $range != 1 )
+        gMAlert[mkey][(string)(((int)$range))][\"_hyst_type\"] = gMAlert[mkey][(string)(((int)$range) - 1)][\"_hyst_type\"];
+      else
+        gMAlert[mkey][(string)(((int)$range))][\"_hyst_type\"] = false;
+    
+      if ( $range != gMAlert[mkey][\"ranges\"] - 1 )
+        gMAlert[mkey][(string)(((int)$range) + 1)][\"_hyst_type\"] = gMAlert[mkey][(string)(((int)$range) + 2)][\"_hyst_type\"];
+      else
+        gMAlert[mkey][(string)(((int)$range) + 1)][\"_hyst_type\"] = false;
+      
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = 0;
+      gMAlert[mkey][(string)(((int)$range) + 1)][\"_l_hyst_limit\"] = 0;
+    	}
+    else
+    {
+      gMAlert[mkey][(string)(((int)$range))][\"_hyst_type\"] = false;
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = 0;
+      gMAlert[mkey][$range][\"_l_hyst_limit\"] = 0;
+    }
+  }
+  else
+  {
+    gMAlert[mkey][(string)(((int)$range))][\"_hyst_type\"] = true;
+    if ( !bMinOrMaxType )
+    {
+      gMAlert[mkey][(string)(((int)$range) + 1)][\"_hyst_type\"] = true;
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = tbHyst_l.text;
+      gMAlert[mkey][(string)(((int)$range) + 1)][\"_l_hyst_limit\"] = (int)tbHyst_u.text;
+    }
+    else
+    {
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = tbHyst_u.text;
+      gMAlert[mkey][$range][\"_l_hyst_limit\"] = tbHyst_l.text;
+    }
+  }
+}
+
+" 0
+22 0
+"cbLimit"
+""
+1 18.65384615384614 19 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 18 57 45
+2
+4
+LANG:10001 1 <
+LANG:10004 1 <
+LANG:10000 1 <
+LANG:10027 1 <
+
+1
+4
+LANG:10001 2 <=
+LANG:10004 2 <=
+LANG:10000 2 <=
+LANG:10027 2 <=
+
+0
+
+E
+"main()
+{
+  string ds0, ds1;
+  ds0=$range;
+  ds1=\"\"+((int)$range+1);
+  gMAlert[mkey][$range][\"rangeType\"] = this.text();
+
+  if (gMAlert[mkey][\"alarmMode\"] != PARA_ALARM_MODE_DISCRET)
+  {
+    gMAlert[mkey][ds0][\"_u_incl\"] = (strpos(this.text(),\"=\")>=0);
+    tbRefresh.text((int)tbRefresh.text+1);
+    
+    if (!bMinOrMaxType && ds1 == gMAlert[mkey][\"ranges\"])  //vorletzer Range setzt letzten Range
+    {
+      if (gMAlert[mkey][$range][\"rangeType\"] == \"<\")
+        gMAlert[mkey][ds1][\"rangeType\"] = \"<=\";
+      else
+        gMAlert[mkey][ds1][\"rangeType\"] = \"<\";
+
+      int tmp;
+      getValue(myModuleName()+\".\"+\"alert_hdl_ranges:\"+\"range\"+ds1+\".tbRefresh\",\"text\", tmp);
+      setValue(myModuleName()+\".\"+\"alert_hdl_ranges:\"+\"range\"+ds1+\".tbRefresh\",\"text\", tmp+1);
+    }
+  }
+  else
+  {
+    gMAlert[mkey][ds0][\"_u_incl\"] = (strpos(this.text(),\"=\")>=0);
+    tbRefresh.text((int)tbRefresh.text+1);
+  }
+}
+
+
+
+" 0
+
+E
+ 0 0
+14 3
+"tbVal"
+""
+1 58.46153846153847 19 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E "main()
+{
+  changeAlertValue();
+}" 0
+ E
+0
+4
+LANG:10001 15  Limiting value
+LANG:10004 12 限制数值
+LANG:10000 9 Grenzwert
+LANG:10027 35 Пороговое значение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  58 18 142 44
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  changeAlertValue();
+}" 0
+
+14 4
+"tbWent"
+""
+1 393.2828282828282 19 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E "main()
+{
+  if ( getNoOfLangs() == 1 )
+  {
+    langString ls;
+    dyn_string ds;
+
+    ds[1] = this.text;
+    ls = ds;
+
+    gMAlert[mkey][$range][\"_went_text\"] = ls;
+  }
+}" 0
+ E
+0
+4
+LANG:10001 15 went alert text
+LANG:10004 18 报警离开文本
+LANG:10000 14 Ging Alarmtext
+LANG:10027 82 Текст при выходе значения из диапазона (СНЯТ)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  393 18 482 44
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  if ( getNoOfLangs() > 1 )
+    openLangEditorOnKlick(false);
+}" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ "main()
+{
+  if ( getNoOfLangs() == 1 )
+  {
+    langString ls;
+    dyn_string ds;
+
+    ds[1] = this.text;
+    ls = ds;
+
+    gMAlert[mkey][$range][\"_went_text\"] = ls;
+  }
+}" 0
+
+14 5
+"tbCame"
+""
+1 298.1818181818182 19 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E "main()
+{
+  if ( getNoOfLangs() == 1 )
+  {
+    langString ls;
+    dyn_string ds;
+
+    ds[1] = this.text;
+    ls = ds;
+
+    gMAlert[mkey][$range][\"_text\"] = ls;
+  }
+}" 0
+ E
+0
+4
+LANG:10001 15 came alert text
+LANG:10004 15 报警来文本
+LANG:10000 13 Kam Alarmtext
+LANG:10027 77 Текст при входе значения в диапазон (УСТН.)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  298 18 392 44
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  if ( getNoOfLangs() > 1 )
+    openLangEditorOnKlick(true);
+}" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ "main()
+{
+  if ( getNoOfLangs() == 1 )
+  {
+    langString ls;
+    dyn_string ds;
+
+    ds[1] = this.text;
+    ls = ds;
+
+    gMAlert[mkey][$range][\"_text\"] = ls;
+  }
+}" 0
+
+14 12
+"tbHyst_u"
+""
+1 516.9615384615386 -31 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E "main()
+{
+  if (getType(gMAlert[mkey][$range][\"_u_limit\"]) == FLOAT_VAR)
+  {
+    if ( bMinOrMaxType )
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = (float)this.text;
+    else
+      gMAlert[mkey][(string)(((int)$range) + 1)][\"_l_hyst_limit\"] = (float)this.text;
+  }
+  else
+  {
+    if ( bMinOrMaxType )
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = (int)this.text;
+    else
+      gMAlert[mkey][(string)(((int)$range) + 1)][\"_l_hyst_limit\"] = (int)this.text;
+  }
+  
+
+}
+
+" 0
+ E
+0
+4
+LANG:10001 16 upper hystereses
+LANG:10004 16 upper hystereses
+LANG:10000 15 obere Hysterese
+LANG:10027 48 верхний порог гистерезиса
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  516 -32 574 -5
+3 "0s" 0 0 0 0 0 -1  E E E
+22 20
+"cbAlertClass"
+""
+1 136.971580143994 21 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  143 18 267 44
+0
+
+E
+"main()
+{
+  gMAlert[mkey][(string)((int)$range)][\"rangeAlertClass\"]=this.text;
+  //(strlen((string)gMAlert[mkey][(string)i][\"_class\"])<5)?\"\":substr((string)gMAlert[mkey][(string)i][\"_class\"],4,strlen((string)gMAlert[mkey][(string)i][\"_class\"])-4);  
+  gMAlert[mkey][$range][\"_class\"]=strlen(this.text)<5?\"\":getSystemName(getSystemId())+(strlen(this.text)<5?\"\":substr(this.text,4));
+  int i = tbRefresh.text();
+  tbRefresh.text(i+1);
+}" 0
+
+E
+ 0 0
+13 22
+"pbAcSelector"
+""
+1 864 49 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  268 17 296 45
+
+P 
+13160660
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int        iPrior;
+  bool       ok;
+  string     sPrior,dp,s;
+  dyn_string sPara;
+  string     sSystem = dpSubStr($1,DPSUB_SYS); 
+  string sParaModule = myModuleName();
+  strreplace(sParaModule, \"alert_hdl_range_mod\", \"\");  
+  
+  
+
+  getValue(\"cbAlertClass\",\"text\",dp);
+    
+  if (substr(dp, 3,1) == \"_\" )
+    dp = sSystem+substr(dp, 4,1024);
+  
+  dpSelector(dp,true,\"ALL_SYSTEM_NAME_SYS\");
+  if (dpSubStr(dp,DPSUB_SYS)!=\"\" &&
+      dpSubStr(dp,DPSUB_SYS)!=dpSubStr(globalOpenConfig[dynContains(globalModuleNames, sParaModule)],DPSUB_SYS)) 
+  {
+    sPara=makeDynString(paGetCatStr(\"para\",\"wrongsystem\"));
+    paChildPanelOn(\"vision/MessageWarning\",
+                   paGetCatStr(\"para\",\"warning\"),
+                   \"\",\"\",true,false,-1,-1,sPara,ok);
+    return;
+  }
+  dp=dpSubStr(dp,DPSUB_DP_EL);
+  if (dp!=\"\")
+  {
+    if (strpos(dp,\".\")<0) dp+=\".\";
+    if (dpGet(sSystem+dp+\":_alert_class.._prior\",iPrior)!=-1)
+    {
+      sprintf(sPrior,\"%03d_\",iPrior);
+      gMAlert[mkey][(string)((int)$range-1)][\"rangeAlertClass\"]=sPrior+dp;
+      if (!dynContains (gMAlert[mkey][\"alertClasses\"]  , sPrior+dp))
+        dynAppend( gMAlert[mkey][\"alertClasses\"], sPrior+dp);  
+      setValue(\"cbAlertClass\",\"text\",sPrior+dp);        
+      gMAlert[mkey][$range][\"_class\"]=dp;
+    }
+  }
+}" 0
+ E E E
+14 24
+"tbRefresh"
+""
+1 609.9999999999999 40 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  displayRange();
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  608 38 632 64
+3 "0s" 0 0 0 0 0 -1  E E E
+2 26
+"ptEqual"
+""
+1 30 26 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 30 26 287.2496513249652 43
+0 2 2 "0s" 0 0 0 64 0 0  30 26 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 =
+LANG:10004 1 =
+LANG:10000 1 =
+LANG:10027 1 =
+4 27
+"LINE1"
+""
+1 3.000000000000001 2 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  3 2 578 2
+4 29
+"LINE3"
+""
+1 2 2 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  2 2 2 72
+4 30
+"LINE4"
+""
+1 578 2 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  578 2 578 72
+2 31
+"RangeNr"
+""
+1 2 25 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 2 25 14.72727272727273 42
+0 2 2 "0s" 0 0 0 64 0 0  2 25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+4 32
+"LINE5"
+""
+1 3 72 E E E 1 E 0 E N {0,0,0} E N {255,255,255} E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  if ($range==\"1\")
+    this.visible(true);
+}" 0
+ E 0 1 1 2 1 E  3 72 578 72
+22 33
+"cbEquals"
+""
+1 18.65384615384614 19 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 18 57 44
+2
+4
+LANG:10001 1 =
+LANG:10004 1 =
+LANG:10000 1 =
+LANG:10027 1 =
+
+1
+4
+LANG:10001 2 !=
+LANG:10004 2 !=
+LANG:10000 2 !=
+LANG:10027 2 !=
+
+0
+
+E
+"main()
+{
+  string sNegate = this.text();
+  gMAlert[mkey][$range][\"bNegate\"] = (sNegate!=\"=\");
+}
+
+" 0
+
+E
+ 0 0
+13 34
+"pbUserBits"
+""
+1 509 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 state bits
+LANG:10004 10 state bits
+LANG:10000 11 Status Bits
+LANG:10027 27 Биты состояния
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 18 573 45
+
+T 
+4
+LANG:10001 10 state bits
+LANG:10004 10 state bits
+LANG:10000 4 Bits
+LANG:10027 8 Биты
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/alert_hdl_RangeUserBits.pnl\", \"rangeUserBits\", makeDynString(\"$pattern:\"+gMAlert[mkey][$range][\"rangeStateBits\"], \"$editable:\"+((bool)gMAlert[mkey][\"enabled\"])), df, ds);
+
+  if (df[1]==1) //OK
+  {
+    gMAlert[mkey][$range][\"rangeStateBits\"] = ds[1];
+    int tmp = tbRefresh.text();
+    tbRefresh.text(tmp+1);
+  }
+}" 0
+ E E E
+6 36
+"rcUserBitsConfigurated"
+""
+1 490 20 E E E 1 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 1 -6 -3 2  1 0  "pictures/StandardIcons/Config_params_20.png" 4294967295 E 491 21 515 45
+14 13
+"tbHyst_l"
+""
+1 520 10 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E "main()
+{
+  if ( strpos(this.text, \"-\") >= 0 )
+  {
+    string text = this.text;
+    strreplace(text, \"-\", \"\");
+    this.text = text;
+  }
+
+  if (getType(gMAlert[mkey][$range][\"_u_limit\"])==FLOAT_VAR)
+  {
+    if ( bMinOrMaxType )
+      gMAlert[mkey][$range][\"_l_hyst_limit\"] = (float)this.text;
+    else
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = (float)this.text;
+  }
+  else
+  {
+    if ( bMinOrMaxType )
+      gMAlert[mkey][$range][\"_l_hyst_limit\"] = (int)this.text;
+    else
+      gMAlert[mkey][$range][\"_u_hyst_limit\"] = (int)this.text;
+  }  
+}
+
+
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  519.0384615384616 9 577.0384615384616 35
+3 "0s" 0 0 0 0 0 -1  E E E
+2 38
+"txt_minus"
+""
+1 509 18 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 509 18 515 30
+0 2 2 "0s" 0 0 0 192 0 0  509 18 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 -
+LANG:10004 1 -
+LANG:10000 1 -
+LANG:10027 1 -
+2 37
+"txt_plus"
+""
+1 507 -24 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 507 -24 517 -12
+0 2 2 "0s" 0 0 0 192 0 0  507 -24 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 +
+LANG:10004 1 +
+LANG:10000 1 +
+LANG:10027 1 +
+4 27
+"LINE1"
+""
+1 3.000000000000001 2 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  3 2 578 2
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

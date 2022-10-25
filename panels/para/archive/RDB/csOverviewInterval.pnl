@@ -1,0 +1,644 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 681 367 N "_3DFace" 0
+"#uses \"sfp_statfuncpara.ctl\"
+
+main()
+{
+  if (!useQueryRDBDirect())
+    btnNew.enabled = false;
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"sfp_statfuncpara.ctl\"
+
+bool bRefreshTree = false;
+
+void refresh()
+{
+  int iCol, iLine;
+  string currentGroupName;
+  getValue(\"tblInterval\", \"currentCell\", iLine, iCol); //remember line
+  
+  if(iLine != -1)  
+    getValue(\"tblInterval\", \"cellValueRC\", iLine, \"GROUP_NAME\", currentGroupName);
+  
+  fillTableInterval();
+
+  if (iLine >= 0) //scroll back to current
+  {
+    dyn_anytype results = tblInterval.getColumnN(1); // GROUP_NAME is column no 1
+    iLine = dynContains(results, currentGroupName)-1; //dyn starts with 1, line count with 0
+    tblInterval.lineVisible(iLine); //scroll back to old line
+    tblInterval.currentCell(iLine, iCol);  
+  }
+}
+
+void fillTableInterval()
+{
+  tblInterval.deleteAllLines();
+  string stmt = \"select interval_id, to_char(ArcUtils.convertUTCToLocal(starttime), 'YYYY.MM.DD HH24:MI:SS,FF3'), unit_code, group_name, job_id, length, jobdelay, size_order, active, to_char(ArcUtils.convertUTCToLocal(lastcalc), 'YYYY.MM.DD HH24:MI:SS,FF3'), description \"
+                \"from csinterval order by size_order\";
+  dyn_dyn_anytype table;
+  int err = runRealSQLQuery(stmt, table);
+  int i, j;
+  if (!err && dynlen(table) > 0)
+  {
+    for(i=1;i<=dynlen(table);i++)
+      tblInterval.appendLine(\"INTERVAL_ID\", table[i][1], 
+                             \"STARTTIME\", table[i][2],
+                             \"UNIT_CODE\", table[i][3],
+                             \"GROUP_NAME\", table[i][4],
+                             \"JOB_ID\", table[i][5],
+                             \"LENGTH\", table[i][6],
+                             \"JOBDELAY\", table[i][7],
+                             \"SIZE_ORDER\", table[i][8],
+                             \"ACTIVE\", (bool) table[i][9],
+                             \"LASTCALC\", table[i][10],
+                             \"DESCRIPTION\", table[i][11]);
+  }
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"line of tables\", dynlen(table), err);
+}
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  float f = 0;
+  if (bRefreshTree)
+    f = 1;
+    
+  PanelOffReturn(makeDynFloat(f),makeDynString(\"OK\"));
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 2
+"btnNew"
+""
+1 484 325.6571428571428 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  482 324 526 364
+
+P 
+4294967295
+"pictures/new_32.png"
+4
+LANG:10001 3 New
+LANG:10004 6 新建
+LANG:10000 3 Neu
+LANG:10027 14 Создать
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultText;
+  // used to be: ChildPanelOnCentralModalReturn(\"para/archive/RDB/csCreateInterval.pnl\", ...
+  ChildPanelOnCentralReturn(\"para/archive/RDB/csCreateInterval.pnl\",
+                                 getCatStr(\"RDBArchive\",\"csCreateInterval\"),
+                                 makeDynString(\"\"),
+                                 resultFloat, 
+                                 resultText);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"Create interval returns:\", resultText);
+  if (dynlen(resultText) > 0 && resultText[1]==\"OK\")
+    refresh();
+}" 0
+ E E "main()
+{
+  this.enabled = (useQueryRDBDirect() == 1);
+}
+" 0
+
+25 4
+"tblInterval"
+""
+1 10 9.99999999999997 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main(int line, string column)
+{
+  string id;
+  bool bActive;
+  getValue(\"tblInterval\",\"currentCell\", line, column);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"INTERVAL_ID\", id);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"ACTIVE\", bActive);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"Active/Inactive\", id, line, column, bActive);
+  
+  dyn_float resultFloat;
+  dyn_string resultText;
+  
+  ChildPanelOnCentralReturn(\"para/archive/RDB/csUpdateInterval.pnl\",
+                                 getCatStr(\"RDBArchive\",\"csUpdateInterval\"),
+                                 makeDynString(\"$INTERVALID:\" + id),
+                                 resultFloat, 
+                                 resultText);
+  if (resultFloat[1] > 0)  
+  {  refresh();
+     bRefreshTree = true;
+  }
+}" 0
+
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 8 672 320
+"main()
+{
+  fillTableInterval();
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+}" 0
+"main(int line, string column, string value)
+{
+  if (column == \"ACTIVE\")
+  {
+    string id;
+    bool bActive = (bool) value;
+    getValue(\"tblInterval\",\"cellValueRC\", line, \"INTERVAL_ID\", id);
+    
+    if (isDbgFlag(\"CS\"))
+      DebugN(\"Active/Inactive\", id, line, column, bActive);
+    int ret = setCompressionIntervalState(id, bActive); 
+    
+    bRefreshTree = true;
+  }
+
+}
+" 0
+ 1 0 1 11 0 "INTERVAL_ID" 6 0 0 "[0d,False,False,ALIGNMENT_BEGINNING,False]" 4
+LANG:10001 2 ID
+LANG:10004 2 ID
+LANG:10000 2 ID
+LANG:10027 2 ID
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "GROUP_NAME" 6 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 4 Name
+LANG:10004 6 名称
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "STARTTIME" 19 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 5 Start
+LANG:10027 10 Старт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+160 "UNIT_CODE" -1 0 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 4 Unit
+LANG:10004 6 单位
+LANG:10000 7 Einheit
+LANG:10027 5 Ед.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "JOB_ID" -1 0 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 3 Job
+LANG:10004 6 任务
+LANG:10000 3 Job
+LANG:10027 12 Работа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "LENGTH" -1 0 0 "[0d,False,False,ALIGNMENT_BEGINNING,False]" 4
+LANG:10001 6 Length
+LANG:10004 6 长度
+LANG:10000 6 Länge
+LANG:10027 10 Длина
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "JOBDELAY" 7 1 0 "[0d,False,False,ALIGNMENT_END,False]" 4
+LANG:10001 5 Delay
+LANG:10004 6 延迟
+LANG:10000 12 Verzögerung
+LANG:10027 16 Задержка
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "SIZE_ORDER" 7 0 0 "[0d,False,False,ALIGNMENT_BEGINNING,False]" 4
+LANG:10001 5 Order
+LANG:10004 5 Order
+LANG:10000 11 Reihenfolge
+LANG:10027 14 Порядок
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+70 "ACTIVE" 4 1 1 "[1d,False,False,ALIGNMENT_CENTER,False]" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+E
+4
+LANG:10001 16 Interval active?
+LANG:10004 16 间隔有效吗?
+LANG:10000 16 Intervall aktiv?
+LANG:10027 32 Интервал активен?
+
+60 "LASTCALC" 19 1 0 "[1s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 16 Last Calculation
+LANG:10004 15 最后的计算
+LANG:10000 15 Letztberechnung
+LANG:10027 28 Последн. расчет
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+160 "DESCRIPTION" 15 1 0 "[1s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 16 Описание
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+135 
+16 16 10 10
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 5
+"btnActive"
+""
+1 136 334 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  134 332 258 360
+
+T 
+4
+LANG:10001 15 Active/Inactive
+LANG:10004 6 激活
+LANG:10000 13 Aktiv/Inaktiv
+LANG:10027 26 Активен/Неакт.
+"main()
+{
+  int line, column;
+  string id;
+  bool bActive;
+  getValue(\"tblInterval\",\"currentCell\", line, column);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"INTERVAL_ID\", id);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"ACTIVE\", bActive);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"Active/Inactive\", id, line, column, bActive);
+  int ret = setCompressionIntervalState(id, !bActive); 
+  if (ret == 1)
+    refresh();
+  
+  bRefreshTree = true;
+}" 0
+ E E E
+13 6
+"btnRefresh"
+""
+1 532 350 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  578 324 622 364
+
+P 
+4294967295
+"pictures/refresh_32.png"
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 13 Aktualisieren
+LANG:10027 16 Обновить
+"main()
+{
+  refresh();
+}" 0
+ E E E
+13 7
+"btnClose"
+""
+1 628 326 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  626 324 670 364
+
+P 
+4294967295
+"pictures/exit_32.png"
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  float f = 0;
+  if (bRefreshTree)
+    f = 1;
+    
+  PanelOffReturn(makeDynFloat(f),makeDynString(\"OK\"));
+  
+}" 0
+ E E E
+13 8
+"btnDelete"
+""
+1 531 326 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  529 324 573 364
+
+P 
+4294967295
+"pictures/delete_32.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"main()
+{
+  int line, column;
+  string id;
+  bool bActive;
+  getValue(\"tblInterval\",\"currentCell\", line, column);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"INTERVAL_ID\", id);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"ACTIVE\", bActive);
+
+  if (!bActive)
+  {
+    int ret = delCompressionInterval(id); 
+    if (isDbgFlag(\"CS\"))
+      DebugN(\"Delete Interval\", id, line, column, ret);
+
+    if (ret == 1)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\",
+                               makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteIntervalSuccess\")));
+      tblInterval.deleteLineN(line);
+    }
+    else if (ret==0)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\",
+                               makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteIntervalNotFound\")));
+      tblInterval.deleteLineN(line);
+    }
+    else if (ret == -2292) //foreign key constraint FK_CSSTEP_CSINTERVAL violated
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+                               makeDynString(getCatStr(\"RDBArchive\",\"csOutcomeDeleteIntervalStepExists\")));
+    else 
+        ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+                                 makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteIntervalFailure\")));
+  }
+  else
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+                             makeDynString(getCatStr(\"RDBArchive\",\"csActiveNoDelete\")));
+}" 0
+ E E E
+13 9
+"btnModify"
+""
+1 261 334 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  259 332 383 360
+
+T 
+4
+LANG:10001 6 Modify
+LANG:10004 6 修改
+LANG:10000 7 Ändern
+LANG:10027 16 Изменить
+"main()
+{
+  int line, column;
+  string id;
+  bool bActive;
+  getValue(\"tblInterval\",\"currentCell\", line, column);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"INTERVAL_ID\", id);
+  getValue(\"tblInterval\",\"cellValueRC\", line, \"ACTIVE\", bActive);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"Active/Inactive\", id, line, column, bActive);
+  
+  dyn_float resultFloat;
+  dyn_string resultText;
+  
+  ChildPanelOnCentralReturn(\"para/archive/RDB/csUpdateInterval.pnl\",
+                                 getCatStr(\"RDBArchive\",\"csUpdateInterval\"),
+                                 makeDynString(\"$INTERVALID:\" + id),
+                                 resultFloat, 
+                                 resultText);
+  refresh();
+  bRefreshTree = true;
+}" 0
+ E E E
+13 10
+"PUSH_BUTTON1"
+""
+1 10 370 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  8 368 132 395
+
+T 
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+E E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

@@ -1,0 +1,2809 @@
+V 14
+4
+LANG:10001 15 Diagnostic Tool
+LANG:10004 12 诊断工具
+LANG:10000 15 Diagnostik Tool
+LANG:10027 39 Средство диагностики
+PANEL,-1 -1 550 480 N "_3DFace" 2
+"$Proj"
+"$ProjPath"
+"main()
+{
+  dyn_anytype daParams, daResult;
+  string sFileContent, sData, sEvent, sVersion;
+  int x, y;
+  
+  g_bRemote = FALSE;
+  g_bExtend = TRUE;
+  
+  if(isDollarDefined(\"$ProjPath\"))
+    g_sProjPath = $ProjPath;
+  else
+    g_sProjPath = PROJ_PATH;
+  
+  g_sProjPath = strrtrim(g_sProjPath, \"/\");
+  g_sProjPath = strrtrim(g_sProjPath, \"\\\\\");
+  
+  fileToString(g_sProjPath + \"/config/progs\", sFileContent);
+  paCfgReadValue(g_sProjPath + \"/config/config\", \"general\", \"proj_version\", sVersion);
+
+  if ( paVersionStringToNumeric(sVersion) < 311000 )
+  {
+    sData  = \"PVSS00data\";
+    sEvent = \"PVSS00event\";
+  }
+  else
+  {
+    sData  = getComponentName(DATA_COMPONENT);
+    sEvent = getComponentName(EVENT_COMPONENT);
+  }
+
+  if ( strpos(sFileContent, sData) < 0 || strpos(sFileContent, sEvent) < 0 )
+  {
+    g_bRemote = TRUE;
+    
+    getChildPanelCentralPosition(\"projAdmin/pvr/pvr.pnl\", x, y);
+    daParams[1]  = myModuleName();
+    daParams[2]  = \"vision/MessageWarning\";
+    daParams[3]  = myPanelName();
+    daParams[4]  = getCatStr(\"general\", \"warning\");
+    daParams[5]  = x;
+    daParams[6]  = y;
+    daParams[7]  = 1.0;
+    daParams[8]  = FALSE;
+    daParams[9]  = makeDynString(\"$1:\" + getCatStr(\"pvr\", \"remUI\"),
+                                 \"$2:\" + getCatStr(\"general\", \"OK\"));
+    daParams[10] = FALSE;
+
+    childPanel(daParams, daResult);
+//     ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+//                              makeDynString(\"$1:\" + getCatStr(\"pvr\", \"remUI\"),
+//                                            \"$2:\" + getCatStr(\"general\", \"OK\")));
+  }
+  
+  if(isDollarDefined(\"$Proj\"))
+    g_sProj = $Proj;
+  else
+    g_sProj = PROJ;
+  
+  if(_WIN32)
+  {
+    TFZipFileName.text = makeNativePath(g_sProjPath + \"/\" + \"pvr.zip\");
+  
+  }else if(_UNIX)
+  {
+    TFZipFileName.text = makeUnixPath(g_sProjPath + \"/\" + \"pvr.zip\");
+  }
+  
+  update();
+}
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  8 9
+""0  1
+E "#uses \"CtrlPv2Admin\"
+#uses \"va.ctl\"
+#uses \"classes/cm/CmContainerDataProcessor\"
+
+const string ver = VERSION_DISP;
+const int commandSize = 8000;
+
+string OSType;
+string OSVersion;
+string OSServicePack;
+string HostName;
+string ProjectDisk;
+string ProjectName;
+string ProjectDiskSpace;
+float fProjectDiskSpace;
+string PVSSDiskName;
+string PVSSFreeDiskSpace;
+float fPVSSFreeDiskSpace;
+string PVSSVersion;
+dyn_string PVSSPatches;
+string PVSSProjects;
+dyn_string FilesToBeZipped;
+dyn_string SubProjectsPath;
+string ZipFileName;
+dyn_string OverparameterizedFiles;
+string sOrclTNSP;
+string sOrclSQLP;
+string sBinDir;
+string g_sProjPath;
+string g_sProj;
+bool g_bExtend;
+bool g_bRemote;
+
+string pvrPath;
+string pvrAuxPath;
+string pvrCheckingsPath;
+string pvrDiskCaptionsPath;
+string pvrDiskSpacesPath;
+string reportPath;
+string tmpOutPath;
+
+void runZip(string sFileParts, bool fUpdate)
+{
+  string zipCommand;
+  if(_WIN32)
+    zipCommand = PVSSDiskName + \"/bin/zip \" + ((fUpdate) ? \"-u \" : \" \") + ZipFileName + \" \" + sFileParts;
+  else if(_UNIX)
+    zipCommand = \"zip \" + ((fUpdate) ? \"-u \" : \" \") + ZipFileName + \" \" + sFileParts;
+
+  system(zipCommand + \" > \" + tmpOutPath);
+}
+
+void setMode(bool mode)
+{
+//   Sel.enabled = mode;
+  PBAddFiles.enabled = mode;
+  btPatches.enabled = mode;
+  btRegisteredProjects.enabled = mode;
+  btOverparameterized.enabled = mode;
+  btSubprojects.enabled = mode;
+
+  return;
+}
+
+dyn_string getFileNamesRec(string dir = \".\", string pattern = \"*\")
+{
+  dyn_string files;
+  dyn_string directories;
+
+  if(_WIN32)
+  {
+    dynAppend(files, getFileNames(dir, pattern));
+
+    dyn_string ds;
+    getRecursiveDirectoryNames(ds, dir);
+    for(int i = 1; i <= dynlen(ds); i++)
+    {
+      strreplace(ds[i], \"*\", \"\");
+      strreplace(ds[i], \"\\\\\", \"/\");
+      if(ds[i] == \"\")
+        continue;
+
+      dyn_string ds2 = getFileNames(dir + \"/\" + ds[i], pattern);
+      for(int j = 1; j <= dynlen(ds2); j++)
+        dynAppend(files, ds[i] + ds2[j]);
+    }
+  }
+  else if(_UNIX)
+  {
+    system(\"find \" + dir + \" >  PVRcheckings.txt\");
+    file f=fopen(\"PVRcheckings.txt\",\"r\");
+    string content=\"\";
+    string s=\"\";
+    while (feof(f)==0)
+    {
+      fgets(s,100,f);
+      strrtrim(s, \"\\n\");
+      strreplace(s, \"\\n\", \"\");
+      if(s == \"\" || isDirectory(s))
+      {
+        continue;
+      }
+      else if(patternMatch(pattern, s))
+      {
+        strreplace(s, dir, \"\");
+        dynAppend(files, s);
+      }
+    }
+    fclose(f);
+  }
+
+	return files;
+}
+
+void setZipFileState()
+{
+  if(TFZipFileName.text != \"\" && TEDescription.text != \"\" && TEComments.text != \"\")
+  {
+    TFZipFileName.enabled = true;
+    BCreateZip.enabled = true;
+    return;
+  }
+
+  if(TEDescription.text != \"\" && TEComments.text != \"\")
+  {
+    setLogMessage(\"enterZipName\", \"INFO\");
+    TFZipFileName.enabled = true;
+  }
+  else
+  {
+    setLogMessage(\"enterSubject\", \"INFO\");
+    TFZipFileName.enabled = false;
+    BCreateZip.enabled = true;
+  }
+
+}
+
+void showItems(string itemType)
+{
+  string title= \"\";
+  dyn_string items;
+  int child;
+  dyn_anytype params;
+  string s = \"\";
+
+  switch(strtoupper(itemType))
+  {
+    case \"PATCH\": items = PVSSPatches; title = getCatStr(\"pvr\", \"loInstalledPatches\"); break;
+    case \"REGISTERED_PROJECT\": items = strsplit(PVSSProjects, \"\\n\"); title = getCatStr(\"pvr\", \"loRegisteredProjects\"); break;
+    case \"SUBPROJECT\": items = SubProjectsPath; title = getCatStr(\"pvr\", \"loSubprojects\");break;
+    case \"OVERPARAMETERIZED\": items = OverparameterizedFiles; title = getCatStr(\"pvr\", \"loOverparameterized\"); break;
+    default: DebugN(\"Invalid item type passed: \" + itemType); return;
+  }
+
+  if ( itemType == \"PATCH\" ) //IM 116188
+  {
+    for(int i = 1; i <= dynlen(items); i++)
+      s = s + \"Patch \" + strrtrim(strltrim(items[i], \"ReadmeP\"), \".txt\") + \"|\";
+  }
+  else
+    s = dynStringToString(items,\"|\");
+
+  params[1]  = myModuleName();
+  params[2]  = \"projAdmin/pvr/itemList.pnl\";
+  params[3]  = myPanelName();
+  params[4]  = title;
+  params[5]  = 115;
+  params[6]  = 177;
+  params[7]  = 1.0;
+  params[8]  = FALSE;
+  params[9]  = makeDynString(s);
+  params[10] = FALSE;
+
+  dyn_anytype da;
+  child = childPanel(params, da);
+}
+
+update()
+{
+  TEDescription.enabled = false;
+  TEComments.enabled = false;
+  int error;
+
+  txVersion.text = \"v.\" + ver;
+
+  setLogMessage(\"waitUpdate\", \"PROGRESS\");
+
+  setMode(false);
+
+  pvrPath = makeNativePath(PVSS_PATH + \"log/\" + \"PVR.txt\");
+  pvrAuxPath = makeNativePath(PVSS_PATH + \"log/\" + \"PVRaux.txt\");
+  pvrCheckingsPath = makeNativePath(PVSS_PATH + \"log/\" + \"PVRcheckings.txt\");
+  pvrDiskCaptionsPath = makeNativePath(PVSS_PATH + \"log/\" + \"PVRdiskCaptions.txt\");
+  pvrDiskSpacesPath = makeNativePath(PVSS_PATH + \"log/\" + \"PVRDiskSpaces.txt\");
+
+  reportPath = makeNativePath(PVSS_PATH + \"log/\" + \"report.txt\");
+  tmpOutPath = makeNativePath(PVSS_PATH + \"log/\" + \"tmpOut.txt\");
+
+  error = getOSInformation(OSType, OSVersion, OSServicePack, HostName);
+  if(error >= 0)
+  {
+    //update text in panel
+    if(_WIN32)
+      TFOSType.text = OSType +  \" v.\" + OSVersion + \" - \" + OSServicePack;
+    else
+      TFOSType.text = OSType +  \" \" + OSVersion;
+
+  }
+
+  error = getDiskInformation(ProjectName, ProjectDisk, ProjectDiskSpace, PVSSDiskName, PVSSFreeDiskSpace);
+  if(error >= 0)
+  {
+
+    sscanf(ProjectDiskSpace, \"%f\", fProjectDiskSpace);
+    sscanf(PVSSFreeDiskSpace, \"%f\", fPVSSFreeDiskSpace);
+
+    if(_WIN32)
+    {
+      fProjectDiskSpace = floor(fProjectDiskSpace/1048576);
+      fPVSSFreeDiskSpace = floor(fPVSSFreeDiskSpace/1048576);
+    }
+    else if(_UNIX)
+    {
+      fProjectDiskSpace = floor(fProjectDiskSpace/1024);
+      fPVSSFreeDiskSpace = floor(fPVSSFreeDiskSpace/1024);
+    }
+
+    TFProjectName.text = ProjectName;
+    TFProjectDisk.text = ProjectDisk;
+    TFProjectDiskSpace.text = fProjectDiskSpace;
+    TFPVSSDisk.text = PVSSDiskName;
+    TFPVSSDiskSpace.text= fPVSSFreeDiskSpace;
+  }
+  error = getPVSSVersion(PVSSVersion);
+  if(error >= 0)
+  {
+    TFPVSSVersion.text = PVSSVersion;
+  }
+
+  error = getPatches(PVSSPatches);
+  if(error >= 0)
+  {
+  }
+  error = getProjects(PVSSProjects);
+  if(error >= 0)
+  {
+  }
+
+  error = getSubProjectsPath(SubProjectsPath);
+  if(error >= 0)
+  {
+  }
+
+  //ds: if we use rdb, get the version of the oracle client that is installed
+  if(isRDBUsed())
+  {
+    error = getOracleInformation(sOrclSQLP, sOrclTNSP);
+    if(error >= 0)
+    {
+    }
+  }
+
+  error = getBinDir(sBinDir);
+  if(error >= 0)
+  {
+  }
+
+  error = getOverparameterizedFiles(OverparameterizedFiles);
+  if(error >= 0)
+  {
+  }
+  setMode(true);
+
+  setLogMessage(\"enterSubject\", \"INFO\");
+  TEDescription.enabled = true;
+  TEComments.enabled = true;
+}
+
+int getOracleInformation(string& sOrclSQLP, string& sOrclTNSP)
+{
+  system(\"sqlplus -h > \" + g_sProjPath + \"/\" + \"orclsqlplus.txt\");
+  system(\"tnsping > \" + g_sProjPath + \"/\" + \"orcltnsping.txt\");
+
+  fileToString(g_sProjPath + \"/\" + \"orclsqlplus.txt\", sOrclSQLP);
+  fileToString(g_sProjPath + \"/\" + \"orcltnsping.txt\", sOrclTNSP);
+
+  remove(g_sProjPath + \"/\" + \"orclsqlplus.txt\");
+  remove(g_sProjPath + \"/\" + \"orcltnsping.txt\");
+
+  return 0;
+}
+
+int getBinDir(string& sBinDir)
+{
+  string sPVSSPath = PVSS_PATH;
+
+  if(_WIN32)
+  {
+    strreplace(sPVSSPath, \"/\", \"\\\\\");
+    system(\"dir \" + sPVSSPath + \"bin > \" + g_sProjPath + \"\\\\\" + \"bindir.txt\");
+  }
+  else if(_UNIX)
+    system(\"ls -l \" + sPVSSPath + \"bin > \" + g_sProjPath + \"/\" + \"bindir.txt\");
+
+  fileToString(g_sProjPath + \"/\" + \"bindir.txt\", sBinDir);
+
+  remove(g_sProjPath + \"/\" + \"bindir.txt\");
+
+  return 0;
+}
+
+int getOSInformation(string& OSType, string& OSVersion, string& OSServicePack, string& HostName)
+{
+  string output1;
+  string output2;
+  string output3;
+  string output4;
+  string output5;
+  string output6;
+  string output7;
+  string output8;
+  int n = 0;
+  file f;
+
+  HostName = getHostname();
+
+  if(_WIN32)
+  {
+    system(\"ver > \" + pvrPath);
+    f=fopen(pvrPath,\"r\");
+    fscanf(f,\"... %s %s %s %s %s\",output1, output2, output3, output4, output5, output6);
+    fclose(f);
+    OSType = output2 + \" \" + output3;
+    OSVersion = substr(output5, 0, strlen(output5)-1);
+
+    system(\"%windir%/System32/wbem/WMIC OS get caption > \" + pvrAuxPath);
+
+    //TYPE command is used to transform unicode file to ascii file (readable by PVSS)
+    system(\"TYPE \" +  pvrAuxPath + \" > \" + pvrCheckingsPath);
+
+    f=fopen(pvrCheckingsPath,\"r\");
+    string content=\"\";
+    string s=\"\";
+    int i=0;
+    while (feof(f)==0)
+    {
+      fgets(s,100,f);
+      content = content + s;
+      i++;
+    }
+    fclose(f);
+    OSType = substr(content, strpos(content, \"Caption\")+11,strlen(content)-9);
+    OSType = strltrim(OSType, \" \");
+    strreplace(OSType, \"\\n\", \"\");
+    strreplace(OSType, \"\\t\", \"\");
+
+    system(\"%windir%/System32/wbem/WMIC OS > \" + pvrAuxPath);
+    system(\"TYPE \" + pvrAuxPath + \" > \" + pvrCheckingsPath);
+
+    f=fopen(pvrCheckingsPath,\"r\");
+    string content;
+    string s=\"\";
+    int i=0;
+    while (feof(f)==0)
+    {
+      fgets(s,100,f);
+      content = content + s;
+    }
+    fclose(f);
+    OSServicePack = substr(content, strpos(content, \"Service Pack\"),14);
+
+/*    system(\"%windir%/System32/hostname > PVRaux.txt\");
+
+    f=fopen(\"PVRaux.txt\",\"r\");
+    content = \"\";
+    s = \"\";
+    i=0;
+    while (feof(f)==0)
+    {
+      fgets(s,100,f);
+      content = content + s;
+    }
+    fclose(f);
+    content=strrtrim(content, \"\\n\");
+    content=strrtrim(content, \" \");
+    HostName = content;
+*/
+  }
+  else if(_UNIX)
+  {
+    //To be done
+    system(\"uname -a > \" + pvrCheckingsPath);
+    f=fopen(pvrCheckingsPath,\"r\");
+    fscanf (f,\"\\n%s %s %s %s %s %s %s %s\",output1, output2, output3, output4, output5, output6, output7, output8);
+    fclose(f);
+    if(strtolower(output1) == \"linux\" || strtolower(output1) == \"solaris\" || strtolower(output1) == \"sunos\")
+    {
+      OSType = output1;
+      OSVersion = output3;
+      OSServicePack = \"\";
+    }
+    else
+    {
+      setLogMessage(\"osNotIdentified\");
+      return -1;
+    }
+  }
+   return 0;
+}
+
+int getDiskInformation(string& ProjectName, string& ProjectDiskName, string& ProjectFreeDiskSpace, string& PVSSDiskName, string& PVSSFreeDiskSpace)
+{
+  string st;
+  string output1;
+  string output2;
+  int error;
+  ProjectName = g_sProj;
+  ProjectDiskName = g_sProjPath + \"/\";
+  PVSSDiskName = PVSS_PATH;
+
+  if(_WIN32)
+  {
+    string ProjectDiskCaption = substr(ProjectDiskName, 0, 2);
+    string PVSSDiskCaption = substr(PVSSDiskName, 0, 2);
+
+    system(\"%windir%/System32/wbem/wmic logicaldisk get caption > \" + pvrAuxPath);
+    system(\"TYPE \" + pvrAuxPath + \" > \" + pvrDiskCaptionsPath);
+
+    while(getFileSize(pvrDiskCaptionsPath) <= 0) //IM 79243 dspitzer: wait until the file that contains the drive letters exists for sure
+      delay(1);
+
+    file f1=fopen(pvrDiskCaptionsPath,\"r\");
+    dyn_string captions;
+    int positionPVSSDisk;
+    int positionProjectDisk;
+    fscanf (f1,\"%s\\n%s\\n%s\\n%s\\n%s\",output1, captions[1], captions[2], captions[3], captions[4]);
+    fclose(f1);
+
+    //The following loop finds the file line where for the project and PVSS disk captions
+    for(int i=1;i<5;i++)
+    {
+      if (dynlen(captions) < i) continue;
+      if (ProjectDiskCaption != \"\")
+      {
+        if(strtoupper(captions[i])==strtoupper(ProjectDiskCaption)) //IM 79243 dspitzer: be sure that the drive letters are both upper case
+          positionProjectDisk = i;
+      }
+      if (PVSSDiskCaption != \"\")
+      {
+        if(strtoupper(captions[i])==strtoupper(PVSSDiskCaption)) //IM 79243 dspitzer: be sure that the drive letters are both upper case
+          positionPVSSDisk = i;
+      }
+    }
+    system(\"%windir%/System32/wbem/wmic logicaldisk get freespace > \" + pvrAuxPath);
+    system(\"TYPE \" + pvrAuxPath + \" > \" + pvrDiskSpacesPath);
+    file f2=fopen(pvrDiskSpacesPath,\"r\");
+    dyn_string spaces;
+    fscanf (f2,\"%s\\n%s\\n%s\\n%s\\n%s\",output1, spaces[1],spaces[2],spaces[3],spaces[4]);
+    fclose(f2);
+
+    PVSSFreeDiskSpace = spaces[positionPVSSDisk];
+    ProjectFreeDiskSpace = spaces[positionProjectDisk];
+  }
+  else if(_UNIX)
+  {
+    system(\"df -k \" + PVSS_PATH + \" \" + g_sProjPath +\" > PVRaux.txt\");
+    //system(\"TYPE PVRaux.txt >  PVRdiskCaptions.txt\");
+    file f1=fopen(\"PVRaux.txt\",\"r\");
+    string line;
+    int positionPVSSDisk;
+    int positionProjectDisk;
+
+    // IM 109741
+    dyn_string dsPVSSfree, dsPROJfree;
+
+    fgets(line, 1024, f1);    //skip first line with captions
+
+    // PVSS free disk
+    fgets(line, 1024, f1);
+    dsPVSSfree = strsplit(line, \" \");
+
+    for ( int i = dynlen(dsPVSSfree); i > 0; i-- )
+      if ( dsPVSSfree[i] == \"\" )
+        dynRemove(dsPVSSfree, i);
+
+    if ( dynlen(dsPVSSfree) )
+      PVSSFreeDiskSpace = dsPVSSfree[4];
+    else
+      PVSSFreeDiskSpace = substr(line, 48, 8);
+
+    // PROJ free disk
+    fgets(line, 1024, f1);
+    dsPROJfree = strsplit(line, \" \");
+
+    for ( int i = dynlen(dsPROJfree); i > 0; i-- )
+      if ( dsPROJfree[i] == \"\" )
+        dynRemove(dsPROJfree, i);
+
+    if ( dynlen(dsPROJfree) )
+      ProjectFreeDiskSpace = dsPROJfree[4];
+    else
+      ProjectFreeDiskSpace = substr(line, 48, 8);
+
+    fclose(f1);
+  }
+  return 0;
+}
+
+int getPVSSVersion(string& PVSSVersion)
+{
+  // IM 102802 -->
+  string projVersion;
+  if (TFProjectName.text == \"\" ||
+      TFProjectDisk.text == \"\" ||
+      paCfgReadValue(TFProjectDisk.text + \"config/config\", \"general\", \"proj_version\", projVersion) == -1)
+  {
+    // This case should never happen ...
+    // ... but if so provide the running installation version
+    // as there is no project to reference
+    PVSSVersion = VERSION_DISP;
+    return 0;
+  }
+  if (projVersion == VERSION)
+  {
+    // Return full installation version info
+    PVSSVersion = VERSION_DISP;
+  }
+  else
+  {
+    // Return project version including \"not available\" marker
+    PVSSVersion = projVersion + \" (SP \" + getCatStr(\"pvr\", \"notAvailable\") + \")\";
+  }
+  // --> IM 102802
+
+  return 0;
+}
+
+int getPatches(dyn_string& PVSSPatches)
+{
+  string pvssPath = PVSS_PATH;
+
+  // IM 102802 -->
+  if (strpos(PVSSVersion, getCatStr(\"pvr\", \"notAvailable\")) > -1)
+  {
+    // Retrieving the installed patches of a PVSS installation not equal to
+    // this version. Replace pvss_path by the one written in the config file.
+    if (paCfgReadValue(TFProjectDisk.text + \"config/config\", \"general\", \"pvss_path\", pvssPath) == -1)
+    {
+      // Failed! Mark as unavailable!
+      PVSSPatches[1] = \"Patches \" + getCatStr(\"pvr\", \"notAvailable\");
+      TFPVSSDisk.text = getCatStr(\"pvr\", \"notAvailable\");
+      return -1;
+    }
+    TFPVSSDisk.text = pvssPath;
+  }
+  // --> IM 102802
+
+  int i;
+  PVSSPatches = getFileNames(pvssPath, \"ReadmeP*.txt\");
+
+  /*10.11.2014 dspitzer: install/.lst files don't exist any longer, instead we only use the Readme Files and don't evaluate the content any longer
+  for (i=1;i<=dynlen(aofiles);i++)
+  {
+    PVSSPatches[i] = aofiles[i];
+    string content;
+    string s=\"\";
+    file f = fopen(pvssPath + \"/install/\"+PVSSPatches[i], \"r\");
+    while (feof(f)==0) // as long as it is not at the end of the file
+    {
+      fgets(s,100,f); // Import string again
+      content = content + s;
+    }
+    PVSSPatchContent[i] = content;
+    fclose(f);
+  }*/
+
+  return 0;
+}
+
+int getProjects(string& PVSSProjects)
+{
+  string content;
+  string s;
+  file f;
+
+  if(_WIN32)
+  {
+    f=fopen(getenv(\"PROGRAMDATA\")+\"\\\\Siemens\\\\WinCC_OA\\\\pvssinst.conf\",\"r\");
+
+    while (feof(f)==0) // as long as it is not at the end of the file
+    {
+       fgets(s,100,f); // Import string again
+       content = content + s;
+    }
+    fclose(f);
+    PVSSProjects = content;
+  }
+  else if(_UNIX)
+  {
+    f = fopen(\"/etc/opt/pvss/pvssInst.conf\", \"r\");
+    while (feof(f)==0) // as long as it is not at the end of the file
+    {
+       fgets(s,100,f); // Import string again
+       content = content + s;
+    }
+    fclose(f);
+    PVSSProjects = content;
+  }
+  else
+  {
+    setLogMessage(\"undedfinedOS\");
+    return -1;
+  }
+
+  return 0;
+}
+
+int getSubProjectsPath(dyn_string& SubProjectsPath)
+{
+  string filename = g_sProjPath + \"/\" + CONFIG_REL_PATH + \"config\";
+  paCfgReadValueList(filename, \"general\", \"proj_path\", SubProjectsPath);
+
+  for(int i =1; i <= dynlen(SubProjectsPath); i++)
+    strreplace(SubProjectsPath[i], \"\\\\\", \"/\");
+
+  //rglock replaced begin
+  //dynRemove(SubProjectsPath, dynContains(SubProjectsPath, PROJ_PATH));
+  dynRemove(SubProjectsPath, dynlen(SubProjectsPath));
+  //rglock replaced end
+
+  string projPath = g_sProjPath;
+  projPath = strrtrim(projPath, \"/\");
+  projPath = strrtrim(projPath, \"\\\\\");
+  dynRemove(SubProjectsPath, dynContains(SubProjectsPath, projPath));
+
+  return 0;
+}
+
+//To be completed
+int getOverparameterizedFiles(dyn_string& OverparameterizedFiles)
+{
+  dyn_string projectFiles;
+  //get list of files in ETM folders:
+  int n = 1;
+  setLogMessage(\"lookingForOPFiles\", \"PROGRESS\");
+  dyn_string paths = SubProjectsPath;
+  dynAppend(paths, g_sProjPath + \"/\");
+
+  dyn_string etmFiles = getFileNamesRec(PVSSDiskName + \"panels\");
+
+  int len = dynlen(etmFiles);
+//  for(int k = 1; k <= len; k++)
+//  {
+//    setLogMessage(\"Looking for overparameterized files. Process: \" + floor((k*1./len*1.)*100.) + \"%\", \"INFO\");
+
+    for(int i = 1; i <= dynlen(paths); i++)
+    {
+      dynClear(projectFiles);
+      if(!patternMatch(\"*/\", paths[i]))
+        paths[i] += \"/\";
+
+      projectFiles = getFileNamesRec(paths[i] + \"panels\");
+
+      for(int j = 1; j <= dynlen(projectFiles); j++)
+      {
+//        if(etmFiles[k] == projectFiles[j])
+        if(dynContains(etmFiles, projectFiles[j]) > 0)
+        {
+          dynAppend(OverparameterizedFiles, paths[i] + \"panels/\" + projectFiles[j]);
+        }
+      }
+      delay(0, 1);
+    }
+//  }
+
+  //scripts:
+  dynClear(etmFiles);
+  etmFiles = getFileNamesRec(PVSSDiskName + \"scripts/\");
+//  for(int k = 1; k <= dynlen(etmFiles); k++)
+//  {
+//    if(n == 100)
+//    {
+//      setLogMessage(\"Looking for overparameterized files. Process: \" + floor(k/dynlen(etmFiles))* 100 + \"%\", \"INFO\");
+//      n = 0;
+//    }
+//    ++n;
+
+    for(int i = 1; i <= dynlen(paths); i++)
+    {
+      dynClear(projectFiles);
+      if(!patternMatch(\"*/\", paths[i]))
+        paths[i] += \"/\";
+
+      projectFiles = getFileNamesRec(paths[i] + \"scripts/\");
+      for(int j = 1; j <= dynlen(projectFiles); j++)
+      {
+//        if(etmFiles[k] == projectFiles[j])
+        if(dynContains(etmFiles, projectFiles[j]) > 0)
+        {
+          dynAppend(OverparameterizedFiles, paths[i] + \"scripts/\" + projectFiles[j]);
+        }
+      }
+    }
+//  }
+
+  return 0;
+}
+
+int createReportFile()
+{
+  file f=fopen(reportPath,\"w\");
+  string description = TEDescription.text;
+
+  if(g_bRemote)
+    fprintf(f, \"# WARNING - THIS PVR WAS CREATED ON A REMOTE PROJECT AND NOT ON A SERVER!\\n\");
+
+  fprintf(f, \"# Report version\\n%s\\n\", ver);
+  fprintf(f, \"# Date\\n%s\\n\", formatTime(\"%d.%m.%Y %H:%M:%S\", getCurrentTime()));
+  fprintf(f, \"# Description\\n%s\\n\", description);
+  fprintf(f, \"# Operating System\\n%s\\n\", OSType);
+  fprintf(f, \"# Operating System Version\\n%s\\n\", OSVersion);
+  fprintf(f, \"# Operating System Service Pack Level\\n%s\\n\", OSServicePack);
+  fprintf(f, \"# WinCC OA Version\\n%s\\n\", PVSSVersion);
+  fprintf(f, \"# WinCC OA Installation Path\\n%s\\n\", PVSSDiskName);
+  fprintf(f, \"# Available WinCC OA Disk (MBytes)\\n%f\\n\", fPVSSFreeDiskSpace);
+  fprintf(f, \"# Patch files\\n\");
+  for (int i=1;i<=dynlen(PVSSPatches);i++)
+  {
+     fprintf(f, \"%s\\n\", PVSSPatches[i]);
+  }
+//   fprintf(f, \"# List of subprojects\\n%s\\n\", PVSSProjects);
+  fprintf(f, \"# Project Disk\\n%s\\n\", ProjectDisk);
+  fprintf(f, \"# Available Project Disk (MBytes)\\n%f\\n\", fProjectDiskSpace);
+  fprintf(f, \"# Additional files\\n\");
+  for (int i=1;i<=dynlen(FilesToBeZipped);i++)
+  {
+     fprintf(f, \"%s\\n\", FilesToBeZipped[i]);
+  }
+  string comments = TEComments.text;
+
+  fprintf(f, \"# Comments\\n%s\\n\", comments);
+  fprintf(f, \"# Subprojects Path\\n\");
+  for (int i=1;i<=dynlen(SubProjectsPath);i++)
+  {
+     fprintf(f, \"%s\\n\", SubProjectsPath[i]);
+  }
+  fprintf(f, \"# Overparameterized Files\\n\");
+  for (int i=1;i<=dynlen(OverparameterizedFiles);i++)
+  {
+     fprintf(f, \"%s\\n\", OverparameterizedFiles[i]);
+  }
+
+  if(isRDBUsed())
+  {
+    fprintf(f, \"# Oracle Information (SQLPlus)\\n%s\\n\", sOrclSQLP);
+    fprintf(f, \"# Oracle Information (tnsping)\\n%s\\n\", sOrclTNSP);
+  }
+
+  fprintf(f, \"# Listing of the bin dir of the WinCC OA Version\\n%s\\n\", sBinDir);
+
+  fclose(f);
+
+  return 0;
+}
+
+setLogMessage(string catKey, string type = \"ERROR\")
+{
+  string colorName;
+  type = strtoupper(type);
+
+  switch (type)
+  {
+    case \"PROGRESS\":
+      colorName = \"red\";
+      break;
+
+    case \"INFO\":
+      colorName = \"STD_led_On\";
+      break;
+
+    case \"WARNING\":
+      colorName = \"STD_value_default\";
+      break;
+
+    case \"ERROR\":
+      colorName = \"STD_value_not_ok\";
+      break;
+
+    default:
+      DebugN(\"Undefined type of error\" + type);
+      return;
+  }
+
+  string message;
+
+  if (type != \"PROGRESS\")
+    message += type + \": \";
+
+  message += getCatStr(\"pvr\", catKey);
+
+  TFErrorMessage.visible = true;
+  TFErrorMessage.text = message;
+  TFErrorMessage.foreCol = colorName;
+}
+
+bool isRDBUsed()
+{
+  bool bRet = FALSE;
+  string s;
+
+  paCfgReadValue(PVSSDiskName + \"config/config\", \"general\", \"useRDBArchive\", s);
+
+  if(s == \"1\")
+    bRet = TRUE;
+
+  //only if useRDBArchive wasn't true in previous config
+  if(!bRet)
+  {
+    paCfgReadValue(ProjectDisk + \"config/config\", \"general\", \"useRDBArchive\", s);
+
+    if(s == \"1\")
+      bRet = TRUE;
+  }
+
+  //for each subproject but
+  //only if useRDBArchive wasn't true in previous config
+  for(int i = 1; i <= dynlen(SubProjectsPath) && !bRet; i++)
+  {
+    paCfgReadValue(SubProjectsPath[i] + \"/config/config\", \"general\", \"useRDBArchive\", s);
+
+    if(s == \"1\")
+      bRet = TRUE;
+  }
+
+  return bRet;
+}
+
+void extendPanel(bool bDown = TRUE)
+{
+  int i, x, y;
+  dyn_string dsShapesSI = makeDynString(\"frmSetupInfo\",    \"lblOS\",               \"TFOSType\",
+                                        \"frmPVSSSetup\",    \"lblVersion\",          \"TFPVSSVersion\",
+                                        \"lblPatches\",      \"btPatches\",           \"lblPath\",
+                                        \"TFPVSSDisk\",      \"lblRegProjs\",         \"btRegisteredProjects\",
+                                        \"lblFreeDiskPVSS\", \"TFPVSSDiskSpace\",     \"frmProject\",
+                                        \"lblName\",         \"TFProjectName\",       \"lblSubProjects\",
+                                        \"btSubprojects\",   \"lblProjPath\",         \"TFProjectDisk\",
+                                        \"lblOverParam\",    \"btOverparameterized\", \"lblFreeDiskProj\",
+                                        \"TFProjectDiskSpace\");
+  dyn_string dsShapes = makeDynString(\"lblZipName\", \"TFZipFileName\", \"btEmail\", \"cmdClose\", \"cmdExtend\", \"barBack\", \"BCreateZip\");
+
+  for(i = 1; i <= dynlen(dsShapesSI); i++)
+  {
+    getValue(dsShapesSI[i], \"position\", x, y);
+    setValue(dsShapesSI[i], \"position\", x, (bDown ? y + 100 : y - 100));
+  }
+
+  for(i = 1; i <= dynlen(dsShapes); i++)
+  {
+    getValue(dsShapes[i], \"position\", x, y);
+    setValue(dsShapes[i], \"position\", x, (bDown ? y - 300 : y + 300));
+    setValue(\"cmdExtend\", \"text\", (bDown ? \">>\":\"<<\"));
+  }
+
+  panelSize(\"\", x, y);
+  setPanelSize(myModuleName(), myPanelName(), FALSE, x, (bDown ? 480 : 780));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 5
+"CBRef" "1"
+"EClose" E
+"LangSwitchMode" "1"
+"dpi" "96"
+"pdpi" "120"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1 118 0 "" 0
+0
+30 1
+"frmPVSSSetup"
+""
+1 8 9 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+1 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.8246753246753247 0 0.8740157480314966 13.4025974025974 542.1338582677165 0 E 8 9 625 137
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 WinCC OA Setup
+LANG:10004 15 WinCC OA 安装
+LANG:10000 14 WinCC OA Setup
+LANG:10027 28 Установка WinCC OA:
+14 11
+"TFProjectDisk"
+""
+1 71.07272727272721 719.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  77 719 299 745
+2 "0s" 0 0 0 0 0 -1  E E "
+main()
+{
+}
+" 0
+
+2 13
+"lblPath"
+""
+1 27.99999999999999 608.2352941176468 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 27.99999999999999 604 150 638
+0 0 0 "0s" 0 0 0 64 0 0  27.99999999999999 604 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Path:
+LANG:10004 7 路径:
+LANG:10000 5 Pfad:
+LANG:10027 9 Путь:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 14
+"TFProjectDiskSpace"
+""
+1 222.3818181818182 750.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  223 750 299 776
+2 "0s" 0 0 0 0 0 -1  E E "// SimpleCtrlScriptStart {valid}
+// SimpleCtrlScript {textFieldOut}
+// dp {ExampleDP_Arg2.}
+// typ {float}
+// SimpleCtrlScriptEnd
+main()
+{
+   float wert;
+   string s;
+   getValue(\"\",\"text\",s);
+   sscanf(s,\"%f\",wert);
+   dpSetWait(\"ExampleDP_Arg2.\"+\":_original.._value\",wert);
+}
+" 0
+
+2 15
+"lblFreeDiskPVSS"
+""
+1 26.99999999999999 638.1764705882352 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 26.99999999999999 632 180 676
+0 0 0 "0s" 0 0 0 192 0 0  26.99999999999999 632 3
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Free disk space (MB):
+LANG:10004 23 可用磁盘空间(MB):
+LANG:10000 26 Freier Speicherplatz (MB):
+LANG:10027 39 Свободно на диске (MБ):
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 16
+"TFPVSSDisk"
+""
+1 73.1454545454547 599 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  79 598 299 624
+2 "0s" 0 0 0 0 0 -1  E E "
+main()
+{
+}
+" 0
+
+2 17
+"lblProjPath"
+""
+1 24.99999999999999 726.8823529411764 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 24.99999999999999 722.9999999999998 65 744.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  24.99999999999999 722.9999999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Path:
+LANG:10004 7 路径:
+LANG:10000 5 Pfad:
+LANG:10027 9 Путь:
+14 18
+"TFPVSSDiskSpace"
+""
+1 222.3655561829475 629 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  223 628 299 654
+2 "0s" 0 0 0 0 0 -1  E E "
+main()
+{
+}
+" 0
+
+2 19
+"lblFreeDiskProj"
+""
+1 25.99999999999999 762.1764705882354 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 25.99999999999999 755.9999999999998 217 785
+0 0 0 "0s" 0 0 0 192 0 0  25.99999999999999 755.9999999999998 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 32 Free space in project disk (MB):
+LANG:10004 35 项目磁盘中的可用空间(MB):
+LANG:10000 33 Freier Projektspeicherplatz (MB):
+LANG:10027 55 Свободно на диске проекта (МБ):
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 20
+"TFPVSSVersion"
+""
+1 73.14545454545456 569 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  79 568 299 594
+2 "0s" 0 0 0 0 0 -1  E E "// SimpleCtrlScriptStart {valid}
+// SimpleCtrlScript {textFieldOut}
+// dp {ExampleDP_Arg2.}
+// typ {float}
+// SimpleCtrlScriptEnd
+main()
+{
+   float wert;
+   string s;
+   getValue(\"\",\"text\",s);
+   sscanf(s,\"%f\",wert);
+   dpSetWait(\"ExampleDP_Arg2.\"+\":_original.._value\",wert);
+}
+" 0
+
+2 21
+"lblVersion"
+""
+1 29.99999999999999 577.1764705882352 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 29.99999999999999 571 78 606
+0 0 0 "0s" 0 0 0 64 0 0  29.99999999999999 571 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Version:
+LANG:10004 7 版本:
+LANG:10000 8 Version:
+LANG:10027 12 Версия
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 23
+"lblPatches"
+""
+1 418 581.1764705882351 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 418 574.9999999999998 538 609.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  418 574.9999999999998 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Patches:
+LANG:10004 7 补丁:
+LANG:10000 8 Patches:
+LANG:10027 16 Исправл.:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 26
+"lblRegProjs"
+""
+1 350 612.1764705882352 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 350 605.9999999999998 470 640.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  350 605.9999999999998 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Registered projects:
+LANG:10004 13 注册项目:
+LANG:10000 22 Registrierte Projekte:
+LANG:10027 34 Зарегистр.проекты:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+30 28
+"frmProject"
+""
+1 8 9 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.8279220779220782 0 0.8740157480314966 11.37662337662337 663.1338582677165 0 E 8 9 625 137
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Project
+LANG:10004 6 项目
+LANG:10000 7 Projekt
+LANG:10027 12 Проект
+13 32
+"BCreateZip"
+""
+1 370 400 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+81 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  316.0000000000001 445.0000000000002 424.0000000000001 473.0000000000002
+
+T 
+4
+LANG:10001 13 Create Report
+LANG:10004 12 创建报表
+LANG:10000 16 Report erstellen
+LANG:10027 25 Создать отчет
+"int cmGenerateReport(string filename)
+{
+  CmContainerDataProcessor dataProcessor;
+  return dataProcessor.generateReport(filename);
+}
+
+main()
+{
+  // get file name TFZipFileName and check it is != \"\"
+  // create zip that contains:  config files, prog files, shield files (btb just current project)
+  int error = createReportFile();
+  ZipFileName = TFZipFileName.text;
+  if(ZipFileName==\"\")
+  {
+    setLogMessage(\"zipNotDefined\");
+    return;
+  }
+  if(strpos(ZipFileName, \".zip\")<0)
+  {
+    ZipFileName = ZipFileName + \".zip\";
+  }
+
+  // log directory
+  string logDir = getPath(LOG_REL_PATH, \"\", getActiveLang(), SEARCH_PATH_LEN);
+
+  // start creating report
+  setLogMessage(\"reportInProgress\", \"PROGRESS\");
+  string files;
+
+  // shield
+  if(access(PVSSDiskName + \"shield.txt\",F_OK) == 0)
+    files = PVSSDiskName + \"shield.txt \";
+  else if(access(PVSSDiskName + \"shield\", F_OK) == 0)
+    files = PVSSDiskName + \"shield \";
+
+  // CodeMeter
+  setLogMessage(\"cmReportInProgress\", \"PROGRESS\");
+  string codeMeterReportFile = logDir + \"CodeMeterReport.txt\";
+  cmGenerateReport(codeMeterReportFile);
+  files = files + codeMeterReportFile + \" \";
+
+  // diverse configuration files from installation
+  setLogMessage(\"reportInProgress\", \"PROGRESS\");
+  files = files + PVSSDiskName + \"config/config\" + \" \";
+  files = files + PVSSDiskName + \"config/progs\" + \" \";
+
+  if(access(PVSSDiskName + \"config/config.level\", \"F_OK\") == 0)
+    files = files + PVSSDiskName + \"config/config.level\" + \" \";
+
+  if(access(PVSSDiskName + \"config/config.redu\", \"F_OK\") == 0)
+    files = files + PVSSDiskName + \"config/config.redu\" + \" \";
+
+  // create hw.txt
+  if(_WIN32)
+    system(PVSS_PATH + \"bin/\" + getComponentName(GETHW_COMPONENT) + \".exe > \" + logDir + \"hw.txt\");
+  else if(_UNIX)
+    system(PVSS_PATH + \"bin/\" + getComponentName(GETHW_COMPONENT) + \" > \" + logDir + \"hw.txt\");
+
+  files = files + logDir + \"hw.txt\" + \" \";
+
+  // patches
+  dyn_string dss = getFileNames(PVSS_PATH + \"install/\", \"*.lst\");
+
+  for(int j = 1; j <= dynlen(dss); j++)
+    files = files + PVSS_PATH + \"install/\" + dss[j] + \" \";
+
+  // progs and configs
+  files = files + ProjectDisk + CONFIG_REL_PATH + \"config\" + \" \";
+  files = files + ProjectDisk + CONFIG_REL_PATH + \"progs\" + \" \";
+
+  if(access(ProjectDisk + \"config/config.level\", \"F_OK\") == 0)
+    files = files + ProjectDisk + \"config/config.level\" + \" \";
+
+  if(access(ProjectDisk + \"config/config.redu\", \"F_OK\") == 0)
+    files = files + ProjectDisk + \"config/config.redu\" + \" \";
+
+  for(int i = 1; i <= dynlen(SubProjectsPath); i++)
+  {
+    if(!patternMatch(\"*/\", SubProjectsPath[i]))
+      SubProjectsPath[i] += \"/\";
+
+    //for each proj_path retrieve the list of config and progs files:
+    dyn_string ds = getFileNames(SubProjectsPath[i] + CONFIG_REL_PATH, \"config.*\");
+
+    for(int j = 1; j <= dynlen(ds); j++)
+      files = files + SubProjectsPath[i] + CONFIG_REL_PATH + ds[j] + \" \";
+    if(access(SubProjectsPath[i] + CONFIG_REL_PATH + \"config\", \"F_OK\") == 0)
+      files = files + SubProjectsPath[i] + CONFIG_REL_PATH + \"config\" + \" \";
+
+    if(access(SubProjectsPath[i] + CONFIG_REL_PATH + \"progs\", \"F_OK\") == 0)
+      files = files + SubProjectsPath[i] + CONFIG_REL_PATH + \"progs\" + \" \";
+
+    if(access(SubProjectsPath[i] + CONFIG_REL_PATH + \"config.level\", \"F_OK\") == 0)
+      files = files + SubProjectsPath[i] + CONFIG_REL_PATH + \"config.level\" + \" \";
+
+    if(access(SubProjectsPath[i] + CONFIG_REL_PATH + \"config.redu\", \"F_OK\") == 0)
+      files = files + SubProjectsPath[i] + CONFIG_REL_PATH + \"config.redu\" + \" \";
+  }
+
+  files = files + reportPath + \" \";
+
+  for (int i=1;i<=dynlen(FilesToBeZipped);i++)
+  {
+     files = files + \"\\\"\" + FilesToBeZipped[i] + \"\\\"\" + \" \";
+  }
+
+  for (int i=1;i<=dynlen(OverparameterizedFiles);i++)
+  {
+     files = files + \"\\\"\" + OverparameterizedFiles[i] + \"\\\"\" + \" \";
+  }
+
+  //IM 104621 start - update zip file, string length (files): max. 8000 characters
+  bool bFirstZip = true;
+  string sFileParts;
+  dyn_string dsSingleFile;
+  int iSize;
+  dsSingleFile = strsplit(files, \" \");
+
+  for (int i=1;i<=dynlen(dsSingleFile);i++)
+  {
+    iSize += strlen(dsSingleFile[i]);
+    if (iSize >= commandSize - 512) // corrected with TFS 73810
+    {
+      if (bFirstZip)
+      {
+        i--;
+        bFirstZip = false;
+        runZip(sFileParts, false);
+        sFileParts = \"\";
+        iSize = 0;
+      }
+      else
+      {
+        i--;
+        runZip(sFileParts, true);
+        sFileParts = \"\";
+        iSize = 0;
+      }
+    }
+    else
+    {
+      sFileParts += dsSingleFile[i] + \" \";
+    }
+  }
+
+  if (bFirstZip)
+  {
+    bFirstZip = false;
+    runZip(sFileParts, false);
+  }
+  else
+  {
+    runZip(sFileParts, true);
+  }
+  // IM 104621 end
+
+  string content=\"\";
+  string s=\"\";
+  file f=fopen(tmpOutPath,\"r\");
+  while (feof(f)==0) // as long as it is not at the end of the file
+  {
+    fgets(s,100,f); // Import string again
+    content = content + s;
+  }
+  fclose(f);
+
+  int error = strpos(content, \"sent successfully\");
+  if(error>=0)
+  {
+    setLogMessage(\"reportSuccess\", \"INFO\");
+  }
+  error = strpos(content, \"warning\");
+  if(error>=0)
+  {
+    setLogMessage(\"problemRep\", \"WARNING\");
+    DebugN(\"PVR WARNINGS: \" + content);
+  }
+
+  //enable email button if zip file was created...even if there were errors:
+  if(access(ZipFileName, R_OK) == 0)
+  {
+    setLogMessage(\"readyForEmail\", \"INFO\");
+    btEmail.enabled = true;
+    TECommon.text = \"\";
+    TECommon.insertParagraph(getCatStr(\"pvr\",\"weblink\"),1);
+    TECommon.insertParagraph(\" \",2);
+    TECommon.insertParagraph(getCatStr(\"pvr\",\"weblink_1\"),3);
+    TECommon.insertParagraph(\"<span style='color:red'><b>\"+getCatStr(\"pvr\",\"weblink_1_1\")+\"</b></span>\",4);
+    TECommon.insertParagraph(\" \",5);
+    TECommon.insertParagraph(getCatStr(\"pvr\",\"weblink_2\"),6);
+    TECommon.insertParagraph(\" \",7);  }
+  else
+  {
+    setLogMessage(\"repFailed\", \"ERROR\");
+    btEmail.enabled = false;
+  }
+}
+" 0
+ E E E
+2 34
+"lblZipName"
+""
+1 14.99999999999999 410.1764705882353 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 14.99999999999999 403.9999999999998 135 438.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  14.99999999999999 403.9999999999998 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Zip file name:
+LANG:10004 22 zip压缩文件名称:
+LANG:10000 13 Zipfile-Name:
+LANG:10027 13 Zip-файл:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+13 36
+"PBAddFiles"
+""
+1 511.1612903225805 366.9999999999998 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  509 365 539 395
+
+P 
+4294967295
+"pictures/StandardIcons/add_folder.svg"
+4
+LANG:10001 9 Add Files
+LANG:10004 12 添加文件
+LANG:10000 17 Files hinzufügen
+LANG:10027 27 Добавить файлы
+"main()
+{
+
+  int child;
+  dyn_anytype params;
+  string s = \"\";
+  for(int i = 1; i <= dynlen(FilesToBeZipped); i++)
+    s = s + FilesToBeZipped[i] + \"|\";
+  
+  params[1]  = myModuleName();   
+  params[2]  = \"projAdmin/pvr/attachments.pnl\";  
+  params[3]  = myPanelName();     
+  params[4]  = getCatStr(\"pvr\", \"repAddFiles\");     
+  params[5]  = 115;        
+  params[6]  = 177;      
+  params[7]  = 1.0;    
+  params[8]  = FALSE;   
+  params[9]  = makeDynString(\"$1:\"+s,\"$2:\"+g_sProjPath); 
+  params[10] = FALSE;    
+
+  dyn_anytype da;
+  child = childPanel(params, da);
+  
+  if(dynlen(da) > 0)
+  {
+     this.backCol = \"Green\";
+   }
+  else
+    this.backCol = \"_3DFace\";
+  
+  //clean FilesToBeZipped 
+  dyn_string ds;
+  FilesToBeZipped = ds;
+  for(int i = 1; i <= dynlen(da); i++)
+    FilesToBeZipped[i] = da[i];
+}
+
+
+
+" 0
+ E E E
+13 37
+"btEmail"
+""
+1 511 398.9999999999998 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+76 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 15 Contact Support
+LANG:10004 12 连接支持
+LANG:10000 20 Support kontaktieren
+LANG:10027 57 Связаться со службой поддержки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  509 397 539 427
+
+P 
+4294967295
+"pictures/mail.svg"
+4
+LANG:10001 11 Send Report
+LANG:10004 12 发送报表
+LANG:10000 13 Report senden
+LANG:10027 29 Отправить отчет
+"main()
+{
+  int child;
+  dyn_anytype params;
+  if(ZipFileName==\"\")
+  {
+    setLogMessage(\"zipNotDefined\");
+  }
+  else
+  {
+    ZipFileName = ZipFileName;
+    params[1]  = myModuleName();   
+    params[2]  = \"projAdmin/pvr/Webbrowser.pnl\";  
+    params[3]  = myPanelName();     
+    params[4]  = \"Contact Details\";     
+    params[5]  = 115;        
+    params[6]  = 177;      
+    params[7]  = 1.0;    
+    params[8]  = FALSE;   
+    params[9]  = makeDynString(TEDescription.text, TEComments.text, ZipFileName, PVSSDiskName,
+                               \"$ProjPath:\" + g_sProjPath + \"/\"); 
+    params[10] = FALSE;    
+
+    dyn_anytype da, daa;
+    child = childPanel(params, da);
+
+    // dynlen(da) == 0: cancel
+    // dynlen(da) == 1: send successfull
+    // dynlen(da) == 2: send error; da[2] == error text
+    if(dynlen(da) == 2)
+    {
+      setLogMessage(\"sendingError\", \"ERROR\");
+    }
+    else if (dynlen(da) == 1)
+    {
+      setLogMessage(\"reportSent\", \"INFO\");
+    }
+    else
+    {
+      setLogMessage(\"readyForEmail\", \"INFO\");
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 38
+"PRIMITIVE_TEXT11"
+""
+1 12.99999999999999 270.9999999999998 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 12.99999999999999 264.8235294117645 158.1851851851852 299.8235294117645
+0 0 0 "0s" 0 0 0 64 0 0  12.99999999999999 264.8235294117645 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 7 描述:
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+29 39
+"TEComments"
+""
+1 11.18699707983017 282.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 48 Enter here a description of the problem observed
+LANG:10004 39 在此处输入所观察问题的描述
+LANG:10000 30 Geben sie hier das Problem ein
+LANG:10027 67 Введите описание возникшей проблемы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  12 283 537 359
+15 PVSS.TextEdit.1
+1
+0 "TextChanged" "()"
+"  setZipFileState();"
+E14 43
+"TFProjectName"
+""
+1 71.07272727272726 689.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  77 689 299 715
+2 "0s" 0 0 0 0 0 -1  E E "
+main()
+{
+}
+" 0
+
+2 44
+"lblName"
+""
+1 26.99999999999999 695.8823529411764 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 26.99999999999999 691.9999999999998 67 713.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  26.99999999999999 691.9999999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 7 名称:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+2 45
+"lblSubProjects"
+""
+1 398 700.1764705882354 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 398 693.9999999999998 518 728.9999999999998
+0 0 0 "0s" 0 0 0 64 0 0  398 693.9999999999998 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Subprojects:
+LANG:10004 10 子项目:
+LANG:10000 12 Subprojekte:
+LANG:10027 21 Подпроекты:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 47
+"PRIMITIVE_TEXT17"
+""
+1 14 -415.3341646926087 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E 1 0 0.9142857142857143 1 172.7340934332422 0 E 14 50 159.1851851851852 85
+0 0 0 "0s" 0 0 0 64 0 0  14 50 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Subject:
+LANG:10004 7 主题:
+LANG:10000 6 Titel:
+LANG:10027 9 Тема:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+13 49
+"cmdClose"
+""
+1 370 439.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+82 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  429.0000000000001 444.0000000000002 537.0000000000001 472.0000000000002
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  dyn_anytype da, daa;
+  da[1]  = myModuleName();     
+  da[2]  = myPanelName();
+  da[3] = daa;   // dyn_anytype binding
+  
+  if(isEvConnOpen()) PanelOff();
+  else panelOff(da);
+}
+
+
+
+
+
+
+" 0
+ E E E
+2 50
+"lblOverParam"
+""
+1 332 730.1764705882354 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 332 723.9999999999998 474 768
+0 0 0 "0s" 0 0 0 192 0 0  332 723.9999999999998 3
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 24 Overparameterized files:
+LANG:10004 28 过度参数配置的文件:
+LANG:10000 25 Überparametrierte Files:
+LANG:10027 40 Переопределенн.файлы:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 62
+"TFOSType"
+""
+1 123.8909090909092 519 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  136 518 528 544
+2 "0s" 0 0 0 0 0 -1  E E E
+2 63
+"TFErrorMessage"
+""
+1 13.99999999999999 368.9999999999998 E E E 1 E 1 E N "STD_led_On" E N "_Window" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 13.99999999999999 368.9999999999998 444 388.9999999999998
+0 2 2 "0s" 0 0 0 64 0 0  13.99999999999999 368.9999999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 55 INFO: Please, enter the subject and problem description
+LANG:10004 37 信息:请输入主题和问题描述
+LANG:10000 48 INFO: Bitte geben sie Titel und Beschreibung ein
+LANG:10027 82 Пожалуйста, введите тему и описание проблемы
+2 64
+"lblOS"
+""
+1 19.99999999999999 526.1764705882354 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 19.99999999999999 520 165.1851851851852 555
+0 0 0 "0s" 0 0 0 64 0 0  19.99999999999999 520 3
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Operating System:
+LANG:10004 13 操作系统:
+LANG:10000 15 Betriebssystem:
+LANG:10027 5 ОС:
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+30 67
+"frmSetupInfo"
+""
+1 10 203 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+67 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9298245614035089 0 1.01010101010101 -1.298245614035089 294.949494949495 0 E 10 203 581 501
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Setup Information
+LANG:10004 6 信息
+LANG:10000 17 Setup Information
+LANG:10027 44 Информация об установке
+13 76
+"btPatches"
+""
+1 476 572 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+83 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  474 570 504 600
+
+P 
+4294967295
+"pictures/StandardIcons/info.svg"
+4
+LANG:10001 9 Add Files
+LANG:10004 12 添加文件
+LANG:10000 17 Files hinzufügen
+LANG:10027 27 Добавить файлы
+"main()
+{
+  string itemType = \"PATCH\";
+  showItems(itemType);  
+}
+
+
+
+
+" 0
+ E E E
+13 80
+"btRegisteredProjects"
+""
+1 476 602 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+84 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  474 600 504 630
+
+P 
+4294967295
+"pictures/StandardIcons/info.svg"
+4
+LANG:10001 9 Add Files
+LANG:10004 12 添加文件
+LANG:10000 17 Files hinzufügen
+LANG:10027 27 Добавить файлы
+"main()
+{
+  string itemType = \"REGISTERED_PROJECT\";
+  showItems(itemType);  
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 81
+"btSubprojects"
+""
+1 478 690.9999999999998 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  476 689 506 719
+
+P 
+4294967295
+"pictures/StandardIcons/info.svg"
+4
+LANG:10001 9 Add Files
+LANG:10004 12 添加文件
+LANG:10000 17 Files hinzufügen
+LANG:10027 27 Добавить файлы
+"main()
+{
+  string itemType = \"SUBPROJECT\";
+  showItems(itemType);  
+}
+
+
+
+
+
+" 0
+ E E E
+13 82
+"btOverparameterized"
+""
+1 478 721.9999999999998 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+90 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  476 720 506 750
+
+P 
+4294967295
+"pictures/StandardIcons/info.svg"
+4
+LANG:10001 9 Add Files
+LANG:10004 12 添加文件
+LANG:10000 17 Files hinzufügen
+LANG:10027 27 Добавить файлы
+"main()
+{
+  string itemType = \"OVERPARAMETERIZED\";
+  showItems(itemType);  
+}
+
+
+
+
+
+" 0
+ E E E
+14 84
+"TFZipFileName"
+""
+1 93.99999999999997 400.9999999999998 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if(TEDescription.text == \"\" || TEComments.text == \"\")
+    return;
+  else if(newText != \"\")
+  {
+    setLogMessage(\"createZip\", \"INFO\");
+    BCreateZip.enabled = true;
+  }
+  else
+  {
+    setLogMessage(\"enterZipName\", \"INFO\");
+    BCreateZip.enabled = false;
+  }
+}
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  92 399 504 425
+3 "0s" 0 0 0 0 0 -1  E E E
+2 110
+"txVersion"
+""
+1 391 224.6248497357634 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 391 218.4483791475279 536.1851851851852 253.4483791475279
+0 0 0 "0s" 0 0 0 66 0 0  391 218.4483791475279 3
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 version
+LANG:10004 6 版本
+LANG:10000 8 Version:
+LANG:10027 12 версия
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+13 111
+"cmdExtend"
+""
+1 10.99999999999999 446.9999999999998 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+80 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 25 Show extended information
+LANG:10004 18 显示扩展信息
+LANG:10000 30 Weitere Informationen anzeigen
+LANG:10027 66 Показать дополнительную информацию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  9 445.0000000000002 47 473.0000000000002
+
+T 
+4
+LANG:10001 2 >>
+LANG:10004 2 >>
+LANG:10000 2 >>
+LANG:10027 2 >>
+"main()
+{
+  g_bExtend = !g_bExtend;
+  
+  extendPanel(g_bExtend);
+}" 0
+ E E E
+14 83
+"TEDescription"
+""
+1 14.00000000000001 236.4483791475279 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 37 Enter here the problem report subject
+LANG:10004 33 在此处输入问题报表主题
+LANG:10000 28 Geben sie hier den Titel ein
+LANG:10027 67 Введите заголовок описания проблемы
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  setZipFileState();
+}
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  12 234 540 260
+3 "0s" 0 0 0 0 0 -1  E E E
+2 114
+"PRIMITIVE_TEXT18"
+""
+1 503 372.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 454 372.9999999999998 503 387
+0 2 2 "0s" 0 0 0 194 0 0  503 372.9999999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Attachment:
+LANG:10004 7 附件:
+LANG:10000 7 Anhang:
+LANG:10027 17 Вложение:
+29 117
+"TECommon"
+""
+1 13 10 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Information
+LANG:10004 6 信息
+LANG:10000 11 Information
+LANG:10027 20 Информация
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  14 10 537 207
+15 PVSS.TextEdit.1
+0
+"main()
+{
+  this.text = getCatStr(\"pvr\",\"weblink\");
+}" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "barBack" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 271 T 89 1.120240480961924 0 1 -8.999999999999886 166
+0
+0

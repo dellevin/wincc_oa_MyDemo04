@@ -1,0 +1,1441 @@
+V 13
+4
+LANG:10001 28 Server items to client items
+LANG:10004 33 服务器项目到客户端项目
+LANG:10000 23 Erstellung Client Items
+LANG:10027 50 Создание элементов клиента
+PANEL,-1 -1 1004 559 N "_3DFace" 2
+"$server"
+"$subscription"
+"main()
+{
+  string sConfigFile = getPath(CONFIG_REL_PATH + \"config\");
+
+  gSourceSeparator = paCfgReadValueDflt(sConfigFile, \"opcae\", \"sourceSeparator\", \".\"); 
+}" 0
+ E E E E 1 -1 -1 0  10 12
+""0  1
+E "#uses \"CtrlPv2Admin\"
+#uses \"OPCAElib.ctl\"
+
+// global values
+dyn_string dsConditionName, dsMasterNameFromCondition,dsMasterNameChanged ;
+dyn_string dsValues;
+dyn_string dsServerCondition;
+dyn_dyn_string gTransferData;
+string     gSourceSeparator;
+
+dpSetValues()
+{
+ int LowSeverity;
+ int HighSeverity;
+ int EventType;
+ dyn_string FilterCategories, dsServerItems;
+  bool b0, b1, b2;
+  bit32 b32;
+  int i; 
+  dyn_anytype da;
+  dyn_string Items;
+  int max = itemsNew.lineCount();
+  time tServer, tSubscrition;
+  dyn_string dsSourceConditionName;
+  string sSearchString;
+  dyn_string dsSelectedItemsForEventSubscription;
+  int j;
+  dyn_string dsClientNameFromSource, dsQualifiedSourceName, dsClientNameChanged;
+  int pos;
+
+  setBit(b32, 0, 1);
+  setBit(b32, 1, 1);
+  setBit(b32, 2, 1);
+ 
+  EventType = b32;
+
+//  dsServerItems = lstSelected.items;
+	for (j=0; i<itemsNew.lineCount; i++)
+	{
+	  dynAppend(dsServerItems, itemsNew.cellValueRC(i, \"ConditionName\"));
+	}
+	
+
+
+
+ 	items.enabled = FALSE;
+
+	for (i=1; i<= max; i++)
+	{
+	   dyn_anytype da;
+	   da = itemsNew.getLineN(i-1); 
+	   dsSelectedItemsForEventSubscription[i] = da[1];
+	}
+	itemsNew.enabled = TRUE;;
+
+
+  dpGet( $server + \".SourceIdentification.ClientNameFromSource:_online.._value\", dsClientNameFromSource,
+     //    $server + \".SourceIdentification.QualifiedSourceName:_online.._value\",  dsQualifiedSourceName,  //
+         $server + \".SourceIdentification.ClientNameChanged:_online.._value\",    dsClientNameChanged);
+
+	
+ for ( j = 1; j<= dynlen(dsSelectedItemsForEventSubscription); j++)
+ { 
+	     sSearchString = dsSelectedItemsForEventSubscription[j];
+
+
+	     pos = dynContains( dsClientNameFromSource, sSearchString);
+	
+	     if ( pos > 0)
+	     {
+            if ( dsClientNameChanged[pos] != \"\")
+               dynAppend( Items ,  dsClientNameChanged[pos]);
+            else
+ 	           dynAppend( Items ,  dsClientNameFromSource[pos]+\".\");      
+	     }
+	}
+
+	
+  dpSet(  $subscription + \".FilterEventType:_original.._value\",EventType,
+  			 $subscription + \".FilterSources:_original.._value\",  dsServerItems,
+  			 $subscription + \".Items:_original.._value\",  Items	);
+  			 
+  dpGet(  $server + \".SourceIdentification.ClientNameChanged:_online.._value\",    dsClientNameChanged);
+  dpSet(  $server + \".SourceIdentification.ClientNameChanged:_original.._value\",    dsClientNameChanged); // Hotlink IM 54896
+  			 
+  if ( tServer < tSubscrition)   // created after server flag
+    dpSet($server+\".AddSubscription:_original.._value\", TRUE);
+    
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+setOKState(bool b)
+{
+ 
+ txtNoOfItems.text = \"(\"+itemsNew.lineCount+\")\";
+
+ if (!(b && txtNoOfItems.text	!= \"()\" &&  txtNoOfItems.text	!= \"(0)\"))
+   b= false;
+ ok.enabled = b;
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+initmain()
+{
+  string sPrefix;
+  string server = $server;
+  int i;
+  dyn_string dstempConditionName, dstempMasterNameFromCondition,dstempMasterNameChanged ;
+  dyn_dyn_string ddsMasterNameFromCondition;
+  
+  itemsOld.deleteAllLines();
+
+  dpGet(   server + \".Prefix:_online.._value\", sPrefix);
+  
+  dpGet(server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsConditionName,
+        server+\".SourceIdentification.ClientNameFromSource:_online.._value\", dsMasterNameFromCondition,
+        server+\".SourceIdentification.ClientNameChanged:_online.._value\",    dsMasterNameChanged);
+
+//wvlasitz-----------------------------------------------------------------------------------------    
+//simpleEvent Items beginnen immer mit SimpleEvent. Diese werden durch den Summendatenpunkt
+//AE_SimpleEventNotifications (AE ist das frei wählbare prefix).
+  for ( i= 1; i<=dynlen(dsConditionName); i++)
+  {
+      int r;
+      
+      r = strpos(dsConditionName[i],\"SimpleEvent\");
+      if (r >=0)
+      {
+        //DPT=SimpleEventNotification, DPE=SimpleEventNotifications
+        dsMasterNameFromCondition[i] = sPrefix + \"SimpleEventNotifications\";
+      }    
+  }  
+//wvlasitz, ende-----------------------------------------------------------------------------------
+
+  for ( i= 1; i<=dynlen(dsConditionName); i++)
+  {
+
+    //Zeige nur die an (und generiere nur diese), die nicht überparametriert sind.
+    //wvlasitz: zeige doch alle an 
+    if ( 1 /*dsMasterNameChanged[i] == \"\"*/)
+    {
+       dynAppend(dstempConditionName,           dsConditionName[i]);
+       dynAppend(dstempMasterNameFromCondition, dsMasterNameFromCondition[i]);
+       dynAppend(dstempMasterNameChanged,       dsMasterNameChanged[i]);
+    }
+  }
+
+  for ( i= 1; i<=dynlen(dstempMasterNameFromCondition); i++)
+  {
+   //wvlasitz: Hier erfolgt die Textausgabe in violett, wenns den Datenpunkt nicht gibt.
+   if ( !dpExists( dstempMasterNameFromCondition[i]) &&  dstempMasterNameChanged[i] == \"\")
+     ddsMasterNameFromCondition[dynlen(ddsMasterNameFromCondition)+1] = makeDynString(dstempMasterNameFromCondition[i], \"STD_dp_not_existing\", \"_3DText\");
+   else 
+     ddsMasterNameFromCondition[dynlen(ddsMasterNameFromCondition)+1] = makeDynString(dstempMasterNameFromCondition[i], \"\", \"_3DText\");
+
+  }
+
+  itemsOld.appendLines(dynlen(dstempConditionName), \"ConditionName\", dstempConditionName, \"MasterNameFromCondition\", ddsMasterNameFromCondition, \"MasterNameChanged\", dstempMasterNameChanged);
+
+  
+  mainOld();
+}
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+mainOld()
+{ 
+  dyn_string dsEventCategoryNames;
+  string server = $server;
+  dyn_string dsTransfer;
+  dyn_string dsIsSelected ;
+  int i, j;
+  int pos;
+  string sServerCondition;
+  dyn_string ds;
+ 
+  dpGet($subscription + \".FilterSources:_online.._value\",  dsIsSelected	);
+
+  //Lade alle Kategorien (inkl. simpleEvents) und den gesamten namensraum vom Server (inkl. simpleEvents)
+  dpGet(server+\".EventCategories.EventCategoryNames:_online.._value\",        dsEventCategoryNames,
+        server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsValues);   // !!!
+  
+  dynSortAsc(dsValues); 
+  dynSortAsc( dsIsSelected);
+
+  //---------------------------------------------------------------------------
+  //dsServerCondition ... haltet alle Conditions (inkl. SimpleEvent)
+  //dsValves          ... haltet den gesamten namensraum vom Server (inkl. alle simpleEvents)
+  //---------------------------------------------------------------------------  
+  for ( i=1; i<= dynlen( dsValues); i++)         // extract ServerCondition
+  {
+     ds = strsplit( dsValues[i], gSourceSeparator);  //i.e. TestCondition.Test_5.int, i.e. SimpleEvent.OpcSrvBit1
+     sServerCondition = ds[1];
+     dsValues[i]=ds[2];
+     for ( j = 3; j<= dynlen( ds); j++)
+     {
+       dsValues[i] = dsValues[i]+\".\"+ ds[j];
+     }
+     if (dynContains(dsServerCondition, sServerCondition) <= 0)
+     {  
+       dynAppend( dsServerCondition, sServerCondition);
+     }  
+     
+  }
+
+  //---------------------------------------------------------------------------
+  //wvlasitz:
+  //dsIsSelected ... i.e. Test_5.int
+  //haltet alle Items, die in der Subscription angemeldet ist
+  //Dieser Teil stimmt aber nicht, oder ?
+  //Bei einer ALL Subscription ist aber dsIsSelected leer, daher macht es nichts.
+  //---------------------------------------------------------------------------  
+  for ( i=1; i<= dynlen( dsIsSelected); i++)    //tu es für alle in der Subscription angemeldeten Items
+  {
+     ds = strsplit( dsIsSelected[i], gSourceSeparator);
+     sServerCondition = ds[1];
+//     dsIsSelected[i]=ds[2];
+//     for ( j = 3; j<= dynlen( ds); j++)
+//     {
+//       dsIsSelected[i] = dsIsSelected[i]+\".\"+ ds[j];
+//     }
+     if (dynContains(dsServerCondition, sServerCondition) <= 0)
+       dynAppend( dsServerCondition, sServerCondition);
+  }
+}
+
+//-----------------------------------------------------------------------------
+//[IN]  ... line ... Eintrag, der zu prüfen ist, ob er in der Tabelle bereits existiert
+//[OUT] ... false    ... Eintrag ist noch nicht in der Tabelle vorhanden
+//      ... true     ... Den Eintrag gibt es schon in der Tabelle
+//-----------------------------------------------------------------------------
+bool isLineAlreadyInserted(dyn_anytype line)
+{
+  dyn_anytype column;
+
+  getValue(\"itemsNew\", \"getColumnN\", 2, column);
+  return (dynContains(column, line[2])>0);
+}
+   
+
+//-----------------------------------------------------------------------------
+//[IN]  ... line ... Eintrag, bei dem überprüft wird, ob der automatisch zugewiesene
+//                   Datenpunkt überparametriert wurde.
+//[OUT] ... false    ... Datenpunkt wurde nicht überparametriert
+//      ... true     ... Datenpunkt wurde überparametriert
+//Ueberladen bedeutet, dass ein anderer datenpunkt als der automatisch vorgeschlagene
+//verwendet wird.
+//-----------------------------------------------------------------------------
+bool isItemUeberladen(dyn_anytype line)
+{
+  if (line[3] != \"\")
+  {
+    return true;  
+  }
+  
+  return false;  
+
+}" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 14
+"items"
+""
+1 -95 -261 E E E 1 E 0 E N "_3DText" E N {255,204,0} E E
+ "main()
+{
+  this.visible = FALSE;
+}" 0
+ E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  -2 233 742 437
+EE 0 0 1 3 3 "items" 24 1 0 "s" 4
+LANG:10001 5 items
+LANG:10004 6 项目
+LANG:10000 5 items
+LANG:10027 9 эл-ты
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 "dps" 24 1 0 "s" 4
+LANG:10001 3 dps
+LANG:10004 3 dps
+LANG:10000 3 dps
+LANG:10027 3 dps
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 "dpt" 24 1 0 "s" 4
+LANG:10001 3 dpt
+LANG:10004 3 dpt
+LANG:10000 3 dpt
+LANG:10027 3 dpt
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+2 16
+"txtNoOfItems"
+""
+1 900 485 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ "main()
+{
+  bool b;
+  b= items.visible;
+  items.visible = !b;
+}" 0
+ E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 884 485 900 500
+0 0 0 "0s" 0 0 0 194 0 0  900 485 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4  () 
+LANG:10004 4  () 
+LANG:10000 4  () 
+LANG:10027 4  () 
+25 1
+"itemsOld"
+""
+1 -91.00000000000001 -613 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 13 631 504
+"main()
+{
+  setValue(\"\", \"selectByClick\", TABLE_SELECT_LINE);
+  setValue(\"\", \"tableMode\", TABLE_SELECT_BROWSE);
+  initmain();
+}" 0
+"main(int row, string column, string value)
+{
+  dyn_string ds;
+  dyn_float df;
+  string oldvalue = value;
+  int ret;
+  string dp;
+  string serverItem, serverCondionName;
+  dyn_string dsConditionName, dsMasterNameFromCondition , dsMasterNameChanged;
+  int pos;
+  string sMasterDp;
+  int iNumMasterDPRanges, iNumDPRanges;
+
+return;
+
+  if ( column != \"MasterNameChanged\")
+    value = itemsOld.cellValueRC(row, \"MasterNameChanged\");
+
+ 
+
+  dp = itemsOld.cellValueRC(row, \"MasterNameFromCondition\");
+  
+  serverItem =   itemsOld.cellValueRC(row, \"ConditionName\");
+  ds = strsplit ( serverItem, gSourceSeparator);
+  
+  serverCondionName = ds[1];
+
+  if (dpExists(dp))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"), makeDynString(getCatStr(\"ac\", \"dpexists\")));
+    return;
+  } 
+
+  ret = dpSelector( value, FALSE, \"OWN_SYSTEM_NAME_NO_SYS\");
+
+  if ( ret == 0 && value != oldvalue)
+  {
+ 
+    if ( value == \"\")
+    {
+        itemsOld.cellValueRC(row, \"MasterNameChanged\") =\"\";
+        return;
+    }
+
+     dpGet($server +\".ConditionIdentification.ConditionName:_online.._value\",dsConditionName,               // -> _mp_
+           $server +\".ConditionIdentification.MasterNameFromCondition:_online.._value\",dsMasterNameFromCondition,
+           $server +\".ConditionIdentification.MasterNameChanged:_online.._value\",dsMasterNameChanged);
+ 
+     pos = dynContains ( dsConditionName, serverCondionName);   // find correct position
+ 
+     if ( dsMasterNameChanged[pos] != \"\")
+         sMasterDp =  dsMasterNameChanged[pos];
+     else
+        sMasterDp =  dsMasterNameFromCondition[pos];
+    
+     if ( strpos ( sMasterDp, \".\") < 0)
+         sMasterDp += \".\";
+   
+     dpGet( sMasterDp + \":_alert_hdl.._num_ranges\", iNumMasterDPRanges);
+  
+     if ( strpos ( value, \".\") < 0)
+        value += \".\";
+      
+     dpGet( value + \":_alert_hdl.._num_ranges\", iNumDPRanges);
+ 
+  
+     // squirt, 12.9.2003, IM55467, Aenderung bei Ticos: damit kann man eine Float-Meldebehandlung mit einer
+     // boolschen Meldebehandlung ueberparametrieren.
+//     if ( iNumDPRanges == iNumMasterDPRanges)
+       itemsOld.cellValueRC(row, \"MasterNameChanged\") = value;
+//     else
+//     {
+//         ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"), makeDynString(getCatStr(\"STD_Symbols\", \"Text7\")));
+//     }
+  }
+}
+
+
+
+
+
+" 0
+ 1 0 1 3 21 "ConditionName" 26 1 0 "s" 4
+LANG:10001 16 Server item name
+LANG:10004 18 服务器项名称
+LANG:10000 16 Server Item Name
+LANG:10027 38 Имя элемента сервера
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "MasterNameFromCondition" 26 1 0 "s" 4
+LANG:10001 28 Automatical client item name
+LANG:10004 27 自动客户端项目名称
+LANG:10000 30 Automatischer Client Item Name
+LANG:10027 67 Автоматическое имя элемента клиента
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "MasterNameChanged" 26 0 0 "s" 4
+LANG:10001 27 Manual client item name ...
+LANG:10004 30 手动客户端项目名称...
+LANG:10000 40 Überparametrierter Client Item Name ...
+LANG:10027 79 Переопределенное имя экземпляра клиента …
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 
+22 22 "" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+"" 1 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+"" 1 4
+LANG:10001 3 #18
+LANG:10004 3 #18
+LANG:10000 3 #18
+LANG:10027 3 #18
+"" 1 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+"" 1 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+"" 1 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 2
+"help"
+""
+1 489 926 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 523 96 551
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"opc_ae_subscription_filter_noBrowse\" );
+}" 0
+ E E E
+13 4
+"cancel"
+""
+1 910 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  908 523 996 551
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 5
+"ok"
+""
+1 820 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  818 523 906 551
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+    dpSet(\"_ALL\"+ $server+\".Refresh:_original.._value\", TRUE);  // generate hotlink 
+
+  
+PanelOff();
+}" 0
+ E E E
+25 7
+"itemsNew"
+""
+1 628.8557993730408 -609.9999999999999 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  673 13 997 442
+"main()
+{
+
+  setValue(\"\", \"selectByClick\", TABLE_SELECT_LINE);
+  setValue(\"\", \"tableMode\", TABLE_SELECT_BROWSE);
+
+}" 0
+E 1 0 1 3 19 "ConditionName" 26 0 0 "s" 4
+LANG:10001 16 Server item name
+LANG:10004 18 服务器项名称
+LANG:10000 16 Server Item Name
+LANG:10027 38 Имя элемента сервера
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "MasterNameFromCondition" 26 1 0 "s" 4
+LANG:10001 29 Client item name for creating
+LANG:10004 33 用于创建的客户端项名称
+LANG:10000 28 Client Item Name zum Anlegen
+LANG:10027 62 Имя элемента клиента для создания
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "MasterNameChanged" 26 0 0 "s" 4
+LANG:10001 27 Manual client item name ...
+LANG:10004 30 手动客户端项目名称...
+LANG:10000 40 Überparametrierter Client Item Name ...
+LANG:10027 79 Переопределенное имя экземпляра клиента …
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 
+22 22 "" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+"" 1 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+"" 1 4
+LANG:10001 3 #18
+LANG:10004 3 #18
+LANG:10000 3 #18
+LANG:10027 3 #18
+"" 1 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+"" 1 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+"" 1 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 8
+"Button9"
+""
+1 640 259 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Selected condition
+LANG:10004 12 选择条件
+LANG:10000 21 Selektierte Condition
+LANG:10027 33 Выбранные условия
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  638 258 666 286
+
+P 
+12303291
+"pictures/StandardIcons/arrow_single_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int selLines;
+  int i;
+  dyn_anytype line;
+ 
+//  items.appendLines(dynlen(dstempConditionName), \"ConditionName\", dstempConditionName, \"MasterNameFromCondition\", ddsMasterNameFromCondition, \"MasterNameChanged\", dstempMasterNameChanged);
+
+   getValue(\"itemsOld\", \"getSelectedLines\", selLines);
+ 
+  dynSortAsc(selLines);
+  dynUnique(selLines);
+  
+  if (dynlen(selLines) > 0 && selLines[1] >= 0 ) 	// if Line selected 
+  {
+    for ( i=1; i<= dynlen( selLines); i++)
+    {
+       line =  itemsOld.getLineN(selLines[i]) ;  //3 elements
+      
+       if (!isItemUeberladen(line) && !isLineAlreadyInserted(line))
+       {  
+         itemsNew.updateLine( 1,\"ConditionName\", line[1], \"ConditionName\", line[1], \"MasterNameFromCondition\", line[2], \"MasterNameChanged\", line[3]);
+       }  
+    }
+  }
+ 
+}
+
+" 0
+ E E E
+13 10
+"Button11"
+""
+1 640 230 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 All conditions
+LANG:10004 12 所有条件
+LANG:10000 15 Alle Conditions
+LANG:10027 21 Все условия
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  638 228 666 256
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int selLines;
+  int i;
+  dyn_anytype line;
+
+//  items.appendLines(dynlen(dstempConditionName), \"ConditionName\", dstempConditionName, \"MasterNameFromCondition\", ddsMasterNameFromCondition, \"MasterNameChanged\", dstempMasterNameChanged);
+  
+    for ( i=0; i< itemsOld.lineCount  ; i++)
+    {
+      getValue(\"itemsOld\", \"getLineN\", i, line);
+                   
+       if (!isItemUeberladen(line) && !isLineAlreadyInserted(line))
+       {  
+         itemsNew.updateLine( 1,\"ConditionName\", line[1], \"ConditionName\", line[1], \"MasterNameFromCondition\", line[2], \"MasterNameChanged\", line[3]);
+       }  
+       
+    }
+
+}
+
+" 0
+ E E E
+13 12
+"Button1"
+""
+1 940 434 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Selected condition
+LANG:10004 12 选择条件
+LANG:10000 21 Selektierte Condition
+LANG:10027 33 Выбранные условия
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  938 448 966 476
+
+P 
+13421721
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int selLines;
+  int i;
+  dyn_anytype line;
+ 
+//  itemsOld.appendLines(dynlen(dstempConditionName), \"ConditionName\", dstempConditionName, \"MasterNameFromCondition\", ddsMasterNameFromCondition, \"MasterNameChanged\", dstempMasterNameChanged);
+
+  getValue(\"itemsNew\", \"getSelectedLines\", selLines);
+ 
+  dynSortAsc(selLines);
+  dynUnique(selLines);
+  
+  if (dynlen(selLines) > 0 && selLines[1] >= 0 ) 	// if Line selected 
+  {
+    for ( i=1; i<= dynlen( selLines); i++)
+    {
+
+       itemsNew.deleteLineN( selLines[i]);
+    }
+  }
+}
+
+" 0
+ E E E
+13 13
+"Button2"
+""
+1 970 434 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Selected condition
+LANG:10004 12 选择条件
+LANG:10000 21 Selektierte Condition
+LANG:10027 33 Выбранные условия
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  968 448 996 476
+
+P 
+13421721
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  itemsNew.deleteAllLines();
+
+
+}
+
+" 0
+ E E E
+13 15
+"Button3"
+""
+1 429 490 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 34 Test and create missing datapoints
+LANG:10004 26 测试和创建丢失的DP
+LANG:10000 39 Teste und erstelle fehlende Datenpunkte
+LANG:10027 87 Проверить и создать отсутствующие точки данных
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  908 478 996 506
+
+T 
+4
+LANG:10001 10 Create DPs
+LANG:10004 8 创建DP
+LANG:10000 13 DPs erstellen
+LANG:10027 17 Создать DP
+"main()
+{
+	dyn_string  dsSelectedItemsForEventSubscription;
+	dyn_string dsConditionName, dstempMasterNameFromCondition,dstempMasterNameChanged ;
+	dyn_dyn_string ddsMasterNameFromCondition;
+	int i, j, pos;
+	dyn_string dsMasterDps, dsSourceDps;
+	dyn_string dsSourceConditionName,dsSourceMasterNameFromCondition,   dsSourceMasterNameChanged, dsSourceTypes;
+	string server = $server;
+	string dp, type, prefix;
+	dyn_string dsConditionsEventCategoryNames, dsConditionsConditionNames;
+	dyn_string Items;
+	string sSearchString;
+	dyn_string ds; 
+	dyn_float df;
+	
+ string s;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  for (j=0; i<itemsNew.lineCount; i++)
+  {
+    dynAppend(dsSelectedItemsForEventSubscription, itemsNew.cellValueRC(i, \"ConditionName\"));
+  }
+
+//	dsSelectedItemsForEventSubscription = lstSelected.items;
+	
+  //wvlasitz: warum hier nochmal ?
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ok.enabled	    = FALSE;
+  cancel.enabled	= FALSE;
+ 
+  //Lade den gesamten Namensraum vom Server.
+  //Achtung: simpleEvents sind darin nicht enthalten.
+  dpGet(server+\".ConditionIdentification.ConditionName:_online.._value\",           dsConditionName,
+        server+\".ConditionIdentification.MasterNameFromCondition:_online.._value\", dstempMasterNameFromCondition,
+        server+\".ConditionIdentification.MasterNameChanged:_online.._value\",       dstempMasterNameChanged);
+
+  dpGet(server+\".Prefix:_online.._value\",prefix);
+  
+  //Lade alle Conditions.
+  //Achtung: simpleEvents sind darin nicht enthalten.
+  for ( i=1; i<= dynlen( dsConditionName); i++)
+  {
+    if ( dstempMasterNameChanged[i] != \"\")
+      dsMasterDps[i] = dstempMasterNameChanged[i];
+    else
+      dsMasterDps[i] = dstempMasterNameFromCondition[i];
+
+  } 
+
+//  dsMasterDps[dynlen( dsConditionName)+1] = \"_mp_\" + prefix + \"SimpleEventNotification\";  //wir tun so, als ob es diesen Masterdatenpunkt gibt.
+  
+  //prüfe auf zulässige Zeichen in den Namen
+  for ( i= 1; i<=dynlen(dsMasterDps); i++)
+  {
+    //dpNameCheck(dsMasterDps[i]);  //alte Funktion, die nicht mehr verwendet werden sollte.
+    nameCheck(dsMasterDps[i]);      //wvlasitz
+  }
+
+//DebugN(\"MasterDPS:\", dsConditionName, dsMasterDps);
+
+
+  //Achtung:  Hier sind simple Events berücksichtigt
+  dpGet(server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsSourceConditionName,
+        server+\".SourceIdentification.ClientNameFromSource:_online.._value\", dsSourceMasterNameFromCondition,
+        server+\".SourceIdentification.ClientNameChanged:_online.._value\",    dsSourceMasterNameChanged);
+
+  //Achtung:  Hier sind simple Events nicht berücksichtigt  
+  dpGet( server+\".Conditions.EventCategoryNames:_online.._value\", dsConditionsEventCategoryNames,
+         server+\".Conditions.ConditionNames:_online.._value\",     dsConditionsConditionNames);
+
+//        server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsValues);   // !!!
+//        dsServerCondition
+  
+  //dsServerConditions haltet alle Conditions (inkl. SimpleEvent). Jede condition kommt nur einmal vor.
+  //dsSelectedItemsForEventSubscription = alle ausgewählten Items zum Anlegen, i.e. AE_TestCondition_test_1_int
+  //ACHTUNG:  Bugfix
+//  for ( i = 1; i<= dynlen( dsServerCondition); i++)
+//  {
+    for ( j = 1; j<= dynlen(dsSelectedItemsForEventSubscription); j++)
+    { 
+     sSearchString = /*dsServerCondition[i]+\".\"+*/ dsSelectedItemsForEventSubscription[j];
+
+     if ( dynContains( dsSourceConditionName , sSearchString) > 0)
+       dynAppend( ds, sSearchString);    //ds haltet alle Items, die angelegt werden müssen (inkl. den simple events)
+    } 
+//  }
+
+
+  //merke alle Items, die angelegt werden müssen (inkl. simple events)
+  dsSelectedItemsForEventSubscription = ds;
+
+  //dsSourceDps = anzulegenden Datenpunkte, und zwar entweder der automatisch zugewiesene name
+  //              oder der überparametrierte Name
+  //dsSourceTypes = Condition, auf die sich das Item bezieht
+  //SimpleEvents sind berücksichtigt.  
+  for ( i=1; i<= dynlen( dsSourceConditionName); i++)
+  {
+     if ( dsSourceMasterNameFromCondition[i] != \"\")
+         dsSourceDps[i] = dsSourceMasterNameFromCondition[i];
+     else
+         dsSourceDps[i] = dsSourceMasterNameChanged[i];
+   
+     ds = strsplit(dsSourceConditionName[i], gSourceSeparator);
+     dsSourceTypes[i] = ds[1];
+   
+  } 
+
+ 
+
+  //Prüfen, ob die Masterdatenpunkte existieren.
+  for ( i= 1; i<= dynlen(dsSelectedItemsForEventSubscription); i++)   // for all selected server items (inkl. den einen für simple event)
+  {
+     string sTemp, masterDP; 
+     pos = dynContains(dsSourceConditionName, dsSelectedItemsForEventSubscription[i]);  // find position
+     if (pos <= 0)
+        continue;
+   
+     type = dsSourceTypes[pos];
+     dp   = dsSourceDps[pos];
+
+     int p = dynContains(dsMasterDps,type);
+     if (p>0)  //simpleEvents don't have a MasterDp
+     {
+
+       masterDP = dsMasterDps[p];
+     //masterDP = dsMasterDps[dynContains(dsConditionName, type)];  //Berechnung des index ist falsch (out of range)
+
+       strreplace(type , \" \", \"_\"); 
+ 
+       if ( ! dpExists( masterDP) )
+       {
+         string s = getCatStr(\"para\", \"masterDpDoesNotExist\");
+         strreplace( s, \"§\", masterDP);
+         //DebugN(\"MasterDP does not exist: _mp_\", masterDP);
+
+         ChildPanelOnCentralModal(\"vision/MessageWarning\",
+	                           paGetCatStr(\"para\",\"dplListForGenerate\"),  
+	                           makeDynString(s));
+         break;
+       }
+     }
+     dynAppend(Items, dp);
+  }
+
+  tableUpdateCBx(\"\",  Items);
+  
+  // s = gTransferData;
+
+  if ( dynlen( gTransferData ) > 0)
+  {
+	   for ( i= 1; i<= dynlen( gTransferData) ; i++)
+	   {
+	     if ( i > 1) s+= \" | \";
+	     s+= gTransferData[i];
+	   }
+           
+	 ChildPanelOnCentralModalReturn(\"para/opc_ae_subscription_filter_view.pnl\",  
+	                                getCatStr(\"para\", \"dplListForGenerate\"),  
+	                                makeDynString(\"$dpes:\"+s), df, ds);  
+
+	 if ( dynlen( df) > 0 && df[1] > 0 )
+	 {
+	    generateMissingDatapoints();
+		   ok.enabled	    = TRUE;
+		   cancel.enabled	= TRUE;
+     setOKState(itemsNew.lineCount()>0);               // test  -> OK 
+ 	
+	 }
+  else
+  {
+     items.deleteAllLines;
+			  ok.enabled	    = TRUE;
+			  cancel.enabled	= TRUE;
+     setOKState(FALSE);                                 // test  -> cancle
+   }
+ }
+ else             // no datapoints to generate
+ {
+	  ok.enabled	    = TRUE;
+	  cancel.enabled	= TRUE;
+   setOKState(itemsNew.lineCount()>0);                                 // test  -> OK 
+ }
+
+ initmain();
+ 
+}
+
+
+
+" 0
+ E E E
+1 17 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 385 550 T 17 2.064128256513026 0 1 -799.6893787575151 -35
+0
+0

@@ -1,0 +1,955 @@
+V 13
+4
+LANG:10001 13 Event details
+LANG:10004 12 事件细节
+LANG:10000 16 Ereignis-Details
+LANG:10027 57 Детальная информация о событии
+PANEL,-1 -1 684 414 N "_3DFace" 3
+"$dpid"
+"$time"
+"$value"
+"/*
+$-Parameter:
+  dpid ... DP Element from event
+  time ... time from event
+  value ... value of event
+*/
+
+main()
+{
+  time tInTime = $time, tStart;
+  dyn_anytype daValues, daUservalues, daManagervalues, daUserBitValues;
+  dyn_time dtTimes, dtManagertimes, dtUsertimes, dtUserBitTimes;
+
+  dyn_errClass err;
+
+  // check if archive exists
+  dpGet($dpid + \":_start.._offline\", tStart);
+  err = getLastError();    // for example: Dp not exist ...
+  if (dynlen(err))
+  { 
+    errorDialog(err);
+    return;
+  }  
+
+  // if archive exist :
+  // get archived values
+  // get value from timestamp '$time' and assigment value
+  // get timestamp && value before
+  if ( tStart || useNGA() )  // is there a history ?  // NGA does not support _start.._offline TFS #78699
+  {
+    dpGetPeriod(tInTime, tInTime, 1, 
+                $dpid+\":_offline.._value\",    daValues, dtTimes, 
+                $dpid+\":_offline.._user\",     daUservalues, dtUsertimes, 
+                $dpid+\":_offline.._manager\",  daManagervalues, dtManagertimes, 
+                $dpid+\":_offline.._status64\", daUserBitValues, dtUserBitTimes);
+    err = getLastError();    // for example: Dp not exist ...
+    if (dynlen(err))
+    { 
+      errorDialog(err);
+      return;
+    }  
+  }
+  
+  // values in archive
+  if (dynlen(dtTimes) > 0)
+  {
+    
+    if ( dynlen(daValues) == 0 ) return; // can not be happend
+  
+    int iValPos = dynContains(dtTimes, tInTime);
+    int iLastValPos = 0;
+    if (iValPos > 1)
+      iLastValPos = iValPos -1;;
+    
+    if (iLastValPos)
+    {
+      sLastValue =  dpValToString($dpid,daValues[iLastValPos],true);
+      sLastTime = formatTime(\"%c\", dtTimes[iLastValPos], \" (%d)\"); 
+    }
+    else
+    {
+      sLastTime = getCatStr(\"sc\", \"noHistory\");
+      sLastValue = sLastTime;       
+    }
+
+    if (iValPos)
+    {
+      ES_detail_showValuesShapes(dpValToString($dpid,daValues[iValPos],true), tInTime, 
+                                 daUserBitValues[iValPos], daUservalues[iValPos], 
+                                 daManagervalues[iValPos], TRUE, 
+                                 TRUE);        
+    }
+    else
+    {
+      ES_detail_showValuesShapes($value, tInTime, 
+                                 0, 0, 
+                                 0, TRUE, 
+                                 FALSE);              
+    }
+   
+       
+  }
+  else  // we have no history
+  {
+    time tTime;
+    anytype aValue;
+    int iUser, iManager;
+    bit64 b64UserBits;
+    dpGet( $dpid + \":_original.._value\", aValue,
+           $dpid + \":_original.._user\", iUser,
+           $dpid + \":_original.._manager\", iManager,
+           $dpid + \":_original.._stime\", tTime,
+           $dpid + \":_original.._status64\", b64UserBits);
+    err = getLastError();    // for example: Dp not exist ...
+    if (dynlen(err))
+    { 
+      errorDialog(err);
+      return;
+    }  
+
+    sLastValue = getCatStr(\"sc\", \"noHistory\");
+    sLastTime  = \"\";  // no history
+    
+    if (tInTime == tTime)  //actuel time == time from dollar paramter
+    {
+      ES_detail_showValuesShapes(aValue, tTime, b64UserBits, 
+                                 iUser, iManager,
+                                 FALSE, TRUE);      
+    }
+    else
+    {
+      ES_detail_showValuesShapes($value, tInTime, 0, 
+                                 0, 0,
+                                 FALSE, FALSE); 
+    }
+
+    cobo_trendlist.enabled	= FALSE;
+
+  }
+  
+  setMultiValue(\"dpe\",         \"text\", $dpid,
+                \"comment\",     \"text\", dpGetDescription($dpid),
+                \"alias\",       \"text\", dpGetAlias($dpid),
+                \"startHistory\", \"text\", formatTime(\"%c\", tStart, \" (%d)\"));
+  
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  20 20
+""0  1
+E "
+//------------------------------------------------------------------------------------------------------------------------------------
+// declare libs constants and variables
+string sLastValue = \"\";
+string sLastTime = \"\";
+
+//------------------------------------------------------------------------------------------------------------------------------------
+/********************** json_StringToValue **********************************
+  @author mPokorny
+  this function set value shapes in panel
+  
+  write act value && time to last value && time, this is showend only if is value archived
+    
+  @param aCurrentValue      -  actual value on DPE
+  @param tCurrentTime       -  actual time stamp on DPE
+  @param b64CurrentUserBits -  actual UserBits on DPE
+  @param uiUser             -  user ID
+  @param iManID             -  manager ID
+  @param bShowAchrive       -  if == TRUE -- >show archive values
+  @param bShowUserInfo      -  if == TRUE -- >show user information
+  
+  @return void
+  
+  Changed: 
+  - ... 
+*/
+void ES_detail_showValuesShapes(anytype aCurrentValue, 
+                                time tCurrentTime,
+                                bit64 b64CurrentUserBits, 
+                                uint uiUser, int iManID,
+                                bool bShowAchrive,
+                                bool bShowUserInfo)
+{
+  
+  string sActValue = dpValToString($dpid, aCurrentValue, TRUE);  // convert value to string
+  string sActTime = formatTime(\"%c\", tCurrentTime, \" (%d)\");     // format time
+  string sManName = \"\", sUserName = \"\";
+
+  if (bShowUserInfo)
+  {
+    convManIntToName(iManID, sManName);  // convert man ID to manager name
+    paDisplayAlertBits(b64CurrentUserBits, FALSE);  // show user bits
+    sUserName = getUserName(uiUser);
+  }
+  
+  // set shapes with values
+  setMultiValue(\"lastValue\",    \"text\", sLastValue,
+                \"lastTime\",     \"text\", sLastTime,
+                \"lastValue\",    \"visible\", bShowAchrive,  // visible only if is archive defined
+                \"lastTime\",     \"visible\", bShowAchrive,  // visible only if is archive defined
+                \"txtLastValue\", \"visible\",bShowAchrive,
+                \"currentValue\", \"text\", sActValue,
+                \"currentTime\",  \"text\", sActTime,
+                \"txtUser\",      \"text\", sUserName,
+                \"txtManager\",   \"text\", sManName);
+     
+  if (bShowAchrive)  // store act value && time to last value && time
+  {
+    sLastTime = sActTime;
+    sLastValue = sActValue;
+  }
+}
+
+
+
+" 0
+ 3
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 23
+"txtLastValue"
+""
+1 111 142 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 18 142 113 157
+0 2 2 "0s" 0 0 0 194 0 0  113 142 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Previous value:
+LANG:10004 15 上一次数值
+LANG:10000 16 Vorheriger Wert:
+LANG:10027 27 Пред. значение:
+2 24
+"Text2"
+""
+1 111 112 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 26 112 113 127
+0 2 2 "0s" 0 0 0 194 0 0  113 112 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Current value:
+LANG:10004 12 当前数值
+LANG:10000 15 Aktueller Wert:
+LANG:10027 25 Тек. значение:
+2 25
+"Text3"
+""
+1 111 22 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 43 22 113 37
+0 2 2 "0s" 0 0 0 194 0 0  113 22 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Datapoint:
+LANG:10004 3 DP:
+LANG:10000 11 Datenpunkt:
+LANG:10027 3 DP:
+2 26
+"Text4"
+""
+1 253 202 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 19 202 255 217
+0 2 2 "0s" 0 0 0 194 0 0  255 202 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 33 Start time of unexported history:
+LANG:10004 33 可检索历史的起始时间：
+LANG:10000 42 Startzeit der nichtausgelagerten Historie:
+LANG:10027 67 Нач.время неэкспортированн. истории:
+2 29
+"Text5"
+""
+1 113 82 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 80 82 113 97
+0 2 2 "0s" 0 0 0 194 0 0  113 82 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Alias:
+LANG:10004 9 别名：
+LANG:10000 6 Alias:
+LANG:10027 19 Псевдоним:
+2 31
+"Text6"
+""
+1 111 52 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 30 52 113 67
+0 2 2 "0s" 0 0 0 194 0 0  113 52 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 7 描述:
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+2 32
+"Text18"
+""
+1 111 232 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 57 232 113 247
+0 2 0 "0s" 0 0 0 194 0 0  113 232 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 User:
+LANG:10004 7 用户:
+LANG:10000 9 Benutzer:
+LANG:10027 25 Пользователь:
+2 33
+"Text19"
+""
+1 413 232 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 361 232 415 247
+0 2 0 "0s" 0 0 0 194 0 0  415 232 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 Manager:
+LANG:10004 10 管理器:
+LANG:10000 8 Manager:
+LANG:10027 16 Менеджер
+30 36
+"Frame1"
+""
+1 10 265 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.001517450682853 0 1.340996168582376 -0.01517450682852806 0.9770114942528734 0 E 10 3 670 265
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 17
+"dpe"
+""
+1 117.0277777777778 19 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 18 657 44
+2 "0s" 0 0 0 0 0 -1  E E E
+14 30
+"comment"
+""
+1 117.0277777777778 49 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 48 657 74
+2 "0s" 0 0 0 0 0 -1  E E E
+14 28
+"alias"
+""
+1 116.65625 79 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 78 657 104
+2 "0s" 0 0 0 0 0 -1  E E E
+13 27
+"buClose"
+""
+1 583 379 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Panel schließen ohne eine Aktion auszulösen
+LANG:10004 45 Panel schließen ohne eine Aktion auszulösen
+LANG:10000 19 Close panel without
+LANG:10027 59 Закрыть без совершения действия
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  583 378 671 406
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+14 18
+"lastValue"
+""
+1 116.2857142857143 139 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 138 382 164
+2 "0s" 0 0 0 0 0 -1  E E E
+14 19
+"lastTime"
+""
+1 386.8823529411765 139 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  388 138 657 164
+2 "0s" 0 0 0 0 0 -1  E E E
+14 20
+"currentValue"
+""
+1 117.8242677824268 109 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 108 382 134
+2 "0s" 0 0 0 0 0 -1  E E E
+14 21
+"currentTime"
+""
+1 204.8326359832637 109 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  388 108 657 134
+2 "0s" 0 0 0 0 0 -1  E E E
+14 22
+"startHistory"
+""
+1 261.75 199 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  263 198 657 224
+2 "0s" 0 0 0 0 0 -1  E E E
+14 34
+"txtUser"
+""
+1 120 229 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 228 352 254
+2 "0s" 0 0 0 0 0 -1  E E E
+14 35
+"txtManager"
+""
+1 425 229 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  423 228 657 254
+2 "0s" 0 0 0 0 0 -1  E E E
+20 37
+"cb_running"
+""
+1 425 318 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  423 316 597 345
+1
+T 
+4
+LANG:10001 12 Update value
+LANG:10004 12 更新数值
+LANG:10000 22 Wert wird aktualisiert
+LANG:10027 33 Обновить значение
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main()
+{
+  bool b=this.state(0);
+
+  if (b)
+    dpConnect(\"workCB\", 
+              $dpid + \":_online.._value\", $dpid + \":_online.._stime\", $dpid + \":_original.._status64\", 
+              $dpid + \":_original.._user\", $dpid + \":_original.._manager\");
+  else
+  {
+    dpDisconnect(\"workCB\", 
+                 $dpid + \":_online.._value\", $dpid + \":_online.._stime\", $dpid + \":_original.._status64\", 
+                 $dpid + \":_original.._user\", $dpid + \":_original.._manager\");
+    setMultiValue( \"lastTime\", \"visible\", FALSE,
+                   \"lastValue\", \"visible\", FALSE,
+                   \"txtLastValue\",\"visible\", FALSE,
+                   \"lastTime\", \"text\", \"\",
+                   \"lastValue\", \"text\", \"\");
+    
+    sLastValue = getCatStr(\"sc\", \"noHistory\");
+    sLastTime = \"\";
+  }
+  
+}
+
+//------------------------------------------------------------------------------------------------------------------------------------
+/********************** workCB **********************************
+  @author ???
+  this function is CB, wenn user activate checkBox 'Update value'
+  
+  @param value      -  actual value on DPE
+  @param t       -  actual time stamp on DPE
+  @param b64UserBits -  actual UserBits on DPE
+  @param user             -  user ID
+  @param manager             -  manager ID
+  
+  @return void
+  
+  Changed: 
+  - ... 
+*/
+workCB(string dp1, anytype value, string dp4, time t, string dp2, bit64 b64UserBits, string sDp3, int user, string dp3, int manager)
+{
+  if (isAnswer() && sLastTime != \"\")
+    return;
+  
+  
+  ES_detail_showValuesShapes(value, t, b64UserBits, 
+                             user, manager,
+                             TRUE, TRUE);   
+}
+
+
+
+
+
+" 0
+1 324 0 "" 0
+31 "transform" 0 0 2.173913043478261 0 1 -488.6956521739132 0
+0
+1 325 0 "" 1
+31 "transform" 0 0 0.6097560975609756 0 0.9259259259259259 312.9268292682927 14.37037037037034
+0
+2 322
+"ptStateBits"
+""
+1 113 286 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 50 286 113 301
+0 2 2 "0s" 0 0 0 194 0 0  113 286 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 State bits:
+LANG:10004 10 状态位:
+LANG:10000 11 Statusbits:
+LANG:10027 28 Биты состояния:
+2 323
+"ptUserBits"
+""
+1 113 322 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 36 322 113 337
+0 2 2 "0s" 0 0 0 194 0 0  113 322 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 User bits:
+LANG:10004 10 用户位:
+LANG:10000 13 Benutzerbits:
+LANG:10027 29 Биты польз-теля:
+1 326 1 "" 93
+0
+1 421 2 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "" -1
+"" ""
+"objects/STD_PARTS/PANEL_TRENDSELECT.pnl" 260 190 T 24 1 0 1 40 210
+2
+"$dpe""$dpid"
+"$dpt""dpTypeName($dpid)"
+3 1 "userBits" -1
+"" ""
+"para/userBits64.pnl" 119 270 T 32 1 0 1 0 -4.714285714285722
+1
+"$BOOL_ALLOWCLICK""FALSE"
+3 2 "PANEL_REF2" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 50 360 T 32 1.412825651302605 0 1 -75.64128256513027 10
+0
+0

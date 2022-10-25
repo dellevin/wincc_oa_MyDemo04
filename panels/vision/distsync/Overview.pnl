@@ -1,0 +1,2176 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1190 690 N "_3DFace" 0
+E "main()
+{
+  if(!isPanelOpen(\"Dist-Baseconfiguration\"))
+    dpSet(\"_DistSync.:_lock._original._locked\",0);
+  
+}" 0
+ E E E 1 -1 -1 0  78 184
+""0  1
+E "#uses \"distsync.ctl\"
+
+mapping mChildSystems;
+int g_iNoOfChecked;
+global dyn_string gdsOldChildSys;
+global dyn_string gdsChildSys;
+
+void disableLineN(int n)
+{
+  for(int i = 0; i < tabChildSys.columnCount(); i++)
+  setMultiValue(\"tabChildSys\", \"cellBackColRC\", n, tabChildSys.columnToName(i), \"_3DFace\",
+                \"tabChildSys\", \"cellForeColRC\", n, tabChildSys.columnToName(i), \"STD_grey_dark\");
+
+}
+
+
+void enableLineN(int n)
+{
+  for(int i = 0; i < tabChildSys.columnCount(); i++)
+    setMultiValue(\"tabChildSys\", \"cellBackColRC\", n, tabChildSys.columnToName(i), \"white\",
+                  \"tabChildSys\", \"cellForeColRC\", n, tabChildSys.columnToName(i), \"black\");
+
+}
+
+
+refreshAvailableSystems(bool bShowBothDRS = false ) synchronized(gdsChildSys)
+{
+  bool bSplitMode;
+  dyn_string dsConnectedSystems;
+  isSplitModeActive(bSplitMode);
+  dyn_float df;
+  dyn_string ds;
+  
+  if(bSplitMode)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",                                
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(DISTSYNC_MSGCAT,\"SplitModeActive\")),df,ds);
+   
+    PanelOff();
+  }
+  
+  dsConnectedSystems = distsync_getConnectedSystems();
+
+  
+  distsync_getFreeSystems(dsConnectedSystems,bShowBothDRS);
+  
+  if(mappinglen(mChildSystems) > 0)
+  {
+    bgChildSys.visible(false);
+    txtChildSys.visible(false);
+  }
+  else
+  {
+    bgChildSys.visible(true);
+    txtChildSys.visible(true);
+  }
+  
+  if(gdsOldChildSys == dsConnectedSystems)
+    return;
+  
+  gdsOldChildSys = dsConnectedSystems;
+  
+
+  tabAvailableSystems.deleteAllLines();
+
+  if(dynlen(dsConnectedSystems))
+  {
+    tabAvailableSystems.appendLines(dynlen(dsConnectedSystems),\"System\",dsConnectedSystems);
+    txtAvailSys.visible(false);
+    bgAvailSys.visible(false);
+  }  
+  else
+  {
+    txtAvailSys.visible(true);
+    bgAvailSys.visible(true);
+  }
+  
+
+
+}
+
+void updateChildSysTable(dyn_string dsUpdateDP)
+{
+  dyn_string dsSystemNames,dsConnectionText,dsConfig,dsSyncState,dsLastSyncTime;
+  dyn_bool dbHandshake;
+  dyn_int diProcess;
+  dyn_bool dbChecked;
+  
+  for(int i = 1; i <= dynlen(dsUpdateDP); i++)
+  {
+    if(mChildSystems[dsUpdateDP[i]][\"Systemname\"] != getSystemName())
+    {
+      dynAppend(dsSystemNames,mChildSystems[dsUpdateDP[i]][\"Systemname\"]);
+      dynAppend(dsConnectionText,mChildSystems[dsUpdateDP[i]][\"Connection_Text\"]);
+      dynAppend(dbHandshake,mChildSystems[dsUpdateDP[i]][\"Handshake\"]);
+      dynAppend(dsConfig,mChildSystems[dsUpdateDP[i]][\"Config\"]);
+      dynAppend(diProcess,mChildSystems[dsUpdateDP[i]][\"Process\"]);
+      dynAppend(dsSyncState,mChildSystems[dsUpdateDP[i]][\"State\"]);
+      dynAppend(dsLastSyncTime,mChildSystems[dsUpdateDP[i]][\"Time\"]);
+      dynAppend(dbChecked,mChildSystems[dsUpdateDP[i]][\"Checked\"]);
+    }
+  }
+  
+  tabChildSys.updateLines(1,\"DP\",dsUpdateDP,\"Checked\",dbChecked,\"Systemname\",dsSystemNames,\"Handshake\",dbHandshake,\"Config\",dsConfig,
+                     \"Connection\",dsConnectionText,\"Process\",diProcess,\"State\",dsSyncState,\"Time\",dsLastSyncTime);
+  
+  dyn_string dsTabEntries = tabChildSys.getColumnN(0);
+  
+  for(int i = 1; i <= dynlen(dsUpdateDP); i++)
+  {
+      int iPos = dynContains(dsTabEntries,dsUpdateDP[i]);
+           
+      tabChildSys.cellWidgetRC(iPos-1, \"Process\", \"Bar\", makeDynAnytype(0,100));
+      tabChildSys.cellForeColRC(iPos-1,\"Process\", mChildSystems[dsUpdateDP[i]][\"Process_Color\"]);
+      tabChildSys.cellFillRC(iPos-1,\"Connection\",mChildSystems[dsUpdateDP[i]][\"Connection\"]);
+      tabChildSys.cellBackColRC(iPos-1,\"Handshake\",mChildSystems[dsUpdateDP[i]][\"Handshake_Color\"]);
+      tabChildSys.cellBackColRC(iPos-1,\"Config\",mChildSystems[dsUpdateDP[i]][\"Config_Color\"]);   
+  }
+}
+
+void startSync()
+{
+  string sDP;
+  dyn_string ds;
+  dyn_float df;
+  string sSystem;
+  bool bIsSplitActivated = false;
+  dyn_string dsDps;
+  dyn_bool dbStartSync;
+  int iSystemId;
+
+  // Check User Permission  
+  if ( !getUserPermission(DISTSYNC_PERMISSION_BIT) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+  //if no system selected, throw message warning
+  if(g_iNoOfChecked <= 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                    
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noSelectedSystem\")),df,ds);
+    return; 
+  }
+  
+  
+  bool bConnWarning = false;
+  
+
+  //check selected systems
+  for(int i = 0; i < tabChildSys.lineCount(); i++)
+  {
+    sDP = tabChildSys.cellValueRC(i,\"DP\");
+    sSystem = tabChildSys.cellValueRC(i,\"Systemname\");
+    string sConnected = tabChildSys.cellValueRC(i,\"Connection\");
+
+    if( sConnected != \"\" )
+    {
+      bConnWarning = true;
+      continue;
+    }
+    
+    iSystemId = getSystemId(sSystem);
+
+    isSplitModeActive(bIsSplitActivated,sSystem);
+    
+    if(sDP != \"\" && (mChildSystems[sDP][\"Process\"] == 100 || mChildSystems[sDP][\"Process\"] == 0) &&
+       tabChildSys.cellValueRC(i, \"Checked\") /*&& !bIsSplitActivated*/)
+    {
+      dynAppend(dsDps, DISTSYNC_DP_PREFIX + iSystemId + \".Command.StartSync\");
+      dynAppend(dbStartSync, TRUE);
+    }
+  }
+  
+  if ( getCtrlManagerRunningScript(getSystemName(), \"distSyncMan.ctl\") <= -1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"distsync\", \"ScriptNotRunning\")));
+    return; // distSyncMan.ctl script is not running
+  }
+  
+  if ( bConnWarning )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                                   getCatStr(\"para\", \"warning\"),
+                                   makeDynString(getCatStr(\"distsync\", \"SystemConn\"),
+                                                 getCatStr(\"general\", \"yes\"),
+                                                 getCatStr(\"general\", \"no\")),
+                                   df, ds);
+    if ( df[1] != 1 )
+      return; // canceled by user
+  }
+    
+  
+  if(dynlen(dsDps) > 0)
+    dpSet(dsDps, dbStartSync);
+}
+
+void startComp()
+{
+  dyn_int diSelectedLines = tabChildSys.getSelectedLines();
+  dyn_string dsChildSystems = makeDynString(),ds, dsDps;
+  dyn_float df;
+  
+  //if no system selected, throw message warning
+  if(g_iNoOfChecked <= 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                    
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noSelectedSystem\")),df,ds);
+    return; 
+  } 
+
+  bool bConnWarning = false;
+
+  //check selected systems
+  for(int i = 0; i < tabChildSys.lineCount(); i++)
+  {
+    string sConnected = tabChildSys.cellValueRC(i,\"Connection\");
+
+    if( sConnected != \"\" )
+    {
+      bConnWarning = true;
+      continue;
+    }
+    
+    if(tabChildSys.cellValueRC(i, \"DP\") != \"\" && tabChildSys.cellValueRC(i, \"Checked\") /*&& !bIsSplitActivated*/)
+    {
+      dynAppend(dsChildSystems,tabChildSys.cellValueRC(i, \"Systemname\")); 
+    }
+  }
+  
+  if ( getCtrlManagerRunningScript(getSystemName(), \"distSyncMan.ctl\") <= -1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"distsync\", \"ScriptNotRunning\")));
+    return; // distSyncMan.ctl script is not running
+  }  
+    
+  if ( bConnWarning )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(    getCatStr(\"distsync\",\"SystemConn\"),
+                        getCatStr(\"general\",\"yes\"),
+                        getCatStr(\"general\",\"no\")),df,ds);
+      
+    if( df[1] != 1 )
+      return; // canceled by user
+  }
+  
+  string sSystems = dynStringToString(dsChildSystems);
+
+  ChildPanelOnCentralReturn(\"vision/distsync/RoughCompair.pnl\",getCatStr(DISTSYNC_MSGCAT, \"compPanel\"),makeDynString(\"$SYSTEMS:\"+sSystems), df, ds);
+  
+  
+  if(dynlen(ds) != tabChildSys.lineCount())
+  {    
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"selectAll\"));
+    chbSelectAll.state(0) = FALSE;
+  }
+  else
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"unselectAll\"));
+    chbSelectAll.state(0) = TRUE;
+  }
+  
+  g_iNoOfChecked = dynlen(ds);
+  
+  for(int i = 0; i < tabChildSys.lineCount(); i++)
+  {
+    string sDP = tabChildSys.cellValueRC(i, \"DP\");
+    string sSystem = tabChildSys.cellValueRC(i, \"Systemname\");
+    
+    dynAppend(dsDps, sDP);
+    
+    if(dynContains(ds, sSystem))
+      mChildSystems[sDP][\"Checked\"] = (bool)TRUE;
+    else
+      mChildSystems[sDP][\"Checked\"] = (bool)FALSE;
+  }
+  
+  updateChildSysTable(dsDps);
+  
+  tabChildSys.sort(FALSE, \"Checked\");
+}
+
+
+void resetStatus()
+{
+  string sDP;
+  dyn_string ds;
+  dyn_float df;
+  string sSystem;
+  bool bIsSplitActivated = false;
+  dyn_string dsDps;
+  dyn_bool dbStartSync;
+  int iSystemId;
+
+  // Check User Permission  
+  if ( !getUserPermission(DISTSYNC_PERMISSION_BIT) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+  //if no system selected, throw message warning
+  if(g_iNoOfChecked <= 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                    
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noSelectedSystem\")),df,ds);
+    return; 
+  }
+  
+
+  //check selected systems
+  for(int i = 0; i < tabChildSys.lineCount(); i++)
+  {
+    sDP = tabChildSys.cellValueRC(i,\"DP\");
+    sSystem = tabChildSys.cellValueRC(i,\"Systemname\");
+    
+    iSystemId = getSystemId(sSystem);
+
+    isSplitModeActive(bIsSplitActivated,sSystem);
+    
+    //if(sDP != \"\" && (mChildSystems[sDP][\"Process\"] == 100 || mChildSystems[sDP][\"Process\"] == 0) &&
+    //   tabChildSys.cellValueRC(i, \"Checked\") /*&& !bIsSplitActivated*/)
+    //{
+    dynAppend(dsDps, DISTSYNC_DP_PREFIX + iSystemId + \".State.SyncState\");
+    //  dynAppend(dbStartSync, TRUE);
+    //}
+    dpSet(DISTSYNC_DP_PREFIX + iSystemId + \".State.SyncState\", \" \");
+  }
+  
+  //updateChildSysTable(dsDps);
+//  if(dynlen(dsDps) > 0)
+//    dpSet(dsDps, dbStartSync);
+}
+
+setSelectionObjects()
+{
+  if(g_iNoOfChecked == tabChildSys.lineCount())
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"unselectAll\"));
+    chbSelectAll.state(0) = TRUE;
+  }
+  else
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"selectAll\"));
+    chbSelectAll.state(0) = FALSE;
+  }
+    
+  if(g_iNoOfChecked == 0)
+  {
+    cmdSync.enabled = FALSE;
+    cmdComp.enabled = FALSE;
+  }
+  else
+  {
+    cmdSync.enabled = TRUE;
+    cmdComp.enabled = TRUE;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 2
+"tabAvailableSystems"
+""
+1 14 173 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"draggable" ""
+"acceptDrops" ""
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  12 171 189 623
+"main()
+{
+  
+  dyn_string ds = makeDynString(\"distsync_alertnatingTable\",\"white\");
+  dyn_float df;
+  this.alternatingRowColors(ds);
+  bool bSplitMode;
+  
+  g_bConnectionInitialized = false;
+  
+  isSplitModeActive(bSplitMode);
+  this.deleteAllLines();
+  
+  this.selectByClick(1);
+  this.tableMode(TABLE_SELECT_MULTIPLE);
+  
+  if(bSplitMode)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",                                
+                  getCatStr(\"para\",\"warning\"),
+                  makeDynString(getCatStr(DISTSYNC_MSGCAT,\"SplitModeActive\")),df,ds);
+    PanelOff();
+  }
+  
+  distsync_ConnectOnDistSystems();
+  
+  while(!g_bConnectionInitialized)
+  {
+    delay(0,500);
+  }
+    
+  refreshAvailableSystems(cbx_DRS.state(0));
+  
+  string sSelect = \"SELECT '_original.._value' FROM '_DistSync_*.Config.MasterSystem' REMOTE ALL\"+
+                   \" WHERE'_original.._value' != \\\"\"+getSystemName()+\"\\\" AND _DPT = \\\"_DistSync\\\"\";
+  dpQueryConnectSingle(\"RefreshCB\",false,\"RefreshAvailable\",sSelect);
+  //startThread(\"StartRefreshLoop\");
+  
+
+}
+
+
+RefreshCB(string ident, dyn_dyn_anytype ddaTab)
+{
+//   if(isRefresh())
+//     return;
+  refreshAvailableSystems(cbx_DRS.state(0));
+  
+}
+
+
+
+
+" 0
+E 1 1 1 1 0 "System" 14 1 0 "s" 4
+LANG:10001 10 Systemname
+LANG:10004 9 系统名
+LANG:10000 10 Systemname
+LANG:10027 21 Имя системы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+170 
+18 18 10 0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+29 89
+"bgAvailSys"
+""
+1 16.00000000000001 195 E E E 1 E 1 E N "_3DText" E N "White" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  16 195 185 619
+19 BackgroundCover.ewo
+0
+E25 0
+"tabChildSys"
+""
+1 283.0000000000002 172.8033326295045 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main(int row, string column)
+{
+  dyn_string dsMenu;
+  int iAnswer;
+  
+  dsMenu = makeDynString(\"PUSH_BUTTON, \" + getCatStr(DISTSYNC_MSGCAT, \"startSync\") + \", 1, \" + (int)(g_iNoOfChecked > 0),
+                         \"PUSH_BUTTON, \" + getCatStr(DISTSYNC_MSGCAT, \"startComp\") + \", 2, \" + (int)(g_iNoOfChecked > 0),
+                         \"PUSH_BUTTON, \" + getCatStr(DISTSYNC_MSGCAT, \"resetState\") + \", 3, \" + (int)(g_iNoOfChecked > 0));
+  
+
+  popupMenu(dsMenu, iAnswer);
+  
+  switch(iAnswer)
+  {
+    case 1:
+      startSync();
+      break;
+    case 2:
+      startComp();
+      break;
+    case 3: 
+      resetStatus();
+      break;
+  }
+}" 0
+ "main(int row, string column)
+{
+  if(row == -1)
+    return;
+  
+  string sConnected = tabChildSys.cellValueRC(row,\"Connection\");
+  string sDP = tabChildSys.cellValueRC(row,\"DP\");
+  
+
+  if(sConnected == \"\" &&  sDP != \"\")
+    ChildPanelOnCentralModal(\"vision/distsync/Clientconfiguration.pnl\", \"Client configuration\", makeDynString(\"$SYSTEM:\" + tabChildSys.cellValueRC(row, \"Systemname\")));
+ 
+}" 0
+
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"draggable" ""
+"acceptDrops" ""
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  281 171 1169 525
+"main()
+{
+  this.selectByClick(1);
+  dyn_string ds = makeDynString(\"distsync_alertnatingTable\",\"white\");
+  this.tableMode(TABLE_SELECT_NOTHING);
+  this.alternatingRowColors(ds);
+  tabChildSys.deleteAllLines();
+  
+ 
+  string sQuery = \"SELECT '_original.._value' FROM '_DistSync_*.**' WHERE _DPT = \\\"_DistSync\\\" AND '_original.._value' != \\\"\\\"\";
+  dpQueryConnectSingle(\"RefreshChildTableCB\",true,\"refreshData\",sQuery,250);
+}
+
+RefreshChildTableCB(anytype ident, dyn_dyn_anytype ddaTab)
+{
+  mapping mEmpty;
+  bool bTrue = true;
+  bool bFalse = false;
+  time tNullTime = 0;
+  dyn_string dsUpdateDP;
+  
+  
+  tabChildSys.updatesEnabled(false);
+  
+  for(int i = 2; i <= dynlen(ddaTab); i++)
+  {
+    string sDP = dpSubStr(ddaTab[i][1],DPSUB_DP);
+    string sDPE = dpSubStr(ddaTab[i][1],DPSUB_DP_EL);
+    string sSystemName;
+    
+    if(distsync_getDistSyncDP() == sDP)
+      continue;
+    
+    if(!dynContains(dsUpdateDP,sDP))
+      dynAppend(dsUpdateDP,sDP);
+    
+    
+    if(!mappingHasKey(mChildSystems,sDP)) //new Line
+    {
+      mChildSystems[sDP] = mEmpty;
+      mChildSystems[sDP][\"Systemname\"] = (string)\"\";
+      mChildSystems[sDP][\"Connection\"] = (string)\"\";
+      mChildSystems[sDP][\"Connection_Text\"] = (string)\"\";
+      mChildSystems[sDP][\"Handshake\"] = bTrue;
+      mChildSystems[sDP][\"Handshake_Color\"] = \"white\";
+      mChildSystems[sDP][\"Config\"] = \"...\";
+      mChildSystems[sDP][\"Config_Color\"] = \"white\";
+      mChildSystems[sDP][\"Process\"] = (int)0;
+      mChildSystems[sDP][\"Process_Color\"] = \"distsync_running\";
+      mChildSystems[sDP][\"State\"] = (string)\"\";
+      mChildSystems[sDP][\"Time\"] = \"\";
+      mChildSystems[sDP][\"Checked\"] = bFalse;
+         
+      tabChildSys.appendLine(\"DP\",sDP,\"Systemname\",\"\",\"Connection\",\"\",\"Handshake\",bTrue,\"Config\",\"...\",
+                             \"Process\",0,\"State\",\"\",\"Time\",\"\");
+      tabChildSys.cellWidgetRC(tabChildSys.lineCount()-1, \"Process\", \"Bar\", makeDynAnytype(0,100));
+      
+    }
+   
+    if(strpos(sDPE,\".Config.Systemname\")>0)
+    {
+      mChildSystems[sDP][\"Systemname\"] = ddaTab[i][2];   
+    }
+    else if(strpos(sDPE,\".State.Connected\") > 0)
+    {
+      if(ddaTab[i][2])
+      {
+        mChildSystems[sDP][\"Connection\"] = \"[pattern,[center,png,StandardIcons/apply_20.png]]\";
+        mChildSystems[sDP][\"Connection_Text\"] = \"\";
+      }
+      else  
+      {
+        mChildSystems[sDP][\"Connection\"] = \"[pattern,[center,png,StandardIcons/delete_20.png]]\";
+        mChildSystems[sDP][\"Connection_Text\"] = \" \";
+      }
+      
+    }  
+    else if(strpos(sDPE,\".Config.HandshakeNecessary\") > 0)
+    {
+     if(ddaTab[i][2] <= 0)
+       mChildSystems[sDP][\"Handshake\"] = false;  
+     else 
+       mChildSystems[sDP][\"Handshake\"] = true;
+      
+      if(ddaTab[i][2] == 1)
+      {
+        mChildSystems[sDP][\"Handshake_Color\"] = \"distsync_tableHintColor\";
+      }
+      else
+        mChildSystems[sDP][\"Handshake_Color\"] = \"white\";
+    }  
+    else if(strpos(sDPE,\".Config.ClientSyncData\") > 0)
+    {
+      dyn_int ClientSyncData = ddaTab[i][2];
+
+      if(dynlen(ClientSyncData) == 1 && ClientSyncData[1] == -1) //default Configuration
+        mChildSystems[sDP][\"Config_Color\"] = \"white\";
+      else  
+        mChildSystems[sDP][\"Config_Color\"] = \"distsync_tableHintColor\";  
+    }   
+    else if(strpos(sDPE,\".State.SyncState\") > 0)
+    {
+      dyn_string dsTemp = strsplit(ddaTab[i][2],\"|\");
+
+      if(dynlen(dsTemp) == DISTSYNC_NUM_STATE_INFO)
+      {
+        int iStep = 0, iMaxStep = 100;
+        string sText = \"\";
+        int iDataId = 0;
+        if(dsTemp[1] != \"\")
+        {
+          iStep = (int)dsTemp[1];
+          iMaxStep = (int)dsTemp[2];
+          iDataId = (int)dsTemp[3];
+          
+          if(iDataId == 0)
+            sText = getCatStr(DISTSYNC_MSGCAT,\"WaitForHandshake\");
+          else if(iDataId == 99)
+            sText = getCatStr(DISTSYNC_MSGCAT,\"readConfig\");
+          else
+          {
+            sText = getCatStr(DISTSYNC_MSGCAT,\"runningSync\");
+            strreplace(sText,\"$DataId\",getCatStr(DISTSYNC_MSGCAT,\"SyncData_\"+iDataId));
+          }
+          
+          strreplace(sText,\"$ActStep\",iStep);
+          strreplace(sText,\"$MaxStep\",iMaxStep);
+  
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_running\";
+          mChildSystems[sDP][\"State\"] = sText; 
+          mChildSystems[sDP][\"Process\"] = iStep*100/iMaxStep;
+        }
+            
+      }
+      else if(dynlen(dsTemp) == 1)
+      {
+
+        if(dsTemp[1] == \"2\")
+        {
+          mChildSystems[sDP][\"Process\"] = 100;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_NOK\";
+          mChildSystems[sDP][\"State\"] = getCatStr(DISTSYNC_MSGCAT,\"NOK\");
+        }
+        else if(dsTemp[1] == \"1\")
+        {
+          mChildSystems[sDP][\"Process\"] = 100;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_OK\";
+          mChildSystems[sDP][\"State\"] = getCatStr(DISTSYNC_MSGCAT,\"OK\");
+        }
+        else if(dsTemp[1] == \"3\") //deny
+        {
+          mChildSystems[sDP][\"Process\"] = 100;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_NOK\";
+          mChildSystems[sDP][\"State\"] = getCatStr(DISTSYNC_MSGCAT,\"denyHS\");
+        }
+        else if(dsTemp[1] == \"4\") //postpone
+        {
+          mChildSystems[sDP][\"Process\"] = 100;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_OK\";
+          mChildSystems[sDP][\"State\"] = getCatStr(DISTSYNC_MSGCAT,\"postponeHS\");
+        }
+        else if(dsTemp[1] == \"5\") //no HS
+        {
+          mChildSystems[sDP][\"Process\"] = 100;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_NOK\";
+          mChildSystems[sDP][\"State\"] = getCatStr(DISTSYNC_MSGCAT,\"noHS\");
+        }
+        else
+        {
+          mChildSystems[sDP][\"Process\"] = 0;
+          mChildSystems[sDP][\"Process_Color\"] = \"distsync_running\";
+          mChildSystems[sDP][\"State\"] = \"\";
+        }
+      }
+      else
+      {
+        mChildSystems[sDP][\"Process\"] = 0;
+        mChildSystems[sDP][\"Process_Color\"] = \"distsync_running\";
+        mChildSystems[sDP][\"State\"] = \"\";
+      }  
+    }
+    else if(strpos(sDPE,\".State.LastSuccessfulSync\") > 0)
+    {
+      time t = (time)ddaTab[i][2];
+      if(t == makeTime(1970, 1, 1, 1))
+        mChildSystems[sDP][\"Time\"] = \"\";
+      else
+        mChildSystems[sDP][\"Time\"] = formatTime(\"%c\", (time)ddaTab[i][2]);
+    }
+  }
+  
+  updateChildSysTable(dsUpdateDP);
+  
+  tabChildSys.updatesEnabled(true);
+  
+  setSelectionObjects();
+  
+  if(isAnswer())
+  {
+    tabChildSys.deleteSelection();
+    tabAvailableSystems.deleteSelection();
+    
+  }
+
+  if(mappinglen(mChildSystems) <= 0)
+  {
+    bgChildSys.visible(true);
+    txtChildSys.visible(true);
+  }
+  else
+  {
+    txtChildSys.visible(false);
+    bgChildSys.visible(false);   
+  }
+  
+ 
+  
+  
+
+  
+ 
+  
+                    
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+"main(int row, string column, string value)
+{
+  string sConnected = tabChildSys.cellValueRC(row,\"Connection\");
+  string sDp = tabChildSys.cellValueRC(row,\"DP\");
+  string sSystem = tabChildSys.cellValueRC(row,\"Systemname\");
+  int iSetValue;
+  
+  if(row == -1)
+    return;
+  
+  if(column == \"Config\")
+  {
+    if(sConnected == \"\" && sDp != \"\")
+      ChildPanelOnCentralModal(\"vision/distsync/Clientconfiguration.pnl\", \"Client configuration\", makeDynString(\"$SYSTEM:\" + tabChildSys.cellValueRC(row, \"Systemname\")));
+  }
+  else if(column == \"Handshake\")
+  {
+    string sBackCol = tabChildSys.cellBackCol();
+    bool bvalue = (bool)value;
+    dyn_string ds;
+    dyn_float df;
+    
+    if(sConnected != \"\")
+      return;
+    
+    dyn_int distSystemIds;
+    
+    dpGet(sSystem+\"_OneWayDist.distSystemIds\", distSystemIds);
+  
+    if ( dynlen(distSystemIds) > 0 && !dynContains(distSystemIds, getSystemId()) )//IM 116214 OneWayDist Handshake not allowed
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", \"DistSync\",
+                               makeDynString(getCatStr(DISTSYNC_MSGCAT,\"HandshakeNotAllowedForOWD\")));
+      return;
+    }
+
+    if(sBackCol != \"distsync_tableHintColor\" && bvalue)
+      iSetValue = 1;
+    else 
+      iSetValue = 2;
+
+    dpSetWait(sDp+\".Config.HandshakeNecessary\",iSetValue);
+    if(dpExists(sSystem+sDp+\".Config.HandshakeNecessary\"))
+      dpSetWait(sSystem+sDp+\".Config.HandshakeNecessary\",iSetValue);
+    
+    if(iSetValue == 1)
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo1\", \"DistSync\",
+                                      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"RemoveHS\")), ds, df);
+  }
+  else if(column == \"Checked\")
+  { 
+     
+    if(!value)
+    {
+      g_iNoOfChecked--;
+      mChildSystems[sDp][\"Checked\"] = false;
+    }
+    else
+    {
+      g_iNoOfChecked++;
+      mChildSystems[sDp][\"Checked\"] = true;
+    }
+  
+    setSelectionObjects();
+
+  }
+}
+  
+  
+  
+  
+  
+
+
+
+
+" 0
+ 1 0 1 9 0 "DP" 0 0 0 "s" 4
+LANG:10001 2 DP
+LANG:10004 2 DP
+LANG:10000 2 DP
+LANG:10027 2 DP
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "Checked" 1 1 1 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+4
+LANG:10001 16 Connection state
+LANG:10004 12 连接状态
+LANG:10000 17 Verbindungsstatus
+LANG:10027 39 Состояние соединения
+
+20 "Systemname" 12 1 0 "s" 4
+LANG:10001 10 Systemname
+LANG:10004 9 系统名
+LANG:10000 10 Systemname
+LANG:10027 21 Имя системы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Connection" 2 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+30 "Handshake" 6 1 0 "s" 4
+LANG:10001 9 Handshake
+LANG:10004 6 握手
+LANG:10000 9 Handshake
+LANG:10027 35 Установление связи
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+75 "Process" 12 1 0 "s" 4
+LANG:10001 8 Progress
+LANG:10004 6 进程
+LANG:10000 11 Fortschritt
+LANG:10027 20 Выполнение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "State" 23 1 0 "s" 4
+LANG:10001 21 Synchronization state
+LANG:10004 12 同步状态
+LANG:10000 14 Abgleichstatus
+LANG:10027 45 Состояние синхронизации
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+270 "Time" 12 1 0 "s" 4
+LANG:10001 20 Last synchronization
+LANG:10004 12 最新同步
+LANG:10000 16 Letzter Abgleich
+LANG:10027 45 Последняя синхронизация
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Config" 1 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 
+18 18 10 0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 2 2 1 7
+1 0
+29 90
+"bgChildSys"
+""
+1 284.9999999999999 196 E E E 1 E 1 E N "_3DText" E N "White" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  285 196 1148 506
+19 BackgroundCover.ewo
+0
+E13 24
+"cmdCancel"
+""
+1 1083.950495049505 655 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 11 Close panel
+LANG:10004 12 选择面板
+LANG:10000 16 Panel schließen
+LANG:10027 27 Закрыть панель
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  1083 654 1171 682
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+1 95 1 "" 0
+0
+20 33
+"chbSelectAll"
+""
+1 285 141.986328125 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  283 140 459 169
+1
+T 
+4
+LANG:10001 10 Select All
+LANG:10004 6 全选
+LANG:10000 14 Alle anwählen
+LANG:10027 21 Выбрать все
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  
+  for(int i = 0; i < tabChildSys.lineCount(); i++)
+  {
+    tabChildSys.cellValueRC(i, \"Checked\", (bool)state);
+    string sDP = tabChildSys.cellValueRC(i, \"DP\");
+    mChildSystems[sDP][\"Checked\"] = (bool)state;
+    
+  }
+  
+  if(!state)
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"selectAll\"));
+     g_iNoOfChecked = 0;
+    
+       cmdSync.enabled = FALSE;
+       cmdComp.enabled = FALSE;
+  }
+  else
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"unselectAll\"));
+     g_iNoOfChecked = tabChildSys.lineCount();
+    
+       cmdSync.enabled = TRUE;
+       cmdComp.enabled = TRUE;
+  }
+  
+  setSelectionObjects();
+}" 0
+30 34
+"fr_AvailSys"
+""
+1 86 107 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.077348066298343 0 1.748977860063257 -86.57458563535913 -70.14063102676852 0 E 86 107 266 404
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 23  Available dist systems
+LANG:10004 24 可用的分布式系统
+LANG:10000 25  Verfügbare Distsysteme 
+LANG:10027 48 Доступные распред.системы
+30 35
+"fr_FreeSys"
+""
+1 86 107 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+29 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 5.097499824766962 0 1.752875069910514 -171.2865455542085 -71.55377891587783 0 E 86 107 266 404
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 25 Integrated client systems
+LANG:10004 21 集成客户端系统
+LANG:10000 27  Eingebundene Clientsysteme
+LANG:10027 54 Связанные клиентские системы
+13 37
+"cmdComp"
+""
+1 448 327 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  685 558 728 601
+
+P 
+4294967295
+"pictures/StandardIcons/file_switch_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 8 Abgleich
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  startComp();
+}" 0
+ E E E
+13 38
+"cmdSync"
+""
+1 58 327.9863281249999 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  295 558 338 601
+
+P 
+4294967295
+"pictures/StandardIcons/copy_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 8 Abgleich
+LANG:10027 12 PUSH_BUTTON2
+"void main()
+{
+  startSync();
+}" 0
+ E E E
+2 44
+"PRIMITIVE_TEXT3"
+""
+1 355 558 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 355 558 620 593
+0 2 2 "0s" 0 0 0 64 0 0  355 558 6
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 38 Configuration of master system will be
+LANG:10004 24 主系统的配置为：
+LANG:10000 41 Konfiguration des Mastersystems wird auf 
+LANG:10027 73 Конфигурация мастер-системы будет синх-
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 42 synchronized to the selected client system
+LANG:10004 36 选定的客户端系统已经同步
+LANG:10000 40 die gewählten Clientsysteme übertragen
+LANG:10027 71 ронизирована к выбр. системам-клиентам
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 52
+"PRIMITIVE_TEXT6"
+""
+1 939 555.4336270448055 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 939 555.4336270448055 941 567
+0 2 2 "0s" 0 0 0 192 0 0  939 555.4336270448055 1
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 55
+"PRIMITIVE_TEXT8"
+""
+1 745 557.8846153846154 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 745 557.8846153846154 1010 622.8846153846152
+0 2 2 "0s" 0 0 0 64 0 0  745 557.8846153846154 7
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 42 Configuration of selected clientsystems is
+LANG:10004 24 选定的客户系统为
+LANG:10000 42 Konfiguration der gewählten Clientsysteme
+LANG:10027 64 Конфигурация выбранных клиентских
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 39 compared with the configuration of the 
+LANG:10004 13 比较配置 
+LANG:10000 44 wird mit der Konfiguration des Mastersystems
+LANG:10027 67 систем сравнивается с конфигурацией
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 master system
+LANG:10004 9 主系统
+LANG:10000 10 verglichen
+LANG:10027 27 мастер-системы
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 60
+"save"
+""
+1 97 654.4373164648101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  97 654 185 682
+
+T 
+4
+LANG:10001 13 Configuration
+LANG:10004 6 配置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/distsync/Baseconfiguration.pnl\",\"Dist-Baseconfiguration\",makeDynString());
+//   RootPanelOnModule(\"vision/distsync/Baseconfiguration.pnl\",\"\",myModuleName(),makeDynString());
+    
+  
+}" 0
+ E E E
+13 61
+"cmd_Help"
+""
+1 5 654.4373164648101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  5 654 93 682
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"distsync_overview\");
+}
+
+" 0
+ E E E
+6 64
+"RECTANGLE3"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+56 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.382509177729868 0 0.9234975961538456 -20 25.268079631636 1 E 0 80 880 -50
+2 66
+"PRIMITIVE_TEXT5"
+""
+1 25 11 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 11 420 41
+0 2 2 "0s" 0 0 0 64 0 0  25 11 1
+4
+LANG:10001 33 MS Shell Dlg,10,-1,5,75,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Distmanagement
+LANG:10004 18 分布式管理器
+LANG:10000 14 Distverwaltung
+LANG:10027 77 Управление распределенными системами (DIST)
+2 68
+"shortdesc"
+""
+1 51 32 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 51 32 807 149
+0 1 1 "0s" 0 0 0 192 0 0  51 32 7
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 101 Within this panel free, distributed systems can be assigned as a client system to the master system. 
+LANG:10004 94 在此面板中，可以动态的将分布式系统作为客户端系统分配给主系统。 
+LANG:10000 105 Über dieses Panel können freie, verteilte Systeme dem Mastersystem als Clientsystem zugeordnet werden. 
+LANG:10027 213 Эта панель необходима для назначения свободных распределенных систем в качестве систем-клиентов к системе-мастеру.
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 145 An overview of the current state of the client systems is given. Different actions can be triggered like a synchronization or comparison of data.
+LANG:10004 87 已经给出了客户端系统状态的总览。可以执行同步或数据比较命令
+LANG:10000 54 Der aktuelle Status der Clientsysteme wird angezeigt. 
+LANG:10027 107 Обзор текущего состояния клиентских систем предоставлен. 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 102 Es können verschiedene Aktionen angestoßen werden, wie der Abgleich und Vergleich der Konfiguration.
+LANG:10001 0 
+LANG:10027 166 Могут быть инициированы различные действия, такие как синхронизация или сравнение данных.
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 69
+"cmdSingleCreate"
+""
+1 246.5 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 38 Add selected systems as client systems
+LANG:10004 39 将所选系统添加为客户端系统
+LANG:10000 49 Füge selektierte Systeme als Clientsysteme hinzu
+LANG:10027 78 Добавить указанные системы как клиентские
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  215 269 258 312
+
+P 
+4294967295
+"pictures/StandardIcons/arrow_single_right_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 15 Hinzufügen -->
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  dyn_int diSelectedLines = tabAvailableSystems.getSelectedLines();
+  dyn_float df;
+  dyn_string ds;
+  
+  if(dynlen(diSelectedLines) == 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",                                 
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noSelectedSystem\")),df,ds);
+    return; 
+  }
+  
+  
+ 
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(    getCatStr(\"distsync\",\"WarningSync\"),
+                        getCatStr(\"general\",\"yes\"),
+                        getCatStr(\"general\",\"no\")),df,ds);
+        
+      if( df[1] != 1 )
+        return; // canceled by user
+ 
+  
+  
+  for(int i = 1; i<= dynlen(diSelectedLines); i++)
+  { 
+    
+    int iRet = distsync_createNewChildSystem(tabAvailableSystems.cellValueRC(diSelectedLines[i],\"System\"));
+    if(iRet == 99)
+    {
+      string sText = getCatStr(DISTSYNC_MSGCAT,\"alreadyConfiguredByMaster\");
+      strreplace(sText,\"$System\",tabAvailableSystems.cellValueRC(diSelectedLines[i],\"System\"));
+    
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",                                   
+                                     getCatStr(\"para\",\"warning\"),
+                                     makeDynString(getCatStr(DISTSYNC_MSGCAT,\"alreadyConfiguredByMaster\")),df,ds);
+    }
+    
+  }
+  
+  refreshAvailableSystems(cbx_DRS.state(0));
+
+}
+" 0
+ E E E
+13 75
+"cmd_AllDelete"
+""
+1 246.5 301 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 39 Delete all client system configurations
+LANG:10004 33 删除所有客户端系统配置
+LANG:10000 41 Lösche  alle eingebundenen Clientsysteme
+LANG:10027 82 Удалить конфигурации всех клиентских систем
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  215 402 258 445
+
+P 
+4294967295
+"pictures/StandardIcons/arrow_double_left_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 15 Hinzufügen -->
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  int iError;
+  dyn_float df;
+  dyn_string ds;
+  string sText;
+  
+  string sDP;
+  string sSystem;
+  bool bIsSplitActivated = false;
+
+  
+  
+  // Check User Permission  
+  if ( !getUserPermission(DISTSYNC_PERMISSION_BIT) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+
+  //get selected systems and delete their configuration
+  for(int i = tabChildSys.lineCount()-1; i >= 0; i--)
+  {
+    sDP = tabChildSys.cellValueRC(i,\"DP\");
+    sSystem = tabChildSys.cellValueRC(i,\"Systemname\");
+    
+    
+    if(dynContains(distsync_getConnectedSystems(),sSystem) < 1) //check system connection
+    {     
+      sText = getCatStr(\"distsync\",\"NoConnection\");
+      strreplace(sText,\"$SystemName\",sSystem);
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(    sText,
+                        getCatStr(\"general\",\"OK\"),
+                        getCatStr(\"sc\",\"cancel\")),df,ds);
+        
+      if( df[1] != 1 )
+        return; // canceled by user
+
+    }
+    
+    if(mappingHasKey(mChildSystems,sDP))
+      mappingRemove(mChildSystems,sDP);
+    iError = distsync_deleteChildSystem(sDP,sSystem); //delete configuraion
+  
+      
+    tabChildSys.deleteLineN(i);
+    g_iNoOfChecked--;
+  }
+   
+  refreshAvailableSystems(cbx_DRS.state(0));
+ 
+}" 0
+ E E E
+13 76
+"cmdAllCreate"
+""
+1 246.5 211 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Add all available systems as client systems
+LANG:10004 45 将所有可用系统添加为客户端系统
+LANG:10000 55 Füge alle verfügbaren Systeme als Clientsysteme hinzu
+LANG:10027 85 Добавить все доступные системы как клиентские
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  215 312 258 355
+
+P 
+4294967295
+"pictures/StandardIcons/arrow_double_right_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 15 Hinzufügen -->
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  int iLines = tabAvailableSystems.lineCount();
+  dyn_float df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(    getCatStr(\"distsync\",\"WarningSync\"),
+                        getCatStr(\"general\",\"yes\"),
+                        getCatStr(\"general\",\"no\")),df,ds);
+        
+      if( df[1] != 1 )
+        return; // canceled by user
+  
+  for(int i = iLines-1; i >= 0; i--)   
+    distsync_createNewChildSystem(tabAvailableSystems.cellValueRC(i,\"System\"));
+  
+  refreshAvailableSystems(cbx_DRS.state(0));
+}
+" 0
+ E E E
+20 81
+"cbx_DRS"
+""
+1 18 142 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  16 140 192 169
+1
+T 
+4
+LANG:10001 21 Show both DRS systems
+LANG:10004 21 显示两个DRS系统
+LANG:10000 23 Zeige beide DRS Systeme
+LANG:10027 38 Показать обе системы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  refreshAvailableSystems(state);
+}" 0
+29 84
+"txtAvailSys"
+""
+1 35.00000000000011 327 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"alignment" "enum 132"
+"bold" "bool TRUE"
+"readOnly" "bool TRUE"
+"frameShadow" "enum 16"
+"frameShape" "enum 0"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  35 327 162 385
+15 PVSS.TextEdit.1
+0
+"main()
+{
+  this.Text(getCatStr(DISTSYNC_MSGCAT,\"noConnSys\"));
+}" 0
+29 85
+"txtChildSys"
+""
+1 538.0000000000002 324 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"readOnly" "bool TRUE"
+"alignment" "enum 132"
+"bold" "bool TRUE"
+"frameShape" "enum 0"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  538 324 864 367
+15 PVSS.TextEdit.1
+0
+"main()
+{
+  this.Text(getCatStr(DISTSYNC_MSGCAT,\"noChildSys\"));
+}" 0
+30 93
+"FRAME1"
+""
+1 284 525 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+75 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.057803468208093 0 0.9263157894736842 -15.3583815028902 48.68421052631582 0 E 284 525 629 619
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 48 Start synchronization for selected clientsystems
+LANG:10004 36 启动所选客户端系统的同步
+LANG:10000 45 Abgleich für gewählte Clientsysteme starten
+LANG:10027 88 Старт синхронизации для выбр. клиентских систем
+30 94
+"FRAME2"
+""
+1 284 525 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+76 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.057725143725426 0 0.9265634674922602 374.6622671514662 48.55417956656343 0 E 284 525 629 619
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 31 Compare selected client systems
+LANG:10004 27 比较选定的客户系统
+LANG:10000 52 Vergleich mit gewählten Clientsystemen durchführen
+LANG:10027 71 Сравнить выбранные клиентские системы
+13 3
+"cmdSingleDelete"
+""
+1 246.5 256 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Delete selected client system configuration
+LANG:10004 36 删除选定的客户端系统配置
+LANG:10000 52 Lösche Konfiguration der selektierten Clientsysteme
+LANG:10027 92 Удалить конфигурации указанных клиентских систем
+
+0
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  215 357 258 400
+
+P 
+4294967295
+"pictures/StandardIcons/arrow_single_left_32.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 15 Hinzufügen -->
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  int iError;
+  dyn_float df;
+  dyn_string ds;
+  string sText;
+  
+  string sDP;
+  string sSystem;
+  bool bIsSplitActivated = false;
+
+  
+  
+  // Check User Permission  
+  if ( !getUserPermission(DISTSYNC_PERMISSION_BIT) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+  // Check if Systems are selected
+  if(g_iNoOfChecked <= 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                    
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noSelectedSystem\")),df,ds);
+    return; 
+  }
+
+  //get selected systems and delete their configuration
+  for(int i = tabChildSys.lineCount()-1; i >= 0; i--)
+  {
+    sDP = tabChildSys.cellValueRC(i,\"DP\");
+    sSystem = tabChildSys.cellValueRC(i,\"Systemname\");
+    
+    if(sDP == \"\" || !tabChildSys.cellValueRC(i, \"Checked\") /*|| bIsSplitActivated*/)
+    {
+      continue;
+    }
+    
+    if(dynContains(distsync_getConnectedSystems(),sSystem) < 1) //check system connection
+    {     
+      sText = getCatStr(\"distsync\",\"NoConnection\");
+      strreplace(sText,\"$SystemName\",sSystem);
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(    sText,
+                        getCatStr(\"general\",\"OK\"),
+                        getCatStr(\"sc\",\"cancel\")),df,ds);
+        
+      if( df[1] != 1 )
+        return; // canceled by user
+
+    }
+    
+    if(mappingHasKey(mChildSystems,sDP))
+      mappingRemove(mChildSystems,sDP);
+    iError = distsync_deleteChildSystem(sDP,sSystem); //delete configuraion
+
+      
+    tabChildSys.deleteLineN(i);
+    g_iNoOfChecked--;
+  }
+   
+  refreshAvailableSystems(cbx_DRS.state(0));
+ 
+}
+
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 1 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 515 T 19 2.433361072565282 0 1 -43.50041608847923 132
+0
+0

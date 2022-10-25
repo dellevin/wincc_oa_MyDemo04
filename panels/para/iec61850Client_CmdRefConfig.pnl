@@ -1,0 +1,1661 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 500 400 N "_3DFace" 1
+"$cmdDp"
+"main()
+{
+  if ( isDollarDefined(\"$cmdDp\") )
+    sCmdDp = $cmdDp;
+
+  recWarning.visible = false;
+  pbSetOp.enabled = false;
+
+  getCtlCmdObjList(sCmdDp);
+  iec61850_initUserBits(sIed);
+}
+" 0
+ E E E E 1 -1 -1 0  10 2
+""0  1
+E "#uses \"iec61850_plugin\"
+#uses \"iec61850_ctlmodel\"
+
+string sIed, sIedDp, sCmdObj, sCmdDt, sCmdDp, sCtlObj, sCtlDt, sCtlDp, sRcbRef, sRcbDp;
+int iCheck, iTimeout, iOldCtlMdl;
+bool bTest;
+uint uiConnState;
+
+mapping m;
+
+langString lsCmdObj, lsCtlObj;
+
+dyn_dyn_anytype ddaTab;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+getCtlCmdObjList(string sCmdDp)
+{
+  dynClear(ddaTab);
+
+  mappingClear(m);
+  string sQuery = \"SELECT '_online.._value' FROM '\" + sCmdDp + \"' WHERE _DPT LIKE \\\"IEC61850_CMD_*\\\" \";
+
+  dpQuery(sQuery, ddaTab);
+
+  if ( dynlen(ddaTab) > 1 )
+  {
+    dynRemove(ddaTab, 1);
+
+    for ( int i = 1; i <= dynlen(ddaTab); i++ )
+    {
+      m[dpSubStr(ddaTab[i][1], DPSUB_DP_EL)] = ddaTab[i][2];
+
+      if ( strsplit(ddaTab[i][1], \".\")[3] == \"ctlVal\" )
+        sCmdObj = dpSubStr(ddaTab[i][1], DPSUB_DP_EL);
+
+      if ( strsplit(ddaTab[i][1], \".\")[3] == \"ctlObjDp\" )
+        sCtlObj = ddaTab[i][2];
+    }
+
+    sCtlDp = sCtlObj;
+
+    lsCmdObj = dpGetDescription(sCmdObj);
+    lsCtlObj = dpGetDescription(sCtlObj+\".\");
+
+    anytype aValue;
+    string sTagType;
+    int iError, iAddCause, iCtlMdl;
+
+    dpGet(sCmdDp + \".\" + IEC61850_STRUCT_CFG   + \".\" + IEC61850_DPE_IED,      sIed,
+          sCmdDp + \".\" + IEC61850_STRUCT_CFG   + \".\" + IEC61850_DPE_CTLMODEL, iCtlMdl,
+          sCmdDp + \".\" + IEC61850_STRUCT_CFG   + \".\" + IEC61850_DPE_RCBDP,    sRcbDp,
+          sCmdDp + \".\" + IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ERROR   , iError,
+          sCmdDp + \".\" + IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ADDCAUSE, iAddCause,
+          sCtlDp + \".\", aValue);
+
+    if ( dpExists(sCtlDp + \".\" + \":_general.._string_01\") )
+      dpGet(sCtlDp + \".\" + \":_general.._string_01\", sTagType);
+
+    sIedDp = iec61850_getIedDpName(sIed);
+
+    langString lsRcbRef = ( dpExists(sRcbDp) ) ? dpGetDescription(sCmdDp + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_RCBDP) : \"\";
+    int iElementType = getElementType();
+
+    setMultiValue(\"tfIed\",       \"text\",        sIed,
+                  \"tfCtlObj\",    \"text\",        lsCtlObj,
+                  \"tfCtlObj\",    \"toolTipText\", lsCtlObj,
+                  \"tfCtlDp\",     \"text\",        sCtlDp,
+                  \"tfCmdObj\",    \"text\",        lsCmdObj,
+                  \"tfCmdObj\",    \"toolTipText\", lsCmdObj,
+                  \"tfCmdDp\",     \"text\",        sCmdDp,
+                  \"tfRcb\",       \"text\",        lsRcbRef,
+                  \"tfRcb\",       \"toolTipText\", lsRcbRef,
+                  \"tfRcbDp\",     \"text\",        sRcbDp,
+                  \"cmbCtlModel\", \"selectedPos\", iCtlMdl+1,
+                  \"tfActVal\",    \"text\",        getTagType(aValue, sTagType),
+                  \"tfError\",     \"text\",        \"(\"+iError+\") - \" + getCatStr(\"iec61850\", \"Err\"+iError),
+                  \"tfAddCause\",  \"text\",        \"(\"+iAddCause+\") - \" + getCatStr(\"iec61850\", \"AddCause\"+iAddCause),
+                  \"pbSetOp\",     \"text\",        setSetOpButton(3, iElementType));
+
+    setShapesReqVal();
+
+    if ( sIedDp != \"\" && dpExists(sIedDp) )
+      dpConnect(\"iedConnect\", sIedDp + IEC61850_DPE_IDP_DEVICE_STATE);
+
+    if ( sRcbDp != \"\" && dpExists(sRcbDp) )
+      dpConnect(\"rcbConnect\", sRcbDp + IEC61850_DPE_RCB_RCBSTATE,
+                              sRcbDp + IEC61850_DPE_RCB_TRGOPTS);
+
+    if ( sCtlDp != \"\" && dpExists(sCtlDp) && sCmdDp != \"\" && dpExists(sCmdDp) )
+      dpConnect(\"objConnect\", sCtlDp + \".\",
+                              sCmdDp + \".\" + IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ERROR,
+                              sCmdDp + \".\" + IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ADDCAUSE,
+                              sCmdDp + \".\" + IEC61850_STRUCT_CFG   + \".\" + IEC61850_DPE_CTLMODEL);
+
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getCtlModelAndTriggerGI(uint uiConnState)
+{
+  if ( uiConnState > 0 )
+  {
+    int iDrvNum;
+
+    if ( dpExists(sIedDp) )
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+
+    dyn_uint duiDrvNums = iec61850_checkDrvNums();
+
+    if ( sCmdDp != \"\" && dpExists(sCmdDp) && dynlen(duiDrvNums) > 0 && dynContains(duiDrvNums, (uint)iDrvNum) > 0 )
+      dpSetWait(IEC61850_INTL + \"Driver\" + iDrvNum + \".SQ\", sCmdDp + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CTLMODEL);
+
+    delay(1);
+
+    if ( dpExists(sRcbDp) )
+      dpSet(sRcbDp + IEC61850_DPE_RCB_GI, true);
+
+    delay(1);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void iedConnect(string sDp1, uint uiConnState)
+{
+  tfConnState.text = uiConnState;
+  setWarning(uiConnState, dpExists(sRcbDp), (uint)tfRcbState.text, (bit32)tfRcbTo.text, cmbCtlModel.selectedPos-1);
+  getCtlModelAndTriggerGI(uiConnState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void rcbConnect(string sDp1, uint uiRcbState,
+                string sDp2, bit32 b32RcbTo)
+{
+  tfRcbState.text = uiRcbState;
+  tfRcbTo.text    = b32RcbTo;
+  setWarning((uint)tfConnState.text, true, uiRcbState, b32RcbTo, cmbCtlModel.selectedPos-1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void objConnect(string sDp1, anytype aValue,
+                string sDp2, int iError,
+                string sDp3, int iAddCause,
+                string sDp4, int iCtlMdl)
+{
+  string sTagType;
+  if ( dpExists(sCtlDp + \".\" + \":_general.._string_01\") )
+    dpGet(sCtlDp + \".\" + \":_general.._string_01\", sTagType);
+
+  tfActVal.text   = getTagType(aValue, sTagType);
+  tfError.text    = \"(\" + iError    + \") - \" + getCatStr(\"iec61850\", \"Err\"      + iError);
+  tfAddCause.text = \"(\" + iAddCause + \") - \" + getCatStr(\"iec61850\", \"AddCause\" + iAddCause);
+  cmbCtlModel.selectedPos = iCtlMdl+1;
+  setWarning((uint)tfConnState.text, dpExists(sRcbDp), (uint)tfRcbState.text, (bit32)tfRcbTo.text, iCtlMdl);
+
+  compareValsBool(aValue, iError);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void compareValsBool(anytype aValue, int iError)
+{
+  if ( getElementType() == DPEL_BOOL )
+  {
+    if (      tfActVal.text == \"Off\" && getReqValFromShape() == (int)0 && iError == 100 )
+      cmbReqValBool.selectedPos = 2;
+    else if ( tfActVal.text == \"On\"  && getReqValFromShape() == (int)1 && iError == 100 )
+      cmbReqValBool.selectedPos = 1;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool setWarning(uint uiConnState, bool bRcb, uint uiRcbState, bit32 b32RcbTo, int iCtlMdl)
+{
+  bool bStAct = ( uiRcbState == 2 );
+  bool bToDc = getBit(b32RcbTo, IEC61850_RCB_BIT_TRGOPTS_DATACHG);
+  bool bToGi = getBit(b32RcbTo, IEC61850_RCB_BIT_TRGOPTS_GI);
+  bool bUse = ( bStAct && bToDc && bToGi );
+  bool bWarn = !(( uiConnState > 0 ) && ( iCtlMdl > 0 ) && ( bUse ));
+
+  recWarning.visible = bWarn;
+  recWarning.toolTipText(setTtt(uiConnState, bRcb, uiRcbState, bToDc, bToGi, iCtlMdl));
+  pbSetOp.enabled = !bWarn;
+
+  return bWarn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string setTtt(uint uiConnState, bool bRcb, uint uiRcbState, bool bToDc, bool bToGi, int iCtlMdl)
+{
+  dyn_string dsCtlMdl = makeDynString(\"status-only\", \"direct-with-normal-security\", \"sbo-with-normal-security\", \"direct-with-enhanced-security\", \"sbo-with-enhanced-security\");
+
+  string sConnDescr = getCatStr(\"iec61850\", \"CmdCfgWarnConn\");
+  string sConnValue = getCatStr(\"iec61850\", \"ConnState\" + uiConnState);
+  string sConnState = ((uiConnState == 1) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string sCtlMdlDescr = getCatStr(\"iec61850\", \"CmdCfgWarnCtlModel\");
+  string sCtlMdlValue = dsCtlMdl[iCtlMdl+1];
+  string sCtlMdlState = ( (iCtlMdl > 0) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string sRcbAsgnDescr = getCatStr(\"iec61850\", \"CmdCfgWarnRcbAsgn\");
+  string sRcbAsgnValue = ( (bRcb) ? getCatStr(\"iec61850\", \"CmdCfgWarnRcbAsgnState1\") : getCatStr(\"iec61850\", \"CmdCfgWarnRcbAsgnState0\"));
+  string sRcbAsgnState = ( (bRcb) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string sRcbActDescr = getCatStr(\"iec61850\", \"CmdCfgWarnRcbState\");
+  string sRcbActValue = getCatStr(\"iec61850\", \"RCBState\"  + uiRcbState);
+  string sRcbActState = ( (uiRcbState == 2) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string sRcbDcDescr = getCatStr(\"iec61850\", \"CmdCfgWarnRcbToDc\");
+  string sRcbDcValue = ( (bToDc) ? getCatStr(\"iec61850\", \"RCBState2\") : getCatStr(\"iec61850\", \"RCBState0\"));
+  string sRcbDcState = ( (bToDc) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string sRcbGiDescr = getCatStr(\"iec61850\", \"CmdCfgWarnRcbToGi\");
+  string sRcbGiValue = ( (bToGi) ? getCatStr(\"iec61850\", \"RCBState2\") : getCatStr(\"iec61850\", \"RCBState0\"));
+  string sRcbGiState = ( (bToGi) ? getCatStr(\"iec61850\", \"OK\") : getCatStr(\"iec61850\", \"NOK\"));
+
+  string s3Hr = \"<tr><td><hr color=\\\"050000\\\"></td><td><hr color=\\\"050000\\\"></td><td><hr color=\\\"050000\\\"></td></tr>\";
+
+  string sTtt = \"<tr><td>\" + sConnDescr    + \":\\t\\t\\t</td><td>\" + sConnValue    + \"\\t\\t\\t</td><td>\" + sConnState    + \"</td></tr>\" + s3Hr +
+                \"<tr><td>\" + sCtlMdlDescr  + \":\\t\\t\\t</td><td>\" + sCtlMdlValue  + \"\\t\\t\\t</td><td>\" + sCtlMdlState  + \"</td></tr>\" + s3Hr +
+                \"<tr><td>\" + sRcbAsgnDescr + \":\\t\\t\\t</td><td>\" + sRcbAsgnValue + \"\\t\\t\\t</td><td>\" + sRcbAsgnState + \"</td></tr>\" + s3Hr +
+                \"<tr><td>\" + sRcbActDescr  + \":\\t\\t\\t</td><td>\" + sRcbActValue  + \"\\t\\t\\t</td><td>\" + sRcbActState  + \"</td></tr>\" + s3Hr +
+                \"<tr><td>\" + sRcbDcDescr   + \":\\t\\t\\t</td><td>\" + sRcbDcValue   + \"\\t\\t\\t</td><td>\" + sRcbDcState   + \"</td></tr>\" + s3Hr +
+                \"<tr><td>\" + sRcbGiDescr   + \":\\t\\t\\t</td><td>\" + sRcbGiValue   + \"\\t\\t\\t</td><td>\" + sRcbGiState   + \"</td></tr>\";
+
+  string sReturn = \"<b>\" + getCatStr(\"iec61850\", \"CmdCfgWarnOverview\") + \"</b>\" + \"<hr color=\\\"050000\\\">\" + \"<table border=0 >\" + sTtt + \"</table>\";
+
+  return sReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string setSetOpButton(int iOpt, int iElementType = -1)
+{
+  string sReturn;
+  switch ( iOpt )
+  {
+    case 0:
+      sReturn = getCatStr(\"iec61850\", \"CmdCfgSetOperate\");
+      break;
+    case 1:
+      sReturn = getCatStr(\"iec61850\", \"CmdCfgSet\");
+      break;
+    case 2:
+      sReturn = getCatStr(\"iec61850\", \"CmdCfgOperate\");
+      break;
+    case 3:
+      sReturn = ( iElementType == DPEL_BOOL ) ? getCatStr(\"iec61850\", \"CmdCfgOperate\") : getCatStr(\"iec61850\", \"CmdCfgSet\");
+      break;
+    case 4:
+      sReturn = ( iElementType == DPEL_BOOL ) ? getCatStr(\"iec61850\", \"CmdCfgOperate\") : getCatStr(\"iec61850\", \"CmdCfgSet\");
+      break;
+    default:
+      break;
+  }
+
+  return sReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getTagType(anytype aCtlValue, string sTagType)
+{
+  string sRet;
+
+  if ( sTagType == \"Dbpos\" )
+    sRet = getCatStr(\"iec61850\", \"TagTypeDbposState\" + aCtlValue);
+  else
+    sRet = aCtlValue;
+
+  return sRet;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int getElementType()
+{
+  int iElementType;
+
+  if ( sCmdDp != \"\" && dpExists(sCmdDp) )
+    iElementType = dpElementType(sCmdDp + \".\" + IEC61850_STRUCT_OPER + \".\" + IEC61850_DPE_CTLVAL);
+  else
+    iElementType = -1;
+
+  return iElementType;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setShapesReqVal(int iOpt = 1)
+{
+  int iElementType = getElementType();
+
+  setMultiValue(\"cmbReqValBool\", \"visible\", iElementType == DPEL_BOOL,
+                \"tfReqValInt\",   \"visible\", iElementType == DPEL_INT,
+                \"tfReqValFloat\", \"visible\", iElementType == DPEL_FLOAT,
+                \"tfReqVal\",      \"visible\", iElementType != DPEL_BOOL && iElementType != DPEL_INT && iElementType != DPEL_FLOAT);
+
+  setNewReqValText(iElementType);
+
+  if ( iOpt == 0 )
+    setMultiValue(\"cmbReqValBool\", \"enabled\",     false,
+                  \"cmbReqValBool\", \"selectedPos\", 1,
+                  \"tfReqValInt\",   \"enabled\",     false,
+                  \"tfReqValInt\",   \"text\",        0,
+                  \"tfReqValFloat\", \"enabled\",     false,
+                  \"tfReqValFloat\", \"text\",        0,
+                  \"tfReqVal\",      \"enabled\",     false,
+                  \"tfReqVal\",      \"text\",        \"\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+anytype getReqValFromShape()
+{
+  anytype aReturn;
+
+  int iElementType = getElementType();
+
+  string sShape;
+  string sAttr;
+
+  if (      iElementType == DPEL_BOOL )
+  {
+    sShape = \"cmbReqValBool\";
+    sAttr  = \"selectedPos\";
+  }
+  else if ( iElementType == DPEL_INT )
+  {
+    sShape = \"tfReqValInt\";
+    sAttr  = \"text\";
+  }
+  else if ( iElementType == DPEL_FLOAT )
+  {
+    sShape = \"tfReqValFloat\";
+    sAttr  = \"text\";
+  }
+  else
+  {
+    sShape = \"tfReqVal\";
+    sAttr  = \"text\";
+  }
+
+  getValue(sShape, sAttr, aReturn);
+
+  if ( iElementType == DPEL_BOOL )
+    aReturn = (int)(aReturn - 1);
+
+  return aReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkReqVal()
+{
+  bool bReturn = true;
+
+  int iElementType = getElementType();
+
+  if ( iElementType != DPEL_BOOL && iElementType != DPEL_INT && iElementType != DPEL_FLOAT && tfReqVal.text == \"\" )
+    bReturn = false;
+
+  return bReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+setNewReqValText(int iElementType)
+{
+  string sElementType;
+
+  switch ( iElementType )
+  {
+    case DPEL_BOOL:
+      sElementType = \"bool\";
+      break;
+    case DPEL_INT:
+      sElementType = \"int\";
+      break;
+    case DPEL_FLOAT:
+      sElementType = \"float\";
+      break;
+    case DPEL_BIT32:
+      sElementType = \"bit32\";
+      break;
+    case DPEL_STRING:
+      sElementType = \"string\";
+      break;
+    default:
+      break;
+  }
+
+  string sText;
+
+  if ( sElementType == \"\" || iElementType == -1 )
+  {
+    sText = getCatStr(\"iec61850\", \"CmdNewReqValDefault\");
+  }
+  else
+  {
+    sText = getCatStr(\"iec61850\", \"CmdNewReqValType\");
+    strreplace(sText, \"$\", sElementType);
+  }
+
+  ptReqVal.text = sText;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(490, 345);
+  dyn_int diBcPos  = makeDynInt(  5,   5);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(180, 220);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+
+  setMultiValue(\"rctCtlMdlChange\", \"visible\", bVisible,
+                \"pbClose\",         \"enabled\", !bVisible,
+                \"pbSetOp\",         \"enabled\", !bVisible);
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+22 87
+"cmbReqValBool"
+""
+1 -130.4787234042553 303.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 54.25 301 80.25
+2
+4
+LANG:10001 5 FALSE
+LANG:10004 5 FALSE
+LANG:10000 5 FALSE
+LANG:10027 5 FALSE
+
+0
+4
+LANG:10001 4 TRUE
+LANG:10004 4 TRUE
+LANG:10000 4 TRUE
+LANG:10027 4 TRUE
+
+0
+
+E
+E
+E
+ 0 0
+13 9
+"pbCancel"
+""
+1 38.78280345242001 462 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  37.78280345242001 363 65.78280345242001 391
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 6 Cancel
+LANG:10027 16 Отменить
+"main()
+{
+  //anytype aActVal = tfActVal.text;
+  //iec61850_cancel(sCmdDp, aActVal, iCtlMdl, iCheck, bTest);
+}
+" 0
+ E E E
+14 49
+"tfConnState"
+""
+1 137.78280345242 364 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  68 363 96 391
+2 "0s" 0 0 0 0 0 -1  E E E
+2 1
+"ptCtlObj"
+""
+1 24.99999999999999 154.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 154.5 127 170
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 154.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Controlled object:
+LANG:10004 12 被控对象
+LANG:10000 18 Controlled Objekt:
+LANG:10027 13 Объект:
+14 2
+"tfCtlObj"
+""
+1 920.3703703703709 165 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if ( newText != \"\" )
+    tfReqVal.enabled = true;
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 149 476 175
+2 "0s" 0 0 0 0 0 -1  E E E
+2 4
+"ptActVal"
+""
+1 24.99999999999999 184.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 184.5 105 200
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 184.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Current value:
+LANG:10004 15 当前数值：
+LANG:10000 15 Aktueller Wert:
+LANG:10027 32 Текущее значение:
+14 5
+"tfActVal"
+""
+1 462.9629629629631 181.25 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 179.25 301 205.25
+2 "0s" 0 0 0 0 0 -1  E E E
+2 6
+"ptReqVal"
+""
+1 24.99999999999999 59.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 59.5 88 75
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 59.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 New value:
+LANG:10004 9 新数值
+LANG:10000 11 Neuer Wert:
+LANG:10027 28 Новое значение:
+13 8
+"pbSetOp"
+""
+1 23.99999999999986 187 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 88 131 116
+
+T 
+4
+LANG:10001 13 Set / Operate
+LANG:10004 13 设置/操作
+LANG:10000 13 Setzen / Bed.
+LANG:10027 21 Уст. / Экспл.
+"main()
+{
+  if ( tfConnState.text != 1 )
+  {
+    ChildPanelOnCentral(\"vision/MessageInfo1\",
+                        getCatStr(\"general\",\"information\"),
+                        makeDynString(getCatStr(\"iec61850\", \"NotConnected\")));
+    return;
+  }
+
+  if ( !checkReqVal() )
+  {
+    ChildPanelOnCentral(\"vision/MessageInfo1\",
+                        getCatStr(\"general\",\"information\"),
+                        makeDynString(getCatStr(\"iec61850\", \"ReqValueEmpty\")));
+    return;
+  }
+
+  // azure dev ops server issue #121611
+  if ( ( tfActVal.text == \"Off\" && getReqValFromShape() == (int)0 ) ||
+       ( tfActVal.text == \"On\"  && getReqValFromShape() == (int)1 ) ||
+       tfActVal.text == getReqValFromShape() )
+  {
+    ChildPanelOnCentral(\"vision/MessageInfo1\",
+                        getCatStr(\"general\",\"information\"),
+                        makeDynString(getCatStr(\"iec61850\", \"ReqValueSame\")));
+    return;
+  }
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(IEC61850_COMMAND_SETOP_PANEL_PATH,
+                                 setSetOpButton(0),
+                                 makeDynString(\"$cmdDp:\"  + sCmdDp,
+                                               \"$reqVal:\" + getReqValFromShape(),
+                                               \"$test:\"   + bTest,
+                                               \"$cmdDt:\"  + sCmdDt),
+                                 df, ds);
+
+  if ( dynlen(ds) <= 0 )
+    return;
+}
+" 0
+ E E E
+2 10
+"ptError"
+""
+1 24.99999999999999 280 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 280 88 295
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 280 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Response:
+LANG:10004 6 回复
+LANG:10000 8 Antwort:
+LANG:10027 11 Ответ:
+14 11
+"tfError"
+""
+1 462.962962962963 260 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 275 476 301
+2 "0s" 0 0 0 0 0 -1  E E E
+2 12
+"ptAddCause"
+""
+1 24.99999999999999 310 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 310 92 325
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 310 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Add cause:
+LANG:10004 12 添加原因
+LANG:10000 10 Add cause:
+LANG:10027 10 Add cause:
+14 13
+"tfAddCause"
+""
+1 462.962962962963 290 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 305 476 331
+2 "0s" 0 0 0 0 0 -1  E E E
+14 15
+"tfTimeout"
+""
+1 28.78280345242001 369 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  158 363 186 391
+2 "0s" 0 0 0 0 0 -1  E E E
+13 17
+"pbClose"
+""
+1 384.5 522 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  402.5 363 491 391
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOffReturn(makeDynFloat(1), makeDynString(tfError.text, tfActVal.text));
+}
+" 0
+ E E E
+14 22
+"tfIed"
+""
+1 187 375 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 363 156 391
+2 "0s" 0 0 0 0 0 -1  E E E
+14 31
+"tfCmdDp"
+""
+1 535.7457664153831 56.25 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  437.962962962963 54.25 476 80.25
+2 "0s" 0 0 0 0 0 -1  E E E
+30 35
+"frmCtlObj"
+""
+1 10 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.9979166666666667 0 0.3067010309278353 0.0208333333333286 129.3865979381442 0 E 10 2 491 391
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 17 Controlled object
+LANG:10004 12 被控对象
+LANG:10000 17 Controlled Objekt
+LANG:10027 35 Управляемый объект
+30 36
+"frmCmdObj"
+""
+1 10 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+29 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.9979166666666667 0 0.3067010309278351 -0.1963632142466505 4.386597938144284 0 E 10 2 491 391
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 14 Command object
+LANG:10004 12 指令对象
+LANG:10000 14 Command Objekt
+LANG:10027 33 Объект управления
+2 37
+"ptCmdObj"
+""
+1 24.99999999999999 29.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999999 29.5 128 45
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999999 29.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Command object:
+LANG:10004 12 指令对象
+LANG:10000 15 Command Objekt:
+LANG:10027 34 Объект управления:
+14 41
+"tfCmdObj"
+""
+1 195.78280345242 5 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 24 476 50
+2 "0s" 0 0 0 0 0 -1  E E E
+14 45
+"tfCtlDp"
+""
+1 535.7457664153831 151.25 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  437.962962962963 179.25 476 205.25
+2 "0s" 0 0 0 0 0 -1  E E E
+30 48
+"frmState"
+""
+1 10 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+35 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.9979166666666667 0 0.2293814432989693 0.02083333333334814 254.541237113402 0 E 10 2 491 391
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+22 52
+"cmbCtlModel"
+""
+1 -15.17274806124482 400 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 363 36 391
+5
+4
+LANG:10001 11 status-only
+LANG:10004 11 status-only
+LANG:10000 11 status-only
+LANG:10027 11 status-only
+
+0
+4
+LANG:10001 27 direct-with-normal-security
+LANG:10004 27 direct-with-normal-security
+LANG:10000 27 direct-with-normal-security
+LANG:10027 27 direct-with-normal-security
+
+0
+4
+LANG:10001 24 sbo-with-normal-security
+LANG:10004 24 sbo-with-normal-security
+LANG:10000 24 sbo-with-normal-security
+LANG:10027 24 sbo-with-normal-security
+
+0
+4
+LANG:10001 29 direct-with-enhanced-security
+LANG:10004 29 direct-with-enhanced-security
+LANG:10000 29 direct-with-enhanced-security
+LANG:10027 29 direct-with-enhanced-security
+
+0
+4
+LANG:10001 26 sbo-with-enhanced-security
+LANG:10004 26 sbo-with-enhanced-security
+LANG:10000 26 sbo-with-enhanced-security
+LANG:10027 26 sbo-with-enhanced-security
+
+0
+
+E
+E
+E
+ 0 0
+6 56
+"recWarning"
+""
+1 312 40 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 1 1 E 0.8069411764705883 0 1.0178573125 -101.7656470588235 53.11606303124999 2  1 0  "pictures/StandardIcons/Attention_20.png" 4294967295 E 312 40 335 59
+1 88 0 "" 0
+0
+2 69
+"ptRcb"
+""
+1 24.99999999999996 214.75 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.99999999999996 214.75 146 230
+0 2 2 "0s" 0 0 0 192 0 0  24.99999999999996 214.75 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Report control block:
+LANG:10004 18 报告控制块：
+LANG:10000 21 Report Control Block:
+LANG:10027 32 Блок упр. отчетом:
+14 70
+"tfRcb"
+""
+1 482.962962962963 366.375 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 209 476 235
+2 "0s" 0 0 0 0 0 -1  E E E
+14 71
+"tfRcbDp"
+""
+1 714.212962962963 490 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  98 363 126 391
+2 "0s" 0 0 0 0 0 -1  E E E
+29 74
+"ewoAe"
+""
+1 20.49999999999999 74.5 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  5.499999999999993 4.5 104.5 103.5
+19 AttentionEffect.ewo
+0
+E29 75
+"ewoBc"
+""
+1 5.499999999999993 4.500000000000028 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  5.499999999999993 4.500000000000028 104.5 103.5
+19 BackgroundCover.ewo
+0
+E2 16
+"ptTimeout"
+""
+1 152.3749999999997 103.65625 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.3707865168539361 0 1.223747980613893 165.4007809805092 240.7624318457189 0 E 152.3749999999997 103.65625 204 119
+0 2 2 "0s" 0 0 0 192 0 0  152.3749999999997 103.65625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Timeout:
+LANG:10004 9 超时：
+LANG:10000 8 Timeout:
+LANG:10027 8 Timeout:
+6 14
+"rctTimeout"
+""
+1 306 77 E E E 0 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.3116883116883116 0 0.489795918367347 94.46047921269161 327.2857142857143 2  0 0  "pictures/Animation/control_loop_black_ani.gif" 4294967295 E 306 77 383 126
+6 65
+"rctCtlMdlChange"
+""
+1 306 77 E E E 0 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.3116883116883116 0 0.489795918367347 149.6233766233767 327.2857142857143 2  0 0  "pictures/Animation/control_loop_black_ani.gif" 4294967295 E 306 77 383 126
+2 34
+"ptTimeoutSec"
+""
+1 260 103.65625 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.3333333333333333 0 1.223747980613893 193.78280345242 240.7624318457189 0 E 260 103.65625 319 119
+0 2 2 "0s" 0 0 0 192 0 0  260 103.65625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 (seconds)
+LANG:10004 9 (seconds)
+LANG:10000 9 (seconds)
+LANG:10027 9 (seconds)
+14 78
+"tfRcbState"
+""
+1 603.212962962963 340 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  303 363 331 391
+2 "0s" 0 0 0 0 0 -1  E E E
+14 79
+"tfRcbTo"
+""
+1 633.212962962963 340 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  333 363 361 391
+2 "0s" 0 0 0 0 0 -1  E E E
+29 80
+"BackgroundCover_ewo1"
+""
+1 5 360 E E E 1 E 1 E N "_ButtonBarBackground" E N "_ButtonBarBackground" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  5 360 394 394
+19 BackgroundCover.ewo
+0
+E14 83
+"tfReqValInt"
+""
+1 462.9629629629631 56.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 54.25 301 80.25
+3 "0d" 0 0 0 0 0 -1  E E E
+14 84
+"tfReqValFloat"
+""
+1 462.9629629629631 56.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 54.25 301 80.25
+3 "0.13f" 14 0 0 0 0 -1  E E E
+14 7
+"tfReqVal"
+""
+1 462.9629629629631 56.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 54.25 301 80.25
+3 "0s" 0 0 0 0 0 -1  E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF1" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 35 435 T 17 1 0 1 -34.50000000000001 -80
+0
+0

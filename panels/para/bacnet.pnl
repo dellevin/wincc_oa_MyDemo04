@@ -1,0 +1,1756 @@
+V 14
+4
+LANG:10001 20 BACnet configuration
+LANG:10004 12 BACnet配置
+LANG:10000 21 BACnet Parametrierung
+LANG:10027 31 Конфигурация BACnet
+PANEL,-1 -1 540 680 N "_3DFace" 0
+"main()
+{
+  string     sPlc = \"\";
+  string     sDp;
+  string     systemName = getSystemName();
+  dyn_string dsPlc = dpNames(getSystemName() + \"*\", \"_BacnetDevice\");
+
+  addGlobals();
+
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // don't display redundant data points
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    // don't display _DevDummy
+    if (dpSubStr(dsPlc[i], DPSUB_DP) == \"_DevDummy\")
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+
+    if ( dsPlc[i][0] == \"_\" )
+      dsPlc[i] = substr(dsPlc[i], 1, strlen(dsPlc[i])-1);
+  }
+
+  if ( dynlen(dsPlc) > 0 )
+    sPlc = dsPlc[1];
+
+  cmbPlc.items = dsPlc;
+  cmbPlc.text = sPlc;
+
+  setTooltips();
+
+  if ( sPlc != \"\" )
+  {
+    readDpWritePanel(systemName + \"_\" +sPlc);
+    connectState(systemName + \"_\" + sPlc);
+  }
+
+  setReduStateVisible(isRedundant());
+
+  // dpConnect and dpDisconnect must be in the same script
+  // in the loop below nothing happens if the name of the sPlc does not change
+  while ( 1 )
+  {
+    delay(0, 20);
+    sPlc = cmbPlc.text;
+
+    if ( sPlc != \"\" )
+      connectState(systemName + \"_\" + sPlc);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectState (string sPlc)
+{
+  if ( !globalExists(\"gBacLastPlc\") )
+    return;
+
+  if ( sPlc == gBacLastPlc )
+    return;
+
+  if ( gBacLastPlc != \"\" )
+  {
+    dpDisconnect(\"workIIN\", gBacLastPlc + \".State.Online\");
+    dpDisconnect(\"workConnState\", gBacLastPlc + \".State.FailedCOVReg\");
+
+    if ( isRedundant() )
+    {
+      dpDisconnect(\"workIIN_2\", gBacLastPlc + \"_2.State.Online\");
+      dpDisconnect(\"workConnState_2\", gBacLastPlc + \"_2.State.FailedCOVReg\");
+    }
+  }
+
+  dpConnect(\"workIIN\", true, sPlc + \".State.Online\");
+  dpConnect(\"workConnState\", true, sPlc + \".State.FailedCOVReg\");
+
+  if ( isRedundant() )
+  {
+    dpConnect(\"workIIN_2\", true, sPlc + \"_2.State.Online\");
+    dpConnect(\"workConnState_2\", true, sPlc + \"_2.State.FailedCOVReg\");
+  }
+
+  gBacLastPlc = sPlc;
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "bit32 b32RestartHandling;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void cmdClose()
+{
+  removeGlobals();
+  PanelOff();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+setReduStateVisible(bool vis)
+{
+  setMultiValue(\"ptState_2\",  \"enabled\", vis,
+                \"ptCov_2\",    \"enabled\", vis,
+                \"frmState_2\", \"enabled\", vis);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bacnetCreateNewStation(string dp)
+{
+  dyn_string ds;
+  ds = strsplit(dp, \":\");
+  string sSystem = ds[1]+\":\";
+  dp = ds[2];
+  int iSystem = getSystemId(sSystem);
+  int iAnswer;
+  dyn_errClass dErr;
+
+  isRemoteSystemRedundant(iAnswer,sSystem);
+
+  dpCreate(dp, \"_BacnetDevice\", iSystem);
+  dErr = getLastError();
+
+  if ( dynlen(dErr) > 0 )
+  {
+     throwError(dErr);
+     errorDialog(dErr);
+  }
+
+  if ( iAnswer == 1 )
+  {
+    dpCreate(dp + \"_2\", \"_BacnetDevice\", iSystem);
+    dErr = getLastError();
+
+    if ( dynlen(dErr)>0)
+    {
+       throwError(dErr);
+       errorDialog(dErr);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+readDpWritePanel(string sPlc)
+{
+  langString ls;
+  dyn_string ds;
+  int idev;
+  string password;
+  string connInfo;
+  dyn_string splitInfo;
+  int networkID;
+  string ipAddress, BACnetPort;
+  int aliveInterval, timeSyncInterval;
+  bool bActive;
+
+  ls = dpGetComment(sPlc+\".\");
+  t1.text  = ls;
+  ds = ls;
+  gBacLangList = ds;
+
+  // read data from DP
+  if ( dpExists(sPlc) )
+  {
+    // if the last device is deleted, no Device DP exists, then the values in the panel are set to default
+    dpGet(sPlc + \".DeviceId\",         idev,
+          sPlc + \".Command.Password\", password,
+          sPlc + \".ConnInfo\",         connInfo,
+          sPlc + \".AliveInterval\",    aliveInterval,
+          sPlc + \".TimeSyncInterval\", timeSyncInterval,
+          sPlc + \".Active\",           bActive,
+          sPlc + \".Flags\",            b32RestartHandling);
+  }
+
+  //seperateConnInfo
+  if ( (connInfo != \"\") && strpos(connInfo, \":\") > 0 )
+  {
+    splitInfo = strsplit(connInfo, \":\");
+
+    //check if IP Address is full valid
+    if ( dynlen(splitInfo) >= 3 )
+    {
+      networkID = splitInfo[1];
+      ipAddress = splitInfo[2];
+      BACnetPort = splitInfo[3];
+    }
+  }
+
+  if ( (networkID) && (ipAddress) && (BACnetPort) )
+  {
+    rdbAddress.number(1);
+    changeRadioBox(1);
+  }
+  else
+  {
+    rdbAddress.number(0);
+    changeRadioBox(0);
+  }
+
+  setMultiValue(\"devId\",               \"text\", idev,
+                \"tfPassword\",          \"text\", password,
+                \"spnNetwork\",          \"text\", networkID,
+                \"txtIPAddress\",        \"text\", ipAddress,
+                \"spnPort\",             \"text\", BACnetPort,
+                \"spnAliveInterval\",    \"text\", aliveInterval,
+                \"spnTimeSyncInterval\", \"text\", timeSyncInterval,
+                \"active\",              \"state\", 0, bActive);
+
+  enableRestartHandling(getBit(b32RestartHandling, 8));
+
+  ckRestartHandling1.state(0, getBit(b32RestartHandling, 8));
+  ckRestartHandling1.state(1, getBit(b32RestartHandling, 10));
+  ckRestartHandling1.state(2, getBit(b32RestartHandling, 11));
+  ckRestartHandling2.state(0, getBit(b32RestartHandling, 12));
+  ckRestartHandling2.state(1, getBit(b32RestartHandling, 13));
+
+  cbAdvancedConfig1.state(0, getBit(b32RestartHandling, 0));
+  cbAdvancedConfig1.state(1, getBit(b32RestartHandling, 1));
+  cbAdvancedConfig1.state(2, getBit(b32RestartHandling, 2));
+  cbAdvancedConfig1.state(3, getBit(b32RestartHandling, 3));
+  cbAdvancedConfig2.state(0, getBit(b32RestartHandling, 4));
+  cbAdvancedConfig2.state(1, getBit(b32RestartHandling, 6));
+  cbAdvancedConfig2.state(2, getBit(b32RestartHandling, 14));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableRestartHandling(bool b)
+{
+  ckRestartHandling1.itemEnabled(1, b);
+  ckRestartHandling1.itemEnabled(2, b);
+  ckRestartHandling2.itemEnabled(0, b);
+  ckRestartHandling2.itemEnabled(1, b);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool setDp()
+{
+  langString ls;
+  string sPlc = cmbPlc.text;
+  string dp, host, password;
+  int idevId;
+  string networkID, ipAddress, ipPort;
+  string connInfo;
+  int aliveInterval, timeSyncInterval;
+  bool bActive = active.state(0);
+
+  if ( sPlc == \"\" )
+    return FALSE;
+
+  dp = getSystemName() + \"_\"+sPlc;
+  ls = gBacLangList;
+  dpSetComment( dp+\".\", ls);
+
+  getMultiValue(\"devId\", \"text\", idevId,
+                \"tfPassword\", \"text\", password,
+                \"spnNetwork\", \"text\", networkID,
+                \"txtIPAddress\", \"text\", ipAddress,
+                \"spnPort\", \"text\", ipPort,
+                \"spnAliveInterval\", \"text\", aliveInterval,
+                \"spnTimeSyncInterval\", \"text\", timeSyncInterval);
+
+  setBit(b32RestartHandling,  8, ckRestartHandling1.state(0));
+  setBit(b32RestartHandling, 10, ckRestartHandling1.state(1));
+  setBit(b32RestartHandling, 11, ckRestartHandling1.state(2));
+  setBit(b32RestartHandling, 12, ckRestartHandling2.state(0));
+  setBit(b32RestartHandling, 13, ckRestartHandling2.state(1));
+
+  setBit(b32RestartHandling,  0, cbAdvancedConfig1.state(0));
+  setBit(b32RestartHandling,  1, cbAdvancedConfig1.state(1));
+  setBit(b32RestartHandling,  2, cbAdvancedConfig1.state(2));
+  setBit(b32RestartHandling,  3, cbAdvancedConfig1.state(3));
+  setBit(b32RestartHandling,  4, cbAdvancedConfig2.state(0));
+  setBit(b32RestartHandling,  6, cbAdvancedConfig2.state(1));
+  setBit(b32RestartHandling, 14, cbAdvancedConfig2.state(2));
+
+
+  //Parameter for static IP Address
+  if ( rdbAddress.number == 1 )
+    connInfo = networkID + \":\" + ipAddress + \":\" + ipPort;
+  else
+    connInfo = \"\";
+
+  dpSet(dp + \".DeviceId\",         idevId,
+        dp + \".Command.Password\", password,
+        dp + \".ConnInfo\",         connInfo,
+        dp + \".AliveInterval\",    aliveInterval,
+        dp + \".TimeSyncInterval\", timeSyncInterval,
+        dp + \".Active\",           bActive,
+        dp + \".Flags\",            b32RestartHandling);
+
+  // IM 105503 - if BACnet addon is used --> set device id
+  string sDpDevice = getSystemName() + sPlc;
+
+  if ( dpExists(sDpDevice + \".general.device\") )
+  {
+    dpSet(sDpDevice + \".general.device\", idevId);
+    activateAddress();
+  }
+
+  return TRUE;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void workIIN(string dp, unsigned iin)
+{
+  setValue(\"tfState\", \"text\", formatIIN(iin));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void workIIN_2(string dp, unsigned iin)
+{
+  setValue(\"tfState_2\", \"text\", formatIIN(iin));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string formatIIN(unsigned iin)
+{
+  string  str1;
+
+  if ( iin == 1 )
+    str1 = \"Online\";
+  else
+    str1 = \"Offline\";
+
+  return str1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void workConnState(string dp, int connState)
+{
+  tfCOV.text = connState;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void workConnState_2(string dp, int connState)
+{
+  tfCOV_2.text = connState;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addGlobals()
+{
+  addGlobal(\"gBacLangList\", DYN_STRING_VAR);
+  addGlobal(\"gBacLastPlc\", STRING_VAR);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeGlobals()
+{
+  removeGlobal(\"gBacLangList\", DYN_STRING_VAR);
+  removeGlobal(\"gBacLastPlc\", STRING_VAR);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+changeRadioBox(int iNum)
+{
+  switch ( iNum )
+  {
+    case 0:  // dynamic binding
+      spnNetwork.enabled = FALSE;
+      txtIPAddress.enabled = FALSE;
+      spnPort.enabled = FALSE;
+    break;
+
+    case 1:  // static binding
+      spnNetwork.enabled = TRUE;
+      txtIPAddress.enabled = TRUE;
+      spnPort.enabled = TRUE;
+
+      //set default Values if empty
+      if ( spnNetwork.text == 0 )
+       spnNetwork.text = 1;
+
+      if ( txtIPAddress.text == \"\" )
+        txtIPAddress.text = \"192.168.0.0\";
+
+      if ( spnPort.text == \"0\" )
+        spnPort.text = \"47808\";
+    break;
+
+    default:
+    break;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+activateAddress()
+{
+  dyn_string dsAddressList;
+  int iInstance = devId.text;
+  string dpSystemName = getSystemName();
+
+  if ( !dpExists(dpSystemName + \"Device_\" + iInstance) && dynlen(dpTypes(\"BACnet_Device\", getSystemId(dpSystemName))) )
+    dpCreate(\"Device_\" + iInstance, \"BACnet_Device\", getSystemId(dpSystemName));
+
+  delay(0, 250);
+
+  // only activating addresses if external Device-DP was created (When BACnet Application was detected)
+  // if only internal Device-DP was created, no addresses needs to be activated
+  if ( dpExists(dpSystemName + \"Device_\" + iInstance) )
+  {
+    // set the addresses correct
+    dsAddressList = BnGetPeriAddress(\"Device_\" + iInstance, dpSystemName);
+    BnModifyAddressesForDevice(\"Device_\" + iInstance, dsAddressList, iInstance, dpSystemName);
+
+    // activate all addresses
+    BnActivateAddresses(dsAddressList,true);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkApplication()
+{
+  // detect application
+  if ( (dpExists (\"_mp_BACnet_AI\")) && (dpExists (\"_mp_BACnet_BI\")) && (dpExists (\"_mp_BACnet_MSI\")) && (dpExists (\"_mp_BACnet_Device\")) )
+    return true;
+  else
+    return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTooltips()
+{
+  string sRh1Ttt = \"<tr><td>\" + \"Bit  8: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_8\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit 10: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_10\") + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit 11: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_11\") + \"</td></tr>\";
+
+  ckRestartHandling1.toolTipText(\"<b>\" + \"Config Flags: Bits 8, 10, 11\" + \"</b>\" + \"<hr color=\\\"050000\\\">\" + \"<table border=0 >\" + sRh1Ttt + \"</table>\");
+
+  string sRh2Ttt = \"<tr><td>\" + \"Bit 12: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_12\") + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit 13: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_13\") + \"</td></tr>\";
+
+  ckRestartHandling2.toolTipText(\"<b>\" + \"Config Flags: Bits 12, 13\"    + \"</b>\" + \"<hr color=\\\"050000\\\">\" + \"<table border=0 >\" + sRh2Ttt + \"</table>\");
+
+  string sAc1Ttt = \"<tr><td>\" + \"Bit  0: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_0\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit  1: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_1\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit  2: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_2\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit  3: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_3\")  + \"</td></tr>\";
+
+  cbAdvancedConfig1.toolTipText(\"<b>\" + \"Config Flags: Bits 0, 1, 2, 3\" + \"</b>\" + \"<hr color=\\\"050000\\\">\" + \"<table border=0 >\" + sAc1Ttt + \"</table>\");
+
+  string sAc2Ttt = \"<tr><td>\" + \"Bit  4: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_4\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit  6: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_6\")  + \"</td></tr>\" +
+                   \"<tr><td>\" + \"Bit 14: \" + \"</td><td>\" + getCatStr(\"BACnetGeneral\", \"ConfigFlags_14\") + \"</td></tr>\";
+
+  cbAdvancedConfig2.toolTipText(\"<b>\" + \"Config Flags: Bits 4, 6, 14\"   + \"</b>\" + \"<hr color=\\\"050000\\\">\" + \"<table border=0 >\" + sAc2Ttt + \"</table>\");
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+22 0
+"cmbPlc"
+""
+1 20 60 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select an equipment
+LANG:10004 18 选择一个设备
+LANG:10000 17 Gerät auswählen
+LANG:10027 35 Выбрать устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18.00000000000001 23 521 49
+0
+
+E
+"main()
+{
+  string sPlc = getSystemName()+ \"_\" + this.text;
+  readDpWritePanel(sPlc);
+}" 0
+
+E
+ 0 0
+30 1
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8387190547636907 0 1.202020202020203 1.612809452363094 -55.1010101010101 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 6 Gerät
+LANG:10027 20 Устройство
+13 2
+"cmdNewDp"
+""
+1 401.0212765957447 52 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 Create a new equipment with default settings
+LANG:10004 33 使用默认设置创建新设备
+LANG:10000 45 Neues Gerät mit Grundeinstellungen erstellen
+LANG:10027 96 Создать новое устройство с настройками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  423 53 521 81
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  bool       bApplication = checkApplication();
+  string     systemName = getSystemName();
+  string     sPlc = cmbPlc.text;
+  dyn_string dsPlc = cmbPlc.items;
+
+  dyn_float  df;
+  dyn_string ds;
+
+  // ask user for new depending on application
+  if ( !bApplication )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                   getCatStr(\"da\",\"createdp\"),
+                                   makeDynString(getCatStr(\"para\", \"apc_inputdpname\"), sPlc),
+                                   df, ds);
+  }
+  else
+  {
+    ChildPanelOnRelativModalReturn(\"vision/aes/AESMessageInput.pnl\",
+                                   getCatStr(\"da\",\"createdp\") ,
+                                   makeDynString(\"$1:\"+getCatStr(\"para\",\"enterDeviceId\")+ \" (0..4194302)\",
+                                                 \"$2:%[0d,False,False,ALIGNMENT_BEGINNING,False]\",
+                                                 \"$3:\"),
+                                   0, 0,
+                                   df, ds);
+  }
+
+
+  if ( dynlen(df) > 0 )  // Return if panel was closed
+  {
+    if ( df[1] == 0 )  // Dialog was closed with Button \"Cancel\" --> Return
+      return;
+  }
+  else  //dynlen(df)==0 --> Dialog was closed with \"X\" --> Return
+    return;
+
+
+  if ( bApplication )   //If Device-ID was entered (bApplication) check if ID is in Range
+  {
+    if ( ds[1] == \"\" )
+    {
+      ChildPanelOnRelativModal(\"vision/MessageWarning\",
+                               getCatStr(\"BACnetGeneral\", \"invalidDevice\"),
+                               makeDynString(\"$1:\"+getCatStr(\"para\", \"invalidBACnetDevice\")),
+                               0,0);
+
+      return;
+    }
+
+    if ( ((int)ds[1]) > 4194302)
+    {
+      ChildPanelOnRelativModal(\"vision/MessageWarning\",
+                               getCatStr(\"BACnetGeneral\", \"invalidDevice\"),
+                               makeDynString(\"$1:\"+getCatStr(\"para\", \"invalidBACnetDevice\")),
+                               0,0);
+
+      return;
+    }
+  }
+
+  // check name
+  if ( !bApplication )
+  {
+    sPlc = (dynlen(ds)>0)?ds[1]:\"\";
+    sPlc = strrtrim(strltrim(sPlc));
+  }
+  else
+  {
+    sPlc = ds[1];
+    sPlc = \"Device_\" + sPlc;
+  }
+
+  if ( sPlc == \"\" )
+  {
+    // dp name empty
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"para\", \"apc_dpleer\")));
+    return;
+  }
+  else if ( dpExists(systemName	+ \"_\" + sPlc) )
+  {
+    // dp exists
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"sim\",\"sim_exists\")));
+    return;
+  }
+
+  if ( !bApplication )
+    bacnetCreateNewStation(systemName + \"_\"+sPlc);
+  else
+    BnCreateDeviceDP((int)ds[1], getSystemName(), \"\", FALSE);
+
+  if ( bApplication )  //If Device-ID was entered set devId Spin-Button to this ID
+    devId.text = ds[1];
+  else  //If only DP-Name was entered set devId Spin-Button default to \"0\"
+    devId.text = \"0\";
+
+  cmbPlc.text  = sPlc;
+
+  dsPlc = cmbPlc.items;
+  dynAppend(dsPlc, cmbPlc.text);
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc);
+  cmbPlc.items = dsPlc;
+  readDpWritePanel(systemName + \"_\"+sPlc);
+}
+
+" 0
+ E E E
+13 3
+"cmdRemoveDp"
+""
+1 301.1063829787234 52 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove an equipment
+LANG:10004 18 移除一个设备
+LANG:10000 16 Gerät entfernen
+LANG:10027 35 Удалить устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  323 53 421 81
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPlc.selectedPos;
+  string     sPlc = cmbPlc.text;
+  string     systemName = getSystemName();
+  string     dp = systemName + \"_\" + sPlc;
+  string     sTempName;
+  dyn_string dsPlc = cmbPlc.items;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dyn_float  df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\",\"information\"),
+                                 makeDynString(getCatStr(\"diskspace\",\"dpDelete\"),
+                                               getCatStr(\"para\",\"yes\"),
+                                               getCatStr(\"para\",\"no\")),
+                                 df, ds);
+
+  if ( !df[1] )
+    return;
+
+  dynRemove(dsPlc, iPos);
+  cmbPlc.items = dsPlc;
+
+  // set the global variable to empty
+  // to avoid dpDisconnect on nonexisting dp
+  gBacLastPlc = \"\";
+
+  if ( dynlen(dsPlc) < 1 )
+    cmbPlc.text = \"\";
+  else
+  {
+    if ( iPos < 1 )
+      iPos = 1;
+
+    if ( iPos > dynlen(dsPlc) )
+      iPos = dynlen(dsPlc);
+
+    cmbPlc.selectedPos(iPos);
+    cmbPlc.text = dsPlc[iPos];
+  }
+
+  sPlc = cmbPlc.text;
+  sTempName = dpSubStr(dp, DPSUB_DP);
+
+  if ( dpExists(dp + \"_2\") )
+    dpDelete(dp + \"_2\");
+
+  if ( dpExists(dp) )
+    dpDelete(dp);
+
+  sTempName = strltrim(sTempName, \"_\");
+
+  if ( dpExists(sTempName) )
+    dpDelete(sTempName);
+
+  readDpWritePanel(systemName + \"_\" + sPlc);
+
+}
+" 0
+ E E E
+14 4
+"t1"
+""
+1 140 90 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 88 521 114
+3 "0s" 0 0 0 0 0 -1  E E E
+2 5
+"Text1"
+""
+1 23 90.5 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 25 92.5 130 109.5
+0 2 0 "0s" 0 0 0 66 0 0  25 92.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Datapoint name:
+LANG:10004 18 数据点DP名称:
+LANG:10000 15 Datenpunktname:
+LANG:10027 10 Имя DP:
+30 9
+"frmCmd"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8379468828853515 0 0.5448423630241812 1.859441449016424 332.8252219161311 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+13 10
+"bSyncTime"
+""
+1 20.39583333333329 439.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Time synchronization of device
+LANG:10004 6 时间
+LANG:10000 32 Zeitsynchronisation des Gerätes
+LANG:10027 62 Синхронизация времени устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18.06249999999997 438 116.0625 466
+
+T 
+4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Time
+LANG:10027 10 Время
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.SyncTime\", true);
+}
+" 0
+ E E E
+30 11
+"frmState"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4105989241697354 0 0.8496304175872132 5.89401075830267 404.0591331860459 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 State Host 1
+LANG:10004 6 状态
+LANG:10000 13 Status Host 1
+LANG:10027 31 Состояние хоста 1
+14 12
+"tfState"
+""
+1 99.5 554.5000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 Shows connection status of BACnet device.
+LANG:10004 34 显示BACnet设备的连接状态.
+LANG:10000 49 Zeigt den Verbindungsstatus zum BACnet Gerät an.
+LANG:10027 91 Показывает состояние подключения Bacnet-устройства.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  98 558 251 584
+2 "0s" 0 0 0 0 0 -1  E E E
+2 13
+"ptState"
+""
+1 90 563.375 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 59 563.375 90 578
+0 2 2 "0s" 0 0 0 194 0 0  90 563.375 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 7 Zustand
+LANG:10027 18 Состояние
+14 14
+"tfCOV"
+""
+1 99.5 589.5000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Shows the number of failed COV registrations.
+LANG:10004 28 显示失败的COV注册数.
+LANG:10000 61 Zeigt die Anzahl der fehlgeschlagenen COV Registrierungen an.
+LANG:10027 114 Показывает количество неудачных регистраций на изм. значений.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  98 588 251 614
+2 "0s" 0 0 0 0 0 -1  E E E
+2 15
+"ptCov"
+""
+1 89.5 593.25 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 27 593.25 89.5 608
+0 2 2 "0s" 0 0 0 194 0 0  89.5 593.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 failed COV
+LANG:10004 10 失败 COV
+LANG:10000 10 failed COV
+LANG:10027 20 неудач.рег.
+30 16
+"frmState_2"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4095451795650903 0 0.8463115487685131 270.9045482043491 404.5901521970379 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 State Host 2
+LANG:10004 6 主机
+LANG:10000 13 Status Host 2
+LANG:10027 31 Состояние хоста 2
+14 17
+"tfState_2"
+""
+1 364.9999999999999 560.0000000000002 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 53 Shows connection status of server 2 to BACnet device.
+LANG:10004 47 显示服务器2与BACnet设备的连接状态.
+LANG:10000 62 Zeigt den Verbindungsstatus von Server 1 zum BACnet Gerät an.
+LANG:10027 111 Показывает состояние подключения сервера 2 к Bacnet-устройству.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  363 558 516 584
+2 "0s" 0 0 0 0 0 -1  E E E
+2 18
+"ptState_2"
+""
+1 354.9999999999999 563.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 324 563.5 354.9999999999999 579
+0 2 2 "0s" 0 0 0 194 0 0  354.9999999999999 563.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 7 Zustand
+LANG:10027 18 Состояние
+14 19
+"tfCOV_2"
+""
+1 364.9999999999999 590.0000000000002 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 57 Shows the number of failed COV registrations on server 2.
+LANG:10004 41 显示服务器2上失败的COV注册数.
+LANG:10000 74 Zeigt die Anzahl der fehlgeschlagenen COV Registrierungen auf Server 2 an.
+LANG:10027 136 Показывает количество неудачных регистраций на изм. значений на сервере 2.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  363 588 516 614
+2 "0s" 0 0 0 0 0 -1  E E E
+2 20
+"ptCov_2"
+""
+1 354.9999999999999 592.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 292 592.5 354.9999999999999 608
+0 2 2 "0s" 0 0 0 194 0 0  354.9999999999999 592.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 failed COV
+LANG:10004 10 失败 COV
+LANG:10000 10 failed COV
+LANG:10027 20 неудач.рег.
+13 21
+"cmdApply"
+""
+1 278.9999999999999 642 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  333 643 431 671
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbPlc.text == \"\" ) 
+    return;
+  
+  setDp();
+}" 0
+ E E E
+13 22
+"cmdCancel"
+""
+1 188.9999999999999 642 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+61 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  433 643 531 671
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}" 0
+ E E E
+13 23
+"cmdHelp"
+""
+1 9.999999999999911 643 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 643 106 671
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"bacnet\");
+}
+" 0
+ E E E
+13 24
+"cmdOk"
+""
+1 68.99999999999991 642 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+65 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  233 643 331 671
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+  {
+    PanelOff();
+    return;
+  }
+
+  if ( setDp() )
+    PanelOff();
+
+  removeGlobals();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 25
+"bInit"
+""
+1 120.6145833333332 439.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Execute reinitialize of device
+LANG:10004 27 执行设备重新初始化
+LANG:10000 41 Reinitialisierung des Gerätes ausführen
+LANG:10027 66 Выполнить инициализацию устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118.2812499999999 438 216.2812499999999 466
+
+T 
+4
+LANG:10001 4 Init
+LANG:10004 9 初始化
+LANG:10000 4 Init
+LANG:10027 19 Инициализ.
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.Reinitialize\", true);
+}
+" 0
+ E E E
+30 36
+"frmGQ"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8386848366960982 0 0.5457297284362729 1.613151633038953 392.6832434501963 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 2 GQ
+LANG:10004 15 总召唤数值
+LANG:10000 2 GA
+LANG:10027 23 Общий запрос
+13 37
+"pbGqValuesEvents"
+""
+1 20.16666666666663 499.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 General Query for Values and Events
+LANG:10004 27 事件和数值的总召唤
+LANG:10000 40 Generalabfrage für Werte und Ereignisse
+LANG:10027 58 Общий запрос значений и событий
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  17.83333333333331 498.0000000000001 115.8333333333333 526.0000000000001
+
+T 
+4
+LANG:10001 13 Values/Events
+LANG:10004 13 数值/事件
+LANG:10000 13 Values/Events
+LANG:10027 21 Знач./событ.
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", 0);
+}
+
+" 0
+ E E E
+13 38
+"pbGqValues"
+""
+1 424.9895833333333 469.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 General Query for Values
+LANG:10004 15 数值总召唤
+LANG:10000 25 Generalabfrage für Werte
+LANG:10027 40 Общий запрос значений
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  417.9895833333333 498.0000000000001 515.9895833333333 526.0000000000001
+
+T 
+4
+LANG:10001 6 Values
+LANG:10004 6 数值
+LANG:10000 6 Values
+LANG:10027 16 Значения
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", 1);
+}
+
+" 0
+ E E E
+13 39
+"pbGqEvents"
+""
+1 220.2916666666667 499.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 General Query for Events
+LANG:10004 15 事件总召唤
+LANG:10000 30 Generalabfrage für Ereignisse
+LANG:10027 38 Общий запрос событий
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  217.9583333333333 498.0000000000001 315.9583333333333 526.0000000000001
+
+T 
+4
+LANG:10001 6 Events
+LANG:10004 6 事件
+LANG:10000 6 Events
+LANG:10027 14 События
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", 2);
+}
+
+" 0
+ E E E
+13 40
+"pbGqDescriptions"
+""
+1 120.2499999999999 499.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 General Query for Descriptions
+LANG:10004 15 描述总召唤
+LANG:10000 34 Generalabfrage für Beschreibungen
+LANG:10027 40 Общий запрос описаний
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  117.9166666666666 498.0000000000001 215.9166666666666 526.0000000000001
+
+T 
+4
+LANG:10001 12 Descriptions
+LANG:10004 6 说明
+LANG:10000 12 Descriptions
+LANG:10027 16 Описания
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", 10);
+}
+
+" 0
+ E E E
+13 41
+"pbGqUnits"
+""
+1 320.3125000000001 499.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 General Query for Units
+LANG:10004 15 单位总召唤
+LANG:10000 29 Generalabfrage für Einheiten
+LANG:10027 48 Общий запрос ед. измерения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  317.9791666666666 498.0000000000001 415.9791666666666 526.0000000000001
+
+T 
+4
+LANG:10001 5 Units
+LANG:10004 6 单位
+LANG:10000 5 Units
+LANG:10027 13 Ед. изм.
+"main()
+{
+  string sPlc = cmbPlc.text;
+
+  if ( sPlc == \"\" )
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", 11);
+}
+
+" 0
+ E E E
+1 52 0 "" 0
+0
+20 48
+"active"
+""
+1 20 60 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 58 142 86
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE28 51
+"tabSettings"
+""
+1 10 135 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  8 133 531 416
+E2 "#1" 4
+LANG:10001 20 Device configuration
+LANG:10004 12 设备配置
+LANG:10000 20 Gerätekonfiguration
+LANG:10027 45 Конфигурация устройства
+1 "para/bacnet_common.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#2" 4
+LANG:10001 17 Advanced settings
+LANG:10004 12 高级设置
+LANG:10000 24 Erweiterte Einstellungen
+LANG:10027 47 Дополнительные настройки
+1 "para/bacnet_advanced.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 505 T 111 1.080160320641282 0 1 0 130
+0
+0

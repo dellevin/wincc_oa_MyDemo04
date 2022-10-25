@@ -1,0 +1,1543 @@
+V 13
+4
+LANG:10001 14 Backup/Restore
+LANG:10004 13 备份/恢复
+LANG:10000 14 Aus-/Einlagern
+LANG:10027 51 Копирование/восстановление
+PANEL,-1 -1 949 524 N "_3DFace" 2
+"$1"
+"$2"
+"main()
+{
+  int        i = 0;
+  string     sDp = $1, sName, usedDb = $2;
+  
+  TableBackup.selectByClick(TABLE_SELECT_LINE);
+  TableOnline.selectByClick(TABLE_SELECT_LINE); 
+  TableBackup.tableMode(TABLE_SELECT_MULTIPLE);
+  TableOnline.tableMode(TABLE_SELECT_MULTIPLE);
+  TableBackup.selectColors(\"darkgrey\",\"_Window\");
+  TableOnline.selectColors(\"darkgrey\",\"_Window\"); 
+  
+  dpGet(sDp + \".groupName:_online.._value\", sName);
+  txtGroup.text = sName;
+  txtGroupDp.text = sDp;
+  updateTables(txtGroup.text);
+
+  if ( !getUserPermission(4) )
+  {
+    allEnabled(false);
+    cmdClose.enabled = true;
+  }
+}
+" 0
+ E E E E 1 -1 -1 0  20 31
+""0  1
+E "#uses \"impexp.ctl\"
+
+const string BACKUP_IN_PROGRESS = \"PROCESSING BACKUP\";
+const char sepchar = \"!\";
+
+void updateTables(string piGroup)
+{
+  dyn_string tabs, states;
+  dyn_time start, end;
+  dyn_int backuped;
+  int i, j;
+  int iArchName;
+  string backuppath;
+  string dFile;
+  bool bDBFexists;
+  int iErr = 0;
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+
+  TableBackup.deleteAllLines();
+  TableOnline.deleteAllLines();
+
+  iErr=getImpExpTablesForGroup(piGroup, tabs, states, start, end, backuped);
+  getImpExpBackupPath(backuppath);
+  //DebugN(piGroup, states, tabs, start, end);  
+  
+  if(iErr < 0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"ErrorReadingDatabase\")), dfReturn, dsReturn);
+    PanelOff();
+    return;
+  }
+  
+  for (i = 1; i <= dynlen(tabs); i++)
+  {
+    iArchName = substr(tabs[i], strlen(tabs[i])-8, 8); //letzten 8 Stellen
+    //DebugN(iArchName, tabs[i], strlen(tabs[i])-8, 8); //letzten 8 Stellen
+    if ( (backuped[i] == 1) && (states[i] == \"OFFLINE\") ) //ausgelagerte Archive
+    {
+      //Check if the file exists in the backup Path on the Oracle server
+      //DebugN(backuppath, tabs[i], start[i], end[i]);  
+      dFile = getImpExpBackupDataFile(backuppath, tabs[i], start[i], end[i], \"\"); //last argument dummy
+      //DebugN(backuppath, tabs[i], start[i], end[i], dFile);  
+      if (strpos(dFile, sepchar) > 0)
+      {
+        dyn_string dFiles = strsplit(dFile, sepchar);
+        bDBFexists = false;
+        for (j=1;j<=dynlen(dFiles) && !bDBFexists;j++) //if file is found on at least one path -> ok!
+          bDBFexists = dbFileExists(dFiles[j]);
+      }
+      else
+        bDBFexists = dbFileExists(dFile);
+      if (isDbgFlag(DBGFLAG_IMPEXP))
+        DebugN(\"dbFileExists(\"+dFile+\")\", bDBFexists);
+      int style = bDBFexists ? 1 : 0; //1 -> bold font
+
+      TableBackup.appendLine(\"Name\",     tabs[i], 
+                             \"Archive\",  iArchName, 
+                             \"State\",    states[i], 
+                             \"Start\",    start[i], 
+                             \"End\",      checkTime(end[i]), 
+                             \"backuped\", backuped[i],
+                             \"bFileExists\", bDBFexists,
+                             0, style);
+    }
+    else
+    {
+      string current_state = states[i];
+      int style = 0;
+      if (backuped[i] == 2)
+      {
+        current_state = BACKUP_IN_PROGRESS;
+        style = 2; //2 -> kursiv
+      }
+      
+      TableOnline.appendLine(\"Name\",     tabs[i], 
+                             \"Archive\",  iArchName, 
+                             \"State\",    current_state, 
+                             \"Start\",    start[i], 
+                             \"End\",      checkTime(end[i]), 
+                             \"backuped\", backuped[i],
+                             0, style);
+      //if (backuped[i] == 2)
+      //  TableOnline.cellForeColRC(0, \"State\", \"_ETM\");
+    }
+  }
+}
+
+
+string checkTime(time piTime)
+{
+  time null;
+  string retVal = \"\";
+  if (piTime > null)
+    retVal = piTime;
+  return retVal;
+}
+
+void allEnabled(bool b)
+{
+  setMultiValue(\"ButtonSwitchImmediate\", \"enabled\", b,
+                \"ButtonSetOnline\", \"enabled\", b,
+                \"ButtonSetOffline\", \"enabled\", b,
+                \"ButtonDelete\", \"enabled\", b,
+                \"cmdExport\", \"enabled\", b,
+                \"cmdImport\", \"enabled\", b,
+                \"TableOnline\", \"enabled\", b,
+                \"TableBackup\", \"enabled\", b,
+                \"cmdClose\", \"enabled\", b);
+}
+
+void showWarnings(dyn_string warnings)
+{
+  int i;
+  dyn_string ds;
+  dyn_float df;
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN(warnings);
+  for (i=1;i<=dynlen(warnings);i++)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(warnings[i]),
+          df,ds);
+   }
+}
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 0
+"Text1"
+""
+1 20 40 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 42 102 57
+0 2 0 "0s" 0 0 0 192 0 0  22 42 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Archive group:
+LANG:10004 10 归档组:
+LANG:10000 13 Archivgruppe:
+LANG:10027 21 Арх. группа:
+2 4
+"Text2"
+""
+1 20 70 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 72 73 87
+0 2 0 "0s" 0 0 0 192 0 0  22 72 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 System
+LANG:10004 6 系统
+LANG:10000 7 System:
+LANG:10027 15 Система:
+2 5
+"Text3"
+""
+1 500 70 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 502 72 552 87
+0 2 0 "0s" 0 0 0 192 0 0  502 72 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Backup
+LANG:10004 12 备份路径
+LANG:10000 7 Backup:
+LANG:10027 21 Скопирован:
+30 9
+"Frame1"
+""
+1 10 480 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 10 940 480
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 28  RDB - manual backup/restore
+LANG:10004 25 RDB - 手动备份/恢复
+LANG:10000 36  RDB - Manuelles Aus- und Einlagern 
+LANG:10027 73  RDB — ручное копирование/восстановление
+25 11
+"TableBackup"
+""
+1 236 -68 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int selLines;
+  getValue(\"TableBackup\", \"getSelectedLines\", selLines);
+  if (dynlen(selLines) == 1)
+  {
+    //DebugN(selLines);
+    dyn_anytype dValues;
+    getValue(\"TableBackup\", \"getLineN\", selLines[1], dValues);
+    if (dValues[7] == 0) 
+      cmdImport.enabled(false);
+    else
+      cmdImport.enabled(true);
+    //DebugN(dValues[7]);
+  }
+}"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  514 88 932 435
+EE 1 0 1 7 16 "Name" 8 0 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 6 名称
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "Archive" 5 1 0 "s" 4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 6 Archiv
+LANG:10027 10 Архив
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+70 "State" 5 1 0 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+70 "Start" 10 1 0 "s" 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 5 Start
+LANG:10027 10 Старт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+127 "End" 10 1 0 "s" 4
+LANG:10001 3 End
+LANG:10004 6 结束
+LANG:10000 3 End
+LANG:10027 10 Конец
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+127 "backuped" 8 0 0 "s" 4
+LANG:10001 8 backuped
+LANG:10004 9 已备份
+LANG:10000 8 backuped
+LANG:10027 20 скопирован
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "bFileExists" 0 0 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 11 bFileExists
+LANG:10027 20 скопирован
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+20 20 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 17
+"ButtonSwitchImmediate"
+""
+1 18 438 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Start archive-switch
+LANG:10004 6 开始
+LANG:10000 21 Archivwechsel starten
+LANG:10027 52 Начать переключение архивов
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 438 52 467
+
+P 
+4294967295
+"pictures/sort_basic.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"#uses \"CtrlRDBCompr\"
+
+main()
+{
+  dyn_string ds;
+  dyn_float df;
+  int idThread;
+  int err = 0;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"ImportExport\",\"continueSwitch\"),getCatStr(\"para\",\"OK\"),getCatStr(\"para\",\"cancel\")),
+    df,ds);
+  
+  if (ds[1] != \"true\")
+    return;
+
+  allEnabled(false);
+  if (TST_PROGRESSBAR_THREAD)
+    idThread = myOpenProgressBar(txtGroup.text, \"copy.gif\", getCatStr(\"ImportExport\",\"SwitchinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\");
+  else
+    openProgressBar(txtGroup.text, \"copy.gif\", getCatStr(\"ImportExport\",\"SwitchinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+
+  //if ( switchImpExpGroup(txtGroup.text) > 0 ) //Thread!!
+  dpSet(\"_\"+txtGroup.text+\".action.func\", \"switchImpExpGroup\" , 
+        \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text), 
+        \"_\"+txtGroup.text+\".action.usedDb\", $2);
+  //err = runImpExp(\"switchImpExpGroup\", makeDynString(txtGroup.text));
+  int prog = 1;
+  while (prog == 1)
+  {
+    delay(1);
+    dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+  }
+  
+  if (err > 0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"ImportExport\",\"NoPossibleSwitch\")+\" (\"+err+\")\"),
+      df,ds);     
+  }
+  else
+    updateTables(txtGroup.text);
+      
+  if (TST_PROGRESSBAR_THREAD)
+    myCloseProgressBar(idThread);
+  else
+    closeProgressBar();
+  allEnabled(true);
+}
+" 0
+ E E E
+13 14
+"ButtonSetOnline"
+""
+1 60 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Setting archive ONLINE
+LANG:10004 24 将归档设置为ONLINE
+LANG:10000 20 Archiv ONLINE setzen
+LANG:10027 31 Подключить архив
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  58 438 92 467
+
+P 
+13434828
+"pictures/start_man_e.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int    sel;
+  int        i, w=0, idThread;
+  dyn_string warnings;
+  string     sStatus, sTablespaceName;
+  int        err;
+  
+  sel = TableOnline.getSelectedLines(); 
+  if ( dynlen(sel) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  allEnabled(false);
+  if (TST_PROGRESSBAR_THREAD)
+    idThread = myOpenProgressBar(txtGroup.text, \"import.gif\", getCatStr(\"ImportExport\",\"settingOnline\"), \"\", \"0/\"+dynlen(sel));
+  else
+    //openProgressBar(txtGroup.text, \"import.gif\", getCatStr(\"ImportExport\",\"settingOnline\"), \"\", \"0/\"+dynlen(sel), 2);
+    openProgressBar(txtGroup.text, \"import.gif\", getCatStr(\"ImportExport\",\"settingOnline\"), \"\", \"|\"+dynlen(sel)+\"|\", 1);
+
+  if (dynlen(sel) > 0)
+  {
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      sTablespaceName = TableOnline.cellValueRC(sel[i], \"Name\");
+      sStatus = TableOnline.cellValueRC(sel[i], \"State\");
+      if (sStatus != \"OFFLINE\")
+      {
+        warnings[++w]=getCatStr(\"ImportExport\",\"OnlineMustOffline\");
+      }
+      else
+      {
+        if (TST_PROGRESSBAR_THREAD)
+          idThread = myShowProgressBar(idThread, txtGroup.text, \"import.gif\", sTablespaceName, getCatStr(\"ImportExport\",\"settingOnline\"), i+\"/\"+dynlen(sel));
+	      //err = runImpExp(\"setImpExpTableOnline\", makeDynString(txtGroup.text, sTablespaceName));
+        dpSet(\"_\"+txtGroup.text+\".action.func\", \"setImpExpTableOnline\" , 
+              \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text, sTablespaceName), 
+              \"_\"+txtGroup.text+\".action.usedDb\", $2);
+        
+        int prog = 1;
+        while (prog == 1)
+        {
+          delay(1);
+          dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+        }
+      }
+    }
+  }
+  
+  if (TST_PROGRESSBAR_THREAD)
+    myCloseProgressBar(idThread);
+  else
+    closeProgressBar();
+
+  showWarnings(warnings);
+
+  updateTables(txtGroup.text);
+  
+  allEnabled(true);
+}" 0
+ E E E
+13 12
+"ButtonSetOffline"
+""
+1 100 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Setting archive OFFLINE
+LANG:10004 25 将归档设置为OFFLINE
+LANG:10000 21 Archiv OFFLINE setzen
+LANG:10027 29 Отключить архив
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  98 438 132 467
+
+P 
+13434828
+"pictures/stop_man_e.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  dyn_string warnings;
+  dyn_int    sel;
+  int        i, w=0, err=0, idThread;
+  string     sStatus, sTablespaceName;
+  
+  sel = TableOnline.getSelectedLines(); 
+  if ( dynlen(sel) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  allEnabled(false);
+  if (TST_PROGRESSBAR_THREAD)
+    idThread = myOpenProgressBar(txtGroup.text, \"export.gif\", getCatStr(\"ImportExport\",\"settingOffline\"), \"\", \"0/\"+dynlen(sel));
+  else
+    //openProgressBar(txtGroup.text, \"export.gif\", getCatStr(\"ImportExport\",\"settingOffline\"), \"\", \"0/\"+dynlen(sel), 2);
+    openProgressBar(txtGroup.text, \"export.gif\", getCatStr(\"ImportExport\",\"settingOffline\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+  
+  if (dynlen(sel) > 0)
+  {
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      sStatus = TableOnline.cellValueRC(sel[i], \"State\");
+      sTablespaceName = TableOnline.cellValueRC(sel[i], \"Name\");
+      if (sStatus != \"ONLINE\")
+      {
+        warnings[++w]=getCatStr(\"ImportExport\",\"OfflineMustOnline\");
+      }
+      else
+      { 
+        if (TST_PROGRESSBAR_THREAD)
+          idThread = myShowProgressBar(idThread, txtGroup.text, \"export.gif\", sTablespaceName, getCatStr(\"ImportExport\",\"settingOffline\"), i+\"/\"+dynlen(sel));
+        //err = runImpExp(\"setImpExpTableOffline\", makeDynString(txtGroup.text, sTablespaceName));
+        dpSet(\"_\"+txtGroup.text+\".action.func\", \"setImpExpTableOffline\" , 
+              \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text, sTablespaceName), 
+              \"_\"+txtGroup.text+\".action.usedDb\", $2);
+        
+        int prog = 1;
+        while (prog == 1)
+        {
+          delay(1);
+          dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+        }
+        if (err != 0)
+        {
+          warnings[++w]=getCatStr(\"ImportExport\",\"NotOffline\")+\" (\"+sTablespaceName+\")\";
+        }
+      }
+    }
+  }
+
+  if (TST_PROGRESSBAR_THREAD)
+    myCloseProgressBar(idThread);
+  else
+    closeProgressBar();
+  
+  showWarnings(warnings);
+
+  updateTables(txtGroup.text);
+  
+  allEnabled(true);
+}" 0
+ E E E
+13 10
+"ButtonDelete"
+""
+1 140 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 63 Delete selected archives (Backup will not be possible anymore!)
+LANG:10004 51 删除所选的归档（不允许再进行备份）
+LANG:10000 76 Gewählte Archive unwiderruflich löschen (Backup dann nicht mehr möglich!)
+LANG:10027 123 Удаляет выбранные архивы (рез. копирование более будет не возможно)
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  513 438 547 467
+
+P 
+13421721
+"pictures/del_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     sStatus, sTablespaceName;
+  int        idThread, iErr = 0;
+  int        iArchiveNumber;
+  dyn_int    sel;
+  int        i, w=0, len;
+  dyn_string ds;
+  dyn_int    df;
+  dyn_string warnings;
+  
+  sel = TableBackup.getSelectedLines(); 
+  len = dynlen(sel);
+  if ( len < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"ImportExport\",\"continueDelete\"),getCatStr(\"para\",\"OK\"),getCatStr(\"para\",\"cancel\")),
+    df,ds);
+  
+  if (ds[1] != \"true\")
+    return;
+
+  allEnabled(false);
+  //openProgressBar(txtGroup.text, \"del_en.gif\", getCatStr(\"ImportExport\",\"DeleteinProgress\"), \"\", \"0/\"+len, 2);
+
+  if (len > 0)
+  {
+    //check, question + delete
+    for (i = 1; i <= len; i++)
+    {
+      //showProgressBar(txtGroup.text, \"\", i+\"/\"+len);
+      sStatus = TableBackup.cellValueRC(sel[i], \"State\");
+      if (sStatus != \"OFFLINE\")
+      {
+        warnings[++w]=getCatStr(\"ImportExport\",\"DeleteMustOffline\");
+      }
+      else
+      {
+        iArchiveNumber = TableBackup.cellValueRC(sel[i], \"Archive\");
+        sTablespaceName = TableBackup.cellValueRC(sel[i], \"Name\");
+        string s = getCatStr(\"ImportExport\",\"reallyDelete\");
+        strreplace( s, \"§\", iArchiveNumber);
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(s, getCatStr(\"para\",\"yes\"),getCatStr(\"para\",\"no\")),
+          df,ds);
+        if (ds[1]==\"true\")
+        {
+          if (TST_PROGRESSBAR_THREAD)
+            idThread = myOpenProgressBar(txtGroup.text, \"delete.gif\", getCatStr(\"ImportExport\",\"DeleteinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"Archive \"+iArchiveNumber);
+          else
+            openProgressBar(txtGroup.text, \"delete.gif\", getCatStr(\"ImportExport\",\"DeleteinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"Archive \"+iArchiveNumber, 1);
+          //iErr = deleteImpExpTable(txtGroup.text, iArchiveNumber); //w/o thread
+          //iErr = runImpExp(\"deleteImpExpTable\", makeDynString(txtGroup.text, iArchiveNumber)); //with thread
+          dpSet(\"_\"+txtGroup.text+\".action.func\", \"deleteImpExpTable\" , 
+              \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text, iArchiveNumber), 
+              \"_\"+txtGroup.text+\".action.usedDb\", $2);
+          
+          int prog = 1;
+          while (prog == 1)
+          {
+            delay(1);
+            dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+          }
+          if ( iErr < 0 )
+            warnings[++w]=getCatStr(\"ImportExport\", \"errorDeletingTable\")+\" (\"+sTablespaceName+\")\";
+		      if (TST_PROGRESSBAR_THREAD)
+            myCloseProgressBar(idThread);
+          else
+		        closeProgressBar();
+        }
+      }
+    }
+  }
+  
+//  closeProgressBar();
+  updateTables(txtGroup.text);
+  showWarnings(warnings);
+  allEnabled(true);
+}" 0
+ E E E
+13 22
+"cmdClose"
+""
+1 740 490 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 488 832 515
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 23
+"Button7"
+""
+1 840 490 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  838 488 932 515
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"RDB_action\");
+}" 0
+ E E E
+25 2
+"TableOnline"
+""
+1 20 90 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 88 468 435
+EE 1 0 1 6 16 "Name" 8 0 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 6 名称
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "Archive" 5 1 0 "s" 4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 6 Archiv
+LANG:10027 10 Архив
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+70 "State" 8 1 0 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+102 "Start" 10 1 0 "s" 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 5 Start
+LANG:10027 10 Старт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+127 "End" 10 1 0 "s" 4
+LANG:10001 3 End
+LANG:10004 6 结束
+LANG:10000 3 End
+LANG:10027 10 Конец
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+127 "backuped" 8 0 0 "s" 4
+LANG:10001 8 backuped
+LANG:10004 9 已备份
+LANG:10000 8 backuped
+LANG:10027 20 скопирован
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 
+20 20 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 6
+"cmdExport"
+""
+1 476 240 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 61 Backup (if OFFLINE) or remove (if RESTORED) selected archives
+LANG:10004 59 备用(若为OFFLINE)或删除(若为RESTORED) 所选归档
+LANG:10000 73 Gewählte Archive auslagern (wenn OFFLINE) bzw. entfernen (wenn RESTORED)
+LANG:10027 142 Копировать (если отключены) или удалять (если восстановлены) выбранные архивы
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  474 238 508 267
+
+P 
+13160660
+"pictures/arrow_right.xpm"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int     sel;
+  dyn_anytype selection;
+  dyn_string  ds;
+  dyn_float   df;
+  int         err = 0, i, w=0, idThread;
+  dyn_string  warnings;
+  string      sTablespaceName, sStatus;
+  int         iBackup;
+
+  sel = TableOnline.getSelectedLines(); 
+  if ( dynlen(sel) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"ImportExport\",\"continueExport\"),getCatStr(\"para\",\"OK\"),getCatStr(\"para\",\"cancel\")),
+    df,ds);
+  
+  if (dynlen(ds) > 0)   // Check if Warning-Panel was closed with \"X\"-Button
+  {
+   if (ds[1] != \"true\")
+     return;
+  }
+  else
+    return;
+
+  allEnabled(false);
+  if (TST_PROGRESSBAR_THREAD)
+    idThread = myOpenProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"export.gif\", getCatStr(\"ImportExport\",\"BackupinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\");
+  else
+    //openProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"export.gif\", getCatStr(\"ImportExport\",\"BackupinProgress\"), \"\", \"0/\"+dynlen(sel), 2);
+    openProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"export.gif\", getCatStr(\"ImportExport\",\"BackupinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+
+  if (dynlen(sel) > 0)
+  {
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      selection = TableOnline.getLineN(sel[i]);
+      sTablespaceName = selection[1];
+      sStatus = selection[3];
+      iBackup = selection[6];
+      //Backup Archives which are offline and NOT backuped
+      if ( (sStatus == \"OFFLINE\") && (iBackup == 0) )
+      {
+        //showProgressBar(sTablespaceName, getCatStr(\"ImportExport\",\"BackupinProgress\"), i+\"/\"+dynlen(sel), (i-0.5)/dynlen(sel)*100.0);
+        //delay(2);
+        if (isDbgFlag(DBGFLAG_IMPEXP))
+          DebugTN(\"cmdExport\", \"backUpImpExpTable\");
+        err = runImpExp(\"backUpImpExpTable\", makeDynString(txtGroup.text, sTablespaceName));
+        if (err < 0)
+          warnings[++w]=getCatStr(\"ImportExport\",\"NoBackupError\")+\" (\"+sTablespaceName+\")\";
+      }
+      //unrecover archives which are online and have already been backuped
+      else if ( (sStatus == \"RESTORED\") && (iBackup == 1) )
+      {
+        //showProgressBar(sTablespaceName, getCatStr(\"ImportExport\",\"UnrecoverinProgress\"), i+\"/\"+dynlen(sel), (i-0.5)/dynlen(sel)*100.0);
+        //err = runImpExp(\"unrecoverImpExpTable\", makeDynString(txtGroup.text, sTablespaceName));
+        dpSet(\"_\"+txtGroup.text+\".action.func\", \"unrecoverImpExpTable\" , 
+        \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text, sTablespaceName), 
+        \"_\"+txtGroup.text+\".action.usedDb\", $2);
+        
+        int prog = 1;
+        while (prog == 1)
+        {
+          delay(1);
+          dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+        }
+        if (err)
+          warnings[++w]=getCatStr(\"ImportExport\",\"UndoRestoreError\")+\" (\"+sTablespaceName+\")\";
+      }
+      else
+      {   
+        warnings[++w] = getCatStr(\"ImportExport\",\"NoBackup\")+\" (\"+sTablespaceName+\")\";
+      }
+    }
+  } 
+  updateTables(txtGroup.text);
+  if (TST_PROGRESSBAR_THREAD)
+    myCloseProgressBar(idThread);
+  else
+    closeProgressBar();
+  showWarnings(warnings);
+  allEnabled(true);
+}" 0
+ E E E
+13 7
+"cmdImport"
+""
+1 476 270 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Restore selected archives
+LANG:10004 21 还原选定的归档
+LANG:10000 27 Gewählte Archive einlagern
+LANG:10027 56 Восстановить выбранные архивы
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  474 268 508 297
+
+P 
+13160660
+"pictures/arrow_left.xpm"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int     sel;
+  dyn_anytype selection;
+  dyn_string  ds;
+  dyn_float   df;
+  int         idThread, err = 0, i, w=0;
+  dyn_string  warnings;
+  string      sStatus, sTablespaceName;
+  
+  sel = TableBackup.getSelectedLines();
+  
+  if ( dynlen(sel) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+  else
+  {
+    updateTables(txtGroup.text);
+    
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      TableBackup.selectLineN(sel[i]); 
+    }
+  }
+  
+  dyn_anytype dValues;
+  getValue(\"TableBackup\", \"getLineN\", sel[1], dValues);
+  if (dValues[7] == 0) 
+  {
+    cmdImport.enabled(false);
+    return;
+  }
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"ImportExport\",\"continueImport\"),getCatStr(\"para\",\"OK\"),getCatStr(\"para\",\"cancel\")),
+    df,ds);
+  
+  if (dynlen(ds) > 0)   // Check if Warning-Panel was closed with \"X\"-Button
+  {
+   if (ds[1] != \"true\")
+     return;
+  }
+  else
+    return;
+
+  allEnabled(false);
+  if (TST_PROGRESSBAR_THREAD)
+    idThread = myOpenProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"import.gif\", getCatStr(\"ImportExport\",\"ReBackupinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\");
+  else
+	  //openProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"import.gif\", getCatStr(\"ImportExport\",\"ReBackupinProgress\"), \"\", \"0/\"+dynlen(sel), 2);
+	  openProgressBar(txtGroup.text+\" - \"+getCatStr(\"ImportExport\",\"WaitingBackup\"), \"import.gif\", getCatStr(\"ImportExport\",\"ReBackupinProgress\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+
+  if (dynlen(sel) > 0)
+  {
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      selection = TableBackup.getLineN(sel[i]);
+      sTablespaceName = selection[1];
+      //showProgressBar(sTablespaceName, getCatStr(\"ImportExport\",\"ReBackupinProgress\"), i+\"/\"+dynlen(sel), (i-0.5)/dynlen(sel)*100.0);
+      //err = runImpExp(\"recoverImpExpTable\", makeDynString(txtGroup.text, sTablespaceName));
+      dpSet(\"_\"+txtGroup.text+\".action.func\", \"recoverImpExpTable\" , 
+            \"_\"+txtGroup.text+\".action.params\", makeDynString(txtGroup.text, sTablespaceName), 
+            \"_\"+txtGroup.text+\".action.usedDb\", $2);
+        
+      int prog = 1;
+      while (prog == 1)
+      {
+        delay(1);
+        dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+      }
+      if (err < 0)
+        warnings[++w]=getCatStr(\"ImportExport\",\"NoReplayError\") + \" (\" + sTablespaceName + \")\";
+    }
+  } 
+  updateTables(txtGroup.text);
+
+  if (TST_PROGRESSBAR_THREAD)
+    myCloseProgressBar(idThread);
+  else
+    closeProgressBar();
+  showWarnings(warnings);
+  allEnabled(true);
+}" 0
+ E E "main()
+{
+
+}" 0
+
+14 21
+"txtGroupDp"
+""
+1 509 40 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  507 38 641 65
+2 "0s" 0 0 0 0 0 -1  E E E
+14 20
+"txtGroup"
+""
+1 120 40 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 38 468 65
+2 "0s" 0 0 0 0 0 -1  E E E
+13 25
+"ButtonResetStatus"
+""
+1 180 440 E E E 1 E 1 E N "weiss" E N "_ETM" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Reset status
+LANG:10004 12 重置状态
+LANG:10000 20 Status zurücksetzen
+LANG:10027 35 Сбросить состояние
+
+0
+4
+LANG:10001 26 Arial,-1,16,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,69,0,0,0,0,0
+0  178 438 212 467
+
+T 
+4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+"main()
+{
+  dyn_string warnings;
+  dyn_int    sel;
+  int        i, w=0, err=0;
+  string     sStatus;
+  int        iArchiveNumber;
+  
+  sel = TableOnline.getSelectedLines(); 
+  if ( dynlen(sel) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  allEnabled(false);
+  
+  if (dynlen(sel) > 0)
+  {
+    for (i = 1; i <= dynlen(sel); i++)
+    {
+      //selection = TableOnline.getLineN(sel[i]);   
+      //if (selection[3] == \"CURRENT\")
+      sStatus = TableOnline.cellValueRC(sel[i], \"State\");
+      iArchiveNumber = TableOnline.cellValueRC(sel[i], \"Archive\");
+      if (sStatus != BACKUP_IN_PROGRESS)
+      {
+        warnings[++w]=getCatStr(\"ImportExport\",\"NoBackupInProgress\");
+      }
+      else
+      { 
+        //runImpExp(\"resetImpExpBackupStatus\", makeDynString(iArchiveNumber));
+        dpSet(\"_\"+txtGroup.text+\".action.func\", \"resetImpExpBackupStatus\" , 
+              \"_\"+txtGroup.text+\".action.params\", makeDynString(iArchiveNumber), 
+              \"_\"+txtGroup.text+\".action.usedDb\", $2,
+              \"_\"+txtGroup.text+\".action.progress\", 0);
+          
+          int prog = 1;
+          while (prog == 1)
+          {
+            delay(1);
+            dpGet(\"_\"+txtGroup.text+\".action.progress\", prog);
+          }
+      }
+    }
+  }
+
+  showWarnings(warnings);
+
+  updateTables(txtGroup.text);
+  
+  allEnabled(true);
+}" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

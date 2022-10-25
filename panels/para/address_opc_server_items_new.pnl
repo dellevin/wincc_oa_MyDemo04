@@ -1,0 +1,837 @@
+V 14
+4
+LANG:10001 16 OPC server items
+LANG:10004 18 OPC服务器项目
+LANG:10000 16 OPC Server Items
+LANG:10027 28 Эл-ты сервера OPC
+PANEL,-1 -1 574 484 N "_3DFace" 2
+"$1"
+"$2"
+"main()
+{
+  bool bOK = ($2);
+  time tItemIds;
+  time tGetBranch;
+  dyn_string ds;
+  string serverName = ($1);
+
+  txtFilter.text = \"( Filter = * )\";
+  servername.text = serverName;
+  cmdOk.visible = bOK;
+  opcTree.enabled = false;
+  opcTree.addColumn(\"\");
+  opcTree.setColumnWidthMode(0, TREE_WIDTH_MAXIMUM);
+  opcTree.showHeader(false);
+
+  opcSetButtonsEnabled(FALSE);
+
+  if ( !bOK )
+    cmdCancel.text = getCatStr(\"para\",\"close\");
+
+  opcActiveHostDp(serverName);
+  dpGet(\"_\" + serverName + \".BrowseInfo.HierarchySeparator:_online.._value\", gOpcItemsSeparator);
+
+  dpConnect(\"workGetBranch\",false,
+            \"_\" + serverName + \".BrowseInfo.BranchIds:_online.._value\",
+            \"_\" + serverName + \".BrowseInfo.BranchNames:_online.._value\",
+            \"_\" + serverName + \".BrowseInfo.BranchQuery:_online.._value\");
+
+  // make try to browse hierarchically
+  ds = makeDynString(\"readable/writeable\", \"\");
+  gOpcInit = true;
+  gOpcHier = true;
+  dpSet(\"_\" + serverName + \".BrowseInfo.GetBranch:_original.._value\", ds);
+}
+
+void workGetBranch(string dpe1, dyn_string BranchIds,
+                   string dpe2, dyn_string BranchNames,
+                   string dpe3, dyn_string BranchQuery)
+{
+  if ( gOpcHier )
+  {
+    int childCnt = opcTree.childCount();
+
+    if ( gOpcInit )
+    {
+      if (dynlen(BranchIds) == 0)
+      {
+        // fall back and display flat result
+        if (gOpcHierReset)
+          ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                   getCatStr(\"para\",\"warning\"),
+                                   makeDynString(getCatStr(\"para\",\"opc_nohierarchbrowse\")));
+
+        opcSetTreeItemIds(\"*\");
+      }
+      else
+      {
+        initHierarchical(BranchIds, BranchNames, BranchQuery);
+      }
+    }
+    else
+      appendHierarchical(BranchIds, BranchNames, BranchQuery);
+
+    opcTree.enabled = true;
+    opcTree.updatesEnabled = true;
+    opcSetButtonsEnabled(TRUE);
+  }
+}
+
+void appendHierarchical(dyn_string BranchIds, dyn_string BranchNames, dyn_string BranchQuery)
+{
+  string readWrite;
+  dyn_string itemName;
+  string parentId;
+  dyn_string id;
+  bool isBranch;
+  dyn_string dsBranchIds;
+
+  for (int i = 1; i <= dynlen(BranchNames); i++)
+  {
+    dynAppend(itemName, checkBranch(BranchNames[i], isBranch));
+    parentId = BranchQuery[2];
+
+    dynAppend(id, BranchIds[i]);
+
+    //opcTree.appendItem(parentId, id, itemName);
+
+    if ( isBranch )
+      dynAppend(dsBranchIds,BranchIds[i]);
+  }
+
+  opcTree.appendItems(parentId,id ,itemName );
+  opcTree.setExpandable(dsBranchIds, true);
+}
+
+void initHierarchical(dyn_string BranchIds, dyn_string BranchNames, dyn_string BranchQuery)
+{
+  string readWrite;
+  string parentId;
+  string itemName;
+  string id;
+  bool isBranch;
+
+  for (int i = 1; i <= dynlen(BranchNames); i++)
+  {
+    itemName = checkBranch(BranchNames[i], isBranch);
+    parentId = BranchQuery[2];
+
+    id = BranchIds[i];
+
+    if (parentId == \"*\")
+    {
+      parentId = \"\";
+    }
+
+//    if ( !opcTree.itemExists(parentId) )
+//      addBranches(parentId);
+
+    opcTree.appendItem(parentId, id, itemName);
+
+    if ( isBranch )
+    {
+      opcTree.setExpandable(id, true);
+    }
+  }
+
+  gOpcInit = false;
+}
+
+void addBranches(string parentId)
+{
+  dyn_string parts = strsplit(parentId, gOpcItemsSeparator);
+  string path = parts[1];
+
+  for (int i = 2; i <= dynlen(parts); i++)
+  {
+    opcTree.appendItem(path, path + gOpcItemsSeparator + parts[i], parts[i]);
+    path += gOpcItemsSeparator + parts[i];
+    opcTree.setOpen(path, true);
+  }
+}
+
+string checkBranch(string fullName, bool &isBranch)
+{
+  isBranch = (strpos(fullName,\"(+)\") == 0);
+  strreplace(fullName,\"(+) \",\"\");
+  return fullName;
+}
+
+void splitItemName(string fullName, string &pathName, string &itemName)
+{
+  dyn_string parts = strsplit(fullName, gOpcItemsSeparator);
+
+  if ( dynlen(parts) < 1 )
+    return;
+
+  itemName = parts[dynlen(parts)];
+
+  pathName = \"\";
+  if ( dynlen(parts) > 1 )
+    pathName = parts[1];
+
+  for ( int i = 2; i < dynlen(parts); i++)
+  {
+    pathName += gOpcItemsSeparator + parts[i];
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  160 60
+""0  1
+E "global string     gOpcItemsSeparator;
+global bool       gOpcHier;
+global bool       gOpcInit;
+global bool       gOpcHierReset;
+
+const string READABLE_FLAG = \"* * * readable items * * *\";
+const string WRITEABLE_FLAG = \"* * * writeable items * * *\";
+const string READABLE = \"readable\";
+const string WRITEABLE = \"writeable\";
+
+void cmdClose()
+{
+  PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+
+opcSetTreeItemIds(string sFilter)
+{
+  bool filter;
+  string serverName = $1;
+  int itemCnt;
+  dyn_string items;
+
+  gOpcHier = false;
+
+  filter = (sFilter != \"*\");
+
+  opcActiveHostDp(serverName);
+  dpGet(\"_\" + serverName + \".ItemIds:_online.._value\", items);
+
+  opcTree.enabled = false;
+  opcTree.clear();
+
+  itemCnt = dynlen(items);
+
+  appendTreeNodes(items, 1, itemCnt, filter, sFilter);
+
+  opcTree.enabled = true;
+}
+
+void closeAndReturn()
+{
+  if ( (bool)($2) )
+  {
+    dyn_string childs;
+    string nodeId = opcTree.selectedItem();
+    bool readable;
+
+    // leaf
+    if ( !opcTree.isExpandable(nodeId) )
+    {
+      readable = ( strpos(nodeId, READABLE) == 0 );
+      PanelOffReturn(makeDynFloat( (float)readable ), makeDynString( nodeId ));
+    }
+    else
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"), makeDynString(getCatStr(\"para\", \"pleaseSelectALeaf\")));
+  }
+}
+
+opcSetButtonsEnabled( bool enabled )
+{
+  cmdGetStructure.enabled = enabled;
+  cmdGetList.enabled = enabled;
+  cmdReloadList.enabled = enabled;
+  cmdOk.enabled = enabled;
+}
+
+appendTreeNodes(dyn_string &items, int iStart, int iEnd, bool bFilter, string sFilter)
+{
+  dyn_string ids;
+
+  for ( int i = iStart; i <= iEnd; i++ )
+  {
+    if ( !bFilter || patternMatch(sFilter, items[i]) )
+    {
+      dynAppend(ids, items[i]);
+    }
+  }
+
+  opcTree.appendItems(\"\", ids, ids);
+}
+
+void opcActiveHostDp(string &sServerName)
+{
+  int iReduActive = 0;
+
+  if ( isRedundant() )
+    reduActive(iReduActive);
+
+  if ( iReduActive == 2 )
+    sServerName += \"_2\";
+}
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 55
+"Frame1"
+""
+1 10 99 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9322033898305084 0 -32.28813559322033 0 E 10 40 560 100
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Server name
+LANG:10004 15 服务器名称
+LANG:10000 10 Servername
+LANG:10027 21 Имя сервера
+30 56
+"Frame2"
+""
+1 10 460 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.031542239994962 0 -46.4696463994458 0 E 10 110 560 460
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Items
+LANG:10004 6 条目
+LANG:10000 5 Items
+LANG:10027 16 Элементы
+2 58
+"txtFilter"
+""
+1 98 65 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 100 67 158 81
+0 2 0 "0s" 0 0 0 192 0 0  100 67 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 ( Filter = )
+LANG:10004 12 (过滤器=)
+LANG:10000 12 ( Filter = )
+LANG:10027 18 ( Фильтр = )
+30 60
+"fraHier"
+""
+1 20 450 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.073825503355705 0 1.122448979591837 363.5234899328859 -93.97959183673478 0 E 20 400 170 450
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 21 Hierarchical browsing
+LANG:10004 12 分层浏览
+LANG:10000 21 Hierarchical browsing
+LANG:10027 12 Дерево
+30 61
+"Frame4"
+""
+1 170 450 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7831325301204819 0 1.122448979591837 -108.1325301204819 -93.97959183673478 0 E 170 400 420 450
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Flat browsing
+LANG:10004 12 平面浏览
+LANG:10000 13 Flat browsing
+LANG:10027 27 Плоский список
+14 47
+"servername"
+""
+1 19 24 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 23 550 49
+2 "0s" 0 0 0 0 0 -1  E E E
+13 4
+"cmdCancel"
+""
+1 473 449 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  473 448 561 476
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}
+" 0
+ E E E
+13 48
+"cmdGetList"
+""
+1 35 416.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  33 373 121 401
+
+T 
+4
+LANG:10001 12 Filter items
+LANG:10004 12 过滤项目
+LANG:10000 12 Filter Items
+LANG:10027 12 Фильтр
+"main()
+{
+  int        i;
+  string     sFilter = txtFilter.text;
+  dyn_float  dfAnswer;
+  dyn_string dsAnswer;
+
+  gOpcHier = false;
+  strreplace(sFilter, \" )\", \"\");
+  strreplace(sFilter, \"( Filter = \", \"\");
+
+  ChildPanelOnCentralModalReturn(\"para/address_opc_itemFilter.pnl\",
+                                 \"Filter\",
+                                 makeDynString($1, sFilter),
+                                 dfAnswer, dsAnswer);
+
+  if ( !dfAnswer[1] )
+  {
+    opcSetButtonsEnabled(TRUE);
+    return;
+  }
+
+  opcSetButtonsEnabled(FALSE);
+
+  sFilter = dsAnswer[1];
+
+  opcSetTreeItemIds(sFilter);
+
+  txtFilter.text = \"( Filter = \" + sFilter + \" )\";
+  opcSetButtonsEnabled(TRUE);
+}
+
+" 0
+ E E E
+13 52
+"cmdGetStructure"
+""
+1 395 417 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  393 373 481 401
+
+T 
+4
+LANG:10001 6 Reload
+LANG:10004 6 刷新
+LANG:10000 9 Neu Laden
+LANG:10027 6 Reload
+"main()
+{
+  dyn_string ds;
+
+  ds = makeDynString(\"readable/writeable\", \"\");
+
+  opcSetButtonsEnabled(FALSE);
+  opcTree.enabled = false;
+  opcTree.clear();
+
+
+  gOpcInit = true;
+  gOpcHier = true;
+  gOpcHierReset = true;
+
+  string serverName = $1;
+  opcActiveHostDp(serverName);
+
+  dpSet(\"_\" + serverName + \".BrowseInfo.GetBranch:_original.._value\", ds);
+}
+
+" 0
+ E E E
+13 53
+"cmdOk"
+""
+1 383 449 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  383 448 471 476
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  closeAndReturn();
+}
+" 0
+ E E E
+13 54
+"cmdHelp"
+""
+1 8 449 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 448 96 476
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"opc_items\");
+}
+" 0
+ E E E
+13 57
+"cmdReloadList"
+""
+1 125 416.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Reload items
+LANG:10004 6 刷新
+LANG:10000 15 Items neu laden
+LANG:10027 36 Перезагрузить эл-ты
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  123 373 211 401
+
+T 
+4
+LANG:10001 6 Reload
+LANG:10004 6 刷新
+LANG:10000 9 Neu laden
+LANG:10027 17 Перезагр.
+"main()
+{
+  int        i;
+  string     sFilter = txtFilter.text;
+  dyn_float  dfAnswer;
+  dyn_string dsAnswer;
+
+  gOpcHier = false;
+  opcSetButtonsEnabled(FALSE);
+  strreplace(sFilter, \" )\", \"\");
+  strreplace(sFilter, \"( Filter = \", \"\");
+
+  string serverName = $1;
+  opcActiveHostDp(serverName);
+
+  time tBeforeSetting, tAfterSetting;
+  dpGet(\"_\" + serverName + \".ItemIds:_original.._stime\", tBeforeSetting);
+  dpSetWait(\"_\" + serverName + \".GetItemIds:_original.._value\", true);
+  dpGet(\"_\" + serverName + \".ItemIds:_original.._stime\", tAfterSetting);
+
+  while(tBeforeSetting>=tAfterSetting)
+  {
+    delay(0,100);
+    dpGet(\"_\" + serverName + \".ItemIds:_original.._stime\", tAfterSetting);
+  }
+
+  opcSetTreeItemIds(sFilter);
+  opcSetButtonsEnabled(TRUE);
+}
+
+" 0
+ E E E
+29 66
+"opcTree"
+""
+1 20 90 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  20 90 545 350
+10 TreeWidget
+2
+0 "expanded" "(string id)"
+"  if ( !gOpcInit )
+  {
+    dyn_string childs;
+
+    childs = opcTree.children(id);
+    if ( dynlen(childs) == 0 )
+    {
+      string serverName = $1;
+      opcActiveHostDp(serverName);
+
+      dyn_string ds = makeDynString(\"readable/writeable\", id);
+      dpSet( \"_\" + serverName + \".BrowseInfo.GetBranch:_original.._value\", ds);
+
+      this.enabled(false);
+      this.updatesEnabled(false);
+    }
+  }"
+0 "doubleClicked" "(string id, int column)"
+"  closeAndReturn();"
+E1 67 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 20 440 T 25 1.192384769539078 0 1 -33.8476953907816 0
+0
+0

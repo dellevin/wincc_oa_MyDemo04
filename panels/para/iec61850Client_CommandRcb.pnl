@@ -1,0 +1,883 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1000 470 N "_3DFace" 4
+"$cmdDp"
+"$ctlObj"
+"$ied"
+"$src"
+"main()
+{
+  if ( isDollarDefined(\"$ied\") )
+    sIed = $ied;
+  if ( isDollarDefined(\"$ctlObj\") )
+    sCtlObj = $ctlObj;
+  if ( isDollarDefined(\"$cmdDp\") )
+    sCmdDp = $cmdDp;
+  if ( isDollarDefined(\"$src\") )
+    iSrc = $src;
+
+  getRcbsFromCtlObj();
+}
+" 0
+ E E E E 1 -1 -1 0  60 90
+""0  1
+E "string sIed, sCtlObj, sCmdDp;
+int iSrc;
+mapping mDsData;
+dyn_bool dbUse;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getRcbsFromCtlObj()
+{
+  setTableView();
+
+  if ( sIed == \"\" )
+    return;
+
+  showWaitModule(true);
+
+  ptCtlObjData.text = sCtlObj;
+
+  dyn_string dsCfgDatasets, dsCfgDatasetTags, dsDatasetTags;
+  dyn_string dsCfgRcbs, dsCfgRcbDps;
+  dyn_string dsRcbs, dsRcbDps;
+
+  dyn_string dsRcbDsDpes, dsRcbDsVals;
+
+  dyn_string dsRcbStDpes;
+  dyn_uint duiRcbStVals;
+
+  dyn_string dsRcbToDpes;
+  dyn_bit32 db32RcbToVals;
+
+
+  string sCtlObjDo;
+  dyn_string dsCtlObjDo = strsplit(sCtlObj, \"$\");
+
+  for ( int i = 1; i <= 3; i++ )
+    sCtlObjDo += dsCtlObjDo[i] + \"$\";
+
+  sCtlObjDo = substr(sCtlObjDo, 0, strlen(sCtlObjDo)-1);
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  string sDataset;
+  dyn_string tagsList;
+  int iPos;
+  bool bOk = false;
+
+  if ( dpExists(sIedDp) )
+  {
+    // Initializing objects
+    //iec61850_DatasetPnl_initializeObjects(); // Commented by Chandrashekar. Dynamic dataset objects shall be visible always..
+
+    dyn_string memberLocList;
+    dyn_dyn_string ddsElementTagsList;
+
+    dpGet(sIedDp + IEC61850_DPE_IDP_TAGSLIST, tagsList);
+
+    iec61850_browse_FCD_FCDA_tagsInfo(tagsList, memberLocList, ddsElementTagsList);
+
+    //strip [x] on the end of each line of memberLocList e.g. ED2_REF_IEDLD1/MFLK1$MX$PhPdmWav$phsAHar[2]
+    for (int i = 1; i <= dynlen(memberLocList); ++i)
+    {
+      if (strpos(memberLocList[i], \"[\"))
+      {
+        dyn_string elements = strsplit(memberLocList[i], \"$\");
+        string lastElement = elements[dynlen(elements)];
+        int idx = strpos(lastElement, \"[\");
+
+        if (idx >= 0)
+        {
+          elements[dynlen(elements)] = substr(lastElement, 0, idx);
+          memberLocList[i] = strjoin(elements, \"$\");
+        }
+      }
+    }
+
+    // To retrieve datasets for the selected id
+    if ( iec61850_Dataset_getDatasetsList(sIed, dsCfgDatasets) )
+    {
+      for ( int i = 1; i <= dynlen(dsCfgDatasets); i++ )
+      {
+        sDataset = dsCfgDatasets[i];
+
+        // getting dataset members
+        iec61850_Dataset_getDatasetMembersList(sIed, sDataset, dsCfgDatasetTags, 1);
+
+        // getting RCB list configured with dataset
+        iec61850_Dataset_getConfiguredRCBsList(sIed, sDataset, dsCfgRcbs, dsCfgRcbDps, 1);
+
+
+        //dynAppend(dsDatasetTags, dsCfgDatasetTags);
+        mDsData[sDataset] = dsCfgDatasetTags;
+
+        dynAppend(dsRcbs, dsCfgRcbs);
+        dynAppend(dsRcbDps, dsCfgRcbDps);
+      }
+    }
+
+    if ( dynlen(dsRcbDps) > 0 )
+    {
+      for ( int i = 1; i <= dynlen(dsRcbDps); i++ )
+      {
+        dsRcbDsDpes[i] = dsRcbDps[i] + IEC61850_DPE_RCB_DATSET;
+        dsRcbStDpes[i] = dsRcbDps[i] + IEC61850_DPE_RCB_RCBSTATE;
+        dsRcbToDpes[i] = dsRcbDps[i] + IEC61850_DPE_RCB_TRGOPTS;
+      }
+
+      dpGet(dsRcbDsDpes, dsRcbDsVals,
+            dsRcbStDpes, duiRcbStVals,
+            dsRcbToDpes, db32RcbToVals);
+    }
+
+    bool bRcbList = false;
+    bool bDsList = false;
+
+    for ( int i = 1; i <= dynlen(dsRcbDps); i++ )
+    {
+      if ( mappingHasKey(mDsData, dsRcbDsVals[i]) && dynContains(mDsData[dsRcbDsVals[i]], sCtlObjDo) )
+      {
+        bRcbList = true;
+        bool bStAct = ( duiRcbStVals[i] == 2 );
+        bool bToDc = getBit(db32RcbToVals[i], IEC61850_RCB_BIT_TRGOPTS_DATACHG);
+        bool bToGi = getBit(db32RcbToVals[i], IEC61850_RCB_BIT_TRGOPTS_GI);
+
+        //bool bUse = bStAct && bToDc && bToGi;
+        bool bAsgnd = false;
+
+        if ( iSrc == 0 )
+        {
+          string sRcbDp;
+
+          if ( dpExists(sCmdDp) )
+          {
+            dpGet(sCmdDp + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_RCBDP, sRcbDp);
+
+            if ( sRcbDp != \"\" && dsRcbDps[i] == sRcbDp )
+            {
+              bAsgnd = true;
+              bOk = true;
+            }
+          }
+        }
+
+        //dynAppend(dbUse, bUse);
+        dynAppend(dbUse, true);
+
+        string sState = ( bStAct ? \"Yes\" : \"No\" );
+        string sToDc  = ( bToDc ?  \"Yes\" : \"No\");
+        string sToGi  = ( bToGi ?  \"Yes\" : \"No\");
+
+        tabSelectRcb.appendLine(\"#1\", dsRcbDsVals[i],
+                                \"#2\", dsRcbs[i],
+                                \"#3\", sState,
+                                \"#4\", sToDc,
+                                \"#5\", sToGi,
+                                \"#6\", bAsgnd,
+                                \"#7\", dsRcbDps[i]);
+
+        //int iLineCount;
+        //getValue(\"tabSelectRcb\", \"lineCount\", iLineCount);
+
+        //if ( !bUse )
+        //  for ( int i = 1; i <= 6; i++ )
+        //    tabSelectRcb.cellForeColRC(iLineCount-1, \"#\" + i, \"grey\");
+      }
+    }
+
+    if ( bRcbList == false )
+    {
+      dynClear(dbUse);
+      int iDsCount = 0;
+      for ( int i = 1; i <= dynlen(dsCfgDatasets); i++ )
+      {
+        if ( mappingHasKey(mDsData, dsCfgDatasets[i]) && dynContains(mDsData[dsCfgDatasets[i]], sCtlObjDo) )
+        {
+          bDsList = true;
+
+
+
+          dynAppend(dbUse, false);
+          tabSelectRcb.appendLine(\"#1\", dsCfgDatasets[i],
+                                  \"#2\", \"Please configure an RCB with this dataset!\",
+                                  \"#3\", \"-\",
+                                  \"#4\", \"-\",
+                                  \"#5\", \"-\",
+                                  \"#6\", false,
+                                  \"#7\", \"\");
+
+          tabSelectRcb.cellForeColRC(iDsCount, \"#2\", \"red\");
+          iDsCount++;
+        }
+      }
+
+
+      if ( bDsList == false )
+      {
+        dynClear(dbUse);
+        dynAppend(dbUse, false);
+        tabSelectRcb.appendLine(\"#1\", \"Please add the controlled object to a dataset!\",
+                                \"#2\", \"-\",
+                                \"#3\", \"-\",
+                                \"#4\", \"-\",
+                                \"#5\", \"-\",
+                                \"#6\", false,
+                                \"#7\", \"\");
+
+        tabSelectRcb.cellForeColRC(0, \"#1\", \"red\");
+      }
+    }
+  }
+
+  showWaitModule(false);
+  pbOK.enabled = bOk;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTableView()
+{
+  setMultiValue(\"tabSelectRcb\", \"alternatingRowColors\",  makeDynString(\"_AlternatingRowColorLight\", \"_AlternatingRowColorDark\"),
+                //\"tabSelectRcb\", \"tableMode\",             TABLE_SELECT_LINE,
+                //\"tabSelectRcb\", \"selectByClick\",         TABLE_SELECT_LINE,
+                \"tabSelectRcb\", \"enableColumnResize\",    0,
+                \"tabSelectRcb\", \"enableRowResize\",       0,
+                \"tabSelectRcb\", \"sortOnClick\",           0,
+                \"tabSelectRcb\", \"columnEditable\",        0, 0,
+                \"tabSelectRcb\", \"columnEditable\",        1, 0,
+                \"tabSelectRcb\", \"columnEditable\",        2, 0,
+                \"tabSelectRcb\", \"columnEditable\",        3, 0,
+                \"tabSelectRcb\", \"columnStretchable\",     1,  1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(960, 200);
+  dyn_int diBcPos  = makeDynInt( 20, 200);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(430, 340);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+
+  setMultiValue(\"pbOK\",         \"enabled\", !bVisible,
+                \"pbClose\",      \"enabled\", !bVisible,
+                \"tabSelectRcb\", \"enabled\", !bVisible);
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"tabSelectRcb"
+""
+1 60 255 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+0  18 198 981 401
+E"main(int row, string column, string value)
+{
+  dyn_string dsRowData = tabSelectRcb.getLineN(row);
+
+  int iLineCount;
+  getValue(\"tabSelectRcb\", \"lineCount\", iLineCount);
+
+  dyn_dyn_string ddsTabData;
+  for ( int i = 1; i <= iLineCount; i++ )
+    ddsTabData[i] = tabSelectRcb.getLineN(i-1);
+
+  if ( column == \"#6\" && dbUse[row+1] )
+  {
+    for ( int i = 1; i <= iLineCount; i++ )
+      tabSelectRcb.cellValueRC(i-1, column, false);
+
+    tabSelectRcb.cellValueRC(row, column, ( dsRowData[6] == false ) ? true : false );
+
+    for ( int i = 1; i <= iLineCount; i++ )
+      ddsTabData[i] = tabSelectRcb.getLineN(i-1);
+
+    dyn_bool dbEnabled;
+    for ( int i = 1; i <= dynlen(ddsTabData); i++ )
+      dynAppend(dbEnabled, ddsTabData[i][6]);
+
+    dynUnique(dbEnabled);
+    pbOK.enabled = ( dynlen(dbEnabled) > 1 || dbEnabled[1] == true );
+  }
+}
+
+" 0
+ 1 0 1 7 0 "#1" 32 1 0 "s" 4
+LANG:10001 7 Dataset
+LANG:10004 9 数据集
+LANG:10000 9 Datensatz
+LANG:10027 23 Набор данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+301 "#2" 44 1 0 "s" 4
+LANG:10001 3 RCB
+LANG:10004 3 RCB
+LANG:10000 3 RCB
+LANG:10027 3 RCB
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+410 "#3" 4 1 0 "s" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "#4" 8 1 0 "s" 4
+LANG:10001 11 Data change
+LANG:10004 12 改变数据
+LANG:10000 11 Data change
+LANG:10027 31 Изменение данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "#5" 4 1 0 "s" 4
+LANG:10001 2 GI
+LANG:10004 2 GI
+LANG:10000 2 GI
+LANG:10027 2 GI
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "#6" 4 1 0 "s" 4
+LANG:10001 6 Select
+LANG:10004 6 Select
+LANG:10000 7 Selekt.
+LANG:10027 10 Выбор
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "#7" 0 0 0 "s" 4
+LANG:10001 5 rcbdp
+LANG:10004 5 rcbdp
+LANG:10000 5 rcbdp
+LANG:10027 5 rcbdp
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+25 25 10 0
+4
+LANG:10001 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,12,5,50,0,0,0,0,0,Standard
+0 0 2 0 1 7
+1 0
+1 25 0 "" 0
+0
+13 3
+"pbClose"
+""
+1 885 592 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  903 433 991 461
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 6 Cancel
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+" 0
+ E E E
+13 6
+"pbOK"
+""
+1 905 592 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 16777221 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  813 433 901 461
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  string sRcb, sRcbDp;
+
+  int iLineCount;
+  getValue(\"tabSelectRcb\", \"lineCount\", iLineCount);
+
+  dyn_dyn_string ddsTabData;
+  for ( int i = 1; i <= iLineCount; i++ )
+    ddsTabData[i] = tabSelectRcb.getLineN(i-1);
+
+  for ( int i = 1; i <= dynlen(ddsTabData); i++ )
+  {
+    if ( ddsTabData[i][6] == true )
+    {
+      sRcb   = ddsTabData[i][2];
+      sRcbDp = ddsTabData[i][7];
+    }
+  }
+
+  PanelOffReturn(makeDynFloat(1), makeDynString(sRcb, sRcbDp));
+}
+" 0
+ E E E
+30 7
+"frmRcb"
+""
+1 10 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 2.039583333333334 0 0.6159793814432989 -10.39583333333337 173.7680412371134 0 E 10 2 491 391
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 13 RCB selection
+LANG:10004 13 RCB selection
+LANG:10000 11 RCB-Auswahl
+LANG:10027 14 Выбор RCB
+6 11
+"rctInfo"
+""
+1 0 0 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E U  1 E 0 0 999 139
+2 12
+"ptInfoData"
+""
+1 40 430 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.088015593179124 0 0.714975357022214 36.60189519438281 -268.7376485696456 0 E 40 430 904 571
+0 2 2 "0s" 0 0 0 192 0 0  40 430 8
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 148 Use this panel for selecting the RCB, monitoring the controlled value. For selecting an RCB please enable the respective check box in column Select.
+LANG:10004 107 使用此面板选择 RCB，监控控制值。 要选择 RCB，请启用 Select 列中的相应复选框。
+LANG:10000 136 Wählen Sie den RCB, um das Controlled Value zu überwachen. Aktivieren sie dazu bitte die entsprechende Check Box in der Spalte Select.
+LANG:10027 148 Use this panel for selecting the RCB, monitoring the controlled value. For selecting an RCB please enable the respective check box in column Select.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 77 For using the RCB please activate it with trigger options Data change and GI.
+LANG:10004 69 要使用 RCB，请使用触发选项 Data change 和 GI 激活它。
+LANG:10000 93 Um den RCB zu verwenden, aktivieren Sie ihn bitte mit den Triggeroptionen Data change und GI.
+LANG:10027 77 For using the RCB please activate it with trigger options Data change and GI.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 68 Column Dataset lists all data sets containing the controlled object.
+LANG:10004 60 Column Dataset 列出包含受控对象的所有数据集。
+LANG:10000 75 Spalte Dataset zeigt alle Datensätze, die das Controlled Objekt enthalten.
+LANG:10027 68 Column Dataset lists all data sets containing the controlled object.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 86 Column RCB lists all RCBs configured with a data set containing the controlled object.
+LANG:10004 73 Column RCB 列出配置有的所有 RCB 包含受控对象的数据集。
+LANG:10000 107 Spalte RCB zeigt alle RCBs, die mit einem Datensatz, konfiguriert sind, der das Controlled Objekt enthält.
+LANG:10027 86 Column RCB lists all RCBs configured with a data set containing the controlled object.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 117 The columns Active, Data change and GI show the active state of the RCB and the settings of required trigger options.
+LANG:10004 90 Active、Data change 和 GI 列显示 RCB 的运行状态和所需触发选项的设置。
+LANG:10000 132 Die Spalten Aktiv, Data change and GI zeigen den Aktivierungsstatus des RCBs und die Konfiguration der notwendigen Triggeroptionen. 
+LANG:10027 117 The columns Active, Data change and GI show the active state of the RCB and the settings of required trigger options.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 14
+"ptInfoHeader"
+""
+1 40 430 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.395209580838323 0 2.016929906815913 -31.01796407185626 -847.0676683467132 0 E 40 430 217 445
+0 2 2 "0s" 0 0 0 192 0 0  40 430 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 27 Select Report Control Block
+LANG:10004 21 选择报告控制块
+LANG:10000 28 Report Control Block wählen
+LANG:10027 69 Выберите Блок Управления Отчетами (RCB)
+6 18
+"rctHr"
+""
+1 280 100 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.491044776119403 0 1 -417.4925373134329 40 1 E 280 100 950 100
+2 19
+"ptCtlObjDesc"
+""
+1 25.26646706586823 150.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25.26646706586823 150.25 222 165
+0 2 2 "0s" 0 0 0 192 0 0  25.26646706586823 150.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 34 Controlled object to be monitored:
+LANG:10004 21 监控的被控对象
+LANG:10000 31 Überwachtes Controlled Objekt:
+LANG:10027 59 Наблюдаемый управляемый объект:
+2 20
+"ptCtlObjData"
+""
+1 245.0329341317365 150.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 245.0329341317365 150.25 294 165
+0 2 2 "0s" 0 0 0 192 0 0  245.0329341317365 150.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 <ctlobj>
+LANG:10004 8 <ctlobj>
+LANG:10000 8 <ctlobj>
+LANG:10027 8 <ctlobj>
+29 23
+"ewoAe"
+""
+1 35 270 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  20 200 119 299
+19 AttentionEffect.ewo
+0
+E29 24
+"ewoBc"
+""
+1 20 200 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  20 200 119 299
+19 BackgroundCover.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF1" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 35 435 T 1 2.002004008016032 0 1 -70.07014028056112 -10
+0
+0

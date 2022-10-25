@@ -1,0 +1,1327 @@
+V 14
+4
+LANG:10001 20 User characteristics
+LANG:10004 12 用户特征
+LANG:10000 21 Benutzereigenschaften
+LANG:10027 41 Свойства пользователя
+PANEL,-1 -1 401 564 N "WF_PanelBackground" 2
+"$1"
+"$2"
+"private populateLanguageBomboBox()
+{
+  dyn_string languages;
+
+  for (int i = 1; i <= getNoOfLangs(); i++)
+  {
+    languages[i] = getLocale(i - 1);
+  }
+
+  setValue(\"LanguageComboBox\", \"items\", languages);
+}
+
+private populateNotMemberOfListBox()
+{
+  dyn_anytype allGroups = g_um.getAllGroups();
+
+  for (int i = 1; i <= dynlen(allGroups); i++)
+  {
+    shared_ptr<UserManagementGroup> group = allGroups[i];
+    NotMemberOfListBox.appendItem(group.getName());
+  }
+}
+
+private void loadLanguage(shape comboBox, string language)
+{
+  for (int i = 1; i <= comboBox.itemCount(); i++)
+  {
+    string language_i = comboBox.items[i];
+
+    if (language_i == language)
+    {
+      LanguageComboBox.selectedPos(i);
+      return;
+    }
+  }
+}
+
+private void loadGroups()
+{
+  if (g_user == nullptr)
+    return; // new user has no groups assiciated yet
+
+  dyn_anytype groups = g_user.getGroups(g_um);
+
+  for (int i = 1; i <= dynlen(groups); i++)
+  {
+    shared_ptr<UserManagementGroup> group = groups[i];
+    string groupName = group.getName();
+
+    // add group to MemberOfListBox
+    MemberOfListBox.appendItem(groupName);
+
+    // remove from NotMemberOfListBox
+    for (int j = 1; j <= NotMemberOfListBox.itemCount(); j++)
+    {
+      if (NotMemberOfListBox.items[j] == groupName)
+      {
+        NotMemberOfListBox.deletePos(j);
+        break;
+      }
+    }
+  }
+}
+
+private bool loadValues(bool createUser, string userName)
+{
+  populateLanguageBomboBox();
+  populateNotMemberOfListBox();
+
+  g_user = nullptr;
+
+  if (!createUser)
+  {
+    if(userName == \"\")
+    {
+      return false;
+    }
+
+    g_user = g_um.getUserByName(userName);
+
+    if(g_user == nullptr)
+    {
+      return false;
+    }
+
+    UserNameTextBox.text = g_user.getName();
+
+    txt_password.text = \"********\";
+    txt_password.enabled(false);
+    btn_generatePassword.enabled(false);
+    btn_togglePasswordVisible.enabled(false);
+
+    FullNameTextBox.text = g_user.getFullName();
+    CommentTextBox.text = g_user.getComment();
+    loadLanguage(getShape(\"LanguageComboBox\"), g_user.getLanguage());
+    loadGroups();
+  }
+
+  return true;
+}
+
+private ChangePasswordButtonInit()
+{
+  mixed auth;
+  bool enable = FALSE;
+  int userid = getUserId();
+  OaAuthFactory factory;
+
+  auth = factory.getAuth();
+
+  string osId;
+  shared_ptr<UserManagementUser> user = g_um.getUserByName($1);
+  if (user != nullptr)
+  {
+    osId = user.getOSID();
+  }
+
+  if(auth.passwordResetEnabled() || (userid == 0 && $1 == \"root\") ) // password change should only be possible for root user on root user
+  {
+    enable = TRUE;
+  }
+  else if (((userid == 0) || (userid == getUserId($1))) && (osId == \"\")) // root or self can change the fallback user's password
+  {
+    enable = TRUE;
+  }
+
+  ChangePasswordButton.enabled(enable);
+}
+
+
+// $1 user name, \"\" if creating new user
+// $2 mod == modify, new == creating new user
+void main()
+{
+  if($2 == \"mod\")
+  {
+    g_CreatingNewUser = false;
+  }
+  else if($2 == \"new\")
+  {
+    g_CreatingNewUser = true;
+  }
+  else
+  {
+    string errMsg = getCatStr(\"userMan\", \"userPanelWrongParam\");
+    strreplace(errMsg, \"$2\", $2);
+
+    ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(errMsg));
+
+    return;
+  }
+
+  g_um = nullptr;
+  g_um = UserManagement::getInstance();
+
+  if(!loadValues(g_CreatingNewUser, $1))
+  {
+    OkayButton.enabled(false); // enure that user can't corrupt user DP
+    ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(getCatStr(\"userMan\", \"userLoadError\")));
+    return;
+  }
+
+  if(g_CreatingNewUser)
+  {
+    setInputFocus(myModuleName(), myPanelName(), \"UserNameTextBox\");
+  }
+  else
+  {
+    setInputFocus(myModuleName(), myPanelName(), \"FullNameTextBox\");
+    UserNameTextBox.enabled(false);
+    ChangePasswordButton.visible(true);
+  }
+
+  ChangePasswordButtonInit();
+}
+" 0
+ E E E E 1 -1 -1 0  10 20
+"refFileName"0  1
+E "#uses \"classes/userManagement/UserManagement\"
+#uses \"classes/userManagement/UserManagementHooks\"
+
+shared_ptr<UserManagement> g_um;
+shared_ptr<UserManagementUser> g_user;
+bool g_CreatingNewUser;
+
+void cmdClose()
+{
+  PanelOff();
+}
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 0 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 87
+"txt_userProperties"
+"WF"
+1 10 9 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 12 10 110 25
+0 2 2 "0s" 0 0 0 192 0 0  12 10 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 15 User properties
+LANG:10004 12 用户属性
+LANG:10000 21 Benutzereigenschaften
+LANG:10027 41 Свойства пользователя
+2 1
+"UserNameLabel"
+"WF"
+1 13 30 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 31 84 46
+0 2 2 "0s" 0 0 0 192 0 0  15 31 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 User name:
+LANG:10004 12 用户名：
+LANG:10000 13 Benutzername:
+LANG:10027 25 Пользователь:
+2 3
+"LanguageLabel"
+"WF"
+1 13 226 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 227 77 242
+0 2 2 "0s" 0 0 0 192 0 0  15 227 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Language:
+LANG:10004 6 语言
+LANG:10000 8 Sprache:
+LANG:10027 9 Язык:
+2 21
+"FullNameLabel"
+"WF"
+1 13 128 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 129 78 144
+0 2 2 "0s" 0 0 0 192 0 0  15 129 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Full name:
+LANG:10004 9 全名：
+LANG:10000 20 Vollständiger Name:
+LANG:10027 20 Полное имя:
+2 23
+"CommentLabel"
+"WF"
+1 13 177 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 178 86 193
+0 2 2 "0s" 0 0 0 192 0 0  15 178 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 9 描述：
+LANG:10000 10 Kommentar:
+LANG:10027 17 Описание:
+14 22
+"FullNameTextBox"
+"WF"
+1 15 146 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 146 386.9972972972973 175
+3 "0s" 0 0 0 0 0 -1  E E E
+22 5
+"LanguageComboBox"
+"WF"
+1 15 202 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 244 177 271
+0
+
+E
+"main()
+{
+  setInputFocus(myModuleName(), myPanelName(), \"NotMemberOfListBox\");
+}" 0
+
+E
+ 0 0
+14 24
+"CommentTextBox"
+"WF"
+1 15 195 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 195 386.9972972972973 224
+3 "0s" 0 0 0 0 0 -1  E E E
+13 8
+"ChangePasswordButton"
+"WF"
+1 -154 530.4764535648512 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Change password
+LANG:10004 12 更改密码
+LANG:10000 16 Paßwort ändern
+LANG:10027 27 Сменить пароль
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  121 529 209 557
+
+T 
+4
+LANG:10001 8 Password
+LANG:10004 6 密码
+LANG:10000 8 Passwort
+LANG:10027 12 Пароль
+"main(mapping event)
+{
+  // IM 103973 mjeidler - change password via changePassword.pnl
+  dyn_string ds;
+  dyn_float df;
+
+  // IM 104994 the chg password panel needs the user name
+  ChildPanelOnCentralModalReturn(
+      \"vision/changePassword.pnl\",
+      getCatStr(\"STD\", \"changepassword\"),
+      makeDynString(\"$username:\" + UserNameTextBox.text), df, ds);
+}" 0
+ E E "main()
+{
+}
+" 0
+
+14 0
+"UserNameTextBox"
+"WF"
+1 20.01351351351351 48 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E "main()
+{
+  string username = this.text();
+  string errMsg = getCatStr(\"userMan\", \"invalidUserName\");
+
+  if(!UserManagementHooks::checkUserName(username, errMsg))
+  {
+    this.toolTipText(errMsg);
+    this.backCol(\"WF_Error\");
+  }
+  else
+  {
+    this.toolTipText(\"\");
+    this.backCol(\"WF_Info\");
+  }
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 48 386.9972972972973 77
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  setInputFocus(myModuleName(), myPanelName(), \"FullNameTextBox\");
+}
+" 0
+
+13 15
+"CancelButton"
+"WF"
+1 402 539 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 19 Exit without saving
+LANG:10004 15 退出不保存
+LANG:10000 25 Schließen ohne speichern
+LANG:10027 19 Exit without saving
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  299 529 387 557
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}
+" 0
+ E E E
+13 16
+"OkayButton"
+"WF"
+1 220 539 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Save and quit
+LANG:10004 12 保存退出
+LANG:10000 24 Speichern und schließen
+LANG:10027 13 Save and quit
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  210 529 298 557
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"private int saveValues(bool createUser, string userName, string password)
+{
+  if(createUser)
+  {
+    int error = um_verifyUserName(userName);
+    string message;
+
+    if(error == -1)
+    {
+      message = getCatStr(\"userMan\", \"emptyUserNameNotAllowed\");
+    }
+    else if(error == -2)
+    {
+      message = getCatStr(\"userMan\", \"invalidUserName\");
+    }
+
+    if(message != \"\")
+    {
+      ChildPanelOnCentralModal(
+        \"vision/MessageWarning\",
+        getCatStr(\"general\", \"warning\"),
+        makeDynString(message));
+      return -1;
+    }
+
+    if(password == \"\")
+    {
+      ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(getCatStr(\"userMan\", \"emptyPasswordNotAllowed\")));
+      return -1; // empty password is not allowed
+    }
+
+    if(!UserManagementHooks::checkPasswordQuality(password, message))
+    {
+      ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(message));
+      return -1; // empty password is not allowed
+    }
+
+    shared_ptr<UserManagementUser> user = g_um.getUserByName(userName);
+
+    if (user != nullptr)
+    {
+      ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(getCatStr(\"general\", \"existuser\")));
+      return -1; // a user with that name already exists
+    }
+
+    g_user = new UserManagementUser(userName);
+    g_user.setPassword(password);
+  }
+
+  if (g_user == nullptr)
+  {
+    return -1; // there is something wrong ...
+  }
+
+  g_user.setFullName(FullNameTextBox.text);
+  g_user.setComment(CommentTextBox.text);
+  g_user.setLanguage(LanguageComboBox.selectedText);
+
+  return 0;
+}
+
+private bool setGroupsForUser(unsigned userID)
+{
+  if(userID == 0)
+  {
+    return true;
+  }
+
+  int errorCode;
+  umSetGroupsForUser(userID, MemberOfListBox.items(), errorCode);
+
+  return errorCode == 0;
+}
+
+private string getCannotAddOrModifyCat()
+{
+  if (g_CreatingNewUser)
+    return \"cannotadd\";
+
+  return \"cannotmodify\";
+}
+
+private void displayCantAddOrModifyMessage(const dyn_string &errorList)
+{
+  ChildPanelOnCentralModal(
+      \"vision/MessageWarning\",
+      getCatStr(\"general\", \"warning\"),
+      makeDynString(getCatStr(\"userMan\", getCannotAddOrModifyCat())+ \"\\n\" + strjoin(errorList, \"\\n\")));
+}
+
+void main()
+{
+  int result = saveValues(g_CreatingNewUser, UserNameTextBox.text, txt_password.text);
+
+  if(result != 0)
+  {
+    return;
+  }
+
+  if(g_CreatingNewUser)
+  {
+    g_um.addUser(g_user);
+  }
+
+  dyn_string errorList;
+
+  if(g_um.saveChangesError(errorList))
+  {
+    // umSetGroupsForUser() (called by setGroupsForUser) does its own um.saveChanges()!
+    if(!setGroupsForUser(g_user.getId()))
+    {
+      displayCantAddOrModifyMessage(errorList);
+    }
+    else
+    {
+      PanelOff();
+    }
+  }
+  else
+  {
+    displayCantAddOrModifyMessage(errorList);
+  }
+}
+" 0
+ E E E
+13 48
+"OpenHelpButton"
+"WF"
+1 116 539 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 11 Online help
+LANG:10004 12 在线帮助
+LANG:10000 12 Online Hilfe
+LANG:10027 11 Online help
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 529 101 557
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"ud_users\", true);
+}
+" 0
+ E E E
+13 73
+"UserSettingsButton"
+"WF"
+1 359 244 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  359 244 387 272
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  ChildPanelOnCentralModal(
+      \"vision/uss_defineSettings.pnl\",
+      \"\",
+      makeDynString(\"$s_settingsType:_usr\", \"$s_user:\" + UserNameTextBox.text()));
+}" 0
+ E E E
+2 74
+"UserSettingsLabel"
+"WF"
+1 352 250 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 275 250 352 265
+0 2 2 "0s" 0 0 0 194 0 0  352 250 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 User settings
+LANG:10004 12 用户配置
+LANG:10000 21 Benutzereinstellungen
+LANG:10027 24 Инд. свойства
+2 77
+"InitialPasswordLabel"
+"WF"
+1 13 79 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 80 110 95
+0 2 2 "0s" 0 0 0 192 0 0  15 80 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Initial password:
+LANG:10004 18 初始化密码：
+LANG:10000 19 Initiales Passwort:
+LANG:10027 13 Пароль:
+14 78
+"txt_password"
+"WF"
+1 19.6747574722124 94 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E "main()
+{
+  string password = this.text();
+  string errMsg = getCatStr(\"userMan\", \"emptyPasswordNotAllowed\");
+
+  if(!UserManagementHooks::checkPasswordQuality(password, errMsg))
+  {
+    this.toolTipText(errMsg);
+    this.backCol(\"WF_Error\");
+  }
+  else
+  {
+    this.toolTipText(\"\");
+    this.backCol(\"WF_Info\");
+  }
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 97 361.9971014492754 126
+3 "0S" 0 0 0 0 0 -1  E E E
+2 88
+"txt_groupMembership"
+"WF"
+1 10 279.5 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 12 280.5 136 296
+0 2 2 "0s" 0 0 0 192 0 0  12 280.5 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 16 Group membership
+LANG:10004 9 组成员
+LANG:10000 21 Gruppenmitgliedschaft
+LANG:10027 34 Членство в группах
+6 89
+"rect_BtnBottomBar"
+""
+1 0 520 E E E 1 E 1 E N {0,0,0} E N "WF_BtnBottomPanelBack" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E 1.052654980433148 0 1 0 0 1 E 0 520 380 570
+13 93
+"btn_generatePassword"
+"WF"
+1 167 378 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 97 387 126
+
+P 
+4294967295
+"pictures/wf/buttons/reload.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string password, errMsg;
+  if(UserManagementHooks::generateInitialPassword(password, errMsg))
+  {
+    txt_password.text(password);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(
+          \"vision/MessageWarning\",
+          getCatStr(\"general\", \"warning\"),
+          makeDynString(errMsg));
+    return;
+  }
+
+  if(!UserManagementHooks::checkPasswordQuality(password, errMsg))
+  {
+    txt_password.toolTipText(errMsg);
+    txt_password.backCol(\"WF_Error\");
+  }
+  else
+  {
+    txt_password.toolTipText(\"\");
+    txt_password.backCol(\"WF_Info\");
+  }
+
+  string path = getPath(ICONS_REL_PATH, \"cns/dont_read_20_dis.png\");
+  btn_togglePasswordVisible.buttonUpPixmap(path);
+  txt_password.format(\"[0s,,,AlignLeft]\");
+  btn_togglePasswordVisible.toggleState(TRUE);
+}
+" 0
+ E E E
+13 94
+"btn_togglePasswordVisible"
+"WF_Transparent"
+1 236 45 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+53 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"isToggle" ""
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  333 97 362 126
+
+P 
+4294967295
+"pictures/cns/read_20_dis.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 12 PUSH_BUTTON2
+LANG:10027 12 PUSH_BUTTON2
+"main(mapping event)
+{
+  if(this.toggleState())
+  {
+    string path = getPath(ICONS_REL_PATH, \"cns/dont_read_20_dis.png\");
+    this.buttonUpPixmap(path);
+    txt_password.format(\"[0s,,,AlignLeft]\");
+  }
+  else
+  {
+    string path = getPath(ICONS_REL_PATH, \"cns/read_20_dis.png\");
+    this.buttonUpPixmap(path);
+    txt_password.format(\"[0S,,,AlignLeft]\");
+  }
+}" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+2 35
+"MemoberOfLabel"
+"WF"
+1 15 302 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 17 303 84 318
+0 2 2 "0s" 0 0 0 192 0 0  17 303 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Member of:
+LANG:10004 9 成员：
+LANG:10000 13 Mitglied von:
+LANG:10027 18 Включен в:
+2 36
+"NotMemberOfLabel"
+"WF"
+1 227 302 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 229 303 320 318
+0 2 2 "0s" 0 0 0 192 0 0  229 303 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Not member of:
+LANG:10004 16 不是该成员:
+LANG:10000 19 Nicht Mitglied von:
+LANG:10027 23 Не включен в:
+17 37
+"MemberOfListBox"
+"WF"
+1 15 320.0138852348796 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 318.524861878453 176 506.4764535648512
+0
+
+E
+E
+E
+
+0 0
+13 39
+"AddGroupMembershipButton"
+"WF"
+1 168 387 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  186 385 214 413
+
+P 
+4294967295
+"pictures/wf/buttons/previous.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int selectedPos = NotMemberOfListBox.selectedPos;
+
+  if (selectedPos < 1)
+  {
+    ChildPanelOnCentralModal(
+        \"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"para\",\"nolineselected\")));
+    return;
+  }
+
+  // NotMemberOfListBox --> MemberOfListBox
+  string groupNameToMove = NotMemberOfListBox.selectedText;
+  NotMemberOfListBox.deletePos(selectedPos);
+  MemberOfListBox.appendItem(groupNameToMove);
+}" 0
+ E E E
+13 40
+"RemoveGroupMembershipButton"
+"WF"
+1 168 415 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  186 413 214 441
+
+P 
+4294967295
+"pictures/wf/buttons/next.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int selectedPos = MemberOfListBox.selectedPos;
+
+  if (selectedPos < 1)
+  {
+    ChildPanelOnCentralModal(
+        \"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"para\",\"nolineselected\")));
+    return;
+  }
+
+  // MemberOfListBox --> NotMemberOfListBox
+  string groupNameToMove = MemberOfListBox.selectedText;
+  MemberOfListBox.deletePos(selectedPos);
+  NotMemberOfListBox.appendItem(groupNameToMove);
+}" 0
+ E E E
+17 38
+"NotMemberOfListBox"
+"WF"
+1 202 320.9999999999999 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  224 318.9999999999999 387 505.9834254143645
+0
+
+E
+E
+E
+
+0 0
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

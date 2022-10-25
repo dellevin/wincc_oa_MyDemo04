@@ -1,0 +1,2799 @@
+V 14
+4
+LANG:10001 16 btn_calc_cluster
+LANG:10004 16 btn_calc_cluster
+LANG:10000 16 btn_calc_cluster
+LANG:10027 16 btn_calc_cluster
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+    dyn_string resultString;
+    dyn_float resultFloat;
+    tbl_classificationSession.enabled(false);
+    WebView_ewo1.visible(false);
+    btn_removeLine.enabled(false);
+    btn_removedpe.enabled(false);
+    tbl_dpe.acceptDrops(false);
+    txt_model.enabled(false);
+    combobox_dataMiningSession.enabled(false);
+    btn_refresh.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+
+  if(g_currentKmModel == \"\")
+  {
+    g_currentKmModel = temp_km;
+    g_currentRfModel = temp_rf;
+  }
+  initPanel(true);
+  passedParameters();
+
+  panelChanged = false;
+  wf_bottomBar_reload();
+}
+
+" 0
+ E "main(int x, int y)
+{
+  if(txt_model.text == model_rf_prefix) {
+    initModelField();
+  }
+}
+
+
+" 0
+ E E 1 -1 -1 0  140 380
+""0  1
+E "#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+const string model_rf_prefix = \"rf_\";
+const string model_km_prefix = \"km_\";
+const string model_temp_DP = \"temp\";
+const string temp_km = \"km_temp\";
+const string temp_rf = \"rf_temp\";
+const int SSC_PRECISION = 2;
+
+bool stopCalculationClassification1 = false;
+bool panelChanged = false;
+bool loseChanges = false;
+
+string rf_nameDP;
+string km_nameDP;
+string model_tempStr = \"Enter session name and save\";
+
+//Consume passed parameters
+void passedParameters()
+{
+  if(strlen(g_dmSession) > 0)
+  {
+    loadDataMiningSession(1);
+    g_dmSession = \"\";
+  }
+}
+
+int SaveSession()
+{
+  dyn_string resultString;
+  dyn_float resultFloat;
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"Save Classification Session\",
+                                     makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"cl00038\"),
+                                                   \"$2:\"+getCatStr(\"general\", \"yes\"), \"$3:\"+getCatStr(\"general\", \"no\")),
+                                     resultFloat,
+                                     resultString);
+
+  if(\"true\"==resultString[1])
+  {
+    float emptyOOB;
+    dyn_float centers;
+    dyn_uint cVector;
+    dyn_int labelMapping = makeDynInt(0,0,0);
+    dyn_string emptyMatrix, emptyHeaders;
+    blob emptyBlob;
+    time fromTime, toTime, from, to;
+    dpSet(g_currentKmModel + SSC_MDKM_CENTERS, centers,
+          g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, cVector,
+          g_currentKmModel + SSC_MDKM_LABEL_MAPPING, labelMapping,
+          g_currentKmModel + \".labelsetRef\", \"std_labelset\",
+          g_currentRfModel + \".confusionMatrix.elements\", emptyMatrix,
+          g_currentRfModel + \".confusionMatrix.rowHeaders\", emptyMatrix,
+          g_currentRfModel + \".confusionMatrix.columnHeaders\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.elements\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.rowHeaders\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.columnHeaders\", emptyMatrix,
+          g_currentRfModel + \".labelsetRef\", \"std_labelset\",
+          g_currentRfModel + \".labelVector\", labelMapping,
+          g_currentRfModel + \".headers\", emptyHeaders,
+          g_currentRfModel + \".outOfBagError\", emptyOOB);
+    //delete model of model
+    string sys = getSystemName();
+    string query = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+          \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + g_currentRfModel + \"\\\"\";
+    string sysQuery = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+          \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + sys+g_currentRfModel + \"\\\"\";
+    dyn_dyn_anytype resultQuery, resultSystemQuery;
+
+    if (dpQuery(query, resultQuery) == 0)
+    {
+      if(dpQuery(sysQuery, resultSystemQuery) == 0)
+      {
+        dynAppend(resultQuery, resultSystemQuery);
+
+        for(int j = 3; j <= dynlen(resultQuery); j++)
+        {
+          dpSet(dpSubStr(resultQuery[j][1], DPSUB_DP) + \".model\", emptyBlob);
+        }
+      }
+    }
+    //save time
+    getValue(\"dt_from_time\", \"time\", fromTime);
+    getValue(\"dt_to_time\", \"time\", toTime);
+    from = dt_from_date.date() + fromTime;
+    to = dt_to_date.date() + toTime;
+    setTimeFrom(from);
+    setTimeTo(to);
+
+    //save equidist state
+    if(chk_equi.state(0))
+    {
+      dpSet(g_currentKmModel + SSC_MDKM_EQUI_TIME_INTVL, change_equi.text);
+    }
+    else
+    {
+      dpSet(g_currentKmModel + SSC_MDKM_EQUI_TIME_INTVL, -1);
+    }
+
+    //save inputDPs
+    dyn_string inputDPs;
+    int lines = tbl_dpe.lineCount();
+
+    for(int i = 0; i < lines; i++)
+    {
+      dynAppend(inputDPs, tbl_dpe.cellValueRC(i, \"dpe\"));
+    }
+    dpSet(g_currentKmModel + SSC_MDKM_INPUT_DPS, inputDPs);
+
+    panelChanged = false;
+    wf_bottomBar_reload();
+    return WF_PANEL_SAVE_SAVED;
+  }
+  return WF_PANEL_SAVE_NOTHING_SAVE;
+}
+
+int isPanelChanged()
+{
+  if(panelChanged)
+  {
+    return WF_PANEL_CHANGED;
+  }
+  else
+  {
+    return WF_PANEL_NO_CHANGE;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  Creates a new Classification Session (km_, rf_) from the values of a Datamining Session.
+  @param source: defines the source of the datamining session: 0: combobox, 1: handover
+ */
+void loadDataMiningSession(int source)
+{
+  string dp;
+  if(source == 1)
+  {
+    dp = g_dmSession;
+  }
+  else
+  {
+    dp = combobox_dataMiningSession.selectedText();
+  }
+  string kmModel;
+  dyn_string selectedDPs;
+  dyn_string containingDPs;
+  dyn_int labelMapping = makeDynInt(0,0,0);
+  time startTime, endTime;
+  int equiTimeInterval;
+  bool sessionsDifferent = false;
+  bool createNew = true;
+  bool hasCreated = false;
+
+  //dp is selected
+  if(sizeof(dp) > 0)
+  {
+    //dp has selected dps
+    dpGet(\"dm_\" + dp + \".selectedDPs\", selectedDPs);
+    if(sizeof(selectedDPs) > 0)
+    {
+      if(getUserPermission(USER_PERMISSION_CLASSIFICATION))
+      {
+        if(dpExists(\"km_\" + dp))
+        {
+          int i = 1;
+          while(dpExists(\"km_\" + dp + i))
+          {
+            i++;
+          }
+          dpCreate(\"rf_\" + dp + i, SSC_METADATA_RF_TYPE);
+          dpCreate(\"km_\" + dp + i, SSC_METADATA_KM_TYPE);
+          g_currentKmModel = \"km_\" + dp + i;
+          g_currentRfModel = \"rf_\" + dp + i;
+          hasCreated = true;
+        }
+        else
+        {
+          dpCreate(\"rf_\" + dp, SSC_METADATA_RF_TYPE);
+          dpCreate(\"km_\" + dp, SSC_METADATA_KM_TYPE);
+          g_currentKmModel = \"km_\" + dp;
+          g_currentRfModel = \"rf_\" + dp;
+          hasCreated = true;
+        }
+      }
+      //if the user doesn't have sufficient permissions to create DPs the tempDP is used
+      else
+      {
+        if(dpExists(temp_km) && dpExists(temp_rf))
+        {
+          g_currentKmModel = temp_km;
+          g_currentRfModel = temp_rf;
+          hasCreated = true;
+        }
+        else
+        {
+          notificationBar_newMsg(\"ssc_wizards\", \"cl00041\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        }
+      }
+      //if a new datapoint has been created this part fills it with the necessary information
+      if(hasCreated)
+      {
+        dpGet(\"dm_\" + dp + \".startTime\", startTime);
+        dpGet(\"dm_\" + dp + \".endTime\", endTime);
+        dpGet(\"dm_\" + dp + \".equiTimeInterval\", equiTimeInterval);
+        dpSet(g_currentKmModel + SSC_MDKM_START_TIME, startTime,
+              g_currentKmModel + SSC_MDKM_END_TIME, endTime,
+              g_currentKmModel + SSC_MDKM_EQUI_TIME_INTVL, equiTimeInterval,
+              g_currentKmModel + SSC_MDKM_INPUT_DPS, selectedDPs,
+              g_currentKmModel + SSC_MDKM_LABELSET_REF, \"std_labelset\",
+              g_currentKmModel + SSC_MDKM_LABEL_MAPPING, labelMapping,
+              g_currentRfModel + \".clusterModel\", g_currentKmModel,
+              g_currentRfModel + \".labelsetRef\", \"std_labelset\");
+      }
+      initPanel();
+      ssc_dataExp_refreshClassificationSessionTable();
+      btn_refresh.enabled(true);
+    }
+    else
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"dm0003\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    }
+  }
+}
+
+//Add a new DPE to all depending tables
+void tblAddDPEClass(string DPE)
+{
+  dyn_string dpesInTable;
+
+  if (dpSubStr(DPE, DPSUB_SYS) == getSystemName())
+  {
+    DPE = dpSubStr(DPE, DPSUB_DP_EL);
+  }
+
+  dpesInTable = tbl_dpe.getColumnN(0);
+
+  // Check if DPE already exists
+  if (dynContains(dpesInTable, DPE) == 0)
+  {
+    langString dpe_desc = dpGetDescription(DPE);
+    tbl_dpe.appendLine(\"dpe\", DPE, \"dpe_desc\", dpe_desc);
+  }
+}
+
+void initModelField()
+{
+  txt_model.foreCol(\"{203,206,208}\");
+  txt_model.font(\"Arial,10,-1,5,75,1,0,0,0,0\");
+  txt_model.text(model_tempStr);
+}
+
+
+// should be called after initTempModel (model should be loaded)
+void initPanel(bool firstInitialize = false)
+{
+  if(g_currentKmModel == temp_km)
+  {
+    if(!dpExists(temp_km) || !dpExists(temp_rf))
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"cl00041\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      return;
+    }
+  }
+  time t1, t2;
+  dyn_string inputDPs;
+  int equiTimeInterval;
+
+  model_tempStr = getCatStr(SSC_WIZARDS_CAT, \"cl00001\");   // \"Enter session name and save\";
+
+
+  dpGet(g_currentKmModel + SSC_MDKM_INPUT_DPS, inputDPs);
+
+  tbl_dpe.deleteAllLines();
+  for(int i = 1; i <= dynlen(inputDPs); i++)
+  {
+    langString dpe_desc = dpGetDescription(inputDPs[i]);
+    tbl_dpe.appendLine(\"dpe\", inputDPs[i], \"dpe_desc\", dpe_desc);
+    int iCellR;
+    iCellR = tbl_dpe.lineCount();
+    tbl_dpe.cellToolTipRC(iCellR-1, \"dpe_desc\", \"DPE: \" + inputDPs[i]);
+  }
+
+  dpGet(g_currentKmModel + SSC_MDKM_EQUI_TIME_INTVL, equiTimeInterval);
+
+  if(!firstInitialize) //initialize time here only if wizard is not first opened
+  {
+    dpGet(g_currentKmModel + SSC_MDKM_START_TIME, t1);
+    dpGet(g_currentKmModel + SSC_MDKM_END_TIME, t2);
+    setTimeEwoFrom(t1);
+    setTimeEwoTo(t2);
+  }
+
+  if(equiTimeInterval>0)
+  {
+    chk_equi.state(0)=TRUE;
+    change_equi.enabled(TRUE);
+    change_equi.backCol=\"white\";
+    change_equi.text=equiTimeInterval;
+  }
+  else
+  {
+    chk_equi.state(0)=FALSE;
+    change_equi.enabled(FALSE);
+    change_equi.backCol=\"WF_PanelBackground\";
+    change_equi.text=1;
+  }
+
+  initModelField();
+  ssc_displayModelName();
+  status_txt.text = \"\";
+
+  if(!ssc_isPanelGloballyInitialized(1))
+  {
+    ssc_initPanelGlobal(1);
+  }
+}
+
+void resetAll()
+{
+  if(dpExists(temp_km) && dpExists(temp_rf))
+  {
+    g_currentKmModel = \"km_temp\";
+    g_currentRfModel = \"rf_temp\";
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"cl00041\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    g_currentKmModel = \"\";
+    g_currentRfModel = \"\";
+  }
+  initPanel();
+}
+
+void resetHeatmap()
+{
+  WebView_ewo1.execJsFunction(\"clearData\", getCatStr(SSC_WIZARDS_CAT, \"cl00033\"));
+}
+
+void createModels(string name)
+{
+  km_nameDP = model_km_prefix+name;
+  rf_nameDP = model_rf_prefix+name;
+
+  dpCreate(km_nameDP, \"_SSC_METADATA_KM\", getSystemId(getSystemName()));
+  dpCreate(rf_nameDP, \"_SSC_METADATA_RF\", getSystemId(getSystemName()));
+  dpSet(rf_nameDP+\".clusterModel\", km_nameDP);
+
+  g_currentRfModel = rf_nameDP;
+  g_currentKmModel = km_nameDP;
+}
+
+time getTimeEwoFrom()
+{
+  time d, t;
+  dt_from_date.date(d);
+  getValue(\"dt_from_time\", \"time\", t);
+
+  // Debug(\"from date = \"+year(d)+\", \"+month(d)+\", \"+day(d));
+  // Debug(\"from time = \"+hour(t)+\", \"+minute(t)+\", \"+second(t));
+
+  time t_res;
+
+  t_res=makeTime(year(d),month(d),day(d),hour(t),minute(t),second(t));
+
+  return t_res;
+}
+
+time getTimeEwoTo()
+{
+  time d, t;
+  dt_to_date.date(d);
+  getValue(\"dt_to_time\", \"time\", t);
+
+  // Debug(\"to date = \"+year(d)+\", \"+month(d)+\", \"+day(d));
+  // Debug(\"to time = \"+hour(t)+\", \"+minute(t)+\", \"+second(t));
+
+  time t_res;
+  t_res=makeTime(year(d),month(d),day(d),hour(t),minute(t),second(t));
+
+  return t_res;
+}
+
+void setTimeEwoFrom(time t)
+{
+  setValue(\"dt_from_date\", \"date\", t);
+  setValue(\"dt_from_time\", \"time\", t);
+}
+
+void setTimeEwoTo(time t)
+{
+  setValue(\"dt_to_date\", \"date\", t);
+  setValue(\"dt_to_time\", \"time\", t);
+}
+
+time getTimeFrom()
+{
+  time t;
+  dpGet(g_currentKmModel + SSC_MDKM_START_TIME, t);
+  return t;
+}
+
+time getTimeTo()
+{
+  time t;
+  dpGet(g_currentKmModel + SSC_MDKM_END_TIME, t);
+  return t;
+}
+
+void setTimeFrom(time t) {
+  dpSet(g_currentKmModel + SSC_MDKM_START_TIME, t);
+}
+
+void setTimeTo(time t) {
+  dpSet(g_currentKmModel + SSC_MDKM_END_TIME, t);
+}
+
+int refreshDescriptiveStatisticsClass()
+{
+  dyn_string dpes;
+  int ires, err;
+  dyn_float data;
+  dyn_time times;
+  int equiTimeInterval=-1;
+  time minTransformDate, firstValue, lastValue;
+  time from, to, fromTime, toTime;
+  float qualAvgValInt, qualMAE, qualNMAE;
+
+  if(chk_equi.state(0)==FALSE)
+  {
+    equiTimeInterval=-1;
+  }
+  else
+  {
+    equiTimeInterval=change_equi.text;
+  }
+
+  // get all DPEs from table
+  getValue(\"tbl_dpe\", \"getColumnN\", 0, dpes);
+
+  getValue(\"dt_from_time\", \"time\", fromTime);
+  getValue(\"dt_to_time\", \"time\", toTime);
+  from = dt_from_date.date() + fromTime;
+  to = dt_to_date.date() + toTime;
+
+  if (from > to)
+  {
+    time aux = from;
+    from = to;
+    to = aux;
+  }
+
+  err = ssc_getEdgeTimes(dpes, from, to, firstValue, lastValue);
+
+  if(err == -1)
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"cl00039\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                           makeDynString(g_noDataDPE), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    return -1;
+  }
+
+  dt_from_time.dateTime(firstValue);
+  dt_from_date.dateTime(firstValue);
+  dt_to_date.dateTime(lastValue);
+  dt_to_time.dateTime(lastValue);
+
+  setTimeEwoFrom(firstValue);
+  setTimeEwoTo(lastValue);
+
+  from = firstValue;
+  to = lastValue;
+
+  ssc_dataExp_clearCache();
+  // Calculate descriptive statistics for DPE-table
+  for(int i=0; i<sizeof(dpes); i++)
+  {
+    if(!stopCalculationClassification1)
+    {
+      if (dpExists(dpes[i+1]))
+      {
+        ssc_dataExp_getPeriodTransformCached(dpes[i+1], from, to, equiTimeInterval, data, times, FALSE, qualAvgValInt, qualMAE, qualNMAE, SSC_WIZARD_INT_CL);
+        tbl_dpe.cellValueRC(i, \"count\", ssc_round(dynlen(data),SSC_PRECISION));
+        tbl_dpe.cellValueRC(i, \"min\", ssc_round(dynMin(data),SSC_PRECISION));
+        tbl_dpe.cellValueRC(i, \"max\", ssc_round(dynMax(data),SSC_PRECISION));
+        tbl_dpe.cellValueRC(i, \"mean\", ssc_round(dynAvg(data),SSC_PRECISION));
+      }
+      else
+      {
+        tbl_dpe.cellValueRC(i, \"count\", \"-\");
+        tbl_dpe.cellValueRC(i, \"min\", \"-\");
+        tbl_dpe.cellValueRC(i, \"max\",\"-\");
+        tbl_dpe.cellValueRC(i, \"mean\", \"-\");
+      }
+    }
+    else
+    {
+      break;
+    }
+  }
+
+  return 0;
+}
+
+
+void setLabelWarning(string msg) {
+  status_txt.foreCol=g_colWarning;
+  status_txt.text=getCatStr(SSC_WIZARDS_CAT, msg);
+}
+
+void setLabelOk(string msg) {
+  status_txt.foreCol=g_colOk;
+  status_txt.text=getCatStr(SSC_WIZARDS_CAT, msg);
+}
+
+void DeleteSession()
+{
+  dyn_int selLines;
+  getValue(\"tbl_classificationSession\", \"getSelectedLines\", selLines);
+  //DebugN(selLines);
+
+  for (int i = dynlen(selLines); i > 0; i--)
+  {
+    dyn_anytype dpeName;
+    getValue(\"tbl_classificationSession\", \"getLineN\", selLines[i], dpeName);
+    if(dpeName[1] == \"temp\")
+    {
+      continue;
+    }
+    if (dpeName[1] != \"\")
+    {
+      // delete all models rf and km
+      if ((dpDelete(model_rf_prefix+dpeName[1]) == 0) && (dpDelete(model_km_prefix+dpeName[1]) == 0))
+      {
+        tbl_classificationSession.deleteLineN(selLines[i]);
+        //DebugN(i, selLines[i], dpeName);
+        dynRemove(selLines, i);
+      }
+      //delete corresponding model
+      string sys = getSystemName();
+      string query = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+            \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + model_rf_prefix+dpeName[1] + \"\\\"\";
+      string sysQuery = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+            \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + sys+model_rf_prefix+dpeName[1] + \"\\\"\";
+      dyn_dyn_anytype resultQuery, resultSystemQuery;
+
+      if (dpQuery(query, resultQuery) == 0)
+      {
+        if(dpQuery(sysQuery, resultSystemQuery) == 0)
+        {
+          dynAppend(resultQuery, resultSystemQuery);
+
+          for(int j = 3; j <= dynlen(resultQuery); j++)
+          {
+            dpDelete(dpSubStr(resultQuery[j][1], DPSUB_DP));
+          }
+        }
+      }
+    }
+    if(\"km_\" + dpeName == g_currentKmModel)
+    {
+      g_currentKmModel = \"\";
+      g_currentRfModel = \"\";
+      resetAll();
+      ssc_dataExp_refreshClassificationSessionTable();
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Makes the widgets needed for editing sessions or selecting datapoints visible/hidden depending on the parameter.
+  @param sessionsView if true, it switches to the Sessions view; if false, it switches to the Datapoints view
+ */
+void ssc_switchToSessionsView(bool sessionsView = true)
+{
+  dpTreeNode.visible = !sessionsView;
+
+  setMultiValue(\"tbl_classificationSession\", \"visible\", sessionsView,
+                \"btn_deleteModel\", \"visible\", sessionsView,
+                \"btn_saveModel\", \"visible\", sessionsView,
+                \"PRIMITIVE_TEXT23\", \"visible\", sessionsView,
+                \"txt_model\", \"visible\", sessionsView,
+                \"PRIMITIVE_TEXT24\", \"visible\", sessionsView,
+                \"combobox_dataMiningSession\", \"visible\", sessionsView);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Makes the widgets needed for datapoint selection visible and hides the widgets needed for session editing.
+ */
+void ssc_switchToDpView()
+{
+  ssc_switchToSessionsView(false);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ssc_createSession()
+{
+  string DPEName = txt_model.text;
+  if(!dpNameCheck(DPEName))
+  {
+    notificationBar_newMsg(\"ssc_errors\", \"00023\", NOTIFICATION_BAR_PRIO_WARNING, 23,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    return;
+  }
+  string DPESystem;
+  string DP;
+  time from, to;
+  int equi;
+  dyn_int labelMapping = makeDynInt(0,0,0);
+
+  ssc_getSystemDPName(DPEName, DPESystem, DP);
+  dyn_string parts = strsplit(DP, \".\");
+  DP = parts[dynlen(parts)];
+
+  string name = DP;
+  if(strpos(DP, \"rf_\") != -1) {
+    name = substr(DP, 3);
+  }
+
+  createModels(name);
+  time currentTime = getCurrentTime();
+  to = makeTime(year(currentTime), month(currentTime), day(currentTime));
+  setTimeTo(to);
+  from = to - 86400;
+  setTimeFrom(from);
+
+  if(chk_equi.state(0))
+  {
+     equi=change_equi.text;
+  }
+  else
+  {
+    equi=-1;
+  }
+
+  dpSet(g_currentKmModel + SSC_MDKM_EQUI_TIME_INTVL, equi,
+        g_currentKmModel + SSC_MDKM_LABELSET_REF, \"std_labelset\",
+        g_currentKmModel + SSC_MDKM_LABEL_MAPPING, labelMapping);
+
+  ssc_displayModelName();
+  btn_saveModel.enabled(false);
+  tbl_dpe.deleteAllLines();
+  resetHeatmap();
+  initPanel();
+  ssc_dataExp_refreshClassificationSessionTable();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ssc_initializeDMSessionList()
+{
+  combobox_dataMiningSession.deleteAllItems();
+  combobox_dataMiningSession.appendItem(\"\");
+  dyn_string dpes = dpNames(\"*\", SSC_METADATA_DM_TYPE);
+
+  for (int i = 1; i <= dynlen(dpes); i++)
+  {
+    string name = dpes[i];
+    strreplace(name, \"dm_\", \"\");
+    strreplace(name, getSystemName(), \"\");
+    combobox_dataMiningSession.appendItem(name);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+29 117
+"WebView_ewo1"
+""
+1 289 277.9964412811388 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+2
+LANG:10001 0 
+LANG:10004 0 
+
+2
+"webInspector" "bool FALSE"
+"layoutAlignment" "AlignNone"
+2
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  289 277.9964412811388 1280 559.9964412811388
+11 WebView.ewo
+1
+0 "messageReceived" "(mapping params)"
+"    switch(params.params.function) {
+
+    case \"init\":
+      resetHeatmap();
+    break;
+  }"
+"main()
+{
+  this.loadSnippet(\"/data/html/SmartSCADA/charts/heatmap.html\");
+}" 0
+6 94
+"RECTANGLE3"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.7533223302787478 0 0.8929080314621235 -18.14626001624579 81.63427765542684 1 E 23 503 406 536
+6 108
+"RECTANGLE5"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.754569190600522 0 0.8929080314621235 247.6449086161881 -229.5987048636982 1 E 23 503 406 536
+6 84
+"RECTANGLE2"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 0.8009146365123743 0 1 288.2587632185031 251 1 E 0 0 1237 24
+25 50
+"tbl_dpe"
+"WF"
+1 -380.2099792099792 132.4825814849787 E E E 1 E 1 E N "_WindowText" E N "White" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+5
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  if (dpExists(information))
+  {
+    tblAddDPEClass(information);
+    btn_refresh.enabled(true);
+    panelChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+
+"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+"snapMode" "Line"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  286 23 962 223
+"main()
+{
+  this.tableMode = TABLE_SELECT_MULTIPLE;
+  this.selectByClick(TABLE_SELECT_LINE);
+  dyn_string dsTableColors = makeDynString(\"WF_TableAlternatingRowColor_2\",\"WF_TableAlternatingRowColor_1\");
+  tbl_dpe.alternatingRowColors(dsTableColors);
+}
+" 0
+E 1 0 1 6 8 "dpe" 33 0 0 "s" 4
+LANG:10001 3 DPE
+LANG:10004 3 DPE
+LANG:10000 3 DPE
+LANG:10027 3 DPE
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+375 "dpe_desc" 33 1 0 "s" 4
+LANG:10001 15 DPE Description
+LANG:10004 10 DPE 描述
+LANG:10000 16 DPE Beschreibung
+LANG:10027 15 DPE Description
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+375 "count" 5 1 0 "s" 4
+LANG:10001 5 Count
+LANG:10004 6 计数
+LANG:10000 6 Anzahl
+LANG:10027 5 Count
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+70 "min" 5 1 0 "s" 4
+LANG:10001 3 Min
+LANG:10004 6 最小
+LANG:10000 3 Min
+LANG:10027 3 Min
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+70 "mean" 5 1 0 "s" 4
+LANG:10001 4 Mean
+LANG:10004 6 平均
+LANG:10000 10 Mittelwert
+LANG:10027 4 Mean
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+70 "max" 5 1 0 "s" 4
+LANG:10001 3 Max
+LANG:10004 6 最大
+LANG:10000 3 Max
+LANG:10027 3 Max
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+70 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+2 26
+"actual_clusters_text"
+""
+1 -38.66666666654372 41122.00000000068 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+7
+"shadowOffset" "[8,8]"
+"shadowColor" "{63,63,63,131}"
+"shadowRadius" "18"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9117647058823529 0 1 -3.41176470588232 83.66666666666674 0 E 190 527 220 548
+0 2 2 "0s" 0 0 0 64 0 0  190 527 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+13 52
+"btn_removedpe"
+"WF_Transparent"
+1 233.1622656700193 358.6976286625363 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Remove all DPEs from table
+LANG:10004 25 从表中删除所有 DPE
+LANG:10000 33 Alle DPE aus der Tabelle löschen
+LANG:10027 26 Remove all DPEs from table
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  301.296875 219.767017480875 330.296875 248.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/delete_all.png"
+4
+LANG:10001 11 Clear Table
+LANG:10004 12 清空表格
+LANG:10000 16 Tabelle löschen
+LANG:10027 11 Clear Table
+"main()
+{
+  tbl_dpe.deleteAllLines();
+
+  WebView_ewo1.reload();
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete_all\");
+}" 0
+
+29 53
+"dt_from_date"
+"WF"
+1 1050.119714098138 49.55065892498202 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+11
+"calendarPopup" "bool TRUE"
+"displayFormat" "string dd. MMM yyyy"
+"buttonSymbols" "enum 0"
+"timeSpec" "enum 0"
+"correctionMode" "enum 0"
+"inputMethodHints" "enum 8"
+"layoutDirection" "enum 0"
+"alignment" "enum 129"
+"contextMenuPolicy" "enum 1"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1015 50 1140 75
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  panelChanged = true;
+  wf_bottomBar_reload();"
+"main()
+{
+  //initialize time here if panel is initialized to prevent that something is changed
+  time startTime;
+  dpGet(g_currentKmModel + SSC_MDKM_START_TIME, startTime);
+  setTimeEwoFrom(startTime);
+}" 0
+29 54
+"dt_to_date"
+"WF"
+1 1015 100.3389371112421 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+11
+"calendarPopup" "bool TRUE"
+"displayFormat" "string dd. MMM yyyy"
+"buttonSymbols" "enum 0"
+"timeSpec" "enum 0"
+"correctionMode" "enum 0"
+"inputMethodHints" "enum 8"
+"layoutDirection" "enum 0"
+"alignment" "enum 129"
+"contextMenuPolicy" "enum 1"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1015 100.3389371112421 1140 125.3389371112421
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  panelChanged = true;
+  wf_bottomBar_reload();"
+"main()
+{
+  //initialize time here if panel is initialized to prevent that something is changed
+  time endTime;
+  dpGet(g_currentKmModel + SSC_MDKM_END_TIME, endTime);
+  setTimeEwoTo(endTime);
+}" 0
+2 55
+"PRIMITIVE_TEXT1"
+""
+1 975 56 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 975 56 1007 71
+0 2 2 "0s" 0 0 0 192 0 0  975 56 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 From
+LANG:10004 3 从
+LANG:10000 3 Von
+LANG:10027 4 From
+2 57
+"PRIMITIVE_TEXT12"
+""
+1 133286 1879.694308919368 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9666666666666667 766 68.85560377790877 0 E 209 38 224 53
+0 2 2 "0s" 0 0 0 192 0 0  209 38 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 To
+LANG:10004 3 到
+LANG:10000 3 Bis
+LANG:10027 2 To
+20 59
+"chk_equi"
+"WF"
+1 975 154.1111111111111 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  973 152 1144 173
+1
+T 
+4
+LANG:10001 26 Equidistant time intervals
+LANG:10004 18 等距时间间隔
+LANG:10000 28 Äquidistante Zeitintervalle
+LANG:10027 26 Equidistant time intervals
+
+1 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if(state)
+  {
+     change_equi.backCol=\"white\";
+  }
+  else
+  {
+     change_equi.backCol=\"WF_PanelBackground\";
+  }
+  //Disable textbox if checkbox is unchecked
+  change_equi.enabled(state);
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+
+
+" 0
+6 62
+"RECTANGLE1"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"borderZoomable" ""
+E E 0 0 1 2 1 E 1.036362439101552 0 0.996923076923077 0 0 1 E 0 0 1237 24
+4 63
+"LINE1"
+""
+1 289.0000000000001 250 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  289.0000000000001 250 1284 250
+4 67
+"LINE4"
+""
+1 960 0.007920823138214406 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  960 0.007920823138214406 960 250.9841112993287
+2 68
+"PRIMITIVE_TEXT13"
+""
+1 15 5.463076923076924 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 5.463076923076924 66 20
+0 2 2 "0s" 0 0 0 192 0 0  15 5.463076923076924 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Session
+LANG:10004 6 进程
+LANG:10000 7 Session
+LANG:10027 7 Session
+2 69
+"PRIMITIVE_TEXT14"
+""
+1 303 5.463076923076923 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 303 5.463076923076923 391 20
+0 2 2 "0s" 0 0 0 192 0 0  303 5.463076923076923 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Selected DPE
+LANG:10004 18 已经选择的DPE
+LANG:10000 16 Ausgewählte DPE
+LANG:10027 12 Selected DPE
+2 70
+"PRIMITIVE_TEXT15"
+""
+1 975 5.463076923076924 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 975 5.463076923076924 1090 20
+0 2 2 "0s" 0 0 0 192 0 0  975 5.463076923076924 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Select time range
+LANG:10004 18 选择时间范围
+LANG:10000 22 Zeitbereich auswählen
+LANG:10027 17 Select time range
+29 71
+"dt_from_time"
+"WF"
+1 1157.956905134406 54.3389371112421 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+12
+"correctionMode" "enum 0"
+"contextMenuPolicy" "enum 1"
+"alignment" "enum 129"
+"layoutDirection" "enum 0"
+"timeSpec" "enum 0"
+"inputMethodHints" "enum 8"
+"calendarPopup" "bool FALSE"
+"displayFormat" "string HH:mm:ss"
+"buttonSymbols" "enum 0"
+"frame" "bool TRUE"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1155 50 1260 75
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  panelChanged = true;
+  wf_bottomBar_reload();"
+E29 72
+"dt_to_time"
+"WF"
+1 1153.028729910396 93.67787422248421 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"displayFormat" "string HH:mm:ss"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1155 100.3389371112421 1260 125.3389371112421
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  panelChanged = true;
+  wf_bottomBar_reload();"
+E21 74
+"change_equi"
+"WF"
+1 1165.227272727272 178.4666666666667 E E E 1 E 1 E N "_WindowText" E N {236,239,242} E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1153 148 1232 177
+0
+
+"main()
+{
+  this.text(1);
+}" 0
+
+"main()
+{
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+
+
+" 0
+
+E
+
+N 1 10000 1 1 1 1
+2 75
+"PRIMITIVE_TEXT16"
+""
+1 1240 155 E E E 1 E 1 E N "WF_Text" E N {236,239,242} E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 1240 155 1249 170
+0 2 2 "0s" 0 0 0 192 0 0  1240 155 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 s
+LANG:10004 1 s
+LANG:10000 1 s
+LANG:10027 1 s
+13 83
+"btn_refresh"
+"WF_Transparent"
+1 920.0000000000005 229.73403496175 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 (Re-)Calculate
+LANG:10004 14 (Re-)Calculate
+LANG:10000 15 (Neu-)Berechnen
+LANG:10027 14 (Re-)Calculate
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  918.0000000000005 219.53403496175 947.0000000000005 248.53403496175
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 13 Aktualisieren
+LANG:10027 7 Refresh
+"main()
+{
+  dyn_string inputDPs;
+  int numClusters, err;
+  int lines = tbl_dpe.lineCount();
+  time t1, t2, fromTime, toTime;
+
+  this.enabled(false);
+  btn_stopCalcClass.enabled(true);
+  attention_calc.visible(true);
+  tbl_classificationSession.enabled(false);
+
+  WebView_ewo1.visible(false);
+
+  btn_removeLine.enabled(false);
+  btn_removedpe.enabled(false);
+  tbl_dpe.acceptDrops(false);
+  attention_calc.start();
+
+  setLabelWarning(\"cl00003\");  // Updating ...
+  resetHeatmap();
+
+  for(int i = 0; i < lines; i++)
+  {
+    dynAppend(inputDPs, tbl_dpe.cellValueRC(i, \"dpe\"));
+  }
+
+  if(dynlen(inputDPs) == 0)
+  {
+    // DebugN(\"Please select DPEs first by dragging datapoints into the table\");
+    setLabelWarning(\"cl00035\"); // \"Please select DPEs\");
+
+    attention_calc.visible(false);
+    tbl_classificationSession.enabled(true);
+    WebView_ewo1.visible(true);
+    tbl_dpe.acceptDrops(true);
+    btn_removeLine.enabled(true);
+    btn_removedpe.enabled(true);
+    attention_calc.stop();
+    btn_stopCalcClass.enabled(false);
+    return;
+  }
+
+  err = refreshDescriptiveStatisticsClass();
+  if(err == -1)
+  {
+    stopCalculationClassification1 = true;
+  }
+
+  getValue(\"dt_from_time\", \"time\", fromTime);
+  getValue(\"dt_to_time\", \"time\", toTime);
+  t1 = dt_from_date.date() + fromTime;
+  t2 = dt_to_date.date() + toTime;
+
+  if(!stopCalculationClassification1)
+  {
+    getData(t1, t2, inputDPs);
+  }
+  else
+  {
+    setLabelWarning(\"cl00036\");
+  }
+  stopCalculationClassification1 = false;
+  attention_calc.visible(false);
+  tbl_classificationSession.enabled(true);
+  WebView_ewo1.visible(true);
+  btn_removeLine.enabled(true);
+  btn_removedpe.enabled(true);
+  tbl_dpe.acceptDrops(true);
+  btn_stopCalcClass.enabled(false);
+  attention_calc.stop();
+
+  ssc_setIcon(\"btn_refresh\", \"recalculate\");
+  this.enabled(true);
+}
+
+getData(time t1, time t2, dyn_string inputDPs)
+{
+  dyn_dyn_float matrix;
+  dyn_float values;         //Enthält die einzelnen Werte
+  dyn_time times;           //Enthält die Quellzeiten zu den Werten
+  float qualAvgValInt, qualMAE, qualNMAE;
+
+  bool noData = true;
+
+  int min_length;
+  int max_length;
+  int equiTimeInterval=-1;
+
+  if(chk_equi.state(0)==FALSE)
+  {
+    equiTimeInterval=-1;
+  }
+  else
+  {
+    equiTimeInterval=change_equi.text;
+  }
+
+  for (int i = 1; i <= dynlen(inputDPs); i++)
+  {
+    if(!stopCalculationClassification1)
+    {
+      int ant;            //Wenn -1 --> Fehler beim dpGetPeriod
+      ant = ssc_dataExp_getPeriodTransformCached(inputDPs[i], t1, t2, equiTimeInterval, values, times, FALSE, qualAvgValInt, qualMAE, qualNMAE, SSC_WIZARD_INT_CL);
+
+      if ( (ant == 0) && (dynlen(values) > 0)) /* Wenn kein Abfragefehler und Werte */
+      {
+        int currentNr = dynlen(values);
+
+        if(dynlen(values) > 1) {
+          noData = false;
+        }
+
+        dynAppend(matrix,values);
+      }
+    }
+    else
+    {
+      break;
+    }
+  }
+
+  if(noData == true && !stopCalculationClassification1)
+  {
+    setLabelWarning(\"cl00005\");  // \"No data available\");
+    return;
+  }
+
+  dyn_string inputDPs;
+  int lines = tbl_dpe.lineCount();
+
+  for(int i = 0; i < lines; i++)
+  {
+    dynAppend(inputDPs, tbl_dpe.cellValueRC(i, \"dpe\"));
+  }
+
+  WebView_ewo1.execJsFunction(\"setLabels\", ssc_getLabels(inputDPs));
+  WebView_ewo1.execJsFunction(\"setUnits\", ssc_getUnits(inputDPs));
+  WebView_ewo1.execJsFunction(\"setStartTime\", (t1));
+  WebView_ewo1.execJsFunction(\"setEndTime\", t2);
+  WebView_ewo1.execJsFunction(\"setInputDPs\", inputDPs);
+  WebView_ewo1.execJsFunction(\"setData\", matrix);
+
+  setLabelOk(\"cl00006\");   // \"Finished\");
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E "
+
+main()
+{
+  ssc_setIcon(this, \"calculate\");
+}" 0
+
+2 85
+"PRIMITIVE_TEXT19"
+""
+1 298 255 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 298 255 413 270
+0 2 2 "0s" 0 0 0 192 0 0  298 255 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Data visualization
+LANG:10004 15 数据可视化
+LANG:10000 19 Datenvisualisierung
+LANG:10027 18 Data visualization
+13 86
+"btn_removeLine"
+"WF_Transparent"
+1 331.303515625 232.1003508142082 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Remove selected DPE(s) from table
+LANG:10004 28 从表中删除选定的 DPE
+LANG:10000 41 Ausgewählte DPE aus der Tabelle löschen
+LANG:10027 33 Remove selected DPE(s) from table
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  326.103515625 219.767017480875 355.103515625 248.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 20 Delete Selected Line
+LANG:10004 15 删除选定行
+LANG:10000 14 Zeile löschen
+LANG:10027 20 Delete Selected Line
+"main()
+{
+  dyn_int selectedLines;
+  getValue(\"tbl_dpe\", \"getSelectedLines\", selectedLines);
+  int selectedLinesCount = dynlen(selectedLines);
+  if (selectedLinesCount > 0)
+  {
+    for (int i = selectedLinesCount; i > 0; i--)
+    {
+      tbl_dpe.deleteLineN(selectedLines[i]);        // indexed from 0
+    }
+  
+    panelChanged = true;
+    wf_bottomBar_reload();
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00074\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+29 87
+"status_txt"
+"WF_Transparent"
+1 966.1863100445789 199.3269230769231 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+7
+"frameShadow" "enum 16"
+"alignment" "enum 132"
+"bold" "bool TRUE"
+"frameShape" "enum 0"
+"midLineWidth" "int 1"
+"readOnly" "bool TRUE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  975 200 1265 235
+15 PVSS.TextEdit.1
+0
+E2 89
+"PRIMITIVE_TEXT20"
+""
+1 10 170 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 10 170 90 190
+0 2 2 "0s" 0 0 0 64 0 0  10 170 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+29 104
+"attention_calc"
+""
+1 734.1244659014067 368 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"color1" "color WF_Text"
+"effectType" "enum 2"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  734.1244659014067 368 833.1244659014067 467
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+13 105
+"btn_sessionSelector"
+"WF_Transparent"
+1 218.9946129533388 541.0176767676768 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+104 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 8 Sessions
+LANG:10004 6 进程
+LANG:10000 8 Sessions
+LANG:10027 8 Sessions
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  216 531 245 560
+
+P 
+4294967295
+"pictures/wf/buttons/list.png"
+4
+LANG:10001 3 TBA
+LANG:10004 3 TBA
+LANG:10000 3 TBA
+LANG:10027 3 TBA
+"main()
+{
+  ssc_switchToSessionsView();
+}
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"list\");
+}" 0
+
+13 107
+"btn_dpSelector"
+"WF_Transparent"
+1 243.9946129533388 541.0176767676768 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+106 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 10 Datapoints
+LANG:10004 10 Datapoints
+LANG:10000 11 Datenpunkte
+LANG:10027 28 Точки данных (DP)
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  241 531 270 560
+
+P 
+4294967295
+"pictures/wf/buttons/dp_tree_node.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  ssc_switchToDpView();
+}
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"dp_tree_node\");
+}" 0
+
+29 111
+"txt_modelLoaded"
+"WF_Transparent"
+1 -89.4428349914056 -220.5186327310724 E E E 0 E 1 E N "White" E N "_Transparent" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShape" "enum 0"
+"styleSheet" "string WF"
+"currentFont" "font Arial,-1,13,5,50,0,0,0,0,0"
+"textFormat" "enum 0"
+"alignment" "enum 2"
+"currentColor" "color White"
+"text" "string Model loaded: (updated in panel initialize)"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  440 0.9630769230769243 945 24.96307692307693
+15 PVSS.TextEdit.1
+0
+E13 112
+"btn_stopCalcClass"
+"WF_Transparent"
+1 931.0000000000002 225.767017480875 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Stops the calculation
+LANG:10004 15 停止该计算
+LANG:10000 21 Stoppt die Berechnung
+LANG:10027 21 Stops the calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  893.0000000000002 219.767017480875 922.0000000000002 248.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 16 Stop Calculation
+LANG:10004 12 停止计算
+LANG:10000 18 Berechnung stoppen
+LANG:10027 16 Stop Calculation
+"main()
+{
+  stopCalculationClassification1 = true;
+  this.enabled(false);
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"stop\");
+}" 0
+
+4 64
+"LINE2"
+""
+1 288 0.2700056814151499 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  288 0.001779359430605032 288 559.9964412811388
+4 114
+"LINE5"
+""
+1 4.547473508864641e-13 24.92615384615385 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  4.547473508864641e-13 24.92615384615385 1278.980383181487 24.92615384615385
+14 115
+"wf_txtF_answer"
+""
+1 1120 532.6542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1119.121356634967 521.5 1271.121356634967 555.5
+3 "0s" 0 0 0 0 0 -1  E E E
+14 116
+"wf_txtF_cmd"
+""
+1 1120 485.6542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1119.121356634967 474.5 1271.121356634967 508.5
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+22 88
+"combobox_dataMiningSession"
+"WF"
+1 -1.123317138432839 509.7714483018782 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+87 0 0 0 0 0
+"main()
+{
+  ssc_initializeDMSessionList();
+}
+" 0
+ E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3.11724034290873 503.5340349617499 289.8827596570912 532.5340349617499
+0
+
+"main()
+{
+  ssc_initializeDMSessionList();
+}
+
+" 0
+
+"#uses \"SmartSCADA/analytics/dataExp\"
+
+main()
+{
+  loadDataMiningSession(0);
+}
+
+
+
+" 0
+
+E
+ 0 0
+2 101
+"PRIMITIVE_TEXT24"
+"WF"
+1 15 484 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 484 248 499
+0 2 2 "0s" 0 0 0 192 0 0  15 484 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 33 New session from datamining model
+LANG:10004 30 数据挖掘模型的新进程
+LANG:10000 34 Neue Session aus Datamining Modell
+LANG:10027 33 New session from datamining model
+14 77
+"txt_model"
+"WF"
+1 -1.124945822360672 455.7589762755487 E E E 1 E 1 E N {203,206,208} E N "_Window" E E
+ E E
+76 0 0 0 0 0
+E "main()
+{
+  //
+}" 0
+ E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if(strlen(newText) <= strlen(model_rf_prefix)) {
+    this.text = model_rf_prefix;
+    btn_saveModel.enabled(false);
+  }
+  else {
+    if(newText != model_tempStr) {
+      btn_saveModel.enabled(true);
+    }
+    else {
+      btn_saveModel.enabled(false);
+    }
+  }
+}
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,75,1,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,1,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,1,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,1,0,0,0,0
+0  -3 448 290 477
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  if(this.text == model_tempStr) {
+    this.text(model_rf_prefix);
+  }
+  this.foreCol(\"WF_Text\");
+  this.font(\"Arial,10,-1,5,50,0,0,0,0,0\");
+}
+" 0
+ "main()
+{
+  initModelField();
+  this.enabled = getUserPermission(USER_PERMISSION_CLASSIFICATION);
+}
+
+
+
+" 0
+ "main()
+{
+  ssc_createSession();
+}
+
+
+" 0
+
+2 100
+"PRIMITIVE_TEXT23"
+"WF"
+1 14.99229452054806 430.0374133401284 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 14.99229452054806 430.0374133401284 139 445
+0 2 2 "0s" 0 0 0 192 0 0  14.99229452054806 430.0374133401284 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Create new session
+LANG:10004 12 新建进程
+LANG:10000 20 Neue Session anlegen
+LANG:10027 18 Create new session
+25 95
+"tbl_classificationSession"
+"WF"
+1 1.874709831231551 24.08360120426923 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  string session;
+
+  getValue(\"tbl_classificationSession\", \"cellValue\", session);
+  if(session != \"\")
+  {
+    session = \"rf_\" + session;
+    int changeStatus = changeStatus(session);
+    if(changeStatus > 0)
+    {
+      if(g_currentRfModel != session)
+      {
+        g_currentRfModel = session;
+
+        dpGet(g_currentRfModel+\".clusterModel\", g_currentKmModel);
+
+        checkPermission();
+
+        initPanel();
+        panelChanged = false;
+        wf_bottomBar_reload();
+      }
+
+      dyn_int dpeCount;
+      dpGet(g_currentKmModel + \".inputDPs\", dpeCount);
+      if (dynlen(dpeCount) > 0)
+      {
+        btn_refresh.enabled(true);
+      }
+      else
+      {
+        btn_refresh.enabled(false);
+      }
+      ssc_setIcon(\"btn_refresh\", \"calculate\");
+    }
+  }
+  resetHeatmap();
+}
+
+
+/**
+  @author Joshua Hercher joshua.hercher@etm.at
+  This function handles the behavior of the panel when changing the selected Session
+  @param text the name of the selected session
+  @return if number is higher than 0 the session will be loaded
+ */
+int changeStatus(string text)
+{
+  if(text != g_currentRfModel && panelChanged)
+  {
+    if(!loseChanges)
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"dm0008\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      loseChanges = true;
+      for(int i = 0; i < tbl_classificationSession.lineCount(); i++)
+      {
+        dyn_anytype dstring;
+        dstring = tbl_classificationSession.getLineN(i);
+
+        if(g_currentRfModel == \"rf_\" + dstring[1])
+        {
+          dyn_int selLines = tbl_classificationSession.getSelectedLines();
+          tbl_classificationSession.removeSelectLines(selLines);
+          setValue (\"tbl_classificationSession\", \"selectLineN\", i);
+          break;
+        }
+      }
+      return -1;
+    }
+    else
+    {
+      loseChanges = false;
+      return 1;
+    }
+  }
+  else if(!panelChanged)
+  {
+    return 1;
+  }
+  return -3;
+}
+
+void checkPermission()
+{
+  int error;
+  dyn_string sessions;
+  string name;
+  if(getUserPermission(USER_PERMISSION_CLASSIFICATION))
+  {
+    //user permissions are granted no need to switch session
+    return;
+  }
+  else
+  {
+    dpCopyOriginal(g_currentRfModel, \"rf_temp\", error);
+    if(error != 0)
+    {
+      notificationBar_newMsg(\"ssc_errors\", \"00021\", NOTIFICATION_BAR_PRIO_ERROR, 21,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    }
+    dpCopyOriginal(g_currentKmModel, \"km_temp\", error);
+    if(error != 0)
+    {
+      notificationBar_newMsg(\"ssc_errors\", \"00021\", NOTIFICATION_BAR_PRIO_ERROR, 21,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    }
+
+    g_currentKmModel = \"km_temp\";
+    g_currentRfModel = \"rf_temp\";
+
+    sessions = this.getColumnN(0);
+    for(int i = 1; i <= dynlen(sessions); i++)
+    {
+      if(sessions[i] == \"temp\")
+      {
+        this.deleteSelection();
+        this.selectLineN(i-1);
+        break;
+      }
+    }
+  }
+}
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 22.99999999999998 290 422.0000000000001
+"#uses \"SmartSCADA/analytics/dataExp\"
+
+main()
+{
+  tbl_classificationSession.tableMode(TABLE_SELECT_MULTIPLE);
+  tbl_classificationSession.selectByClick(TABLE_SELECT_LINE);
+  dyn_string dsTableColors = makeDynString(\"WF_TableAlternatingRowColor_2\",\"WF_TableAlternatingRowColor_1\");
+  tbl_classificationSession.alternatingRowColors(dsTableColors);
+
+	ssc_dataExp_refreshClassificationSessionTable();
+}
+
+
+
+" 0
+E 0 0 1 1 0 "Session" 24 1 0 "s" 4
+LANG:10001 7 Session
+LANG:10004 6 进程
+LANG:10000 7 Session
+LANG:10027 7 Session
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+272 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 103
+"btn_deleteModel"
+"WF_Transparent"
+1 55.77622573128221 535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Delete selected session(s)
+LANG:10004 18 删除选定进程
+LANG:10000 33 Ausgewählte Session(s) löschen
+
+LANG:10027 26 Delete selected session(s)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  37.77622573128221 531 66.77622573128221 560
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 6 Delete
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultString;
+  dyn_int lines = tbl_classificationSession.getSelectedLines;
+  string sessionToDelete;
+  string session;
+  
+  if(dynlen(lines) > 0)
+  {
+    for(int i = 1; i <= dynlen(lines); i++)
+    {
+      session = tbl_classificationSession.cellValueRC(lines[i], \"Session\");
+      if(session == \"temp\")
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"cl00040\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+        continue;
+      }
+      if(i == 1)
+      {
+        sessionToDelete += session;
+      }
+      else
+      {
+        sessionToDelete += \", \" + session;
+      }
+    }
+  
+    if(strlen(sessionToDelete) > 0)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"Delete Classifictaion Session\",
+                                       makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"cl00037\")+sessionToDelete,
+                                                     \"$2:\"+getCatStr(\"general\", \"yes\"), \"$3:\"+getCatStr(\"general\", \"no\")),
+                                       resultFloat,
+                                       resultString);
+      if(\"true\"==resultString[1])
+      {
+        DeleteSession();
+      }
+    }
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00037\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+  this.enabled = getUserPermission(USER_PERMISSION_CLASSIFICATION);
+}" 0
+
+13 78
+"btn_saveModel"
+"WF_Transparent"
+1 30.09581411202171 535.2897308781869 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Add new session
+LANG:10004 15 Add new session
+LANG:10000 24 Neue Session hinzufügen
+LANG:10027 15 Add new session
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  12.51748382085481 531 41.51748382085481 560
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 7 Sichern
+LANG:10027 4 Save
+"main()
+{
+  ssc_createSession();
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"add\");
+  this.enabled(false);
+}" 0
+
+29 106
+"dpTreeNode"
+"WF"
+1 47.12453163577141 168.1512456262907 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+9
+"selectionMode" "enum 0"
+"dragDropOverwriteMode" "bool FALSE"
+"layoutDirection" "enum 0"
+"dragDropMode" "enum 1"
+"expandedStateName" "string CNS_EDITOR_VIEW"
+"verticalScrollBarPolicy" "enum 2"
+"sizeAdjustPolicy" "enum 2"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -1 25 288 531
+29 DatapointTree.DatapointTree.1
+1
+0 "OnLButtonClk" "(string dp, int isType, int sysNum)"
+"//   dragStart(\"ms\");"
+"main()
+{
+  this.alternatingRowColors = true;
+  this.lastNode = \"LAST_NODE_ELEMENT\";
+  this.showMasterDps = false;
+}
+
+" 0
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

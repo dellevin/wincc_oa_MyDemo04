@@ -1,0 +1,1812 @@
+V 13
+4
+LANG:10001 24 Poll group configuration
+LANG:10004 9 轮询组
+LANG:10000 26 Pollgruppen-Parametrierung
+LANG:10027 42 Настройка групп опроса
+PANEL,-1 -1 467 309 N "_3DFace" 2
+"$SYSTEM"
+"$fromPara"
+"int        i;
+string     sPlc = \"\", sDp;
+dyn_string dsPlc, ds;
+  
+main()
+{
+  //set global variable usedSystem -> use getSystemName() if $SYSTEM is not defined
+  if ( isDollarDefined(\"$SYSTEM\") && $SYSTEM != \"\" )  
+    usedSystem = $SYSTEM;
+  else
+    usedSystem = getSystemName();
+
+  dpQueryConnectAll(\"reloadPollGroup\", 
+                    TRUE, 
+                    \"userData\", 
+                    \"SELECT '.SyncMode:_online.._value','.PollInterval:_online.._value' FROM '*' WHERE _DPT = \\\"_PollGroup\\\"\");
+}
+
+void reloadPollGroup(anytype at_userData, dyn_dyn_anytype dda_qres)
+{ 
+  // removing the header information from the query result  
+  dynRemove(dda_qres, 1);
+  
+  // check if the result contains poll group information 
+  if (dynlen(dda_qres) < 1)
+    return;
+     
+  for (int i = dynlen(dda_qres); i >= 1; i--)
+  {  
+    if (dynlen(dda_qres[i]) == 3)
+    {
+      dynRemove(dda_qres[i], 3);
+      dynRemove(dda_qres[i], 2);        
+    }
+  }  
+  
+  dsPlc = dda_qres;
+  
+  // IM 111191
+  // remove redu dps from list of PLCs
+  for ( i = dynlen(dsPlc); i > 0; i-- )
+  {
+    ds = strsplit(dsPlc[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsPlc,i);
+      continue;
+    }
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+    
+    if ( strpos(dsPlc[i], \"_\", 0) != -1 )
+      dsPlc[i] = strltrim(dsPlc[i], \"_\");
+  }
+  
+  if ( dynlen(dsPlc) < 1 )
+    return;
+  else if ( !isDollarDefined(\"$fromPara\") )
+    sPlc = dsPlc[1];
+  else
+  {
+    if ( (i=dynContains(dsPlc, $fromPara)) > 0 )
+      sPlc = $fromPara;
+    else
+      sPlc = dsPlc[1];
+  }
+
+  cmbPollGroups.items = dsPlc;
+  cmbPollGroups.text = sPlc;
+  gsOldPlc = sPlc;
+  bChanged = false;
+
+  readDpWritePanel(sPlc);
+  oldMode = modus.number;
+  oldSyncMode = syncmod.number;
+  bChanged = false;
+  sPlc = oldPlc;
+
+  
+  while ( true )
+  {
+    sPlc = cmbPollGroups.text;
+    if ( sPlc != gsOldPlc )
+    {
+      readDpWritePanel(sPlc);
+      oldMode = modus.number;
+      oldSyncMode = syncmod.number;
+      gsOldPlc = sPlc;
+    }
+    delay(0, 500);
+  }
+}
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+"refFileName"0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+bool       bChanged;
+string     gsOldPlc;
+
+unsigned   oldMode, oldPollTime, oldSyncMode, oldSyncTime, oldHour, oldMinute;
+bool       oldActive;
+string     oldPlc;
+string     usedSystem;  //global variable -> use getSystemName() if $SYSTEM is not defined
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void cmdClose()
+{
+  if ( isDollarDefined(\"$fromPara\") )
+    PanelOffReturn(makeDynFloat(), makeDynString());
+  else
+    PanelOff();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+createNewPollGroup(string dp)
+{
+  dp = \"_\" + dp;
+  
+  if ( isDollarDefined(\"$SYSTEM\") )
+  {
+    if ( $SYSTEM != \"\" )
+    {
+      dpCreate(dp, \"_PollGroup\", getSystemId( $SYSTEM ));
+      dp = $SYSTEM + dp;  
+    }
+  }
+  else
+  {
+    dpCreate(dp, \"_PollGroup\");
+  }
+
+  dpSet(dp + \".SyncTime:_original.._value\",0,
+        dp + \".SyncMode:_original.._value\",0,
+        dp + \".PollInterval:_original.._value\", 100,
+        dp + \".Active:_original.._value\", 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+readDpWritePanel(string sPlc)
+{
+  int        i, ta, st, mi, se, wert,
+             Mode = 0, PollTime, SyncMode,
+             OF_MONTH = 2678400,OF_WEEK = 604800,OF_DAY = 86400; 
+  time       SyncTime;
+  bool       Active, GeneralQuery;
+  dyn_string ds_month,ds_week;  
+
+  if ( strrtrim(strltrim(sPlc)) == \"\" ) return;
+
+  for (i=1;i<=7;i++) ds_week[i]=paGetCatStr(\"para\",\"weekday\"+i);
+  for (i=1;i<=31;i++) ds_month[i]=i;
+
+  sPlc = usedSystem + \"_\" + sPlc;
+
+  dpGet(sPlc + \".SyncTime:_original.._value\", SyncTime,
+        sPlc + \".SyncMode:_original.._value\", SyncMode,
+        sPlc + \".PollInterval:_original.._value\", PollTime,
+        sPlc + \".Active:_original.._value\", Active);
+  
+  wert = period(SyncTime);   
+  if ( PollTime >  0 && wert == 0 ) Mode = 0;
+  else
+  if ( PollTime == 0 && wert >  0 ) Mode = 1;
+  else
+  if ( PollTime >  0 && wert >  0 ) Mode = 2;
+  else
+   PollTime = 100;
+
+  oldPollTime = PollTime;
+  oldSyncMode = SyncMode;
+  modus.number = Mode;
+  
+  if      ( SyncMode == 4 )                             syncmod.number = 0;
+  else if ( SyncMode == 3 )                             syncmod.number = 1;
+  else if ( SyncMode == 2 )                             syncmod.number = 2;
+  else if ( SyncMode == 1 && wert >= 60 )               syncmod.number = 3;
+  else if ( SyncMode == 1 && wert >=  1 && wert <= 59 ) syncmod.number = 4;
+  
+  polltime.text = PollTime;
+  statag.items = ds_month;
+  
+  if ( wert > 0 )
+  {
+    if (wert>=OF_MONTH)   
+    {   
+      setMultiValue(//\"syncmod\",\"number\",0,   
+                    \"txttag\",\"enabled\",true,   
+                    \"statag\",\"items\",ds_month,   
+                    \"statag\",\"enabled\",true,
+                    \"txtsek\",\"enabled\",false,   
+                    \"stasek\",\"enabled\",false);  
+      wert=wert-OF_MONTH;
+      ta=wert / 86400;
+      st=(wert-ta*86400) / 3600;   
+      mi=(wert-ta*86400-st*3600) / 60;
+      if (ta<0) ta=0;   
+      if (ta>30) ta=30;   
+      ta=ta+1;   
+      setMultiValue(\"statag\",\"selectedPos\", ta,   
+                    \"statag\",\"text\", ds_month[ta],   
+                    \"stastu\",\"text\", st,   
+                    \"stamin\",\"text\", mi); 
+    }   
+    else   
+    if (wert>=OF_WEEK)   
+    {   
+      setMultiValue(//\"syncmod\",\"number\",1,   
+                    \"txttag\",\"enabled\",true,   
+                    \"statag\",\"items\",ds_week,   
+                    \"statag\",\"enabled\",true,
+                    \"txtsek\",\"enabled\",false,   
+                    \"stasek\",\"enabled\",false);   
+      wert=wert-OF_WEEK;
+      ta=wert / 86400;   
+      st=(wert-ta*86400) / 3600;   
+      mi=(wert-ta*86400-st*3600) / 60;
+      if (ta<0) ta=0;   
+      if (ta>6) ta=6;   
+      ta=ta+1;   
+      setMultiValue(\"statag\",\"selectedPos\", ta,   
+                    \"statag\",\"text\", ds_week[ta],   
+                    \"stastu\",\"text\", st,
+                    \"stamin\",\"text\", mi);  
+    }   
+    else   
+    if (wert>=OF_DAY)   
+    {   
+      setMultiValue(//\"syncmod\",\"number\",2,   
+                    \"txttag\",\"enabled\",false,   
+                    \"statag\",\"enabled\",false,
+
+                    \"txtstd\",\"enabled\",true,
+                    \"stastu\",\"enabled\",true,
+                    \"txtmin\",\"enabled\",true,
+                    \"stamin\",\"enabled\",true,                    
+                    
+                    \"txtsek\",\"enabled\",false,   
+                    \"stasek\",\"enabled\",false);  
+      wert=wert-OF_DAY;   
+      ta=0;   
+      st=wert / 3600;
+      mi=(wert-st*3600) / 60;   
+      se=(wert-st*3600-mi*60);
+      setMultiValue(\"stastu\",\"text\", st,   
+                    \"stamin\",\"text\", mi,
+                    \"stasek\",\"text\", se);  
+    }   
+    else
+    if ( wert >= 1 && wert <= 59 && Mode == 2 && SyncMode == 1)
+    {   
+      setMultiValue(//\"syncmod\",\"number\",4,   
+                    \"txttag\",\"enabled\",false,   
+                    \"statag\",\"enabled\",false,
+                    \"txtstd\",\"enabled\",false,   
+                    \"stastu\",\"enabled\",false,
+                    \"txtmin\",\"enabled\",false,   
+                    \"stamin\",\"enabled\",false,
+                    \"txtsek\",\"enabled\",true,   
+                    \"stasek\",\"enabled\",true);
+      se=wert;
+      
+      setMultiValue(\"stasek\",\"text\", se);
+    }
+    else // if (wert>=60)
+    {   
+      setMultiValue(//\"syncmod\",\"number\",3,   
+                    \"txttag\",\"enabled\",false,   
+                    \"statag\",\"enabled\",false,
+                    \"txtstd\", \"enabled\", true,   
+                    \"stastu\", \"enabled\", true,   
+                    \"txtmin\", \"enabled\", true,   
+                    \"stamin\", \"enabled\", true,   
+                    \"txtsek\",\"enabled\",false,   
+                    \"stasek\",\"enabled\",false);   
+      ta=0;   
+      st=wert / 3600;
+      mi=(wert-st*3600) / 60;
+      setMultiValue(\"stastu\",\"text\", st,   
+                    \"stamin\",\"text\", mi);  
+    }
+    setMultiValue(\"frmSyncTime\",\"enabled\",true,   
+                  \"syncmod\", \"enabled\", true);
+  }
+  else
+    setMultiValue(\"frmSyncTime\",\"enabled\",false,   
+                  \"syncmod\", \"enabled\", false,   
+                  \"txttag\", \"enabled\", false,   
+                  \"txtstd\", \"enabled\", false,   
+                  \"txtmin\", \"enabled\", false,   
+                  \"txtsek\", \"enabled\", false,  
+                  \"statag\", \"enabled\", false,   
+                  \"stastu\", \"enabled\", false,   
+                  \"stamin\", \"enabled\", false,
+                  \"stasek\", \"enabled\", false);   
+
+  frmPollTime.enabled = (Mode == 0 || Mode == 2);
+  polltime.enabled    = (Mode == 0 || Mode == 2);
+  frmSyncTime.enabled = (Mode >  0);
+  syncmod.enabled     = (Mode >  0);
+  syncmod.itemEnabled(4) = (Mode == 2);
+  chbPollGroupActive.state(0) = Active;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+readPanelWriteDp(string sPlc)
+{
+  int  sy, ta, st, mi, se, wert, mode, ptime,
+       OF_MONTH = 2678400,OF_WEEK = 604800,OF_DAY = 86400;
+  bool act;
+  time tSync;
+
+  mode = modus.number;
+
+  if      ( syncmod.number == 0 ) sy = 4;
+  else if ( syncmod.number == 1 ) sy = 3;
+  else if ( syncmod.number == 2 ) sy = 2;
+  else if ( syncmod.number == 3 ) sy = 1;
+  else if ( syncmod.number == 4 ) sy = 1;
+    
+  act = chbPollGroupActive.state(0);
+  ta = statag.selectedPos;
+  st = stastu.text;
+  mi = stamin.text;
+  se = stasek.text;
+  ptime = polltime.text;
+  
+  if ( mode == 0 )
+  {
+    tSync = 0; sy = 0;
+    if ( ptime == 0 ) ptime = 100;
+  }
+  else
+  {
+    if (ta<1) ta=1; ta--;
+    wert=st*3600+mi*60+se;  
+    if (sy==4)  
+      wert=wert+ta*86400 + OF_MONTH;  
+    else if (sy==3)  
+      wert=wert+ta*86400 + OF_WEEK;  
+    else if (sy==2)  
+      wert=wert + OF_DAY; 
+    
+    setPeriod(tSync, wert);  
+    if ( mode == 1 )
+    {
+      ptime = 0;
+    }
+  }
+  sPlc = usedSystem + \"_\" + sPlc;
+  
+  dpSet(sPlc + \".SyncTime:_original.._value\", tSync,
+        sPlc + \".SyncMode:_original.._value\", sy,
+        sPlc + \".PollInterval:_original.._value\", ptime,
+        sPlc + \".Active:_original.._value\", act);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string getS7PlusConfig()
+{
+  string sS7PlusConfig = \"_S7PlusConfig\";
+  string sSUB = \".Subscriptions.\";
+  string sONL = \":_online.._value\";
+  
+  dyn_string dsSubNames, dsSubPgs, dsSub = makeDynString();
+  
+  if ( dpExists(sS7PlusConfig) )
+  {
+    dpGet(sS7PlusConfig + sSUB + \"Names\"      + sONL, dsSubNames,
+          sS7PlusConfig + sSUB + \"Pollgroups\" + sONL, dsSubPgs);
+    
+    dynAppend(dsSub, dsSubNames);
+    dynAppend(dsSub, dsSubPgs);
+    
+    dynUnique(dsSub);
+  }  
+  
+  return dsSub;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 83
+"txttag"
+""
+1 340 87 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 0 1 E U  0 E 313 87 340 102
+0 0 0 "0s" 0 0 0 194 0 0  340 87 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Day:
+LANG:10004 4 日:
+LANG:10000 4 Tag:
+LANG:10027 9 День:
+2 84
+"txtstd"
+""
+1 340 112 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 0 1 E U  0 E 309 112 340 127
+0 0 0 "0s" 0 0 0 194 0 0  340 112 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Hour:
+LANG:10004 7 小时:
+LANG:10000 7 Stunde:
+LANG:10027 9 Часы:
+2 85
+"txtmin"
+""
+1 340 137 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 0 1 E U  0 E 297 137 340 152
+0 0 0 "0s" 0 0 0 194 0 0  340 137 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Minute:
+LANG:10004 7 分钟:
+LANG:10000 7 Minute:
+LANG:10027 13 Минуты:
+30 101
+"Frame2"
+""
+1 10 110 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+43 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.015945330296127 0 0.9322033898305085 -0.1594533029612725 -40.61016949152543 0 E 10 50 450 110
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12  Poll group 
+LANG:10004 9 轮询组
+LANG:10000 12  Pollgruppe 
+LANG:10027 27  Группа опроса 
+30 106
+"frmMode"
+""
+1 10 240 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+48 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9856115107913669 0 1.050420168067227 0.1438848920863326 -60.05042016806723 0 E 10 120 150 240
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6  Mode 
+LANG:10004 6 模式
+LANG:10000 7  Modus 
+LANG:10027 12  Режим 
+30 107
+"frmPollTime"
+""
+1 10 300 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9784172661870503 0 1.122448979591837 0.2158273381294992 -84.61224489795916 0 E 10 250 150 300
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,75,0,0,0,0,0
+0 4
+LANG:10001 16  Poll time [ms] 
+LANG:10004 16 轮询时间[ms]
+LANG:10000 15  Pollzeit [ms] 
+LANG:10027 34  Период опроса (мс) 
+30 108
+"frmSyncTime"
+""
+1 160 240 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.024221453287198 0 1.050420168067227 -3.875432525951562 -60.05042016806723 0 E 160 120 450 240
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22  Synchronization time 
+LANG:10004 12 同步时间
+LANG:10000 22  Synchronisationszeit 
+LANG:10027 41  Период синхронизации 
+30 109
+"Frame5"
+""
+1 160 300 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+51 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.024221453287198 0 1.122448979591837 -3.875432525951562 -84.61224489795916 0 E 160 250 450 300
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12  Activating 
+LANG:10004 13  正在激活
+LANG:10000 12  Aktivieren 
+LANG:10027 26  Активировать 
+19 63
+"modus"
+""
+1 20 84 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 82 142 176
+3
+T 
+4
+LANG:10001 9 Poll time
+LANG:10004 12 轮询时间
+LANG:10000 8 Pollzeit
+LANG:10027 25 Период опроса
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 11 Synch. time
+LANG:10004 12 同步时间
+LANG:10000 10 Synch.Zeit
+LANG:10027 24 Период синхр.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 4 Both
+LANG:10004 12 以上两者
+LANG:10000 5 Beide
+LANG:10027 6 Оба
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  int Mode     = this.number;
+    
+  frmPollTime.enabled = (Mode == 0 || Mode == 2);
+  polltime.enabled    = (Mode == 0 || Mode == 2);
+  oldSyncMode = syncmod.number;
+  
+  if ( oldPollTime == 0 ) oldPollTime = 100;
+  if ( oldSyncMode >  4 ) oldSyncMode = 0;
+  if ( Mode == 1 ) polltime.text = 0;
+  else polltime.text = oldPollTime;
+  
+  frmSyncTime.enabled = (Mode >  0);
+  syncmod.enabled     = (Mode >  0);
+  
+  if ( oldMode != 0 && Mode == 0 )
+  {
+    txttag.enabled      = false;
+    statag.enabled      = false;
+    txtstd.enabled      = false;
+    stastu.enabled      = false;
+    txtmin.enabled      = false;
+    stamin.enabled      = false;
+    txtsek.enabled      = false;
+    stasek.enabled      = false;  
+  }
+  if ( oldMode != 1 && Mode == 1 )
+  {
+    if ( oldSyncMode == 4 ) oldSyncMode = 3;
+    syncmod.number      = oldSyncMode;
+    syncmod.itemEnabled(4) = false;
+    
+    txttag.enabled      = (oldSyncMode<=1);
+    statag.enabled      = (oldSyncMode<=1);
+    
+    txtstd.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stastu.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stastu.text         = 0;
+    
+    txtmin.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stamin.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stamin.text         = 0;
+    
+    txtsek.enabled      = false;
+    stasek.enabled      = false;
+    stasek.text         = 0;
+  }
+  if ( oldMode != 2 && Mode == 2 )
+  {
+    syncmod.number      = oldSyncMode;
+    syncmod.itemEnabled(4) = true;
+    
+    txttag.enabled      = (oldSyncMode<=1);
+    statag.enabled      = (oldSyncMode<=1);
+    
+    txtstd.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stastu.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stastu.text         = 0;
+    
+    txtmin.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stamin.enabled      = (oldSyncMode==2 || oldSyncMode==3);
+    stamin.text         = 0;
+    
+    txtsek.enabled      = (oldSyncMode==4);
+    stasek.enabled      = (oldSyncMode==4);
+    stasek.text         = 0;
+  }
+  
+  bChanged = true;
+  oldMode = Mode;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+19 89
+"syncmod"
+""
+1 168 84 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 82 274 182
+5
+T 
+4
+LANG:10001 7 Monthly
+LANG:10004 6 每月
+LANG:10000 9 Monatlich
+LANG:10027 20 Ежемесячно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Weekly
+LANG:10004 6 每周
+LANG:10000 12 Wöchentlich
+LANG:10027 22 Еженедельно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 5 Daily
+LANG:10004 6 每日
+LANG:10000 8 Täglich
+LANG:10027 18 Ежедневно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Every hr./min.
+LANG:10004 16 每小时/分钟
+LANG:10000 13 Alle Std.Min.
+LANG:10027 20 Каждые ч./м.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Sync. on sec.
+LANG:10004 12 每秒同步
+LANG:10000 14 Sync. auf Sek.
+LANG:10027 17 До секунд
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  int        i;
+  string     ta;
+  dyn_string ds_month,ds_week;
+
+  for (i=1;i<=7;i++) ds_week[i]=paGetCatStr(\"para\",\"weekday\"+i);
+  for (i=1;i<=31;i++) ds_month[i]=i;
+  getValue(\"\",\"number\",i);
+    
+  if (i==0 || i==1)
+  {
+    if (i==0) setValue(\"statag\",\"items\",ds_month);
+    else
+    if (i==1) setValue(\"statag\",\"items\",ds_week);
+    setMultiValue(\"txttag\",\"enabled\",true,
+                  \"statag\",\"enabled\",true);
+    getValue(\"statag\",\"text\",ta);
+    if (i==0 && !dynContains(ds_month,ta))
+    {
+      ta=1; setValue(\"statag\",\"text\",ta);
+    }
+    if (i==1 && !dynContains(ds_week,ta))
+    {
+      ta=1; setValue(\"statag\",\"text\",ds_week[ta]);
+    }
+    setValue(\"statag\",\"selectedPos\",ta);
+    setMultiValue(\"txtstd\",\"enabled\",false,
+                  \"stastu\",\"enabled\",false,
+                  \"stastu\",\"text\",0,
+                  \"txtmin\",\"enabled\",false,
+                  \"stamin\",\"enabled\",false,
+                  \"stamin\",\"text\",0,
+                  \"txtsek\",\"enabled\",false,
+                  \"stasek\",\"enabled\",false,
+                  \"stasek\",\"text\",0);
+  }
+  if (i==2 || i==3)
+  {
+    setMultiValue(\"txttag\",\"enabled\",false,
+                  \"statag\",\"enabled\",false,
+                  \"txtstd\",\"enabled\",true,
+                  \"stastu\",\"enabled\",true,
+                  \"stastu\",\"text\",0,
+                  \"txtmin\",\"enabled\",true,
+                  \"stamin\",\"enabled\",true,
+                  \"stamin\",\"text\",0,
+                  \"txtsek\",\"enabled\",false,
+                  \"stasek\",\"enabled\",false,
+                  \"stasek\",\"text\",0);
+  }
+  if (i==4)
+  {
+    setMultiValue(\"txttag\",\"enabled\",false,
+                  \"statag\",\"enabled\",false,
+                  \"txtstd\",\"enabled\",false,
+                  \"stastu\",\"enabled\",false,
+                  \"stastu\",\"text\",0,
+                  \"txtmin\",\"enabled\",false,
+                  \"stamin\",\"enabled\",false,
+                  \"stamin\",\"text\",0,
+                  \"txtsek\",\"enabled\",true,
+                  \"stasek\",\"enabled\",true);
+    
+    if ( stasek.text == 0 )
+    {
+      stasek.text = 1;
+      if ( polltime.text < 1000 )
+        polltime.text = 1000;
+    }
+  }
+
+  bChanged = true;
+}
+
+
+" 0
+
+21 90
+"stastu"
+""
+1 340.6 148 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 108 447 134
+0
+
+E
+"main()
+{
+  bChanged = true;
+
+}" 0
+
+E
+
+N 0 23 1 0 1 1
+21 91
+"stamin"
+""
+1 340.6 173 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 133 447 159
+0
+
+E
+"main()
+{
+  bChanged = true;
+
+}" 0
+
+E
+
+N 0 59 1 0 1 1
+22 92
+"statag"
+""
+1 343 124 E E E 0 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 83 447 109
+1
+4
+LANG:10001 6 Monday
+LANG:10004 9 星期一
+LANG:10000 6 Montag
+LANG:10027 22 Понедельник
+
+0
+
+E
+"main()
+{
+  bChanged = true;
+
+}" 0
+
+E
+ 0 0
+21 93
+"polltime"
+""
+1 17.125 253 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 213 137 239
+0
+
+E
+"main()
+{
+  int msek = this.text,
+      sek  = stasek.text;
+  
+  if ( msek > 0 && msek < 100 && msek > oldPollTime) this.text = 100;
+  if ( msek > 0 && msek < 100 && msek < oldPollTime) this.text = 0;
+  
+//   if ( modus.number == 2 && syncmod.number == 4 && msek / 1000 < sek )
+//   {
+//     msek = sek * 1000;
+// 
+//     ChildPanelOnCentralModal(\"vision/MessageWarning\",
+//       getCatStr(\"para\",\"warning\"),
+//       makeDynString(getCatStr(\"para\",\"pollingCheckTimes\")));
+//   }
+
+  this.text   = msek;
+  stasek.text = sek;
+  
+  oldPollTime = this.text;
+  bChanged = true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+
+N 0 864000000 1 100 1 1
+22 102
+"cmbPollGroups"
+""
+1 20 25 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select a poll group
+LANG:10004 15 选择轮询组
+LANG:10000 21 Pollgruppe auswählen
+LANG:10027 40 Выбрать группу опроса
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 24 262 50
+0
+
+E
+"main()
+{
+  if ( this.text != oldPlc )
+    bChanged = true;
+//  readDpWritePanel(cmbPlc.text);
+}" 0
+
+E
+ 0 0
+13 103
+"cmdNewDp"
+""
+1 365 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Create a new poll group
+LANG:10004 18 创建新轮询组
+LANG:10000 25 Neue Pollgruppe erstellen
+LANG:10027 51 Создать новую группу опроса
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 23 446 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i = 1;
+  string     sPlc = cmbPollGroups.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPollGroups.items, ds;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+    getCatStr(\"da\",\"createdp\"),
+    makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), sPlc, \"$NOBLAKSALLOWED:1\"),df,ds);  //allow no blanks
+
+  if ( dynlen(df) < 1 || df[1] == 0 ) return;
+
+  sPlc = (dynlen(ds)>0)?ds[1]:\"\";
+  sPlc = strrtrim(strltrim(sPlc));
+  
+  // IM 111191
+  if ( strpos(sPlc, \" \") != -1 || strpos(sPlc, \"__\") != -1 ||
+       patternMatch(\"*_1\", sPlc) || patternMatch(\"*_2\", sPlc) || patternMatch(\"*_\", sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"dpNameInvalid\")));
+    return;
+  }
+  else if ( (sPlc == \"\") || (sPlc == \"_\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"apc_dpleer\")));
+    return;
+  }
+  else if ( dpExists(usedSystem+\"_\"+sPlc) || dpExists(\"_\"+sPlc) || dpExists(sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"sim\",\"sim_exists\")));
+    return;
+  }
+  
+  createNewPollGroup(sPlc);
+
+  sPlc = dpSubStr( usedSystem+\"_\"+sPlc,DPSUB_DP );
+  sPlc = substr(sPlc, 1, strlen(sPlc) - 1);
+  dynAppend(dsPlc, sPlc);
+  dynSortAsc(dsPlc);
+  cmbPollGroups.items = dsPlc;
+  cmbPollGroups.selectedPos  = dynContains(dsPlc,sPlc);
+  cmbPollGroups.text  = sPlc;
+  readDpWritePanel(sPlc);
+}
+" 0
+ E E E
+13 104
+"cmdRemoveDp"
+""
+1 270 30 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Remove poll group
+LANG:10004 6 删除
+LANG:10000 20 Pollgruppe entfernen
+LANG:10027 40 Удалить группу опроса
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  268 23 356 51
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPollGroups.selectedPos;
+  string     sPlc = cmbPollGroups.text, sPlc2 = sPlc + \"_2\";
+  dyn_float  df;
+  dyn_string dsPlc = cmbPollGroups.items, ds;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+  
+  if ( dynContains(getS7PlusConfig(), \"_\"+sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscriptionPollgroup\")));
+    return;
+  }
+
+  if ( sPlc == \"\" )
+    return;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(getCatStr(\"diskspace\", \"dpDelete\"),
+                                               getCatStr(\"para\", \"yes\"),
+                                               getCatStr(\"para\", \"no\")),
+                                 df, ds);
+
+  if (!df[1])
+    return;
+  
+  dynRemove(dsPlc, iPos);
+  cmbPollGroups.items = dsPlc;
+  
+  if ( dynlen(dsPlc) < 1 )
+    cmbPollGroups.text = \"\";
+  else
+  {
+    cmbPollGroups.selectedPos = (dynlen(dsPlc)>=iPos)?iPos:dynlen(dsPlc);
+    cmbPollGroups.text = dsPlc[cmbPollGroups.selectedPos];
+  }
+  
+  delay(0,501);
+
+  sPlc  = \"_\" + sPlc;
+  sPlc2 = \"_\" + sPlc2;
+
+  if ( usedSystem != \"\" )
+  {
+    sPlc  = usedSystem + sPlc;
+    sPlc2 = usedSystem + sPlc2;
+  }
+
+  if ( dpExists( sPlc  ) ) dpDelete( sPlc  );
+  if ( dpExists( sPlc2 ) ) dpDelete( sPlc2 );
+}
+
+" 0
+ E E E
+20 105
+"chbPollGroupActive"
+""
+1 170 215 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 213 442 237
+1
+T 
+4
+LANG:10001 18 Poll group active 
+LANG:10004 9 轮询组
+LANG:10000 17 Pollgruppe aktiv 
+LANG:10027 40 Группа опроса активна
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  bChanged = true;
+}
+" 0
+13 110
+"cmdApply"
+""
+1 269.9999999999999 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  268 273 356 301
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  string sPlc = cmbPollGroups.text;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+  
+  if ( dynContains(getS7PlusConfig(), \"_\"+sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscriptionPollgroup\")));
+    return;
+  }
+  
+  if ( modus.number != 1 && polltime.text < 100 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingTime100\")));
+    return;
+  }
+  
+  if ( modus.number == 2 && syncmod.number == 4 && stasek.text > (polltime.text / 1000) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingCheckTimes\")));
+    polltime.text = stasek.text * 1000;
+    return;
+  }
+  
+  if ( modus.number == 2 && syncmod.number == 4 && stasek.text == 0 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingUseSyncOnSec\")));
+    
+    stasek.text = 1;
+    
+    if ( polltime.text < 1000 )
+      polltime.text = 1000;
+    
+    return;
+  }
+
+  if ( sPlc == \"\" )
+    return;
+
+  readPanelWriteDp(sPlc);
+  bChanged = false;
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 111
+"cmdCancel"
+""
+1 359.9999999999999 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+53 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 273 446 301
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}
+" 0
+ E E E
+13 112
+"cmdHelp"
+""
+1 20 273 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 273 106 301
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"poll_groups\" ) ;  
+}
+" 0
+ E E E
+13 113
+"cmdOk"
+""
+1 180 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  178 273 266 301
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  setInputFocus(myModuleName(), myPanelName(), \"cmdOk\");
+  
+  string     sPlc = cmbPollGroups.text;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+  
+  if ( dynContains(getS7PlusConfig(), \"_\"+sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusSubscriptionPollgroup\")));
+    return;
+  }
+  
+  if ( modus.number != 1 && polltime.text < 100 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingTime100\")));
+    return;
+  }
+  
+  if ( modus.number == 2 && syncmod.number == 4 && stasek.text > (polltime.text / 1000) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingCheckTimes\")));
+    
+    polltime.text = stasek.text * 1000;
+    return;
+  }  
+  
+  if ( modus.number == 2 && syncmod.number == 4 && stasek.text == 0 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"para\", \"pollingUseSyncOnSec\")));
+    
+    stasek.text = 1;
+    
+    if ( polltime.text < 1000 )
+      polltime.text = 1000;
+    
+    return;
+  }
+
+  if ( sPlc == \"\" )
+    return;
+
+  readPanelWriteDp(sPlc);
+
+  if ( isDollarDefined(\"$fromPara\") )
+    PanelOffReturn(makeDynFloat(1), makeDynString(sPlc));
+  else
+    PanelOff();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+1 118 0 "" 0
+0
+2 116
+"txtsek"
+""
+1 340 162 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 0 1 E U  0 E 292 162 340 177
+0 0 0 "0s" 0 0 0 194 0 0  340 162 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Second:
+LANG:10004 4 秒:
+LANG:10000 8 Sekunde:
+LANG:10027 15 Секунды:
+21 117
+"stasek"
+""
+1 340.6 198 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 158 447 184
+0
+
+E
+"main()
+{
+  int sek  = this.text,
+      msek = polltime.text;
+    
+//   if ( modus.number == 2 && syncmod.number == 4 && sek > msek / 1000 )
+//   {
+//     msek = sek * 1000;
+//     
+//     ChildPanelOnCentralModal(\"vision/MessageWarning\",
+//       getCatStr(\"para\",\"warning\"),
+//       makeDynString(getCatStr(\"para\",\"pollingCheckTimes\")));
+//   }
+  
+  this.text     = sek;
+  polltime.text = msek;
+  
+  bChanged = true;
+}
+
+
+
+
+
+
+
+
+" 0
+
+E
+
+N 0 59 1 0 1 1
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 10 310 T 56 1.030060120240481 0 1 -15.30060120240481 -45
+0
+0

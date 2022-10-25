@@ -1,0 +1,1389 @@
+V 14
+4
+LANG:10001 20 Group administration
+LANG:10004 9 组管理
+LANG:10000 17 Gruppenverwaltung
+LANG:10027 37 Управление группами
+PANEL,-1 -1 420 580 N "_3DFace" 0
+"void main()
+{
+  m_um = UserManagement::getInstance();
+  dpConnect(\"work\", \"_Groups.UserName:_online.._value\");
+
+  gruppen.visible(true);
+  addGroup.enabled(true);
+}
+
+void work(string dp, dyn_string groupNames)
+{
+  dyn_string groupList = gruppen.items();
+
+  if (groupList != groupNames)
+  {
+    gruppen.items(groupNames);
+    gruppen.selectedPos(0);
+    groupList = gruppen.items();
+  }
+
+  if (dynlen(groupList) > 0)
+  {
+    if (gruppen.selectedText() == \"\")
+      gruppen.selectedPos(0);
+
+    umChangedSelectedGroup(gruppen.selectedText());
+  }
+
+  cmdGroupSettings.enabled(grp.text() != \"\");
+}
+
+" 0
+ E E E E 1 -1 -1 0  100 70
+"refFileName"0  1
+E "
+#uses \"classes/userManagement/UserManagement\"
+#uses \"classes/auth/OaAuthFactory\"
+#uses \"classes/userManagement/UserManagementHooks\"
+
+shared_ptr<UserManagement> m_um;
+shared_ptr<UserManagementGroup> m_group;
+dyn_anytype m_areas; //dyn<shared_ptr<UserManagementArea>>
+dyn_anytype m_users; //dyn<shared_ptr<UserManagementUser>>
+
+void umSaveGroupProperties(string msgKey = \"cannotmodify\")
+{
+  dyn_string errorList;
+
+  if (!m_um.saveChangesError(errorList))
+  {
+    ChildPanelOnCentralModal(
+        \"vision/MessageWarning\",
+        getCatStr(\"para\", \"warning\"),
+        makeDynString(getCatStr(\"userMan\", msgKey) + \"\\n\" + strjoin(errorList, \"\\n\")));
+  }
+  else
+  {
+    if (m_group != nullptr)
+    {
+      umChangedSelectedGroup(m_group.getName());
+    }
+    else if (dynlen(gruppen.items()) > 0)
+    {
+      gruppen.selectedPos(0);
+    }
+  }
+}
+
+void updateAreas()
+{
+  dynClear(m_areas);
+  if(m_group == nullptr)
+  {
+    return;
+  }
+
+  dyn_uint areaIds = m_group.getAreaIds();
+
+  for(int i = 1; i <= dynlen(areaIds); i++)
+  {
+    anytype area = m_um.getArea(areaIds[i]);
+    if(area != nullptr)
+    {
+      dynAppend(m_areas, area);
+    }
+  }
+}
+
+dyn_string getUserNames()
+{
+  dyn_string usernames;
+
+  for(int i = 1; i <= dynlen(m_users); i++)
+  {
+    string name = m_users[i].getName();
+    dynAppend(usernames, name);
+  }
+
+  return usernames;
+}
+
+void splitAreas(dyn_string &memberAreas, dyn_string &notMemberAreas)
+{
+  dyn_anytype allAreas = m_um.getAllAreas();
+
+  for(int i = 1; i <= dynlen(allAreas); i++)
+  {
+    string name = allAreas[i].getName();
+
+    if(dynContains(m_areas, allAreas[i]) > 0)
+    {
+      dynAppend(memberAreas, name);
+    }
+    else
+    {
+      dynAppend(notMemberAreas, name);
+    }
+  }
+}
+
+void umChangedSelectedGroup(string groupName)
+{
+  if (groupName == \"\")
+    return;
+
+  bool           bWinGroup = false;
+  OaAuthFactory  factory;
+  mixed          authMethod = factory.getAuth();
+  bool           editEnabled = (authMethod.getAuthType() == OaAuthenticationType::Standard);
+  dyn_string members;
+
+  m_group = nullptr;
+  m_group = m_um.getGroupByName(groupName);
+
+  if(m_group == nullptr)
+  {
+    return;
+  }
+
+  bWinGroup = ((m_group.getOSID() != \"\") && !editEnabled ); //empty OSID means it is a WinCC OA group
+  fullname.enabled(!bWinGroup);
+  comment.enabled(!bWinGroup);
+  applyGroup.enabled(!bWinGroup);
+  deleteGroup.enabled(true);
+
+  // IM 109282 // IM 111625
+  addGroup.enabled(true);
+  cmdGroupSettings.enabled(true);
+  cmdAuth.enabled(true);
+
+  updateAreas();
+  m_users = m_um.getSavedUsersByGroupId(m_group.getId());
+
+  members = getUserNames();
+
+  dyn_string memberAreas, notMemberAreas;
+  splitAreas(memberAreas, notMemberAreas);
+
+  setMultiValue( \"members\",    \"items\",   members,
+                 \"members\",    \"text\",    dynlen(members) > 0 ? members[1] : \"\",
+                 \"grp\",        \"text\",    m_group.getName(),
+                 \"fullname\",   \"text\",    m_group.getFullName(),
+                 \"comment\",    \"text\",    m_group.getComment(),
+                 \"memberArea\", \"items\",   memberAreas,
+                 \"noMemberArea\",\"items\",  notMemberAreas,
+                 \"memberArea\", \"selectedPos\",   0,
+                 \"noMemberArea\",\"selectedPos\",  0 );
+}
+
+void cmdClose()
+{
+  dyn_float df, dfDummy;
+  dyn_string ds, dsDummy;
+
+  if(m_group == nullptr || m_group.getId() == DEFAULT_USERID)
+  {
+    PanelOffReturn(dfDummy, dsDummy);
+    return;
+  }
+
+  if(m_group.isDirty())
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+      getCatStr(\"para\", \"information\"),
+      makeDynString(getCatStr(\"userMan\", \"changed_paneloff\"),
+                    getCatStr(\"para\", \"yes\"),
+                    getCatStr(\"para\", \"no\")),
+      df, ds);
+
+    if(dynlen(df) < 1 || df[1] < 1)
+    {
+      return;
+    }
+  }
+  PanelOffReturn(dfDummy, dsDummy);
+}
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 15
+"Text1"
+""
+1 103 218 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 67 220 105 235
+0 2 0 "0s" 0 0 0 194 0 0  105 220 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 11 Group name:
+LANG:10004 12 组名称：
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+2 16
+"txtComment"
+""
+1 103 279 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 22 280 105 295
+0 2 2 "0s" 0 0 0 194 0 0  105 280 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 9 描述：
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+30 20
+"Frame1"
+""
+1 10 310 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.056910569105691 0 1.120060790273556 4.43089430894309 -1.200607902735564 0 E 10 10 380 310
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Groups
+LANG:10004 3 组
+LANG:10000 7 Gruppen
+LANG:10027 12 Группы
+2 21
+"Text3"
+""
+1 103 309 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 45 310 105 325
+0 2 2 "0s" 0 0 0 194 0 0  105 310 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 Members:
+LANG:10004 9 成员：
+LANG:10000 11 Mitglieder:
+LANG:10027 11 Члены:
+2 26
+"Text2"
+""
+1 103 248 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 31 250 105 265
+0 2 0 "0s" 0 0 0 194 0 0  105 250 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Full name:
+LANG:10004 9 全名：
+LANG:10000 12 Voller Name:
+LANG:10027 20 Полное имя:
+30 29
+"Frame4"
+""
+1 10 490 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.056910569105691 0 1.007068094728718 4.43089430894309 27.54370167765699 0 E 10 320 380 490
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Area Membership
+LANG:10004 12 区域成员
+LANG:10000 24 Bereichsmitgliedschaften
+LANG:10027 36 Членство в участках
+2 30
+"Text4"
+""
+1 24.8 370.6 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 26.8 371.6 100 387
+0 2 2 "0s" 0 0 0 192 0 0  26.8 371.6 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Member of:
+LANG:10004 9 成员：
+LANG:10000 13 Mitglied von:
+LANG:10027 33 Группа включена в:
+2 31
+"Text5"
+""
+1 229.4 370.6 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 231.4 371.6 339 387
+0 2 2 "0s" 0 0 0 192 0 0  231.4 371.6 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Not member of:
+LANG:10004 16 不是该成员:
+LANG:10000 19 Nicht Mitglied von:
+LANG:10027 38 Группа не включена в:
+2 48
+"Text6"
+""
+1 125 90 E E E 1 E 1 E N "Grau" E N "_3DFace" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 127 92 214 107
+0 2 0 "0s" 0 0 0 192 0 0  127 92 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Please wait ...
+LANG:10004 13 请稍候 ...
+LANG:10000 16 Bitte warten ...
+LANG:10027 44 Пожалуйста, подождите …
+13 23
+"cmdHelp"
+""
+1 15 544 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 543 101 571
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"void main()
+{
+  std_help(\"ud_groups\");
+}
+" 0
+ E E E
+13 8
+"cmdClose"
+""
+1 320 544 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  318 543 406 571
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"void main()
+{
+  cmdClose();
+}
+" 0
+ E E E
+14 17
+"comment"
+""
+1 115 273 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if(m_group != nullptr)
+  {
+    m_group.setComment(newText);
+  }
+}
+"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  113 273 392 300
+3 "0s" 0 0 0 0 0 -1  E E E
+22 22
+"members"
+""
+1 115 305 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 User of selected group
+LANG:10004 18 所选组的用户
+LANG:10000 30 Benutzer der gewählten Gruppe
+LANG:10027 54 Пользователь выбранных групп
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  113 303 302 330
+0
+
+E
+E
+E
+ 0 0
+13 44
+"areaLeft"
+""
+1 195 390 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Select area
+LANG:10004 12 选择区域
+LANG:10000 18 Bereich auswählen
+LANG:10027 29 Выбрать участок
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 388 221 416
+
+P 
+13160660
+"pictures/StandardIcons/arrow_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"void main()
+{
+  if(noMemberArea.selectedPos() < 1)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"nolineselected\")));
+    return;
+  }
+
+  anytype selectedArea = m_um.getAreaByName(noMemberArea.selectedText());
+
+  if(m_group != nullptr)
+  {
+    m_group.addArea(selectedArea);
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+ E E E
+13 9
+"applyGroup"
+""
+1 305 304 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Save group settings
+LANG:10004 15 保存组设定
+LANG:10000 30 Gruppeneinstellungen speichern
+LANG:10027 48 Сохранить настройки групп
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  303 303 391 331
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"void main()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  if(m_group == nullptr)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"userMan\", \"cannotmodify\") + getCatStr(\"userMan\", \"nogroupselected\")),
+      df, ds);
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+    getCatStr(\"para\", \"information\"),
+    makeDynString(getCatStr(\"userMan\", \"suretomodifygroup\"),
+                  getCatStr(\"para\", \"yes\"),
+                  getCatStr(\"para\", \"no\")), df, ds);
+
+  if(dynlen(df) < 1 || !df[1])
+  {
+    return;
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+ E E E
+17 37
+"noMemberArea"
+""
+1 230 389.808 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  228 388 392 507
+0
+
+E
+E
+E
+
+0 0
+13 40
+"cmdEdit"
+""
+1 195 479 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Edit areas' authorization
+LANG:10004 18 编辑区域权限
+LANG:10000 32 Bereichsberechtigungen editieren
+LANG:10027 71 Редактировать полномочия для участков
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 477 221 505
+
+P 
+13160660
+"pictures/StandardIcons/Config_params_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"void main()
+{
+  dyn_float  df;
+  dyn_string ds;
+
+  if(dynlen(m_um.getAllAreas()) == 0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"userMan\", \"noareasdefined\")));
+    return;
+  }
+
+  if(m_group == nullptr)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/ud_groupArea_permission.pnl\",
+    getCatStr(\"userMan\", \"authorization\"),
+    makeDynString(\"$group:\" + m_group.getName()),
+    df, ds);
+
+  umSaveGroupProperties();
+}" 0
+ E E E
+13 46
+"Button1"
+""
+1 195 450 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Adopt authorization of another area
+LANG:10004 30 从另一个区域接收权限
+LANG:10000 42 Berechtigungen eines Bereiches übernehmen
+LANG:10027 89 Применить полномочия другой пары Участок-Группа
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 448 221 476
+
+P 
+12303291
+"pictures/StandardIcons/copy_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"void main()
+{
+  anytype area = m_um.getAreaByName(memberArea.selectedText());
+  dyn_float df;
+  dyn_string ds;
+
+  if(area == nullptr)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/ud_copyAreaAuth.pnl\",
+    getCatStr(\"userMan\", \"copyareaauth\"),
+    makeDynString(area.getId()), df, ds);
+
+  if(dynlen(df) < 1 || !df[1])
+  {
+    return;
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+ E E E
+13 45
+"areaRight"
+""
+1 195 420 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Deselect  area
+LANG:10004 18 取消选择区域
+LANG:10000 17 Bereich abwählen
+LANG:10027 42 Отменить выбор участка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 418 221 446
+
+P 
+13160660
+"pictures/StandardIcons/arrow_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"void main()
+{
+  if(memberArea.selectedPos() < 1)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  anytype selectedArea = m_um.getAreaByName(memberArea.selectedText());
+
+  if(m_group != nullptr && selectedArea != nullptr)
+  {
+    m_group.removeArea(selectedArea.getId());
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+ E E E
+17 36
+"memberArea"
+""
+1 25 389.808 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 388 187 507
+0
+
+E
+E
+E
+
+0 0
+14 27
+"fullname"
+""
+1 115 243 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if(m_group != nullptr)
+  {
+    m_group.setFullName(newText);
+  }
+}
+"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  113 243 392 270
+3 "50s" 50 0 0 0 0 -1  E E E
+14 0
+"grp"
+""
+1 115 213 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  113 213 392 240
+3 "50s" 50 0 0 0 0 -1  E E E
+13 41
+"cmdAuth"
+""
+1 335 100 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Authorization of the selected group
+LANG:10004 18 选定组的权限
+LANG:10000 44 Berechtigungen der gewählten Gruppe angeben
+LANG:10027 64 Задать полномочия выбранных групп 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  308.2083333333333 89 396.2083333333333 117
+
+T 
+4
+LANG:10001 11 Permissions
+LANG:10004 6 权限
+LANG:10000 10 Befugnisse
+LANG:10027 20 Полномочия
+"void main()
+{
+  if (m_group == nullptr)
+  {
+    errClass error = makeError(0, PRIO_INFO, ERR_PARAM, 0, \"\", 0, 0, __FILE__ + \": m_group not set\");
+    throwError(error);
+    return;
+  }
+
+  dyn_float df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(
+      \"vision/ud_perm.pnl\",
+      getCatStr(\"userMan\", \"authorization\"),
+      makeDynString(m_group.getName(), \"group\"),
+      df,
+      ds);
+
+  if (dynlen(df) < 1 || !df[1])
+  {
+    return;
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+ E E E
+13 12
+"deleteGroup"
+""
+1 310 60 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Delete selected group
+LANG:10004 18 删除选定的组
+LANG:10000 28 Ausgewählte Gruppe löschen
+LANG:10027 46 Удалить выбранные группы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 60 396 88
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"void main()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  if (m_group == nullptr)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"userMan\", \"cannotdelete\") + getCatStr(\"userMan\", \"nogroupselected\")),
+      df, ds);
+    return;
+  }
+
+  if(dynlen(m_users) > 0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"userMan\", \"cannotdelete\") + getCatStr(\"userMan\", \"groupused\")),
+      df, ds);
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+    getCatStr(\"para\", \"information\"),
+    makeDynString(getCatStr(\"userMan\", \"suretodeletegroup\"),
+                  getCatStr(\"para\", \"yes\"),
+                  getCatStr(\"para\", \"no\")), df, ds);
+  if(dynlen(df) < 1 || !df[1])
+  {
+    return;
+  }
+
+  m_group.remove();
+  umSaveGroupProperties(\"cannotdelete\");
+}
+" 0
+ E E E
+13 10
+"addGroup"
+""
+1 310 30 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Add new group
+LANG:10004 12 添加新组
+LANG:10000 23 Neue Gruppe hinzufügen
+LANG:10027 41 Добавить новую группу:
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 30 396 58
+
+T 
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 16 Добавить
+"void main()
+{
+  int groupId = -1;
+  dyn_float df;
+  dyn_string ds;
+
+  OaAuthFactory factory;
+  mixed auth = factory.getAuth(); // Get the current authentication method
+
+  if (auth.getAuthType() != OaAuthenticationType::Standard) // AD or \"User defined\"
+  {
+    ChildPanelOnCentralModalReturn(
+        \"vision/ud_groupSelect.pnl\",
+        getCatStr(\"userMan\",\"groupSelect\"),
+        makeDynString(),
+        df,
+        ds);
+  }
+  else
+  {
+    ChildPanelOnCentralModalReturn(\"vision/ud_newGroup.pnl\",
+      getCatStr(\"userMan\", \"addinggroup\"),
+      makeDynString(), df, ds);
+
+    if(dynlen(df) < 1 || df[1] == -1)
+    {
+      return;
+    }
+
+    if(ds[1] == \"\" || strpos(ds[1], \" \") >= 0)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\", \"warning\"),
+        makeDynString(getCatStr(\"userMan\", \"cannotadd\") + getCatStr(\"userMan\", \"badgroupname\")),
+        df, ds);
+      return;
+    }
+
+    string errStr;
+    if(!UserManagementHooks::checkGroupName(ds[1], errStr))
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\", \"warning\"),
+        makeDynString(errStr),
+        df, ds);
+      return;
+    }
+
+    // ds[1]: groupName
+    // ds[2]: fullname
+    // ds[3]: comment
+    shared_ptr<UserManagementGroup> group = new UserManagementGroup(ds[1]);
+    dyn_string errorList;
+
+    if (group.getError() != -1)
+    {
+      group.setFullName(ds[2]);
+      group.setComment(ds[3]);
+      m_um.addGroup(group);
+
+      if (m_um.saveChangesError(errorList))
+      {
+        groupId = group.getId();
+      }
+    }
+
+    if (groupId < 0)
+    {
+      ChildPanelOnCentralModalReturn(
+          \"vision/MessageWarning\",
+          getCatStr(\"para\", \"warning\"),
+          makeDynString(getCatStr(\"userMan\", \"cannotadd\") + \"\\n\" + strjoin(errorList, \"\\n\")),
+          df,
+          ds);
+      return;
+    }
+
+    m_group = nullptr;
+    m_group = m_um.getGroup(groupId);
+
+    if (m_group != nullptr)
+    {
+      umChangedSelectedGroup(m_group.getName());
+    }
+  }
+}
+" 0
+ E E E
+17 1
+"gruppen"
+""
+1 30 30 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E "void main()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  umChangedSelectedGroup(this.selectedText());
+
+  if(m_group != nullptr)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/ud_perm.pnl\",
+      getCatStr(\"userMan\", \"authorization\"),
+      makeDynString(m_group.getName(), \"group\"), df, ds);
+  }
+
+  if(dynlen(df) < 1 || !df[1])
+  {
+    return;
+  }
+
+  umSaveGroupProperties();
+}
+" 0
+
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  28 28 302 202
+0
+
+E
+"void main()
+{
+  umChangedSelectedGroup(this.selectedText());
+  cmdGroupSettings.enabled(TRUE);
+}
+" 0
+
+E
+
+0 0
+13 50
+"cmdGroupSettings"
+""
+1 308 120 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Groupsettings...
+LANG:10004 9 组设定
+LANG:10000 21 Gruppeneinstellung...
+LANG:10027 32 Настройки групп...
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  308 120 396 148
+
+T 
+4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 23 Инд.свойства
+"void main()
+{
+  ChildPanelOnCentralModal(\"vision/uss_defineSettings.pnl\",\"\",makeDynString(\"$s_settingsType:_usg\",\"$s_usergroup:\"+gruppen.selectedText()));
+}
+" 0
+ E E E
+1 51 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 535 T 31 U 
+0
+0

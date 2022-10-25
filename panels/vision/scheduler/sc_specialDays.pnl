@@ -1,0 +1,2629 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 8 (NoName)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 946 619 N "_3DFace" 0
+"main()
+{
+  string sysName;
+  
+  // Common visibility
+  buttonV.visible(TRUE);
+  sysName = getSystemName();
+  p_bDayDel = FALSE;
+  p_bChange = FALSE;
+  p_bDayChanged = FALSE;
+
+  p_DataPoint   =  sysName+\"_ScCom.specDays\";   // The Scheduler-DataPoint
+
+  dpConnect(\"CBfill\",    TRUE,  p_DataPoint+\".configurations.ConfigNames:_original.._value\");
+  dpConnect(\"tableIDCB\", FALSE, p_DataPoint+\".list.DayDates:_original.._value\");
+  // Common visibility
+  buttonV.visible(FALSE);
+}
+
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** 
+CBfill (string DP1, dyn_langString DP1Value)
+{
+  //Set the existing configurations names into the ComboBox
+  cboSelectFromExisting.items = DP1Value;
+  eventChange(cboSelectFromExisting.text());
+}
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** 
+tableIDCB (string DP1, dyn_time DP1Value)
+{
+  int            i,e,p1,p2,a; 
+  time           t;
+  string         s1, s2;
+  dyn_int        di;                 
+  dyn_string     ConfigDayDates,
+                 ConfigDayCodes,
+                 DayNames,
+                 DayDates,
+                 ds2;
+  dyn_time       tDayDates;
+               
+  if(p_bDayDel == TRUE || p_bDayChanged == TRUE)
+  {
+    dpGet(p_DataPoint+\".configurations.ConfigDayDates:_online.._value\",ConfigDayDates,
+          p_DataPoint+\".configurations.ConfigDayCodes:_online.._value\",ConfigDayCodes,
+          p_DataPoint+\".list.DayDates:_online.._value\",tDayDates,
+          p_DataPoint+\".list.DayNames:_online.._value\",DayNames);
+
+    DayDates = tDayDates;          
+ 
+    //If no dates are saved
+    if(dynlen(ConfigDayDates) == 0)
+      return;
+    
+    //Del or change
+    if(p_bDayChanged  == TRUE)
+    {
+      p_bDayChanged  = FALSE;
+
+      s1 = p_tDateRealOld;
+      s2 = p_tDateReal;
+      
+      //Update config lists
+      for (i=0; i<=tabSpecDayList.lineCount()-1 ;i++)
+      {
+        tabSpecDayList.currentCell(i, 3);
+        if(tabSpecDayList.cellValue() == s1)
+        {
+          //Find the changed pos
+          p2 = dynContains(DayDates, s2); 
+          tabSpecDayList.currentCell(i,0);
+          tabSpecDayList.cellValue(DayNames[p2]);
+          tabSpecDayList.currentCell(i,3);
+          tabSpecDayList.cellValue(DayDates[p2]);
+          e = formatTime(\"%m\",tDayDates[p2]);
+          tabSpecDayList.currentCell(i,1);
+          tabSpecDayList.cellValue(formatTime(\"%d. \"+p_dsMonths[e], tDayDates[p2]));
+        }
+      }
+      if(cboSelectFromExisting.text != \"\")
+        sc_saveList();
+      
+      // Update main list
+//      if ( dynlen(tDayDates) >= 1 )
+//      { 
+        //Update lines which are stored in the datapoint
+//        for (i=1;i<=dynlen(tDayDates);i++)
+//        {
+//          e = formatTime(\"%m\",tDayDates[i]);
+//          this.updateLine(1, \"specDayRealDate\", p_tDateRealOld,
+//                             \"specDayName\",     DayNames[i],
+//                             \"specDayDate\",     formatTime(\"%d. \"+p_dsMonths[e], tDayDates[i]));
+//          this.updateLine(1, \"specDayDate\",     formatTime(\"%d. \"+p_dsMonths[e], tDayDates[i]),
+//                             \"specDayRealDate\", tDayDates[i]);
+//        }
+//      }
+    }
+    else
+    {
+      p_bDayDel = FALSE;
+    
+      //If no dates are saved
+      if(dynlen(ConfigDayDates) == 0)
+        return;
+
+      //Convert data
+      for (i=1; i<=dynlen(ConfigDayDates); i++)
+      {
+        ds2 = strsplit(ConfigDayDates[i], \"|\");
+        for(e=1; e<=dynlen(ds2); e++)
+        {
+          ds2[e] = strltrim(ds2[e]);
+          ds2[e] = strrtrim(ds2[e]);
+        }
+        di = String2DynInt(ConfigDayCodes[i], \"|\");
+      
+        //Delete entry
+        for ( a=1; a<=dynlen(p_dsDateRealDeleted); a++ )
+        {
+          p2 = dynContains(ds2, p_dsDateRealDeleted[a]);
+          if (p2 > 0)
+          {
+            dynRemove(ds2, p2);
+            dynRemove(di,  p2);
+          }
+        }
+        //Rebuild strings
+        ConfigDayDates[i] = ds2;
+        ConfigDayCodes[i] = di;
+      }
+      //Write the new data
+      dpSet(p_DataPoint+\".configurations.ConfigDayDates:_original.._value\",ConfigDayDates,
+            p_DataPoint+\".configurations.ConfigDayCodes:_original.._value\",ConfigDayCodes);
+      
+      //Update the table            
+      for (i=0; i<=tabSpecDayList.lineCount()-1 ;i++)
+      {
+        tabSpecDayList.currentCell(i, 3);
+        for (e=1; e<=dynlen(p_dsDateRealDeleted); e++)
+        {
+          if(tabSpecDayList.cellValue() == p_dsDateRealDeleted[e])
+            tabSpecDayList.deleteLineN(i);
+        }
+      }
+    }
+  }
+}" 0
+ E E E E 1 -1 -1 0  20 20
+""0  1
+E "  dyn_int    p_diDel;
+  string     p_sDate,
+             p_DataPoint, 
+             p_sDayCode;
+  time       p_tDateReal,
+             p_tDateRealOld;
+  bool       p_bDayDel,
+             p_bChange,  //Monitore changes in configurations
+             p_bDayChanged,
+             p_bClose;
+  langString p_lsName,
+             p_lsListNameOLD;             
+  dyn_string p_dsMonths,
+             p_dsDateRealDeleted;
+             
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **  
+//Function: refresh()
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **   
+refresh()
+{
+  int            i, e;
+  string         value;
+  dyn_time       DP2Value;
+  dyn_langString DP1Value;
+  
+  //Fill the table
+  dpGet(p_DataPoint+\".list.DayNames:_online.._value\", DP1Value,
+        p_DataPoint+\".list.DayDates:_online.._value\", DP2Value);
+
+  if ( dynlen(DP2Value) >= 1 )
+  {     
+    for ( i=1; i<=dynlen(DP2Value); i++ )
+    {
+      e = formatTime(\"%m\",DP2Value[i]);
+      value = DP1Value[i];
+      tabSpecialDays.appendLine(\"specDayName\",value,
+                                \"specDayDate\",formatTime(\"%d. \"+p_dsMonths[e], DP2Value[i]),
+                                \"specDayRealDate\",DP2Value[i]);
+    }
+  }
+}
+
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **  
+//Function: ned2()
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** 
+ned2(langString ls)
+{
+  int            i;
+  string         s;
+  dyn_string     ds;   
+  dyn_langString dlsConfigNames;
+
+  //Read the existing configuration names
+  dpGet(p_DataPoint+\".configurations.ConfigNames:_online.._value\",dlsConfigNames);
+  
+  ds = dlsConfigNames;
+  
+  i = dynContains(ds, cboSelectFromExisting.text());
+  
+  dlsConfigNames[i] = ls;
+  
+  dpSet(p_DataPoint+\".configurations.ConfigNames:_original.._value\",dlsConfigNames);
+    
+  cboSelectFromExisting.text = ls;
+}
+
+//========================================================================================
+// Function      : eventChange()
+//========================================================================================
+eventChange(string s2)
+{
+  int            i,e, 
+                 p1,
+                 p2;
+  string         s, value;  
+  time           t;
+  dyn_int        di;                 
+  dyn_string     ConfigDayDates,
+                 ConfigDayCodes,
+                 DayDates,
+                 ds2,
+                 ds;     
+  dyn_langString dlsConfigurations,
+                 DayNames;               
+
+  //Read the existing tablerowindexes
+  dpGet(p_DataPoint+\".configurations.ConfigNames:_online.._value\",dlsConfigurations,
+        p_DataPoint+\".configurations.ConfigDayDates:_online.._value\",ConfigDayDates,
+        p_DataPoint+\".configurations.ConfigDayCodes:_online.._value\",ConfigDayCodes,
+        p_DataPoint+\".list.DayDates:_online.._value\",DayDates,
+        p_DataPoint+\".list.DayNames:_online.._value\",DayNames);
+ 
+  //If no dates are saved
+  if(dynlen(ConfigDayDates) == 0 || s2 == \"\")
+    return;
+    
+  //Find the selected pos
+  ds = dlsConfigurations;
+  p1 = dynContains(ds, s2);
+
+  //Convert data
+  ds2 = strsplit(ConfigDayDates[p1], \"|\");
+  for(i=1; i<=dynlen(ds2); i++)
+  {
+    ds2[i] = strltrim(ds2[i]);
+    ds2[i] = strrtrim(ds2[i]);
+  }
+  di = String2DynInt(ConfigDayCodes[p1], \"|\");
+
+  //Delete all lines in the SpecDayListTable
+  tabSpecDayList.deleteAllLines;
+  
+  //Build up table
+  for ( i=1; i<=dynlen(ds2); i++ )
+  {
+    p2 = dynContains(DayDates, ds2[i]);
+    if (p2 > 0)
+    {
+      t = DayDates[p2];
+      e = formatTime(\"%m\",t);
+      value = DayNames[p2];
+      switchDayCode(di[i], s);
+      
+      //Write it into the SpecDayListTable
+      tabSpecDayList.appendLine(\"specDayName\"    ,value,
+                                \"specDayDate\"    ,formatTime(\"%d. \"+p_dsMonths[e], t),
+                                \"specDayCode\"    ,s,
+                                \"specDayRealDate\",t);
+    }
+  }
+}
+
+//========================================================================================
+// Function      : switchDayCode()
+//========================================================================================
+switchDayCode(int i, string &s)
+{
+  cboDayCode.selectedPos(i);
+  
+  if ( i == 0)
+    s = \"(None)\";  
+  else
+    s = cboDayCode.text();
+}
+
+//========================================================================================
+// Function      : editDayCode()
+//========================================================================================
+editDayCode()
+{
+  int            i;
+  dyn_int        di;
+
+  if(cboSelectFromExisting.text == \"\")
+  {    
+	string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+	return;
+  }
+  //For the selected entry
+  di = tabSpecDayList.getSelectedLines;
+  if (dynlen(di) != 0)
+  {
+     sc_newEdit(FALSE);
+     tabSpecDayList.currentCell(di[1],2);
+     if (p_sDayCode == \"\")
+       return;
+     tabSpecDayList.cellValue(p_sDayCode);
+     p_bChange   = TRUE; 
+     p_sDayCode  = \"\";                               
+  }
+  else
+  {    
+	string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+	return;
+  } 
+}            
+           
+//=====================================================
+// Function      : sc_newList()
+//=====================================================    
+sc_newList()
+{
+  string     s;
+  langString lstrName;
+  dyn_string ds;
+  dyn_float  df;
+  
+  lstrName = \"\";
+  langEditor(lstrName);
+  s  = lstrName;
+  ds = cboSelectFromExisting.items();
+  
+  if(dynContains(ds, s))
+  {    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"lexist\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+    if (df[1] == 0)
+      return;
+    if (df[1] == 1)
+    {
+      ned(lstrName);
+    }
+  }
+  else
+  {
+    ned(lstrName);
+  }
+}  
+ 
+//========================================================================================
+// Function      : ned()
+//========================================================================================
+ned(langString ls)
+{
+  //clear the entrys in the table and the CombobBox
+  cboSelectFromExisting.text = \"\";
+  tabSpecDayList.deleteAllLines;
+  cboSelectFromExisting.text = ls;
+
+  if(ls == \"\")
+    return;
+    
+  //Save the configuration
+  sc_saveConfiguration(cboSelectFromExisting.text,\"\",\"\"); 
+}
+
+//========================================================================================
+// Function      : sc_saveList()
+//========================================================================================
+sc_saveList()
+{
+  int            i,e;
+  string         sd, sc;
+  dyn_string     dsd, dsc, dsCs;
+  dyn_anytype    da;
+  
+  if(cboSelectFromExisting.text == \"\")
+    return;
+  
+  //for each element in the table
+  for (i=0; i<=tabSpecDayList.lineCount-1; i++)
+  {
+    //read the number in the 4th column
+    da = tabSpecDayList.getLineN(i);
+    dynAppend(dsd,da[4]);
+    dynAppend(dsc,da[3]);
+  }
+  sd = dsd;
+
+  for ( i = 1; i <= dynlen(dsc); i++)
+  {
+    if ( dsc[i] == \"(None)\")
+      dsc[i] = \"0\";  
+    else
+    {
+      dsCs = cboDayCode.items();
+      e = dynContains(dsCs, dsc[i]);
+      if(e > 0)
+        dsc[i] = e;
+      else  
+        dsc[i] = \"0\";
+    }
+  }
+  sc = dsc;  
+
+  //Save the configuration
+  sc_saveConfiguration(cboSelectFromExisting.text,sd,sc);
+  
+  p_bChange = FALSE;
+}
+
+//========================================================================================
+// function      : sc_newEdit()
+//========================================================================================
+sc_newEdit(bool mode = TRUE)
+{
+  bool       bNewEdit;
+  time       t;
+  string     sDateReal;
+  dyn_string ds;
+  dyn_float  df;
+  
+  if(period(p_tDateReal) == 120 || period(p_tDateReal) == 0)
+    bNewEdit = FALSE;
+  else
+    bNewEdit = TRUE;
+  
+  sDateReal = makeTime(2003, month(p_tDateReal), day(p_tDateReal));
+  ChildPanelOnCentralModalReturn(\"/vision/scheduler/sc_editor.pnl\",
+                                 \"Special Day\",
+                                 makeDynString(\"$Name:\"+p_lsName,
+                                               \"$Date:\"+p_sDate,
+                                               \"$DateReal:\"+sDateReal,  //p_tDateReal,
+                                               \"$DayCode:\"+p_sDayCode,
+                                               \"$Mode:\"+mode,
+                                               \"$NewEdit:\"+bNewEdit), df, ds);
+  
+  if (dynlen(df) >= 1)
+  {
+    if(df[1] == 1)
+    {
+      if (mode == TRUE)
+      {
+        p_lsName    = ds[1];
+        p_sDate     = ds[2];
+        t = ds[3];
+        p_tDateReal = makeTime(2003, month(t), day(t));
+        p_sDayCode  = \"\";
+        //txtFieldNameOfSpecDay.text = p_lsName;  //+\"  |  \"+p_sDate+\"  |  \"+p_sDayCode;
+      }
+      if (mode == FALSE)
+        p_sDayCode  = ds[4];
+    }       
+  }
+  else
+  {
+    if (mode == TRUE)
+    {    
+      p_lsName    = \"\";
+      p_sDate     = \"\";
+      p_tDateReal = \"\";
+      //txtFieldNameOfSpecDay.text = \"\";
+    }
+    if (mode == FALSE)
+      p_sDayCode  = \"\";
+  }
+}
+//=======================================================================================
+// Function      : deleteSpecDay
+// Explication   : Deletes the specialday which is specified by the parameter
+// Parameters    : paraDayName..........the name of the special day which will be deleted
+//=======================================================================================
+deleteSpecDay(time paraDayDateReal)
+{
+  int            i,
+                 Position;     //contains the position of the entry in the dyn
+  dyn_time       d,
+                 DayDatesReal; //contains the date of the special day
+  dyn_langString DayNames;     //contains the name of the special day
+
+  
+  //Read the existing entrys
+  dpGet(p_DataPoint+\".list.DayNames:_online.._value\",DayNames,
+        p_DataPoint+\".list.DayDates:_online.._value\",DayDatesReal);
+
+  //Search for the position in the dyn
+  Position = dynContains(DayDatesReal,paraDayDateReal);
+  
+  if (Position > 0)
+  {
+    //Delete the specified entry's
+    //With the found position
+    dynRemove(DayNames,Position);
+    dynRemove(DayDatesReal,Position);
+    
+    //Also in tab
+    for (i = 0; i<=tabSpecialDays.lineCount()-1; i++)
+    {
+      tabSpecialDays.currentCell(i,2);
+      d[i+1] = tabSpecialDays.cellValue();
+    }
+    Position = dynContains(d,paraDayDateReal);
+    tabSpecialDays.deleteLineN(Position-1);
+
+    //Now update the datapoint
+    dpSet(p_DataPoint+\".list.DayNames:_original.._value\",DayNames,
+          p_DataPoint+\".list.DayDates:_original.._value\",DayDatesReal);
+  }
+  else
+  {
+    return; //There is no entry with the specified parameter
+  }
+}
+
+//========================================================================================
+// Function      : deleteAllSpecDays
+//========================================================================================
+deleteAllSpecDays()
+{
+  dyn_langString dls; 
+  dyn_string     ds;
+  dyn_time       dt; 
+  dynClear(dls);
+  dynClear(ds);
+  dynClear(dt);
+    
+  //Delete the datapoint values
+  dpSet(p_DataPoint+\".list.DayNames:_original.._value\",dls,
+        p_DataPoint+\".list.DayDates:_original.._value\",dt,
+        p_DataPoint+\".configurations.ConfigDayCodes:_original.._value\",ds,
+        p_DataPoint+\".configurations.ConfigDayDates:_original.._value\",ds);
+        
+  p_lsName    = \"\";
+  p_sDate     = \"\";
+  p_tDateReal = \"\";
+  p_sDayCode  = \"\";
+}
+
+//========================================================================================
+// Function      : saveSpecDay()
+// Explication   : Saves a new or changes an already existing special day
+// Parameters    : paraDayName..........the name of the special day which will created/changed
+//                 paraDayDate..........the date of the special day
+//========================================================================================
+saveSpecDay(langString paraDayName, time paraDayDateReal, bool editOrNew = TRUE)
+{
+  int             i,Position;      
+  dyn_time        DayDatesReal;  
+  dyn_langString  DayNames, dlsConfigurations; 
+  dyn_float       df;
+  dyn_string      ds, ConfigDayDates;     
+  
+  //Read the existing entrys
+  dpGet(p_DataPoint+\".list.DayNames:_online.._value\",DayNames,
+        p_DataPoint+\".list.DayDates:_online.._value\",DayDatesReal,
+        p_DataPoint+\".configurations.ConfigNames:_online.._value\",dlsConfigurations,
+        p_DataPoint+\".configurations.ConfigDayDates:_online.._value\",ConfigDayDates);
+        
+  //Search for the posistion in the dyn
+  Position = dynContains(DayDatesReal,paraDayDateReal);
+
+  //If the specified entry already exists...
+  if (Position > 0)
+  {
+   if (editOrNew == FALSE)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+      makeDynString(\"$1:\" + getCatStr(\"scheduler\",\"dateDuplicate\"),
+                    \"$2:\" + getCatStr(\"para\", \"yes\"),
+                    \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+      if (df[1] == 0)
+        return;
+      if (df[1] == 1)
+      {
+        //...only change it
+        DayNames[Position] = paraDayName;
+        DayDatesReal[Position] = makeTime(2003, month(paraDayDateReal), day(paraDayDateReal));
+      }
+    }
+    else
+    {
+      //...only change it
+      DayNames[Position] = paraDayName;
+      DayDatesReal[Position] = makeTime(2003, month(paraDayDateReal), day(paraDayDateReal)); 
+    }
+  }
+  else 
+  {
+    if (editOrNew == FALSE)
+    {
+      //...else append the specified data
+      dynAppend(DayNames,paraDayName);
+      dynAppend(DayDatesReal,makeTime(2003, month(paraDayDateReal), day(paraDayDateReal)));
+    }
+    else
+    {
+      //...only change it
+      Position = dynContains(DayDatesReal,p_tDateRealOld);
+      if (Position <= 0)
+        Position = 1;
+      DayNames[Position] = paraDayName;
+      DayDatesReal[Position] = makeTime(2003, month(paraDayDateReal), day(paraDayDateReal)); 
+    }
+  }
+  
+  //SORT data
+  //Fill help table
+  tabSort.deleteAllLines();
+  for (i=1; i<=dynlen(DayDatesReal); i++)
+  {
+    tabSort.appendLine(\"dateReal\",DayDatesReal[i],
+                       \"name\",    DayNames[i]);
+  }
+  tabSort.sort(\"dateReal\", \"name\");
+  //Get the sorted data out
+  for (i=0; i<=tabSort.lineCount-1; i++)
+  {
+    tabSort.currentCell(i,0);
+    DayDatesReal[i+1] = tabSort.cellValue();
+    tabSort.currentCell(i,1);
+    DayNames[i+1] = tabSort.cellValue();
+  }
+
+
+  //now update the datapoint
+  dpSet(p_DataPoint+\".list.DayNames:_original.._value\",DayNames,
+        p_DataPoint+\".list.DayDates:_original.._value\",DayDatesReal);
+}
+
+//========================================================================================
+// function      : deleteConfiguration
+// explication   : deletes a configuration
+// returntype    : none
+// returncontent : none
+// parameters    : paraConfigName.......the name of the configuration which will be deletet
+//========================================================================================
+deleteConfiguration(langString paraConfigName)
+{
+  int            p1;   
+  dyn_string     ConfigDayDates,
+                 ConfigDayCodes,
+                 ConfigNames; 
+  
+  //Read the existing configurations
+  dpGet(p_DataPoint+\".configurations.ConfigNames:_online.._value\",     ConfigNames,
+        p_DataPoint+\".configurations.ConfigDayDates:_online.._value\"  ,ConfigDayDates,
+        p_DataPoint+\".configurations.ConfigDayCodes:_online.._value\"  ,ConfigDayCodes);
+
+  //Search for the position in the dyn
+  p1 = dynContains(ConfigNames,paraConfigName);
+  
+  if (p1 > 0)
+  {
+    //Now remove the data from every dyn with the found position
+    dynRemove(ConfigNames,   p1);
+    dynRemove(ConfigDayDates,p1);
+    dynRemove(ConfigDayCodes,p1);
+
+    //Update the datapoint
+    dpSet(p_DataPoint+\".configurations.ConfigNames:_original.._value\",    ConfigNames,
+         p_DataPoint+\".configurations.ConfigDayDates:_original.._value\"  ,ConfigDayDates,
+          p_DataPoint+\".configurations.ConfigDayCodes:_original.._value\"  ,ConfigDayCodes);
+  }  
+}
+
+//========================================================================================
+// Function      : sc_saveConfiguration
+// Explication   : saves or changes a configuration 
+//========================================================================================
+sc_saveConfiguration(langString paraConfigName, string paraConfigDayDates, string paraConfigDayCodes)
+{
+  int            p1;   
+  dyn_string     ConfigDayDates,
+                 ConfigDayCodes,
+                 ConfigNames; 
+  
+  //Read the existing confugurations
+  dpGet(p_DataPoint+\".configurations.ConfigNames:_online.._value\"  ,ConfigNames,
+        p_DataPoint+\".configurations.ConfigDayDates:_online.._value\"  ,ConfigDayDates,
+        p_DataPoint+\".configurations.ConfigDayCodes:_online.._value\"  ,ConfigDayCodes);
+
+  //Search for the position in the dyn
+  p1 = dynContains(ConfigNames,paraConfigName);
+
+  if (p1 > 0)
+  {
+    //This configuration already exists => replace it
+    ConfigDayDates[p1] = paraConfigDayDates;
+    ConfigDayCodes[p1] = paraConfigDayCodes;
+  }
+  else
+  {
+    //Append the configuration
+    dynAppend(ConfigNames,   paraConfigName);
+    dynAppend(ConfigDayDates,paraConfigDayDates);
+    dynAppend(ConfigDayCodes,paraConfigDayCodes);
+  }
+
+  //Update the datapoint
+  dpSet(p_DataPoint+\".configurations.ConfigNames:_original.._value\",     ConfigNames,
+        p_DataPoint+\".configurations.ConfigDayDates:_original.._value\"  ,ConfigDayDates,
+        p_DataPoint+\".configurations.ConfigDayCodes:_original.._value\"  ,ConfigDayCodes);
+}
+
+//========================================================================================
+// function      : DynInt2String
+// explication   : transforms a dyn_int structure to a string with the specified SplitChar
+// returntype    : string
+// returncontent : every element of the dyn appended in the string
+//                 Splitchar is the character between the elements
+// parameters    : paraDynInt...........the dynint structure which has to be transformed
+//                 paraSplitChar........the character between the elements
+//========================================================================================
+string DynInt2String(dyn_int paraDynInt, char paraSplitChar)
+{
+  string s;         //contains the string which will be returned
+
+  //cast the dynint on the string
+  s = paraDynInt;  
+
+  //now replace the standard character with the specified paraSplitChar
+  strreplace(s,\" | \",paraSplitChar);
+  
+  return s;
+}
+
+//========================================================================================
+// function      : String2DynInt
+// explication   : transforms a string structure to a dyn_int
+// returntype    : dyn_int
+// returncontent : the content of string splitted in the int's
+// parameters    : paraString...........the string structure which has to be transformed
+//                 paraSplitChar........the character between the elements
+//========================================================================================
+dyn_int String2DynInt(string paraString, char paraSplitChar)
+{
+  dyn_int di;        //contains the dyn_int which will be returned
+  
+  //split the specified string into parts
+  di = strsplit(paraString,paraSplitChar);
+  
+  return di;
+}
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 68
+"fraSpecDayList"
+""
+1 420 553 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.011787819253438 0 1.020408163265306 -4.950884086444041 -10.40816326530612 0 E 420 20 930 560
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Special day lists
+LANG:10004 18 特殊日期列表
+LANG:10000 16 Sondertagslisten
+LANG:10027 34 Списки особых дней
+2 93
+"txtSelectFromExisting"
+""
+1 469 32 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 424 32 471 47
+0 2 2 "0s" 0 0 0 194 0 0  471 32 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Lists:
+LANG:10004 7 列表:
+LANG:10000 7 Listen:
+LANG:10027 13 Списки:
+30 129
+"fraSpecDayTable"
+""
+1 10 560 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.016713091922006 0 1.018552875695733 -0.1671309192200554 -10.37105751391471 0 E 10 20 370 560
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Special days table
+LANG:10004 18 特殊日期表格
+LANG:10000 10 Sondertage
+LANG:10027 16 Выходные
+13 105
+"close"
+""
+1 849 583 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  848 583 936 611
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  dyn_string     ds;   
+  dyn_float      df;
+  
+  if (p_bChange == TRUE)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"scheduler\", \"sc_changes_quest\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"sc_changes\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+
+    if (df[1] == 0)
+    {
+      PanelOff();
+    }
+    
+    if (df[1] == 1)
+    {
+      sc_saveList();
+      PanelOff();
+    }
+  }
+  else
+    PanelOff();
+}
+" 0
+ E E E
+13 50
+"cmdSaveList"
+""
+1 865 35 E E E 1 E 1 E N "Schwarz" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Save configuration
+LANG:10004 12 保存配置
+LANG:10000 23 Konfiguration speichern
+LANG:10027 43 Сохранить конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  863 27 891 55
+
+P 
+10862530
+"pictures/StandardIcons/Save_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  sc_saveList();
+}" 0
+ E E E
+22 64
+"cboSelectFromExisting"
+""
+1 527.5 37 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  478 28 767 54
+0
+
+E
+"main()
+{
+  eventChange(this.text());
+}" 0
+
+E
+ 0 0
+13 66
+"cmdDeleteList"
+""
+1 1037 670 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  893 27 921 55
+
+P 
+10862530
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  else
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"ldelsure\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+    if (df[1] == 0)
+      return;
+    if (df[1] == 1)
+    {
+      //Delete the selected configuration
+      deleteConfiguration(cboSelectFromExisting.text);
+  
+      //Clear the entrys in the table and the CombobBox
+      cboSelectFromExisting.text = \"\";
+      tabSpecDayList.deleteAllLines;
+  
+      p_bChange = FALSE;
+    }
+  }
+}" 0
+ E E E
+25 71
+"tabSpecDayList"
+""
+1 -113 -166.5730337078652 E E E 1 E 1 E N "_3DText" E N "white" E E
+ E "main()
+{
+//  editDayCode();
+}" 0
+
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  428 63 922 517
+"main()
+{
+  this.sortOnClick   = FALSE;
+  this.tableMode(TABLE_SELECT_MULTIPLE);
+  //this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  this.sortOnClick(TRUE);
+}" 0
+E 1 0 1 4 7 "specDayName" 21 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+247 "specDayDate" 19 1 0 "s" 4
+LANG:10001 4 Date
+LANG:10004 6 日期
+LANG:10000 5 Datum
+LANG:10027 8 Дата
+"main()
+{
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+224 "specDayCode" 12 0 0 "s" 4
+LANG:10001 8 Day code
+LANG:10004 9 日代码
+LANG:10000 9 Tagescode
+LANG:10027 13 Код дня
+"main()
+{
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "specDayRealDate" 10 0 0 "s" 4
+LANG:10001 8 realDate
+LANG:10004 8 realDate
+LANG:10000 8 realDate
+LANG:10027 8 realDate
+"main()
+{
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+127 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+8 72
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 86
+"cmdDelete"
+""
+1 863 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Delete table entry
+LANG:10004 18 删除表格条目
+LANG:10000 24 Tabelleneintrag löschen
+LANG:10027 47 Удалить запись из таблицы
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  863 523 891 551
+
+P 
+10862530
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int     i;
+  dyn_int di;
+  
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  //Get the index of the selected line
+  di = tabSpecDayList.getSelectedLines();
+  
+  //and delete it
+  if (dynlen(di) > 0)
+  {
+    for (i=1; i<=dynlen(di) ;i++)
+    {
+      tabSpecDayList.deleteLineN(di[i]);
+    }
+    p_bChange = TRUE;
+  }
+  else
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+}" 0
+ E E E
+13 98
+"cmdEditLangName"
+""
+1 835 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 New configuration
+LANG:10004 9 新配置
+LANG:10000 28 Neue Konfiguration erstellen
+LANG:10027 50 Создать новую конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  833 27 861 55
+
+P 
+12632256
+"pictures/StandardIcons/new_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string     ds;   
+  dyn_float      df;
+  
+  if (p_bChange == TRUE)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"scheduler\", \"sc_changes_quest\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"sc_changes\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+
+    if (df[1] == 0)
+    {
+      sc_newList();
+      p_bChange = FALSE;
+    }
+    
+    if (df[1] == 1)
+    {
+       sc_saveList();
+       sc_newList();
+    }
+  }
+  else
+    sc_newList();
+}" 0
+ E E E
+13 102
+"cmdDeleteAll"
+""
+1 893 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Delete all special days
+LANG:10004 24 删除全部特殊日期
+LANG:10000 31 Alle Tabelleneinträge löschen
+LANG:10027 41 Удалить все особые дни
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  893 523 921 551
+
+P 
+10862530
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  //Delete all entrys  
+  tabSpecDayList.deleteAllLines;
+  p_bChange = TRUE;
+}" 0
+ E E E
+13 107
+"Help"
+""
+1 9 583 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 29 Открыть справку
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  8 583 96 611
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"sc_specialDays\");
+}" 0
+ E E E
+13 120
+"cmdEditList"
+""
+1 805 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Edit configuration name
+LANG:10004 18 编辑配置名称
+LANG:10000 29 Konfigurationsnamen editieren
+LANG:10027 48 Изменить имя конфигурации
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  803 27 831 55
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string         s, s2;
+  dyn_string     ds;   
+  dyn_float      df;
+  langString     lsName;
+  
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  lsName = cboSelectFromExisting.text;
+  s2 = lsName;
+  if(lsName == \"\")
+    return;
+  
+  langEditor(lsName);
+  
+  s  = lsName;
+  ds = cboSelectFromExisting.items();
+  
+  if(dynContains(ds, s) && s!=s2)
+  {    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"lexist\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+    if (df[1] == 0)
+      return;
+    if (df[1] == 1)
+    {
+      deleteConfiguration(lsName);
+      tabSpecDayList.visible(FALSE);
+      tabSpecDayList.deleteAllLines;
+      p_bChange = FALSE;
+      ned2(lsName);
+      eventChange(cboSelectFromExisting.text());
+      tabSpecDayList.visible(TRUE);
+    }
+  }
+  else
+  {
+    ned2(lsName);
+  }
+}" 0
+ E E E
+22 121
+"cbMonth"
+""
+1 175 580 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  173 578 213 605
+12
+4
+LANG:10001 7 January
+LANG:10004 7 January
+LANG:10000 6 Januar
+LANG:10027 12 Январь
+
+0
+4
+LANG:10001 8 February
+LANG:10004 8 February
+LANG:10000 7 Februar
+LANG:10027 14 Февраль
+
+0
+4
+LANG:10001 5 March
+LANG:10004 5 March
+LANG:10000 5 März
+LANG:10027 8 Март
+
+0
+4
+LANG:10001 5 April
+LANG:10004 5 April
+LANG:10000 5 April
+LANG:10027 12 Апрель
+
+0
+4
+LANG:10001 3 May
+LANG:10004 3 May
+LANG:10000 3 Mai
+LANG:10027 6 Май
+
+0
+4
+LANG:10001 4 June
+LANG:10004 4 June
+LANG:10000 4 Juni
+LANG:10027 8 Июнь
+
+0
+4
+LANG:10001 4 July
+LANG:10004 4 July
+LANG:10000 4 July
+LANG:10027 8 Июль
+
+0
+4
+LANG:10001 6 August
+LANG:10004 6 August
+LANG:10000 6 August
+LANG:10027 12 Август
+
+0
+4
+LANG:10001 9 September
+LANG:10004 6 九月
+LANG:10000 9 September
+LANG:10027 16 Сентябрь
+
+0
+4
+LANG:10001 7 October
+LANG:10004 7 October
+LANG:10000 7 Oktober
+LANG:10027 14 Октябрь
+
+0
+4
+LANG:10001 8 November
+LANG:10004 9 十一月
+LANG:10000 8 November
+LANG:10027 12 Ноябрь
+
+0
+4
+LANG:10001 8 December
+LANG:10004 9 十二月
+LANG:10000 8 Dezember
+LANG:10027 14 Декабрь
+
+0
+
+"main()
+{
+  dynAppend(p_dsMonths, cbMonth.items());
+}" 0
+
+E
+E
+ 0 0
+13 123
+"cmdEditDayCode"
+""
+1 835 525 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Edit day code
+LANG:10004 15 编辑日代码
+LANG:10000 19 Tagescode editieren
+LANG:10027 48 Редактировать код времени
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  833 523 861 551
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+
+  editDayCode();
+}" 0
+ E E E
+22 124
+"cboDayCode"
+""
+1 225 580 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  223 578 263 605
+8
+4
+LANG:10001 6 Monday
+LANG:10004 6 Monday
+LANG:10000 6 Montag
+LANG:10027 22 Понедельник
+
+0
+4
+LANG:10001 7 Tuesday
+LANG:10004 9 星期二
+LANG:10000 8 Dienstag
+LANG:10027 14 Вторник
+
+0
+4
+LANG:10001 9 Wednesday
+LANG:10004 9 星期三
+LANG:10000 8 Mittwoch
+LANG:10027 10 Среда
+
+0
+4
+LANG:10001 8 Thursday
+LANG:10004 9 星期四
+LANG:10000 10 Donnerstag
+LANG:10027 14 Четверг
+
+0
+4
+LANG:10001 6 Friday
+LANG:10004 6 Friday
+LANG:10000 7 Freitag
+LANG:10027 14 Пятница
+
+0
+4
+LANG:10001 8 Saturday
+LANG:10004 9 星期六
+LANG:10000 7 Samstag
+LANG:10027 14 Суббота
+
+0
+4
+LANG:10001 6 Sunday
+LANG:10004 9 星期日
+LANG:10000 7 Sonntag
+LANG:10027 22 Воскресенье
+
+0
+4
+LANG:10001 7 Holiday
+LANG:10004 6 假日
+LANG:10000 6 Urlaub
+LANG:10027 16 Выходной
+
+0
+
+"main()
+{
+//DebugN(this.selectedPos());
+}" 0
+
+E
+E
+ 0 0
+13 125
+"cmdCopyList"
+""
+1 775 35 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Copy configuration
+LANG:10004 12 复制配置
+LANG:10000 22 Konfiguration kopieren
+LANG:10027 45 Копировать конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  773 27 801 55
+
+P 
+12303291
+"pictures/StandardIcons/copy_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            p1,j;
+  string         s;
+  dyn_string     ds;   
+  dyn_float      df;
+  langString     ls;
+  dyn_langString dlsConfigurations;  
+  
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  //Save changes in list to be copied
+  sc_saveList();
+  p_bChange = FALSE;
+
+
+  //Read the existing tablerowindexes
+  dpGet(p_DataPoint+\".configurations.ConfigNames:_online.._value\",dlsConfigurations);
+    
+  //Find the selected pos
+  ds = dlsConfigurations;
+  p1 = dynContains(ds, cboSelectFromExisting.text);
+  
+  
+  ds = dlsConfigurations[p1];
+  for ( j = 1; j<= getNoOfLangs(); j++)
+  {
+   ds[j] = getCatStr(\"scheduler\", \"copyOf\", j-1)+ds[j];
+  }
+  ls = ds;
+  s = ds;
+  ds = dlsConfigurations;
+  cboSelectFromExisting.text(ls);
+  
+  if(dynContains(ds, cboSelectFromExisting.text))
+  {    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"lexist\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+    if (df[1] == 0)
+      return;
+    if (df[1] == 1)
+    {
+      //Save copy
+      sc_saveList();
+    }
+  }
+  else
+  {
+    //Save copy
+    sc_saveList();
+  }
+  
+
+  
+}" 0
+ E E E
+13 128
+"Button6"
+""
+1 805 525 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Refresh table
+LANG:10004 12 更新表格
+LANG:10000 21 Tabelle aktualisieren
+LANG:10027 31 Обновить таблицу
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  803 523 831 551
+
+P 
+10862530
+"pictures/StandardIcons/refresh_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  tabSpecDayList.sort(\"specDayRealDate\", \"specDayName\", \"specDayCode\");
+}" 0
+ E E E
+13 130
+"cmdDeleteSpecSays"
+""
+1 305 525 E E E 1 E 1 E N "Schwarz" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Delete special day
+LANG:10004 15 删除特殊日
+LANG:10000 18 Sondertag löschen
+LANG:10027 36 Удалить особый день
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  303 523 331 551
+
+P 
+13421721
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main() 
+{
+  int     i;
+  time    t;
+  dyn_anytype da;
+  dyn_float   df;
+  dyn_string  ds;
+  
+  //Get the selected days
+  p_diDel = tabSpecialDays.getSelectedLines();
+  
+  //And delete it
+  if (dynlen(p_diDel) > 0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+    makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"ddelsure\"),
+                  \"$2:\" + getCatStr(\"para\", \"yes\"),
+                  \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+    if (df[1] == 0)
+      return;
+    if (df[1] == 1)
+    {
+      for (i=1; i<=dynlen(p_diDel) ;i++)
+      {
+        tabSpecialDays.currentCell(p_diDel[i],2);
+        t = tabSpecialDays.cellValue();
+        p_tDateReal = makeTime(2003, month(t), day(t));
+        dynAppend(p_dsDateRealDeleted,p_tDateReal);
+        deleteSpecDay(p_tDateReal);
+      }
+      p_lsName    = \"\";
+      p_sDate     = \"\";
+      p_tDateReal = \"\";
+      //txtFieldNameOfSpecDay.text = \"\";
+      p_bDayDel   = TRUE;
+    }
+  }
+  else
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+}
+" 0
+ E E E
+25 131
+"tabSpecialDays"
+""
+1 -603 -123.1578947368416 E E E 1 E 1 E N "_3DText" E N "white" E E
+ E "main()
+{
+  //EDIT!!
+//  if(period(p_tDateReal) == 0)
+//    return;
+    
+  p_tDateRealOld = p_tDateReal;
+    
+  sc_newEdit();
+   
+  if(p_sDate == \"\")
+    return;
+
+  saveSpecDay(p_lsName,p_tDateReal);
+  p_bDayChanged = TRUE;
+}
+" 0
+
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  18 28 362 517
+"main()
+{
+  this.sortOnClick(TRUE);
+  this.tableMode(TABLE_SELECT_BROWSE);  
+  //this.tableMode(TABLE_SELECT_MULTIPLE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  
+  refresh();
+  
+  dpConnect(\"fillTable\",FALSE, p_DataPoint+\".list.DayNames:_original.._value\",
+                               p_DataPoint+\".list.DayDates:_original.._value\");
+}
+
+//*********************************************
+fillTable(string DP1, dyn_langString Value1,
+          string DP2, dyn_string     Value2)
+{
+  int     i, e, o, u, y;
+  string  s;
+  dyn_int diLine;
+  
+  s = makeTime(2003, month(p_tDateReal), day(p_tDateReal));
+    
+  this.deleteAllLines();
+  
+  //Refresh table and sort
+  refresh();
+  
+  //Deleted?
+  if (dynlen(p_diDel) >= 1)
+  {
+    if (p_diDel[1] != this.lineCount())
+      this.selectLineN(p_diDel[1]);
+    else
+      this.selectLineN(p_diDel[1]-1);
+      
+    dynClear(p_diDel);
+  }
+  else
+  {
+    for (i = 0; i <=this.lineCount() - 1; i++)
+    {
+      this.currentCell(i,2);
+      if (this.cellValue() == s)
+        e = i;
+    }
+      
+    //Reset cursor
+    this.selectLineN(e);
+  }
+
+  
+  
+  y = this.lineCount()-1; 
+  getValue(\"\",\"lineRangeVisible\", o, u);
+  getValue(\"\", \"getSelectedLines\", diLine);
+  if(dynlen(diLine) == 0) return;//IM105316
+  
+  //Reset line visible
+  if(o<=diLine[1] && diLine[1]<=u)  //Selected line is between line range visible
+  {  
+    //DebugN(\"Selected line is between line range visible\");
+    setValue(\"\", \"lineVisible\", o);
+    //tab2.lineVisible(o);
+  }
+  else  //Selected line is NOT betwenn line range visible
+  {
+    if ( diLine[1] >= y - 16 )  //Selected line is on the last table page
+    {
+      //DebugN(\"Selected line is on the last table page\");
+      setValue(\"\", \"lineVisible\", y - 16);
+      //tab2.lineVisible(dynlen(dpes)-19);
+    }
+    else  //Selected line is NOT on the last table page
+    {
+      //DebugN(\"Selected line is NOT on the last table page\");
+      setValue(\"\", \"lineVisible\", diLine[1]);
+      //tab2.lineVisible(diLine[1]);  // Set selected line as first line
+    }
+  } 
+}" 0
+E 1 0 1 3 7 "specDayName" 14 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+"main()
+{
+  time        t;
+  dyn_int     di;
+  dyn_anytype da;
+  
+  di = this.getSelectedLines;
+  da = this.getLineN(di[1]);
+
+  //Read the entrys and write it into the txtfields
+  p_lsName    = da[1];
+  p_sDate     = da[2];
+  t           = da[3];
+  p_tDateReal = makeTime(2003, month(t), day(t));
+  //txtFieldNameOfSpecDay.text = p_lsName; //+\"  |  \"+p_sDate+\"  |  \"+p_sDayCode;
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+162 "specDayDate" 13 1 0 "s" 4
+LANG:10001 4 Date
+LANG:10004 6 日期
+LANG:10000 5 Datum
+LANG:10027 8 Дата
+"main()
+{
+  time        t;
+  dyn_int     di;
+  dyn_anytype da;
+  
+  di = this.getSelectedLines;
+  da = this.getLineN(di[1]);
+
+  //Read the entrys and write it into the txtfields
+  p_lsName    = da[1];
+  p_sDate     = da[2];
+  t           = da[3];
+  p_tDateReal = makeTime(2003, month(t), day(t));
+  //txtFieldNameOfSpecDay.text = p_lsName;  //+\"  |  \"+p_sDate+\"  |  \"+p_sDayCode;
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+159 "specDayRealDate" 16 0 0 "s" 4
+LANG:10001 8 realDate
+LANG:10004 8 realDate
+LANG:10000 8 realDate
+LANG:10027 8 realDate
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+185 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+8 72
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 132
+"cmdNewSpecialDay"
+""
+1 275 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 New special day
+LANG:10004 21 新创建特定日期
+LANG:10000 21 Sondertag neu anlegen
+LANG:10027 32 Новый особый день
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  273 523 301 551
+
+P 
+12632256
+"pictures/StandardIcons/new_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string s;
+  
+  p_tDateReal = makeTime(2003,1,1,0,0);  //So that always 2003 is opened
+  //p_tDateReal = \"\";
+  p_lsName = \"\";
+  
+  sc_newEdit();
+    
+  if(p_sDate == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"novalueselected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+  
+  //Use the panel global variables to save the specialday
+  saveSpecDay(p_lsName,p_tDateReal,FALSE);
+}" 0
+ E E E
+13 133
+"cmdEditSpecialDay"
+""
+1 245 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Edit and save special day
+LANG:10004 27 报警并保存特殊日期
+LANG:10000 33 Sondertag editieren und speichern
+LANG:10027 70 Редактировать и сохранить особый день
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  243 523 271 551
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int  di;
+  
+  di = tabSpecialDays.getSelectedLines();
+
+  if(dynlen(di) == 0)
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+
+  p_tDateRealOld = p_tDateReal;
+    
+  sc_newEdit();
+   
+  if(p_sDate == \"\")
+    return;
+
+  saveSpecDay(p_lsName,p_tDateReal);
+  
+  p_bDayChanged = TRUE;
+}" 0
+ E E E
+13 134
+"Button3"
+""
+1 383 298 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  383 273 411 301
+
+P 
+12303291
+"pictures/StandardIcons/arrow_single_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            i;
+  dyn_int        di;
+  dyn_anytype    da;
+  dyn_string     ds;
+
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+
+  //For every entry in the SpecDayList table
+  for (i=0;i<=tabSpecDayList.lineCount-1;i++)
+  {
+    //Read the entry in real time column
+    da = tabSpecDayList.getLineN(i);
+    //Append real time it to de ds var
+    if (dynlen(da) > 0)
+      dynAppend(ds,da[4]);
+  }
+
+  //Now read the index of the selected line
+  di = tabSpecialDays.getSelectedLines;
+  
+  if (dynlen(di) != 0)
+  {
+    for (i=1; i<=dynlen(di) ;i++)
+    {
+      da = tabSpecialDays.getLineN(di[i]);
+  
+      //write the data to the SpecDayListTab
+      if (dynContains(ds,da[3]) == 0)
+      {
+        tabSpecDayList.appendLine(\"specDayName\"     ,da[1],
+                                  \"specDayDate\"     ,da[2],
+                                  \"specDayCode\"     ,\"(None)\",
+                                  \"specDayRealDate\" ,da[3]);
+        p_bChange = TRUE;                                
+      }                                
+      else
+      {
+        string sMessageText=getCatStr(\"dpeMonitor\",\"dpeMon_dpe_dublicate\");
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                            getCatStr(\"general\",\"warning\"),
+                            makeDynString(sMessageText));
+      }                               
+    } 
+  }
+  else
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentral(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+}" 0
+ E E E
+13 135
+"Button4"
+""
+1 333 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Delete all special days
+LANG:10004 24 删除全部特殊日期
+LANG:10000 31 Alle Tabelleneinträge löschen
+LANG:10027 41 Удалить все особые дни
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  333 523 361 551
+
+P 
+10862530
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float   df;
+  dyn_string  ds;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"general\",\"information\"),
+  makeDynString(\"$1:\" + getCatStr(\"scheduler\", \"addelsure\"),
+                \"$2:\" + getCatStr(\"para\", \"yes\"),
+                \"$3:\" + getCatStr(\"para\", \"no\")),df,ds);
+  if (df[1] == 0)
+    return;
+  if (df[1] == 1)
+  {
+    //Delete all entrys  
+    deleteAllSpecDays();
+    tabSpecialDays.deleteAllLines();
+    tabSpecDayList.deleteAllLines();
+  
+    p_lsName    = \"\";
+    p_sDate     = \"\";
+    p_tDateReal = \"\";
+    p_sDayCode  = \"\";
+  
+    p_bDayDel   = TRUE;
+  }  
+}" 0
+ E E E
+13 136
+"Button5"
+""
+1 383 268 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  383 243 411 271
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            i;
+  dyn_int        di;
+  dyn_anytype    da;
+  dyn_string     ds;
+  
+  if(cboSelectFromExisting.text == \"\")
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"noListSelected\");
+    ChildPanelOnCentral(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }
+
+  //For every entry in the SpecDayList table
+  for (i=0;i<=tabSpecDayList.lineCount-1;i++)
+  {
+    //Read the entry in real time column
+    da = tabSpecDayList.getLineN(i);
+    //Append real time it to de ds var
+    if (dynlen(da) > 0)
+      dynAppend(ds,da[4]);
+  }
+  //Do it for all liness
+  for (i=0;i<=tabSpecialDays.lineCount-1;i++)
+  {
+    dynAppend(di, i);
+  }
+  
+  if (dynlen(di) != 0)
+  {
+    for (i=1; i<=dynlen(di) ;i++)
+    {
+      da = tabSpecialDays.getLineN(di[i]);
+  
+      //Write the data to the SpecDayListTab
+      if (dynContains(ds,da[3]) == 0)
+      {
+        tabSpecDayList.appendLine(\"specDayName\"     ,da[1],
+                                  \"specDayDate\"     ,da[2],
+                                  \"specDayCode\"     ,\"(None)\",
+                                  \"specDayRealDate\" ,da[3]);
+        p_bChange = TRUE;                                
+      }                                
+//      else
+//      {
+//        string sMessageText=getCatStr(\"dpeMonitor\",\"dpeMon_dpe_dublicate\");
+//        ChildPanelOnCentral(\"vision/MessageWarning\",
+//                            getCatStr(\"general\",\"warning\"),
+//                            makeDynString(sMessageText));
+//      }                               
+    } 
+  } 
+  else
+  {    
+    string sMessageText=getCatStr(\"scheduler\",\"nolineselected\");
+    ChildPanelOnCentral(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(sMessageText));
+    return;
+  }                            
+}" 0
+ E E E
+13 137
+"ref2"
+""
+1 215 525 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Refresh table
+LANG:10004 12 更新表格
+LANG:10000 21 Tabelle aktualisieren
+LANG:10027 31 Обновить таблицу
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  213 523 241 552
+
+P 
+10862530
+"pictures/StandardIcons/refresh_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  tabSpecialDays.deleteAllLines();
+  refresh();
+}" 0
+ E E E
+25 138
+"tabSort"
+""
+1 135 580 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  133 578 167 606
+EE 0 0 1 2 1 "dateReal" 13 1 1 "s" 4
+LANG:10001 8 dateReal
+LANG:10004 8 dateReal
+LANG:10000 8 dateReal
+LANG:10027 8 dateReal
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+152 "name" 13 1 1 "s" 4
+LANG:10001 4 name
+LANG:10004 4 name
+LANG:10000 4 name
+LANG:10027 6 имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+152 
+25 25 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 139
+"buttonV"
+""
+1 935 10 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  933 8 1857 602
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+1 140 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 270 565 T 28 1.913827655310622 0 1 -521.7334669338678 10
+0
+0

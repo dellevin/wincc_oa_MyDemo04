@@ -1,0 +1,1639 @@
+V 14
+4
+LANG:10001 7 archive
+LANG:10004 7 archive
+LANG:10000 7 archive
+LANG:10027 10 Архив
+PANEL,-1 -1 620 480 N "_3DFace" 1
+"$1"
+"main()
+{
+  if ($1==\"\")
+  {
+    RootPanelOn(
+      \"vision/MessageWarning\",
+      paGetCatStr(\"para\",\"warning\"),
+      makeDynString(paGetCatStr(\"para\",\"novision\")));
+    delay(1);
+  }
+  paInitPanel($1,\":_archive\");
+  archiveSetCombobox();
+  setSmoothEnabled();
+}" 0
+ "main()
+{
+  //IM 106997
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()) && (dpSubStr(gMpLastDpLocked[myModuleName()],DPSUB_SYS_DP_EL) == $1) && dpExists(dpSubStr($1,DPSUB_DP_EL)))
+    dpSet($1+\":_lock._archive._locked\",FALSE);
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()))
+  {
+    gMpLastDpLocked[myModuleName()] = \"\";
+    mappingRemove(gMpLastDpLocked,myModuleName());
+  }
+}" 0
+ E E E 1 -1 -1 0  240 102
+"refFileName"0  1
+E "#uses \"CtrlPv2Admin\"
+//#uses \"udag.ctl\" //16.02.2012 IM106252 rheiss: loaded in useRDBArchive.ctl when useRDBArchive=1
+
+string RDBName, RDBDP;
+string oldClass;
+string strDummy = \"------------------------------------------------------------\";
+
+archiveSetCombobox()
+{
+  dyn_dyn_anytype dsNames;
+  dyn_string      dsSelectionList;
+  string          sArchivConfig=\"\";
+  dyn_string      dsArchiveClassDp, dsRDBGroupDp;
+  string          sSelectedArchiv=\"\", s;
+  int             i,j, iOK, state, iNr, iPos, Id;
+  bool            bNewDB, usingVal, isAlert, hasPowerConfig, bForwardRDB;
+//
+//	Falls alte DB -> unsichtbar !!!
+//
+
+  delay(0,100);
+
+  iOK=dpGet(dpSubStr($1, DPSUB_SYS)+\"_DataManager.UseValueArchive:_online.._value\",bNewDB);
+  if (iOK!=-1 && bNewDB)	// nur wenn neue DB Aktiv
+  {
+    dpGet($1+\":_archive.1._class\", sArchivConfig);
+    if (sArchivConfig!=\"\")
+    {
+      //bool bFixed;
+
+   	  if (dpExists(sArchivConfig))
+   	  {
+   	    if ( dpTypeName(dpSubStr(sArchivConfig, DPSUB_SYS_DP)) == \"_RDBArchiveGroups\" )
+   	    {
+          dpGet(dpSubStr(sArchivConfig, DPSUB_SYS_DP)+\".groupName:_online.._value\", sSelectedArchiv,
+                dpSubStr(sArchivConfig, DPSUB_SYS_DP)+\".managerNr:_online.._value\", iNr);
+          iNr += 2;
+          sSelectedArchiv = \"RDB-\" + iNr + \") \" + sSelectedArchiv;
+        }
+        else
+          dpGet(dpSubStr(sArchivConfig, DPSUB_SYS_DP)+\".general.arName:_online.._value\", sSelectedArchiv);
+  	  }
+
+     //daIsPcFixed( $1+\":_archive\", bFixed);
+  	  //glaett.visible = (arch.state(0) && (bFixed || strpos(dpSubStr($1,DPSUB_DP),\"_mp_\")!=0));//RDB&& (dpSubStr(sArchivConfig, DPSUB_DP) != RDBDP);
+  	  //glaett.enabled = (arch.state(0));
+    }
+
+    setMultiValue(\"ar_name\",\"text\", sSelectedArchiv,	// Die entsprechenden Felder sichtbar schalten
+  		\"ar_name\",\"visible\", TRUE,
+  		\"p1\", \"visible\", TRUE);
+
+    usingVal = bNewDB;
+    if ( usingVal )
+    {
+      dsArchiveClassDp = dpNames(dpSubStr($1, DPSUB_SYS)+\"*\",\"_ValueArchive\");
+      for (i=dynlen(dsArchiveClassDp);i>0;i--)		// Alle DP's
+      {
+     	if (isReduDp(dsArchiveClassDp[i]))		// redundaten DP's wegfiltern
+      		dynRemove(dsArchiveClassDp,i);
+      }
+      for (i=dynlen(dsArchiveClassDp);i>0;i--)
+      {
+        dpGet(dsArchiveClassDp[i]+\".general.arName:_online.._value\",dsSelectionList[i],
+              dsArchiveClassDp[i]+\".general.forwardToRDB:_online.._value\", bForwardRDB,
+              dsArchiveClassDp[i]+\".state:_online.._value\",state);  // Namen holen
+        if (state == 3)	// Archiv gelöscht!!
+        {
+         	dynRemove(dsSelectionList,i);
+         	dynRemove(dsArchiveClassDp,i);
+
+			continue; //IM 116413
+
+        }
+        if ( bForwardRDB )
+          dsSelectionList[i]+= \" (fwd)\";
+      }
+    }
+
+    //RDB  paCfgReadValue(getPath(CONFIG_REL_PATH, \"config\"), \"general\", \"useRDBArchive\", usingRDB);
+    if ( useRDBArchive() )
+    {
+      dyn_string dsAll = makeDynString(), ds;
+
+      dsRDBGroupDp = dpNames(dpSubStr($1, DPSUB_SYS)+\"*\",\"_RDBArchiveGroups\");
+      for (i=dynlen(dsRDBGroupDp);i>0;i--)		// Alle DP's
+      {
+       	if (isReduDp(dsRDBGroupDp[i]))		// redundaten DP's wegfiltern
+        		dynRemove(dsRDBGroupDp,i);
+        else
+        {
+           string template;
+           dpGet(dsRDBGroupDp[i]+\".templateName:_online.._value\",template);
+           if (template ==\"CS\")
+             dynRemove(dsRDBGroupDp,i);
+        }
+      }
+      for (i=dynlen(dsRDBGroupDp);i>0;i--)
+      {
+        dpGet(dsRDBGroupDp[i]+\".groupName:_online.._value\",s,      // Name
+              dsRDBGroupDp[i]+\".managerNr:_online.._value\",iNr,    // Manager number
+              dsRDBGroupDp[i]+\".isAlert:_online.._value\",isAlert); // Alert group?
+
+        if ( isAlert ) continue;
+
+        //dynAppend(dsArchiveClassDp, dsRDBGroupDp[i]);
+        iNr += 2;
+        s = \"RDB-\" + iNr + \") \" + s;
+        dynAppend(dsAll, s + \"§\" + dsRDBGroupDp[i]);
+        //dynAppend(dsSelectionList, s);
+      }
+      dynSortAsc(dsAll);
+      for ( i = 1; i <= dynlen(dsAll); i++ )
+      {
+        ds = strsplit(dsAll[i], \"§\");
+
+        if ( usingVal && i == 1 )
+        {
+          dynAppend(dsSelectionList, strDummy);
+          dynAppend(dsArchiveClassDp, strDummy);
+        }
+
+        dynAppend(dsSelectionList, ds[1]);
+        dynAppend(dsArchiveClassDp, ds[2]);
+      }
+    }
+
+    setValue(\"ar_name\",\"items\",dsSelectionList);
+    setValue(\"archiveClassDp\",\"items\",dsArchiveClassDp);
+
+    if (  sArchivConfig==\"\")
+    {
+      //setValue(\"archiveClassDp\",\"selectedPos\",dynContains(dsArchiveClassDp,\"_ValueArchive_0\"));
+      //setValue(\"ar_name\",\"selectedPos\",dynContains(dsArchiveClassDp,\"_ValueArchive_0\"));
+      setValue(\"archiveClassDp\",\"text\",\"\");
+      setValue(\"ar_name\",\"text\",\"\");
+      iPos=0;
+    }
+    else
+    {
+      setValue(\"archiveClassDp\",\"text\",dpSubStr(sArchivConfig, DPSUB_DP));	//remove for local System-use
+      iPos = dynContains(archiveClassDp.items, sArchivConfig);
+
+      if (iPos > 0)
+      {
+        ar_name.selectedPos = iPos;
+        archiveClassDp.selectedPos = iPos;
+        Id = paMyModuleId();
+        globalDpc[Id][7] = archiveClassDp.text;
+      }
+      if ( strpos(dpSubStr($1,DPSUB_DP),\"_mp_\") != 0 )  //dp is not MasterDp
+      {
+        if( dpExists(mpGetMasterDpeForDpe($1)) )//mpHasMasterDP($1))
+        {
+          hasPowerConfig = mpHasDpeConfig(mpGetMasterDpeForDpe($1), \"_archive\");
+        }
+      }
+    }
+
+    setMultiValue(\"ok\",\"enabled\",iPos>0 && !hasPowerConfig,
+                  \"save\",\"enabled\",iPos>0 && !hasPowerConfig,
+                  \"p1\",\"enabled\",iPos>0 && !hasPowerConfig);
+  }
+  else if (! bNewDB)
+  {
+    //bool bFixed;
+    //daIsPcFixed( $1+\":_archive\", bFixed);
+	   //glaett.visible = (arch.state(0) && (bFixed || strpos(dpSubStr($1,DPSUB_DP),\"_mp_\")!=0));//RDB&& (dpSubStr(sArchivConfig, DPSUB_DP) != RDBDP);
+	   glaett.enabled = (arch.state(0));
+  }
+}
+
+
+setSmoothEnabled()
+{
+  string systemName = dpSubStr($1, DPSUB_SYS);
+  string dpName = dpSubStr($1, DPSUB_SYS_DP);
+  string dpType = dpTypeName(dpName);
+
+  // this would be the _mp dp name for this type
+  string mdpName = systemName + \"_mp_\" + dpType;
+
+  bool enabled = FALSE;
+  if (dpName == mdpName)
+  {
+    // the _mp is only editable on the local system
+    enabled = (systemName == getSystemName());
+  }
+  else
+  {
+    // not editable if an _mp dp exists for this type
+    enabled = !dpExists(mdpName);
+  }
+
+  setMultiValue(\"border2\",     \"enabled\", enabled,
+                \"border3\",     \"enabled\", enabled,
+                \"tol_txt\",     \"enabled\", enabled,
+                \"tol\",         \"enabled\", enabled,
+                \"tol_typ\",     \"enabled\", enabled,
+                \"tol_typ_bit\", \"enabled\", enabled,
+                \"ms\",          \"enabled\", enabled,
+                \"sec\",         \"enabled\", enabled,
+                \"ms_txt\",      \"enabled\", enabled,
+                \"sec_txt\",     \"enabled\", enabled,
+                \"pb_interval\", \"enabled\", enabled,
+                \"unitrel\",     \"enabled\", enabled,
+                \"rel\",         \"enabled\", enabled);
+}
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "120"
+"pdpi" "120"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+20 37
+"rel"
+""
+1 418 295 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  416 293 569 327
+1
+T 
+4
+LANG:10001 14 Relative value
+LANG:10004 12 相对数值
+LANG:10000 14 Relativer Wert
+LANG:10027 24 Отн. значение
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+E E
+E E
+E"main(int button, bool state)
+{
+  unit.visible = !state;
+  unitrel.visible = state;
+  
+  if ( state && strpos(tol.format, 'd') >=0 )  //allow a float value for relative change of int value
+  {    
+  	tol.format = \"[3.3f,\"+strltrim(tol.format, \",\");
+  }
+  else if ( dpAttributeType( $1 +\":_original.._value\" ) == INT_VAR )	//allow only int values for not relative change of int value
+  {
+	  tol.format = \"[15d,\"+strltrim(tol.format, \",\");
+  }
+}" 0
+6 1
+"border1"
+""
+1 70 150 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -2 -15 0 E 70 150 395 370
+2 2
+"Text1"
+""
+1 28 10 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 30 10 132 30
+0 2 0 "0s" 0 0 0 192 0 0  30 10 1
+4
+LANG:10001 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,18,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Archiving
+LANG:10004 6 归档
+LANG:10000 12 Archivierung
+LANG:10027 26 Архивирование
+1 61 0 "" 0
+0
+1 69 2 "" 0
+1 "message" 1 1 "main()
+{
+  setValue(\"\",\"enabled\",true);
+}" 0
+ 
+1 "leftClick" 1 1 "main()
+{
+  int        Id=paMyModuleId(),user_id,man_num,man_typ;
+  string     sTxt=\"\",detail=paGetDpConfig(globalOpenConfig[Id]);
+  dyn_string man=makeDynString(\"EVENT\",\"DRIVER\",\"DB\",\"UI\",
+                               \"CTRL\",\"ASCII\",\"API\",
+                               \"MASTER_WATCHDOG\",\"SLAVE_WATCHDOG\",
+                               \"\",\"\",\"DEVICE\"); 
+
+  dpGet($1+\":_lock.\"+detail+\"._man_type\",man_typ, 
+        $1+\":_lock.\"+detail+\"._man_nr\",man_num, 
+        $1+\":_lock.\"+detail+\"._user_id\",user_id); 
+
+  sTxt=getCatStr(\"para\",\"lockinfo\")+\"\\n\";
+  sTxt+=\"UserName: \"+getUserName(user_id)+\"  (UserId: \"+user_id+\")\\n\";
+  sTxt+=\"ManagerTyp: \"+man[man_typ]+\"  (ManagerNum: \"+man_num+\")\";
+  ChildPanelOnCentralModal(\"vision/MessageWarning\",\"Locking Information\",
+    makeDynString(sTxt));
+}" 0
+ 
+0
+2 15
+"sec_txt"
+""
+1 498 165 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 500 160 565 174
+0 2 0 "0s" 0 0 0 192 0 0  500 160 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Seconds,
+LANG:10004 4 秒,
+LANG:10000 9 Sekunden,
+LANG:10027 15 Секунды,
+2 16
+"ms_txt"
+""
+1 498 200 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 500 197 581 211
+0 2 0 "0s" 0 0 0 192 0 0  500 197 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Milliseconds
+LANG:10004 6 毫秒
+LANG:10000 13 Millisekunden
+LANG:10027 24 Миллисекунды
+6 17
+"border2"
+""
+1 410 150 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -2 -15 0 E 410 150 600 285
+2 18
+"Text2"
+""
+1 70 360 E E E 1 E 0 E N {255,0,0} E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 70 360 187 430
+0 2 2 "0s" 0 0 0 64 0 0  70 360 3
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Attention:
+LANG:10004 10 Attention:
+LANG:10000 8 Achtung:
+LANG:10027 17 внимание:
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Level1: Tolerance1
+LANG:10004 18 Level1: Tolerance1
+LANG:10000 17 Ebene1: Toleranz1
+LANG:10027 18 Level1: Tolerance1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Level2: ToleranceBit
+LANG:10004 20 Level2: ToleranceBit
+LANG:10000 19 Ebene2: ToleranzBit
+LANG:10027 20 Level2: ToleranceBit
+2 19
+"time_txt"
+""
+1 418 127 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 418 127 493 141
+0 0 0 "0s" 0 0 0 192 0 0  418 127 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Time interval
+LANG:10004 12 时间间隔
+LANG:10000 13 Zeitintervall
+LANG:10027 13 Time interval
+6 30
+"border4"
+""
+1 70 150 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -2 -15 0 E 70 150 327 285
+6 32
+"border3"
+""
+1 410 300 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -2 -15 0 E 410 300 600 370
+2 33
+"tol_txt"
+""
+1 418 277 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 420 277 473 291
+0 2 0 "0s" 0 0 0 192 0 0  420 277 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Deadband
+LANG:10004 6 死区
+LANG:10000 7 Totband
+LANG:10027 45 Зона нечувствительности
+2 34
+"unit"
+""
+1 523 327 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 525 327 556 341
+0 2 2 "0s" 0 0 0 192 0 0  525 327 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 [unit]
+LANG:10004 8 [单位]
+LANG:10000 6 [unit]
+LANG:10027 7 [ед.]
+2 35
+"unitrel"
+""
+1 523 327 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 525 327 546 341
+0 2 2 "0s" 0 0 0 192 0 0  525 327 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 [%]
+LANG:10004 3 [%]
+LANG:10000 3 [%]
+LANG:10027 3 [%]
+2 38
+"Text3"
+""
+1 264 375 E E E 1 E 0 E N {0,0,0} E N {255,255,255} E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  RDBName = getCatStr(\"RDBArchive\",\"RDBArchiveName\");
+  RDBDP = \"_RDBArchive\";
+}" 0
+ E 0 1 1 0 1 E U  1 E 266 377 362 413
+1 2 0 "0s" 0 0 0 64 0 0  266 377 2
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 VALUEARCHIVE-
+LANG:10004 13 VALUEARCHIVE-
+LANG:10000 13 VALUEARCHIVE-
+LANG:10027 28 Архив значений-
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 RDB DEFAULTS
+LANG:10004 12 RDB DEFAULTS
+LANG:10000 12 RDB DEFAULTS
+LANG:10027 12 RDB DEFAULTS
+1 63 1 "0" 0
+0
+14 13
+"sec"
+""
+1 418.4615384615385 154 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  418 153 492 179
+3 "10d" 10 0 0 0 0 -1  E E E
+14 14
+"ms"
+""
+1 418.0821917808219 194 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  418 193 492 219
+3 "3d" 3 0 0 0 0 -1  E E E
+14 22
+"dpaType"
+""
+1 8 393 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 393 43 422
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+}" 0
+ E
+20 23
+"arch"
+""
+1 76 53 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  76 53 232 81
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+E E
+E E
+E"main()
+{
+  int selectedArchiveIndex;
+  bool isActive, valueArchiveUsed;
+
+  if (dpGet(dpSubStr($1, DPSUB_SYS) + \"_DataManager.UseValueArchive:_online.._value\", valueArchiveUsed) == -1)
+    return; // can't determine if value archive is used or not
+
+  // \"Active\" checkbox checked or not?
+  getValue(\"\", \"state\", 0, isActive);
+
+  if (valueArchiveUsed)
+  {
+    if (isActive)
+    {
+      getValue(\"ar_name\", \"selectedPos\", selectedArchiveIndex);
+
+      if (selectedArchiveIndex <= 0)
+        setValue(\"ar_name\", \"selectedPos\", 1);
+
+      getValue(\"ar_name\", \"selectedPos\", selectedArchiveIndex);
+
+      if (selectedArchiveIndex > 0)
+        setValue(\"archiveClassDp\", \"selectedPos\", selectedArchiveIndex);
+    }
+  }
+}" 0
+20 24
+"glaett"
+""
+1 76 83 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  76 83 229 111
+1
+T 
+4
+LANG:10001 9 Smoothing
+LANG:10004 6 平滑
+LANG:10000 11 Glättung  
+LANG:10027 22 Сглаживание
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+E "main()
+{
+  int         i,archive,type,std_type,Id=paMyModuleId(),n1,n2,number,
+              dpaType,sec,ms;
+  time        std_time;
+  float       std_tol;
+  string      config=paGetDpConfig(globalOpenConfig[Id]),dpe;
+  dyn_anytype dpc;
+  dpc=globalAnytype;
+  getMultiValue(\"dpe_name\",\"text\",dpe,
+                \"arch\",\"state\",0,archive,
+                \"glaett\",\"state\",0,type,
+                \"tol_typ\",\"number\",n1,
+                \"tol_typ_bit\",\"number\",n2,
+                \"tol\",\"text\",std_tol,
+                \"sec\",\"text\",sec,
+                \"ms\",\"text\",ms);
+  //setValue(\"arch\",\"enabled\",!type);
+  if (type==1) type=3;
+  dpaType=dpElementType(dpe);
+  
+
+  if (dpaType==DPEL_CHAR || dpaType==DPEL_UINT || dpaType==DPEL_INT || dpaType==DPEL_ULONG || dpaType==DPEL_LONG || dpaType==DPEL_FLOAT)
+  {
+    dpc[1]=dpaType;
+    dpc[2]=archive;
+    dpc[3]=type;
+    dpc[4]=n1;
+    dpc[5]=setPeriod(std_time,sec,ms);
+    dpc[6]=std_tol;
+  }
+  else
+  {
+    if (n2>0) n2+=3; else n2++;
+    dpc[1]=dpaType;
+    dpc[2]=archive;
+    dpc[3]=type;
+    dpc[4]=n2;
+    dpc[5]=setPeriod(std_time,sec,ms);
+  }
+  paWritePanelAllArchAttributes(dpe,dpc);
+}
+
+
+" 0
+
+E E
+EE13 26
+"pb_interval"
+""
+1 420 248 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  418 233 446 261
+
+P 
+13160660
+"pictures/StandardIcons/Clock_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int    ok,sec,ms;
+  time   tPara;
+  dyn_string sPara;
+  getMultiValue(\"sec\",\"text\",sec,
+                \"ms\",\"text\",ms);
+  setPeriod(tPara,sec,ms);
+  sPara[1]=tPara;
+  paChildPanelOn(\"para/timeInterval.pnl\", //string fileName
+                 \"TimeInterval\",          //string panelName
+                 \"\",                      //string parentName
+                 \"\",                      //string moduleName
+                 true,                    //bool modal
+                 true,                    //bool ret
+                 -1,-1,                   //int posX,int posY
+                 sPara,                   //dyn_string &sPara
+                 ok);                     //int &ok
+  if (ok==1)
+  {
+    tPara=sPara[1];
+    sec=period(tPara);
+    ms=milliSecond(tPara);
+    setMultiValue(\"sec\",\"text\",sec,
+                  \"ms\",\"text\",ms);
+  }
+}
+" 0
+ E E E
+22 27
+"ar_name"
+""
+1 235.8198198198198 54 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  236 53 482 79
+0
+
+E
+"main()
+{
+  //changed alang 21.07.2006 Prüfung User Defined Archives
+  int  iPos;
+  bool bFixed;
+  bool bChangePos; // selection changed
+  bool bEnter = true; //OK-Buttons enabled
+
+  string sDpt;
+  dyn_string dsDps;
+
+  bChangePos = strltrim(this.text, \"-\") != \"\"; // equal dummy string?
+
+  if (bChangePos)
+  {
+    iPos = this.selectedPos;
+    bChangePos = (iPos >= 0);
+  }
+
+  if (bChangePos && (useRDBArchive() && useRDBGroups()))
+  {
+    bool isUserDefined = false;
+    string dpe, dpArchiveClass;
+
+    dyn_string dpArchiveClasses = archiveClassDp.items;
+    dpArchiveClass = dpArchiveClasses[iPos];
+    dpe = globalOpenConfig[paMyModuleId()];
+    if (strtok(dpArchiveClass, \"_ValueArchive_\") < 0)
+    {
+      //DebugN(dpe, dpArchiveClass, dpArchiveClasses);
+      dpGet(dpArchiveClass+\".isUserDefined\", isUserDefined);
+      if (isUserDefined)
+        bChangePos = udag_checkArchive(dpe, dpArchiveClass);
+      //DebugN(\"UDAG\", bChangePos, dpe, dpArchiveClass);
+    }
+  }
+
+  if (bChangePos)
+  {
+    setValue(\"archiveClassDp\", \"selectedPos\", iPos);
+    daIsPcFixed( $1+\":_archive\", bFixed);
+  }
+  else
+  {
+    if (archiveClassDp.text != \"\")
+      this.selectedPos = archiveClassDp.selectedPos;
+    else
+    {
+      this.text = \"\";
+      bEnter = false;
+    }
+  }
+
+  // IM 109036
+  sDpt = dpTypeName(dpSubStr($1, DPSUB_SYS_DP)); //TFS 52194 sys_name+dp_name
+  dsDps = dpNames(\"*\", sDpt);
+
+  if ( (dynContains(dsDps, getSystemName() + \"_mp_\" + sDpt) != 0) && (dpSubStr($1, DPSUB_DP) != \"_mp_\" + sDpt) )
+    bEnter = false;
+
+  setMultiValue(\"ok\",  \"enabled\",bEnter,
+                \"save\",\"enabled\",bEnter,
+                \"p1\",  \"enabled\",bEnter);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+13 28
+"p1"
+""
+1 495 67 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  493 52 591 80
+
+T 
+4
+LANG:10001 9 Configure
+LANG:10004 6 配置
+LANG:10000 13 Parametrieren
+LANG:10027 18 Параметры
+"main()
+{
+  int        typ,pos,Id=paMyModuleId(),ppos, iNr, i, iiNr;
+  string     s,drv_ident;
+  string     sArchivDp;
+  string     module = getCatStr(\"va\",\"Hauptfenster\");
+  string     dp1, UI, dp;
+  string     FileName = \"para/archive/archive_para.pnl\", Parameter = \"\"; 
+  dyn_string diSelectedLines, dsRDBs;
+  bool      _MOTIF = isMotif();
+
+  initHosts();
+
+  getValue(\"archiveClassDp\", \"text\", sArchivDp);
+  if (sArchivDp==\"\")
+    sArchivDp = \"_ValueArchive_0\";				// Default Archiv!!
+
+  sArchivDp = dpSubStr ( $1, DPSUB_SYS ) + dpSubStr ( sArchivDp, DPSUB_DP );
+  if ( dpTypeName(dpSubStr(sArchivDp, DPSUB_SYS_DP)) == \"_RDBArchiveGroups\" )
+  {
+    FileName = \"para/archive/RDB/RDBArchive.pnl\";
+    dpGet(sArchivDp + \".managerNr:_online.._value\", iNr);
+    // iNr += 2;
+    if ( !dpExists(dpSubStr($1, DPSUB_SYS) + \"_RDBArchive_\" + iNr) )  // RDBArchiveGroup defined without Manager
+    {
+      dsRDBs = dpNames(dpSubStr($1, DPSUB_SYS) + \"*\", \"_RDBArchive\");
+      for ( i = 1; i <= dynlen(dsRDBs); i++ )
+      {
+        dpGet(dsRDBs[i] + \".arNr:_online.._value\", iiNr);
+        if ( iNr == iiNr )
+        {
+          Parameter = \"$manager:\" + dpSubStr(dsRDBs[i], DPSUB_SYS_DP);
+          break;
+        }
+      }
+    }
+    else
+      Parameter = \"$manager:\" + \"_RDBArchive_\" + iNr;
+
+    if ( Parameter == \"\" )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+        makeDynString(getCatStr(\"RDBArchive\", \"noManagerDefined\")));
+      return;
+    }
+  }
+  else
+  {
+    Parameter = \"$1:\"+sArchivDp;
+  }
+
+  // muß noch angepaßt werden
+  if (dpExists(sArchivDp) && isModuleOpen(module) == false )
+  {
+  
+    ModuleOnWithPanel(
+	module, 100, 110, 620 + (!_MOTIF ? 8 : 4), 480 + (!_MOTIF ? 32 : 4), 
+	1, 1, \"None\", FileName, UI, makeDynString(Parameter));
+  } 
+}
+" 0
+ E E E
+22 29
+"archiveClassDp"
+""
+1 230.3 84 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  236 83 482 109
+0
+
+E
+"main()
+{
+  //DebugN(this.name);
+  //setTrace(1);
+}" 0
+
+E
+ 1 0
+14 36
+"tol"
+""
+1 418 339 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  416 323 519 349
+3 "15.2f" 18 0 0 0 0 -1  E E E
+30 49
+"FRAME1"
+""
+1 35 38 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+8 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 5.220588235294118 0 1.283333333333333 -115.2205882352941 -10.76666666666667 0 E 35 38 138 99
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+19 0
+"tol_typ"
+""
+1 78 147 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  78 147 325 343
+7
+T 
+4
+LANG:10001 25 Value-dependent smoothing
+LANG:10004 15 与数值相关
+LANG:10000 27 Wertabhängige Glättung   
+LANG:10027 44 Сглаживание по значению
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 24 Time-dependent smoothing
+LANG:10004 24 与时间相关的平滑
+LANG:10000 26 Zeitabhängige Glättung  
+LANG:10027 42 Сглаживание по времени
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 35 Value- and time-dependent smoothing
+LANG:10004 35 Value- and time-dependent smoothing
+LANG:10000 34 Wert- UND zeitabhängige Glättung
+LANG:10027 49 Сглаж. по знач. И по времени
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 34 Value- or time-dependent smoothing
+LANG:10004 34 Value- or time-dependent smoothing
+LANG:10000 35 Wert- ODER zeitabhängige Glättung
+LANG:10027 53 Сглаж. по знач. ИЛИ по времени
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 18 Old/New comparison
+LANG:10004 12 逢变则报
+LANG:10000 17 Alt/Neu Vergleich
+LANG:10027 36 Сравнение стар./нов.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 26 Old/New AND time-dependent
+LANG:10004 29 逢变则报 AND 时间依赖
+LANG:10000 25 Alt/Neu UND zeitabhängig
+LANG:10027 47 Стар./нов. И времязависимо
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 25 Old/New OR time-dependent
+LANG:10004 28 逢变则报 OR 时间依赖
+LANG:10000 26 Alt/Neu ODER zeitabhängig
+LANG:10027 51 Стар./нов. ИЛИ времязависимо
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+"main()
+{
+  int        i;
+  for (i=1;i<=7;i++)
+    setValue(\"\",\"text\",i-1,getCatStr(\"para\",\"smooth\"+i));
+}" 0
+ "main()
+{
+  int type;
+  getValue(\"tol_typ\", \"number\", type);
+  
+  bool bUnitRelVisible = rel.state(0) && (type==0 || type==2 || type==3);//IM 115 582
+  bool bUnitVisible    = !bUnitRelVisible && (type==0 || type==2 || type==3);
+  
+  setMultiValue(\"border2\",\"visible\",(type!=0 && type!=4),
+                \"time_txt\",\"visible\",(type!=0 && type!=4),
+                \"pb_interval\",\"visible\",(type!=0 && type!=4),
+                \"sec_txt\",\"visible\",(type!=0 && type!=4),
+                \"ms_txt\",\"visible\",(type!=0 && type!=4),
+                \"sec\",\"visible\",(type!=0 && type!=4),
+                \"ms\",\"visible\",(type!=0 && type!=4),
+                \"border3\",\"visible\",(type==0 || type==2 || type==3),
+                \"unit\",\"visible\",bUnitVisible,//IM 115 582
+                \"tol_txt\",\"visible\",(type==0 || type==2 || type==3),
+                \"unitrel\",\"visible\",bUnitRelVisible,//IM 115 582
+                \"rel\",\"visible\",(type==0 || type==2 || type==3),
+                \"tol\",\"visible\",(type==0 || type==2 || type==3));
+}
+
+
+
+
+
+" 0
+
+E E
+2 60
+"tol_typ_txt"
+""
+1 77 127 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 77 127 237 141
+0 0 0 "0s" 0 0 0 192 0 0  77 127 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 36 Type of standard smoothing procedure
+LANG:10004 27 标准平滑程序的类型
+LANG:10000 25 Typ der Standardglättung
+LANG:10027 33 Режим сглаживания
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+19 31
+"tol_typ_bit"
+""
+1 78 145 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  78 145 321 257
+4
+T 
+4
+LANG:10001 24 Time-dependent smoothing
+LANG:10004 24 与时间相关的平滑
+LANG:10000 24 Zeitabhängige Glättung
+LANG:10027 42 Сглаживание по времени
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 18 Old new comparison
+LANG:10004 12 逢变则报
+LANG:10000 17 Alt/Neu Vergleich
+LANG:10027 36 Сравнение стар./нов.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 16 Old new AND time
+LANG:10004 23 逢变则报 AND 时间
+LANG:10000 16 Alt/Neu UND Zeit
+LANG:10027 31 Стар./нов. И время
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 15 Old new OR time
+LANG:10004 22 逢变则报 OR 时间
+LANG:10000 17 Alt/Neu ODER Zeit
+LANG:10027 35 Стар./нов. ИЛИ время
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+"main()
+{
+    setValue(\"\",\"text\",0,getCatStr(\"para\",\"smooth2\"),
+                \"text\",1,getCatStr(\"para\",\"smooth5\"),
+                \"text\",2,getCatStr(\"para\",\"smooth6\"),
+                \"text\",3,getCatStr(\"para\",\"smooth7\"));
+}" 0
+ "main()
+{
+  int type;
+  getValue(\"tol_typ_bit\", \"number\", type);
+  setMultiValue(\"border2\",\"visible\",(type!=1),
+                \"time_txt\",\"visible\",(type!=1),
+                \"pb_interval\",\"visible\",(type!=1),
+                \"sec_txt\",\"visible\",(type!=1),
+                \"ms_txt\",\"visible\",(type!=1),
+                \"sec\",\"visible\",(type!=1),
+                \"ms\",\"visible\",(type!=1));
+}
+
+
+
+" 0
+
+E E
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/dpe.ref" 308 10 T 0 1 0 1 2 0
+1
+"$DPE""$1"
+3 1 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/buttons.ref" 220 440 T 0 1 0 1 -210 5
+0
+3 2 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/lock_unlock.ref" 6 12 T 0 1 0 1 0 -3
+1
+"$1""$1"
+0

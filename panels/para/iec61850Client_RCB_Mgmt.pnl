@@ -1,0 +1,1501 @@
+V 14
+4
+LANG:10001 24 IEC 61850/61400 rcb mgmt
+LANG:10004 24 IEC 61850/61400 rcb mgmt
+LANG:10000 24 IEC 61850/61400 rcb mgmt
+LANG:10027 40 Управление IEC 61850/61400 rcb
+PANEL,-1 -1 1200 500 N "_3DFace" 1
+"$Ied"
+"main()
+{
+  initRcbMgmt();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  450 80
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+#uses \"iec61850_plugin.ctl\"
+
+dyn_string dsRcbAll;
+dyn_string dsAllDps, dsSelDps, dsIdxRcb, dsIdxSub, dsIdxBase;
+dyn_string dsBrowsedRcbBuf, dsBrowsedRcbUnb, dsCreatedRcbBuf, dsCreatedRcbUnb;
+dyn_string dsRcbRsv, dsRcbUnr, dsRcbEna, dsRcbUne, dsRcbHost1, dsRcbHost2;
+dyn_string dsActiveRcbs, dsTreeSelItems;
+
+dyn_bool dbBuf, dbIdx, dbRsv, dbEna;
+int iCountAll, iCountSel;
+bool bCheckIdx, bIdxEna;
+//string sColDisabled = \"{143,143,143}\";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// init panel
+initRcbMgmt()
+{
+  string sIedDp = $Ied;
+  bIdxEna = 1;
+
+  tabSel.sortOnClick(0);
+  bCheckIdx = cbIdx.state(0);
+
+  string sSys = getSystemName();
+  dyn_string dsRcbSel = dpNames(sIedDp+\"*\", IEC61850_DPT_RCB);
+
+  dyn_string dsRcbSelCfgList, dsRcbSelCfgListDps;
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES, dsRcbSelCfgList);
+
+  for ( int i = 1; i <= dynlen(dsRcbSelCfgList); i++ )
+    dsRcbSelCfgListDps[i] = sSys + iec61850_getRcbDpName(sIedDp, dsRcbSelCfgList[i]);
+
+  if ( dsRcbSel != dsRcbSelCfgListDps )
+    dsRcbSel = dsRcbSelCfgListDps;
+
+  dyn_string dsIdxRcbNext, dsIdxRcbTemp;
+  dyn_string dsSplit, dsLDs;
+  dyn_string dsCols = makeDynString(IEC61850_COL_LIGHT, IEC61850_COL_DARK);
+
+  // ETM: get information about buffered and indexed
+  for ( int i = 1; i <= dynlen(dsRcbSel); i++ )
+  {
+    dsRcbSel[i] = dpSubStr(dsRcbSel[i], DPSUB_DP);
+
+    if ( dpExists(dsRcbSel[i]) )
+      dpGet(dsRcbSel[i] + IEC61850_DPE_RCB_BUFFERED, dbBuf[i],
+            dsRcbSel[i] + IEC61850_DPE_RCB_INDEXED , dbIdx[i],
+            dsRcbSel[i] + IEC61850_DPE_RCB_RESV    , dbRsv[i],
+            dsRcbSel[i] + IEC61850_DPE_RCB_RPTENA  , dbEna[i]);
+  }
+
+  // ETM: separated lists for created rcbs: buffered, indexed, reserved, enabled
+  for ( int i = 1; i <= dynlen(dsRcbSel); i++ )
+  {
+    if ( dbBuf[i] )
+      dynAppend(dsCreatedRcbBuf, dsRcbSel[i]);
+    else
+      dynAppend(dsCreatedRcbUnb, dsRcbSel[i]);
+
+    if ( dbRsv[i] )
+      dynAppend(dsRcbRsv, dsRcbSel[i]);
+    else
+      dynAppend(dsRcbUnr, dsRcbSel[i]);
+
+    if ( dbEna[i] )
+      dynAppend(dsRcbEna, dsRcbSel[i]);
+    else
+      dynAppend(dsRcbUne, dsRcbSel[i]);
+  }
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_RCB_NAMES, dsRcbAll);
+
+  dyn_string dsRcbAllIndexData, dsRcbAllIndexOnly;
+  iec61850_getRcbDataIndexInfo(dsRcbAll, dsRcbAllIndexData, dsRcbAllIndexOnly);
+
+  if ( dynlen(dsRcbAll) )
+  {
+    for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+    {
+      dsSplit = strsplit(dsRcbAll[i], \"/\");
+      dynAppend(dsLDs, dsSplit[1]);
+    }
+  }
+
+  dynSortAsc(dsLDs);
+  dynUnique(dsLDs);
+
+  for ( int i = 1; i <= dynlen(dsRcbSel); i++ )
+  {
+    dsRcbSel[i] = substr(dsRcbSel[i], strlen(sIedDp+\"_\"), strlen(dsRcbSel[i])-strlen(sIedDp+\"_\"));
+
+    for ( int j = 1; j <= dynlen(dsLDs); j++ )
+      if ( strpos(dsRcbSel[i], dsLDs[j] + \"_\" ) != -1 )
+        strreplace(dsRcbSel[i], dsLDs[j] + \"_\", dsLDs[j] + \"/\");
+
+    strreplace(dsRcbSel[i], \"_BR_\", \"$BR$\");
+    strreplace(dsRcbSel[i], \"_RP_\", \"$RP$\");
+
+    dynAppend(dsRcbHost1, dsRcbSel[i]);
+  }
+
+  tabSel.tableMode(TABLE_SELECT_MULTIPLE);
+  tabSel.selectByClick(TABLE_SELECT_LINE);
+  tabSel.enableColumnResize(FALSE);
+  tabSel.alternatingRowColors(dsCols);
+
+  dsAllDps = makeDynString();
+  dsSelDps = makeDynString();
+
+  dynSortAsc(dsRcbSel);
+
+  for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+  {
+    if ( strpos(dsRcbAll[i], \"$BR$\") != -1 )
+      dynAppend(dsBrowsedRcbBuf, dsRcbAll[i]);
+    else if ( strpos(dsRcbAll[i], \"$RP$\") != -1 )
+      dynAppend(dsBrowsedRcbUnb, dsRcbAll[i]);
+  }
+
+  treeAll.clear();
+  treeAll.removeColumn(0);
+  treeAll.addColumn(getCatStr(\"iec61850\", \"RcbMgmtTreeHeader\"));
+
+  string sIdxRcbNum, sIdxRcbNumNext;
+  bool bIdx;
+
+  for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+  {
+    // ETM: check if there is an indexed rcb
+    if ( strpos(dsRcbAll[i], \"01\", strlen(dsRcbAll[i])-2) != -1 &&
+         ( dynlen(dsRcbAllIndexOnly) && dsRcbAllIndexOnly[i] != \"\" ? ( dsRcbAllIndexOnly[i] == \"I\" || dsRcbAllIndexOnly[i] == \"A\" ) : 1 ) )
+    {
+      sIdxRcbNum = substr(dsRcbAll[i], strlen(dsRcbAll[i])-2, 2);
+      dsIdxRcb[i] = substr(dsRcbAll[i], 0, strlen(dsRcbAll[i])-2);
+
+      if ( dsIdxRcb[i] != \"\" )
+        dsIdxBase[i] = dsIdxRcb[i];
+
+      if ( i+1 <= dynlen(dsRcbAll) )
+      {
+        sIdxRcbNumNext = substr(dsRcbAll[i+1], strlen(dsRcbAll[i+1])-2, 2);
+        dsIdxRcbNext[i] = substr(dsRcbAll[i+1], 0, strlen(dsRcbAll[i+1])-2);
+
+        if ( (int)sIdxRcbNumNext == (int)sIdxRcbNum+1 )
+        {
+          bIdx = 1;
+          dynAppend(dsIdxSub, dsRcbAll[i]);
+          dynAppend(dsIdxSub, dsRcbAll[i+1]);
+        }
+        else
+          dsIdxRcb[i] = dsIdxRcb[i] + sIdxRcbNum;
+      }
+      else
+        dsIdxRcb[i] = dsIdxRcb[i] + sIdxRcbNum;
+    }
+
+    if ( bIdx && i+1 <= dynlen(dsRcbAll))
+    {
+      sIdxRcbNum = substr(dsRcbAll[i], strlen(dsRcbAll[i])-2, 2);
+      dsIdxRcb[i] = substr(dsRcbAll[i], 0, strlen(dsRcbAll[i])-2);
+
+      if ( i+1 <= dynlen(dsRcbAll) )
+      {
+        sIdxRcbNumNext = substr(dsRcbAll[i+1], strlen(dsRcbAll[i+1])-2, 2);
+        dsIdxRcbNext[i] = substr(dsRcbAll[i+1], 0, strlen(dsRcbAll[i+1])-2);
+
+        if ( (int)sIdxRcbNumNext == (int)sIdxRcbNum+1 )
+        {
+          dynAppend(dsIdxSub, dsRcbAll[i]);
+          dynAppend(dsIdxSub, dsRcbAll[i+1]);
+        }
+        else
+          bIdx = 0;
+      }
+    }
+  }
+
+  dynUnique(dsIdxSub);
+
+  for ( int i = dynlen(dsIdxRcb); i >= 1; i-- )
+    if ( dsIdxRcb[i] == \"\" )
+      dynRemove(dsIdxRcb, i);
+
+  for ( int i = dynlen(dsRcbAll); i >= 1; i-- )
+    if ( dynContains(dsIdxSub, dsRcbAll[i]) )
+      dynRemove(dsRcbAll, i);
+
+  dynUnique(dsIdxRcb);
+  dsIdxRcbTemp = dsIdxRcb;
+  dynAppend(dsRcbAll, dsIdxRcbTemp);
+  dynSortAsc(dsRcbAll);
+
+  for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+  {
+    if ( !treeAll.itemExists(dsRcbAll[i]) )
+    {
+      treeAll.appendItem(\"\", dsRcbAll[i], dsRcbAll[i]);
+      treeAll.setDragEnabled(dsRcbAll[i], 1);
+      //treeAll.setEnabled(dsRcbAll[i], dynlen(treeAll.children(dsRcbAll[i]))!=1);
+
+      dyn_string dsTempIdxSub;
+
+      for ( int j = 1; j <= dynlen(dsIdxSub); j++ )
+      {
+        bool bSub = !treeAll.itemExists(dsIdxSub[j]) &&
+                    substr(dsIdxSub[j], 0, strlen(dsIdxSub[j])-2) == dsRcbAll[i] &&
+                    strlen(dsRcbAll[i])+2 == strlen(dsIdxSub[j]);
+
+        if ( bSub )
+        {
+          bool bAsgndRcb = getAsgndRcbInfo(sIedDp, dsRcbAll[i], dsIdxSub[j]);
+
+          if (bAsgndRcb)
+          {
+            dynClear(dsTempIdxSub);
+            dynAppend(dsTempIdxSub, dsIdxSub[j]);
+            break;
+          }
+
+          dynAppend(dsTempIdxSub, dsIdxSub[j]);
+        }
+      }
+
+      for ( int j = 1; j <= dynlen(dsTempIdxSub); j++ )
+      {
+        treeAll.appendItem(dsRcbAll[i], dsTempIdxSub[j], dsTempIdxSub[j]);
+        treeAll.setDragEnabled(dsTempIdxSub[j], 1);
+        treeAll.setEnabled(dsTempIdxSub[j], 0);//dynlen(dsTempIdxSub)==1);
+      }
+    }
+    treeAll.setEnabled(dsRcbAll[i], dynlen(treeAll.children(dsRcbAll[i]))!=1);
+  }
+
+  // ETM: save on init
+  iCountAll = treeAll.childCount();
+  dsAllDps = treeAll.children(\"\");
+
+  if ( iCountAll < 1 )
+    enableShapes(0, 2);
+
+  // ETM: fill table of selected rcbs
+  if ( dynlen(dsRcbSel) )
+    fillTabSelRcbs(dsRcbSel, 1, bCheckIdx);
+
+  txtAllCount.text = \"( \" + treeAll.childCount + \" )\";
+  txtSelCount.text = \"( \" + tabSel.lineCount + \" )\";
+
+  treeAll.alternatingRowColors(1);
+
+  // ETM: save on init
+  iCountSel = tabSel.lineCount();
+  dsSelDps = getCurrentSel();
+
+  // ETM: get active rcbs from list
+  dsActiveRcbs = getActiveRcbs();
+
+  dynSortAsc(dsAllDps);
+  dynSortAsc(dsSelDps);
+
+  // ETM: open indexed rcb items
+  // IM 119203 - if indexed rcbs available
+  if ( dynlen(dsIdxRcb) )
+    for ( int i = 1; i <= dynlen(dsIdxRcb); i++ )
+      treeAll.setOpen(dsIdxRcb[i], 1);
+  else
+    bIdxEna = 0;
+
+  cbIdx.enabled = bIdxEna;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// enable & disable shapes
+enableShapes(bool bState, int iSource = 0)
+{
+  setMultiValue(\"cmdSel\",     \"enabled\", bState,
+                \"cmdSelAll\",  \"enabled\", bState,
+                \"cmdRem\",     \"enabled\", bState,
+                \"cmdRemAll\",  \"enabled\", bState,
+                \"cmdOk\",      \"enabled\", bState,
+                \"cbIdx\",      \"enabled\", bState && bIdxEna,
+                \"txtRcbInfo\", \"enabled\", bState);
+
+  if ( iSource == 1 )
+    setMultiValue(\"cmdHelp\",    \"enabled\", bState,
+                  \"cmdApply\",   \"enabled\", bState,
+                  \"cmdCancel\",  \"enabled\", bState,
+                  \"treeAll\",    \"enabled\", bState,
+                  \"tabSel\",     \"enabled\", bState,
+                  \"txtRcbInfo\", \"enabled\", bState);
+
+  if ( iSource == 2 )
+    setMultiValue(\"cmdApply\",   \"enabled\", bState,
+                  \"treeAll\",    \"enabled\", bState,
+                  \"tabSel\",     \"enabled\", bState,
+                  \"txtRcbInfo\", \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// return the current list of rcbs (created & not created)
+dyn_string getCurrentSel()
+{
+  int iSel = tabSel.lineCount();
+  dyn_string dsSel;
+
+  for ( int i = 1; i <= iSel; i++ )
+  {
+    getValue(\"tabSel\", \"getLineN\", i-1, dsSel[i]);
+    dyn_string ds = strsplit(dsSel[i], \"|\");
+    if ( dynlen(ds) )
+      dsSel[i] = ds[1];
+
+    dsSel[i] = strltrim(strrtrim(dsSel[i], \" \"));
+  }
+
+  return dsSel;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// return the current list of rcbs (created & not created) including type (indexed or assigend)
+dyn_string getCurrentSelAndType()
+{
+  int iSel = tabSel.lineCount();
+  dyn_string dsSel;
+
+  for ( int i = 1; i <= iSel; i++ )
+  {
+    getValue(\"tabSel\", \"getLineN\", i-1, dsSel[i]);
+    dyn_string ds = strsplit(dsSel[i], \"|\");
+    if (dynlen(ds) >= 4)
+    {
+      dsSel[i] = ds[1] + \"|\" + ds[4];
+    }
+    else
+    {
+      string msg = \"unknown\";
+
+      if (dynlen(ds))
+        msg = ds[1];
+
+      iec61850_throwErrorMessage(\"iec61850_error\", PRIO_SEVERE, ERR_CONTROL, 25, msg);
+    }
+
+    dsSel[i] = strltrim(strrtrim(dsSel[i], \" \"));
+  }
+
+  return dsSel;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// return the list of rcbs currently active in the tree
+dyn_string getActiveRcbs()
+{
+  dyn_string dsActiveRcbs, dsRcbs = dsAllDps, dsIdxSubTemp = dsIdxSub;
+  dynAppend(dsRcbs, dsIdxSubTemp);
+  dynSortAsc(dsRcbs);
+
+  for ( int i = 1; i <= dynlen(dsRcbs); i++ )
+    if ( treeAll.itemExists(dsRcbs[i]) && treeAll.isEnabled(dsRcbs[i]) )
+      dynAppend(dsActiveRcbs, dsRcbs[i]);
+
+  return dsActiveRcbs;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// return the list of rcbs currently active in the tree
+dyn_string getActiveRcbsUnb()
+{
+  dyn_string dsActiveRcbsUnb = getActiveRcbs();
+
+  for ( int i = dynlen(dsActiveRcbsUnb); i >= 1; i-- )
+    if ( dynContains(dsBrowsedRcbBuf, dsActiveRcbsUnb[i]) )
+      dynRemove(dsActiveRcbsUnb, i);
+
+  return dsActiveRcbsUnb;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// save rcb mgmt configuration
+saveRcbMgmt()
+{
+  string     sIedDp = $Ied;
+  dyn_string dsDps, dsSelAndType, dsSel, dsSelType, dsRemoveDps = dsSelDps;
+  bool bErrorTypeAssigned = false;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  dsSelAndType = getCurrentSelAndType();
+
+  for ( int i = 1; i <= dynlen(dsSelAndType); i++ )
+  {
+    dyn_string ds = strsplit(dsSelAndType[i], \"|\");
+    if ( dynlen(ds) == 2 )
+    {
+      dsSel[i] = ds[1];
+      dsSel[i] = strltrim(strrtrim(dsSel[i], \" \"));
+
+      dsSelType[i] = ds[2];
+      dsSelType[i] = strltrim(strrtrim(dsSelType[i], \" \"));
+    }
+    else
+    {
+      bErrorTypeAssigned = true;
+      break;
+    }
+  }
+
+  dynAppend(dsDps,     dsSel);
+
+  // ETM: create RCBs
+  for ( int i = 1; i <= dynlen(dsDps); i++ )
+  {
+    uint uiMaxRptEna = 1;
+    bool bIdx = 0;
+
+    if ( dynContains(dsIdxRcb, dsDps[i]) && dynlen(treeAll.children(dsDps[i])) )
+    {
+      bIdx = 1;
+      uiMaxRptEna = dynlen(treeAll.children(dsDps[i]));
+    }
+
+    bool bIdxSub = 0;
+    if ( dynContains(dsIdxSub, dsDps[i]) )
+      bIdxSub = 1;
+
+    if ( !dynContains(dsSelDps, dsDps[i]) && !dpExists(dsDps[i]) )
+    {
+      if (bErrorTypeAssigned)
+      {
+        iec61850_throwErrorMessage(\"iec61850_error\", PRIO_SEVERE, ERR_CONTROL, 24, dsDps[i] + \" cannot be configured\");
+        return;
+      }
+
+      iec61850_createRcbDp(sIedDp, dsDps[i], dsSelType[i], uiMaxRptEna, bIdxSub);
+    }
+  }
+
+  // ETM: delete RCBs
+  for ( int i = dynlen(dsRemoveDps); i >= 1; i-- )
+    if ( dynContains(dsDps, dsRemoveDps[i]) )
+      dynRemove(dsRemoveDps, i);
+
+  for ( int i = dynlen(dsRemoveDps); i >= 1; i-- )
+  {
+    string sRcbDp = iec61850_getRcbDpName(sIedDp, dsRemoveDps[i]);
+
+    if ( dpExists(sRcbDp) )
+      iec61850_deleteRcbDp(sIedDp, dsRemoveDps[i]);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// fill rcb table of selected rcbs
+// iSource: 0 = init ... 1 = save ... 2 = select all available
+fillTabSelRcbs(dyn_string dsRcbSel, int iSource, bool bIdx)
+{
+  if ( iSource == 1 )
+    tabSel.deleteAllLines();
+
+  dyn_string dsListCol1;
+
+  for ( int i = 1; i <= dynlen(dsRcbSel); i++ )
+    dynAppend(dsListCol1, dsRcbSel[i]);
+
+  tabSel.appendLines(dynlen(dsListCol1), \"#1\", dsListCol1);
+
+  dyn_string dsTempIdx;
+
+  int iCnt = tabSel.lineCount();
+  int iLen = dynlen(dsTreeSelItems);
+
+  if ( iSource == 2 )
+    iLen = dynlen(getActiveRcbs());
+
+  for ( int i = 1; i <= dynlen(dsListCol1); i++ )
+  {
+    int iRow = ( iSource==0 || iSource==2 ) ? iCnt-iLen+i-1 : i-1;
+
+    if ( iSource==0 || iSource==2 )
+    {
+      // ETM: get correct information about buf, idx, ena, rsv if dp does not exist yet
+      if ( bIdx )
+        dsTempIdx = dsAllDps;
+      else
+        dsTempIdx = dsIdxSub;
+
+      int iPos = dynContains(dsTempIdx, dsListCol1[i]);
+
+      if ( !iPos )
+      {
+        dbBuf[i] = strpos(dsListCol1[i], \"$RP$\") != -1 ? 0 : 1;
+        //dbIdx[i] = dynContains(dsIdxRcb, dsListCol1[i]) && dynlen(dsIdxSub) ? 1 : 0;
+        dbIdx[i] = dynContains(dsIdxBase, dsListCol1[i]) && dynlen(dsIdxSub) ? 1 : 0;
+        dbEna[i] = 0;
+        dbRsv[i] = 0;
+      }
+      else
+      {
+        // only for assigned rcbs
+        dbBuf[i] = strpos(dsListCol1[i], \"$RP$\") != -1 ? 0 : 1;
+        dbIdx[i] = 0;
+        dbEna[i] = 0;
+        dbRsv[i] = 0;
+      }
+    }
+
+    bool bAsgnd = 0;
+
+    if ( treeAll.itemExists(dsListCol1[i]) )
+    {
+      dyn_string dsTempSub = treeAll.children(treeAll.parent(dsListCol1[i]));
+      if ( dynlen(dsTempSub) == 1 )
+        bAsgnd = 1;
+    }
+
+    // ETM: show rcb information
+    tabSel.cellValueRC(iRow, \"#3\", dbBuf[i]?\"B\":\"U\");
+    tabSel.cellValueRC(iRow, \"#4\", bAsgnd  ?\"A\":(dbIdx[i]?\"I\":\"N\"));
+    tabSel.cellValueRC(iRow, \"#5\", dbEna[i]?\"E\":(dbRsv[i]?\"R\":\"N\"));
+  }
+
+  for ( int i = 1; i <= dynlen(dsRcbSel); i++ )
+    if ( dynContains(dsRcbAll, dsRcbSel[i]) || dynContains(dsIdxSub, dsRcbSel[i]))
+      treeAll.setEnabled(dsRcbSel[i], 0);
+
+  dyn_string dsSelTemp = getCurrentSel();
+  dyn_string dsSubTemp = dsIdxSub;
+
+  for ( int i = 1; i <= dynlen(dsSelTemp); i++ )
+    if ( dynContains(dsSubTemp, dsSelTemp[i]) )
+      treeAll.setEnabled(treeAll.parent(dsSelTemp[i]), 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool getAsgndRcbInfo(string sIedDp, string sParent, string sChild)
+{
+  dyn_string dsRcbAllData, dsRcbAllIndexData, dsRcbAllIndexOnly;
+  dpGet(sIedDp + IEC61850_DPE_IDP_RCB_NAMES, dsRcbAllData);
+
+  iec61850_getRcbDataIndexInfo(dsRcbAllData, dsRcbAllIndexData, dsRcbAllIndexOnly);
+
+  int iPos = dynContains(dsRcbAllData, sChild);
+
+  if ( substr(sChild, 0, strlen(sChild)-2) == sParent &&
+       strlen(sParent)+2 == strlen(sChild) &&
+       ( iPos > 0 && dsRcbAllIndexOnly[iPos] == \"A\" ) )
+    return 1;
+  else
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 220
+"cmdApply"
+""
+1 962 397 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+211 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  985 465 1083 493
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  enableShapes(FALSE, 1);
+  openProgressBar(getCatStr(\"iec61850\",\"RcbMgmtInfo\"),
+                  \"pictures/import.gif\",
+                  getCatStr(\"iec61850\",\"RcbMgmtSave\"),
+                  \"\", \"\", 1);
+
+  saveRcbMgmt();
+
+  cbIdx.state(0) = 0;
+  initRcbMgmt();
+
+  enableShapes(1, 1);
+  closeProgressBar();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+25 193
+"tabSel"
+""
+1 286 -39 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+193 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  if ( information != \"\" )
+  {
+    dyn_string dsMulti = stringToDynString(information);
+    fillTabSelRcbs(dsMulti, 0, bCheckIdx);
+
+    txtSelCount.text = \"( \" + this.lineCount + \" )\";
+
+    for ( int i = 1; i <= dynlen(dsMulti); i++ )
+      treeAll.setEnabled(dsMulti[i], 0);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  498 28 1176 391
+EE 1 0 1 5 1 "#1" 46 1 0 "s" 4
+LANG:10001 23 RCBs created in project
+LANG:10004 21 RCB在项目中创建
+LANG:10000 24 RCBs im Projekt erstellt
+LANG:10027 40 Созданные в проекте RCB
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+430 "#2" 23 0 0 "s" 4
+LANG:10001 23 Assigned redundant RCBs
+LANG:10004 15 分配冗余RCB
+LANG:10000 27 Zugewiesene redundante RCBs
+LANG:10027 57 Назначенные резервированные RCB
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+215 "#3" 7 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+75 "#4" 7 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 7 Indexed
+LANG:10004 6 索引
+LANG:10000 7 Indexed
+LANG:10027 17 Индексир.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+75 "#5" 7 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+75 
+15 15 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 0 2 0 5 7
+1 0
+30 187
+"frmRcbMgmt"
+""
+1 127 445 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+187 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.800556199770763 0 12.90429584090566 -218.6706373708869 -5737.411649203018 0 E 127 445 783 480
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 RCB management
+LANG:10004 9 RCB管理
+LANG:10000 14 RCB Verwaltung
+LANG:10027 24 Управление RCB
+13 189
+"cmdSel"
+""
+1 465 90 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+189 1 0 0 39 0
+E E E
+0
+4
+LANG:10001 28 Select marked RCBs to create
+LANG:10004 27 选择要创建的标记RCB
+LANG:10000 40 Markierte RCBs zum Erstellen selektieren
+LANG:10027 70 Выбрать маркированные RCBs для создания
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  463 88 491 116
+
+P 
+13434828
+"pictures/StandardIcons/arrow_single_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds = treeAll.selectedItems();
+  if ( !dynlen(ds) )
+    return;
+
+  enableShapes(FALSE);
+
+  tabSel.namedColumnEditable(\"#2\", 0);
+  tabSel.namedColumnEditable(\"#3\", 1);
+
+  dyn_string dsNewSel, dsSelFromAll;
+
+  dsSelFromAll = treeAll.selectedItems;
+
+  for ( int i = 1; i <= dynlen(dsSelFromAll); i++ )
+    treeAll.setEnabled(dsSelFromAll[i], 0);
+
+  dynClear(dsNewSel);
+  dynAppend(dsNewSel, dsSelFromAll);
+  dynSortAsc(dsNewSel);
+  dynUnique(dsNewSel);
+
+  fillTabSelRcbs(dsNewSel, 0, bCheckIdx);
+
+  txtSelCount.text = \"( \" + tabSel.lineCount + \" )\";
+
+  tabSel.namedColumnEditable(\"#3\", 0);
+
+  enableShapes(1);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 190
+"cmdSelAll"
+""
+1 465 120 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+190 1 0 1 39 0
+E E E
+0
+4
+LANG:10001 25 Select all RCBs to create
+LANG:10004 27 选择要创建的所有RCB
+LANG:10000 35 Alle RCBs zum Erstellen selektieren
+LANG:10027 50 Выбрать все RCBs для создания
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  463 118 491 146
+
+P 
+13434828
+"pictures/StandardIcons/arrow_double_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  enableShapes(0);
+
+  tabSel.namedColumnEditable(\"#2\", 0);
+
+  //dyn_string dsRcbs = cbIdx.state(0)?dsIdxSub:dsAllDps;
+  dyn_string dsRcbs = getActiveRcbs();
+
+  if ( dynlen(getActiveRcbs()) )
+    fillTabSelRcbs(dsRcbs, 2, bCheckIdx); // TRUE
+
+  txtSelCount.text = \"( \" + tabSel.lineCount + \" )\";
+
+  enableShapes(1);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 194
+"cmdOk"
+""
+1 859 397 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+195 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  882 465 980 493
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  enableShapes(0, 1);
+  openProgressBar(getCatStr(\"iec61850\",\"RcbMgmtInfo\"),
+                  \"pictures/import.gif\",
+                  getCatStr(\"iec61850\",\"RcbMgmtSave\"),
+                  \"\", \"\", 1);
+
+  saveRcbMgmt();
+
+  string sIedDp = $Ied;
+  dyn_string dsCreateRcbs;
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES, dsCreateRcbs);
+
+  enableShapes(0, 0);
+  closeProgressBar();
+
+  if ( dynlen(dsCreateRcbs) > 0 )
+    PanelOffReturn(makeDynFloat(1), dsCreateRcbs);
+  else
+    PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+
+
+" 0
+ E E E
+13 195
+"cmdCancel"
+""
+1 1065 397 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+196 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1088 465 1186 493
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+
+
+
+
+
+" 0
+ E E E
+13 196
+"cmdHelp"
+""
+1 -15 397 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+197 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 465 106 493
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"engg_tool_new\", 1, \"WinCC_OA_IEC61850.chm\");
+}
+
+" 0
+ E E E
+1 223 0 "" 0
+0
+2 199
+"txtSelCount"
+""
+1 500 15 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+198 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 500 15 522 28
+0 0 0 "0s" 0 0 0 192 0 0  500 15 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 ( 0 )
+LANG:10004 5 ( 0 )
+LANG:10000 5 ( 0 )
+LANG:10027 5 ( 0 )
+13 203
+"cmdRem"
+""
+1 463 174 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+202 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Delete selected RCBs
+LANG:10004 18 删除选定的RCB
+LANG:10000 25 Selektierte RCBs löschen
+LANG:10027 37 Удалить выбранные RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  463 173 491 201
+
+P 
+12632256
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int diSel = tabSel.getSelectedLines();
+
+  if ( !dynlen(diSel) )
+    return;
+
+  enableShapes(0);
+
+  for ( int i = dynlen(diSel); i > 0; i-- )
+    tabSel.deleteLineN(diSel[i]);
+
+  dyn_string dsSel = getCurrentSel();
+  dyn_string dsRcbs = cbIdx.state(0) ? dsIdxSub : dsAllDps;
+
+  for ( int i = 1; i <= dynlen(dsRcbs); i++ )
+  {
+    dyn_string dsTempSub = treeAll.children(dsRcbs[i]);
+
+    if ( treeAll.itemExists(dsRcbs[i]) )
+      treeAll.setEnabled(dsRcbs[i], dynlen(dsTempSub) != 1);
+
+    if ( dynlen(dsTempSub) == 1 && treeAll.itemExists(dsTempSub[1]) )
+      treeAll.setEnabled(dsTempSub[1], cbIdx.state(0));
+  }
+
+  for ( int i = 1; i <= dynlen(dsSel); i++ )
+    if ( dynContains(dsIdxSub, dsSel[i]) && treeAll.itemExists(dsSel[i]) )
+      treeAll.setEnabled(treeAll.parent(dsSel[i]), 0);
+
+  txtSelCount.text = \"( \" + tabSel.lineCount + \" )\";
+
+  enableShapes(1);
+}
+
+
+
+
+" 0
+ E E E
+13 204
+"cmdRemAll"
+""
+1 463 204 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+203 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Delete all RCBs
+LANG:10004 15 删除所有RCB
+LANG:10000 18 Alle RCBs löschen
+LANG:10027 25 Удалить все RCB
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  463 203 491 231
+
+P 
+12632256
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  enableShapes(0);
+
+  tabSel.deleteAllLines();
+
+  dyn_string dsRcbs = cbIdx.state(0) ? dsIdxSub : dsAllDps;
+
+  for ( int i = 1; i <= dynlen(dsRcbs); i++ )
+  {
+    if ( treeAll.itemExists(dsRcbs[i]) )
+    {
+      dyn_string dsTempSub = treeAll.children(dsRcbs[i]);
+
+      treeAll.setEnabled(dsRcbs[i], dynlen(dsTempSub) != 1);
+
+      if ( dynlen(dsTempSub) == 1 )
+        treeAll.setEnabled(dsTempSub[1], cbIdx.state(0));
+    }
+  }
+
+  txtSelCount.text = \"( \" + tabSel.lineCount + \" )\";
+
+  enableShapes(1);
+}
+
+
+
+
+
+" 0
+ E E E
+2 205
+"txtAllCount"
+""
+1 420 15 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+204 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 420 15 442 28
+0 0 0 "0s" 0 0 0 192 0 0  420 15 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 ( 0 )
+LANG:10004 5 ( 0 )
+LANG:10000 5 ( 0 )
+LANG:10027 5 ( 0 )
+29 209
+"treeAll"
+""
+1 300 20 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+206 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"selectionMode" "enum 2"
+"headerHidden" "bool FALSE"
+"alternatingRowColors" "bool TRUE"
+"rootIsDecorated" "bool TRUE"
+"DragStart" "main(int keys, string id)
+{
+  dyn_string dsSelFromAll = this.selectedItems;
+  string sMulti = dynStringToString(dsSelFromAll);
+
+  dragStart(sMulti);
+  
+  dsTreeSelItems = this.selectedItems();
+}
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  25 30 454 389
+10 TreeWidget
+1
+0 "clicked" "(string id, int column)"
+"  dsTreeSelItems = this.selectedItems();"
+E20 217
+"cbIdx"
+""
+1 65 409 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+210 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  23 398 426 426
+1
+T 
+4
+LANG:10001 41 Use instances of indexed or assigned RCBs
+LANG:10004 33 使用索引或分配的RCB实例
+LANG:10000 58 Instanzen von indizierten oder zugewiesenen RCBs verwenden
+LANG:10027 41 Use instances of indexed or assigned RCBs
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  dyn_string dsAll = dsAllDps;
+  dyn_string dsSel = getCurrentSel();
+  dyn_string dsIdx = dsIdxRcb;
+  dyn_string dsSub = dsIdxSub;
+
+  dyn_string dsSelComplete;
+  dynAppend(dsSelComplete, dsSel);
+
+  for ( int i = 1; i <= dynlen(dsAll); i++ )
+  {
+    bool bSubSel = 0;
+    dyn_string dsTempSub = treeAll.children(dsAll[i]);
+
+    for ( int j = 1; j <= dynlen(dsTempSub); j++ )
+    {
+      if ( dynlen(dsTempSub) > 1 && dynContains(dsSelComplete, dsTempSub[j]) )
+      {
+        bSubSel = 1;
+        break;
+      }
+    }
+
+    if ( treeAll.itemExists(dsAll[i]) && !dynContains(dsSelComplete, dsAll[i]) && ( dynlen(dsTempSub) != 1 || bSubSel ) )
+    {
+      treeAll.setEnabled(dsAll[i], !state && !bSubSel);
+    }
+  }
+
+  // disable already created rcbs from indexed rcb list
+  for ( int i = dynlen(dsSub); i >= 1; i-- )
+    if ( dynContains(dsSelComplete, dsSub[i]) /*|| treeAll.itemExists(dsSub[i]) == 0*/ )
+      dynRemove(dsSub, i);
+
+  for ( int i = 1; i <= dynlen(dsSub); i++ )
+  {
+    if ( treeAll.itemExists(dsSub[i]) )
+    {
+      treeAll.setEnabled(dsSub[i], ( state && dynContains(dsSelComplete, treeAll.parent(dsSub[i])) == 0 ) ||
+                                   ( state && dynlen(treeAll.children(treeAll.parent(dsSub[i]))) == 1 ) );
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsSelComplete); i++ )
+  {
+    if ( dynContains(dsIdx, dsSelComplete[i]) )
+    {
+      dyn_string dsTempSub = treeAll.children(dsSelComplete[i]);
+
+      for ( int j = 1; j <= dynlen(dsTempSub); j++ )
+        treeAll.setEnabled(dsTempSub[j], !state && dynContains(dsSelComplete, treeAll.parent(dsSub[i])) == 0 && dynlen(dsTempSub) != 1 );
+    }
+  }
+
+  txtAllCount.text = \"( \" + dynlen(dsIdxSub) + \" )\";
+}
+
+
+
+" 0
+2 222
+"txtRcbInfo"
+""
+1 1170 395 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+213 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 583 395 1170 408
+0 2 2 "0s" 0 0 0 194 0 0  1170 395 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 120 Type: (B)uffered/(U)nbuffered --- Indexed: (I)ndexed/(N)otIndexed/(A)ssigned --- State: (R)eserved/(E)nabled/(N)otActive
+LANG:10004 148 类型：（B）缓冲/（未缓冲--索引：（已索引/（N）未索引/（A）已分配）-状态：（R）保留/（E）启用/（N）otActive
+LANG:10000 120 Type: (B)uffered/(U)nbuffered --- Indexed: (I)ndexed/(N)otIndexed/(A)ssigned --- State: (R)eserved/(E)nabled/(N)otActive
+LANG:10027 120 Type: (B)uffered/(U)nbuffered --- Indexed: (I)ndexed/(N)otIndexed/(A)ssigned --- State: (R)eserved/(E)nabled/(N)otActive
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 1 315 T 194 2.402805611222445 0 1 -2.402805611222447 140
+0
+0

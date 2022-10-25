@@ -1,0 +1,2095 @@
+V 14
+4
+LANG:10001 26 Datapoint parameterization
+LANG:10004 17 数据点DP配置
+LANG:10000 25 Datenpunkt-Parametrierung
+LANG:10027 56 Параметрирование точек данных
+PANEL,-1 -1 944 559 N "_3DFace" 2
+"$DpFilterChangeable"
+"$OpenWithDp"
+"main()
+{
+  dyn_string     ds;
+  dyn_dyn_int    types;
+  dyn_dyn_string elements;
+  int iDelay;
+  
+  if (isMotif())
+  {
+    RootPanelOn(
+      \"vision/MessageWarning\",
+      \"ACHTUNG\",
+      makeDynString(paGetCatStr(\"para\",\"onlynative\")));
+  }
+  paGlobalPanelOn[myModuleName()] = FALSE;
+  activeX.enabled = FALSE;
+  
+  gMpConfigType = makeDynInt( DPATTR_ARCH_PROC_VALARCH,
+                              DPCONFIG_ALERT_NONBINARYSIGNAL,
+                              DPCONFIG_ALERT_CLASS,
+                              DPCONFIG_PERIPH_ADDR_MAIN,
+                              DPCONFIG_CONVERSION_ING_TO_RAW_MAIN,
+                              DPCONFIG_CONVERSION_RAW_TO_ING_MAIN,
+                              DPCONFIG_DEFAULTVALUE,
+                              DPCONFIG_DP_FUNCTION,
+                              DPCONFIG_MINMAX_PVSS_RANGECHECK,
+                              DPCONFIG_SMOOTH_SIMPLE_MAIN,
+                              DPCONFIG_USER_RANGECHECK,
+                              DPCONFIG_AUTH,
+                              DPCONFIG_NONE,
+                              DPCONFIG_GENERAL);
+  gMpConfigName = makeDynString( \"_archive\",
+                                 \"_alert_hdl\",
+                                 \"_alert_class\",
+                                 \"_address\",
+                                 \"_cmd_conv\",
+                                 \"_msg_conv\",
+                                 \"_default\",
+                                 \"_dp_fct\",
+                                 \"_pv_range\",
+                                 \"_smooth\",
+                                 \"_u_range\",
+                                 \"_auth\",
+                                 \"_common\",
+                                 \"_general\");
+  gMpConfigText = makeDynString( getCatStr(\"da\", \"_archive\"),
+                                 getCatStr(\"da\", \"_alert_hdl\"),
+                                 getCatStr(\"da\", \"_alert_class\"),
+                                 getCatStr(\"da\", \"_address\"),
+                                 getCatStr(\"da\", \"_cmd_conv\"),
+                                 getCatStr(\"da\", \"_msg_conv\"),
+                                 getCatStr(\"da\", \"_default\"),
+                                 getCatStr(\"da\", \"_dp_fct\"),
+                                 getCatStr(\"da\", \"_pv_range\"),
+                                 getCatStr(\"da\", \"_smooth\"),
+                                 getCatStr(\"da\", \"_u_range\"),
+                                 getCatStr(\"da\", \"_auth\"),
+                                 getCatStr(\"da\", \"_common\"),
+                                 getCatStr(\"da\", \"_general\"));
+
+  gMpPowerConfigPara = false;
+  gMpLastDpLocked[myModuleName()] = \"\";//IM 106997
+  gMpRightClick = false;
+
+  ds = dpTypes();
+  if (dynContains(ds, \"_DynamicDatapoints\") < 1)
+  {
+    std_startBusy();
+    elements[1] = makeDynString(\"_DynamicDatapoints\", \"\" );
+    elements[2] = makeDynString(	\"\",\"Leaf\"	);
+    elements[3] = makeDynString(	\"\",\"DynamicAttribute\"	);
+    types[1] = makeDynInt(DPEL_STRUCT);
+    types[2] = makeDynInt(0,DPEL_DYN_STRING);
+    types[3] = makeDynInt(0,DPEL_DYN_STRING);
+    dpTypeCreate(elements, types);
+  }
+
+
+	if ( globalExists(\"gDaDynamicParaCtl\"))    // wait until init, but maximum 10 seconds
+	{
+	  while (iDelay < 1000 && (dynlen(gDaDynamicParaCtl) < 3 ||  dynlen( gDaDynamicParaCtl[1] ) < 96))
+	  {
+	    delay(0,10);
+	    iDelay ++;
+	  }
+	}
+	else
+  {
+    daReadFileHeader(); // only this function really reads the file
+  }
+
+
+/* TI 14625 Doch wieder eingebaut */
+  {
+    dyn_int    di1, di2;
+    dyn_float  df;
+    dyn_string ds;
+    
+    dpGet(\"_Connections.Driver.ManNums:_online.._value\",di1,
+          \"_Connections_2.Driver.ManNums:_online.._value\",di2);
+    if ( !dynContains(di1, 1) && !dynContains(di2, 1) )
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"para\",\"nodrivernumber1\")),df,ds);
+      //PanelOff();
+    }
+  }
+
+  daCheckPowerConfigs();
+
+  activeX.enabled = TRUE;
+
+  if (isDollarDefined(\"$OpenWithDp\")) // give the filter a DP and filter to that
+  {
+    delay(0, 1);
+    dp_filter.text=$OpenWithDp;
+    interneDp.state(0)=true;
+    checkBoxSet();
+    commandFilter();
+  }
+  if (isDollarDefined(\"$DpFilterChangeable\")) // if the PARA is used somewhere integrated it is possible to only show the selected filter and prevent from useing the para somewhere
+  {
+    if ($DpFilterChangeable==\"false\")
+    {
+      interneDp.enabled(false);
+     // dp_filter.editable(false);
+      dp_filter.enabled(false);
+    }
+  }
+  //IM 108050
+  initDataBGCheck();
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+  //IM 106997
+  if ( mappingHasKey(gMpLastDpLocked,myModuleName()) && (gMpLastDpLocked[myModuleName()] != \"\") && dpExists(dpSubStr(gMpLastDpLocked[myModuleName()], DPSUB_SYS_DP_EL)) )  
+    dpSet(gMpLastDpLocked[myModuleName()],false);
+  mappingRemove(gMpLastDpLocked,myModuleName());
+  mappingRemove(gMpCustomHandling,myModuleName());
+  mappingRemove(paGlobalPanelOn,myModuleName());
+}
+
+
+
+" 0
+ E E E 1 -1 -1 0  70 70
+""0  1
+E "dyn_float             df;
+dyn_string            ds;
+global int            g_busyThread;
+global int            g_counter;
+global int            selectionWaitThreadId = -1;
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+//IM 108050
+
+bool bDataBGisRunning1 = FALSE;
+bool bDataBGisRunning2 = FALSE;
+bool bActiveHost1 = FALSE;
+bool bActiveHost2 = FALSE;
+
+initDataBGCheck()
+{
+  initHosts();
+  if(isRedundant())
+    dpConnect(\"workDataBG\",TRUE,\"_DataManager_2.MultiUserMode.Status:_original.._value\",
+                                \"_ReduManager_2.Status.Active:_original.._value\");
+      
+  dpConnect(\"workDataBG\",TRUE,\"_DataManager.MultiUserMode.Status:_original.._value\",
+                              \"_ReduManager.Status.Active:_original.._value\");
+}
+
+workDataBG(string dp1, bool bConnDataBG, string dp2, bool bActive)
+{
+  if(isReduDp(dp2))
+  {
+    bActiveHost2 = bActive;
+    bDataBGisRunning2 = _WIN32?bConnDataBG:TRUE;//unter Linux ist DB sofort verfügbar
+  }
+  else if(isRedundant())
+  {
+    bActiveHost1 = bActive;
+    bDataBGisRunning1 = _WIN32?bConnDataBG:TRUE;
+  }
+  else
+  {
+    bActiveHost1 = TRUE;//nur einer da, also aktiv
+    bDataBGisRunning1 = _WIN32?bConnDataBG:TRUE;
+  }
+}
+
+bool checkDataBG()
+{
+  if(isRedundant())//keine Berücksichtigung des Splitbetriebs !!!
+    return bActiveHost2?bDataBGisRunning2:bDataBGisRunning1;
+  else
+    return bDataBGisRunning1;
+}
+
+bool isRunningOnHost()
+{
+  return ((hostname == host1) || (hostname == host2));
+}
+//IM 108050 End
+
+commandFilter()
+{
+  string filter;
+  
+  getValue(\"dp_filter\",\"text\",filter);
+  if ( filter == \"DEBUGOLDPARA\" ) return;
+  
+  activeX.ExpandElements(filter);
+}
+
+checkBoxSet()
+{  
+  bool   intern;
+  string filter;
+
+  getMultiValue(\"interneDp\",\"state\",0,intern,
+                \"dp_filter\",\"text\",filter);
+  propPut(\"activeX\",\"ShowInternDpTypes\",intern);
+}
+
+
+
+
+mpWarningNotOwnSystem()
+{
+  dyn_float  df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"para\",\"wrongsystem\")), df, ds);
+}
+
+SelectionChanged(string dpstr, long isType, int iSysNum)
+{
+  int        iWait = 0;
+  string     panelName,s=\"\",cfg=paGetDpConfig(dpstr);
+  dyn_uint   sysIds;
+  bool bOwnSystem = (getSystemId() == iSysNum);
+  dyn_string sysNames;
+  const dyn_int possibleStructs = makeDynInt(DPEL_BIT32_STRUCT, DPEL_BLOB_STRUCT, DPEL_BOOL_STRUCT,
+                                             DPEL_CHAR_STRUCT, DPEL_DPID_STRUCT, DPEL_DYN_BIT32_STRUCT, 
+                                             DPEL_DYN_BLOB_STRUCT, DPEL_DYN_BOOL_STRUCT, DPEL_DYN_CHAR_STRUCT,
+                                             DPEL_DYN_DPID_STRUCT, DPEL_DYN_FLOAT_STRUCT, DPEL_DYN_INT_STRUCT,
+                                             DPEL_DYN_LANGSTRING_STRUCT, DPEL_DYN_STRING_STRUCT, DPEL_DYN_TIME_STRUCT,
+                                             DPEL_DYN_UINT_STRUCT, DPEL_FLOAT_STRUCT, DPEL_INT_STRUCT,
+                                             DPEL_LANGSTRING_STRUCT, DPEL_STRING_STRUCT, DPEL_STRUCT,
+                                             DPEL_TIME_STRUCT, DPEL_UINT_STRUCT, DPEL_BIT64_STRUCT, DPEL_LONG_STRUCT,
+                                             DPEL_ULONG_STRUCT, DPEL_DYN_BIT64_STRUCT, DPEL_DYN_LONG_STRUCT, DPEL_DYN_ULONG_STRUCT );
+    
+  addGlobal(\"globalFctNew\",DYN_STRING_VAR);
+  addGlobal(\"globalFctOld\",DYN_STRING_VAR);
+  addGlobal(\"globalAddressNew\",DYN_STRING_VAR);
+  addGlobal(\"globalAddressOld\",DYN_STRING_VAR);
+  addGlobal(\"globalAddressTypes\",DYN_STRING_VAR);
+  addGlobal(\"globalAddressDrivers\",DYN_STRING_VAR);
+
+  gMpPowerConfigPara = false;
+  while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+  mpClearPanel();
+//  paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName()+\"_paraPanel\",makeDynString(\"\"));  
+
+  getSystemNames( sysNames, sysIds );
+  // clear panel if system name or dp type name clicked
+  if ( ( dynContains(sysNames, dpstr) >= 0 && dpSubStr(dpstr, DPSUB_DP) == \"\" ) ||
+       ( isType == 1 )
+     )
+  {
+    while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+    paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName()+\"_paraPanel\",makeDynString(\"\"));  
+
+    return;
+  }
+  else if ( dpSubStr(dpstr, DPSUB_DP) == dpSubStr(dpstr, DPSUB_DP_EL) )// [da]summary info if dp name clicked
+  {
+//    mpClearPanel(); wird schon oben gemacht IM 108245
+    while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+    paRootPanelOnModule(\"objects_parts/STD_OBJECTS/COMMON_info.pnl\",\"\",
+      myModuleName()+\"_paraPanel\",
+      makeDynString(\"$dpe:\"+dpstr, \"$dpt:\"+dpTypeName(dpstr)));  
+  }
+  else if ( dynContains(possibleStructs, dpElementType(dpstr)) >= 1 && dpSubStr(dpstr, DPSUB_CONF) == \"\" ) // detail info if dp element (not _leaf) clicked
+  {
+//    mpClearPanel(); wird schon oben gemacht IM 108245
+    mpClearPanel();
+    while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+    paRootPanelOnModule(\"objects_parts/STD_OBJECTS/COMMON_info.pnl\",\"\",
+      myModuleName()+\"_paraPanel\",
+      makeDynString(\"$dpe:\"+dpSubStr(dpstr, DPSUB_SYS_DP_EL), \"$dpt:\"+dpTypeName(dpstr)));  
+  }
+  else if ( dpElementType(dpstr) != DPEL_STRUCT && dpSubStr(dpstr, DPSUB_CONF) == \"\" )  // original-para if dp _leaf-element clicked
+  {
+    dpstr += \":_original\"; cfg = \"_original\";
+  }
+  if (cfg==\"_address\" || cfg==\"_distrib\")
+  {
+    globalAddressOld[paModuleId(myModuleName()+\"_paraPanel\")]=\"\";
+    globalAddressNew[paModuleId(myModuleName()+\"_paraPanel\")]=\"\";
+    paGetAddressTypes(globalAddressTypes,globalAddressDrivers);
+  }
+  else if (cfg==\"_dp_fct\")
+  {  
+    globalFctOld[paModuleId(myModuleName()+\"_paraPanel\")]=\"\";
+    globalFctNew[paModuleId(myModuleName()+\"_paraPanel\")]=\"\";
+  }
+  if(dpSubStr(dpstr,DPSUB_CONF) != \"\")
+  {
+    while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",dpstr,
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName()+\"_paraPanel\");
+  }
+}
+
+// mjeidler: moved functions to panel scopelib from shape activeX function OnDpTypeChanged (+mkoller)
+daRemoveLeafFromDPT(string dpstr, dyn_string dsDPEToDelete)
+{
+  dyn_string dsLeaf, dsDynamicAttribute, dsRemoveDPEWithPowerConfigs, ds; 
+  int i, j;
+  string sSearchString; 
+
+   dpGet(\"_dt_\"+dpstr+\".Leaf:_online.._value\", dsLeaf,
+         \"_dt_\"+dpstr+\".DynamicAttribute:_online.._value\",dsDynamicAttribute);
+   
+   // 1st STEP: find all PCs
+   for ( i = dynlen (dsDPEToDelete); i>0 ; i--)
+   {
+     ds =  strsplit( dsDPEToDelete[i], \":\");  // system:_mp  -> _mp
+     if (dynlen( ds) == 2)
+          sSearchString = ds[2];
+     else
+          sSearchString = ds[1];
+     
+     for ( j= dynlen(  dsLeaf); j>0 ; j--)
+     {
+        ds = strsplit( dsLeaf[j], \":\"); // _mp_ANALOG1.value:_smooth  -> _mp_ANALOG1.value
+        if (strpos( dsLeaf[j],  sSearchString + \":\" ) >= 0 )   // sytem
+        {
+          strreplace(ds[1], \"_mp_\"+ dpstr, \"\");    //        _mp_DPT  -> \"\"
+          dynAppend( dsRemoveDPEWithPowerConfigs, ds[1]);     //        remember  
+          dynRemove( dsLeaf, j);
+          dynRemove( dsDynamicAttribute, j);
+        }
+     }
+   } 
+
+   dynUnique( dsRemoveDPEWithPowerConfigs ); // this elements are removed and own PowerConfigs
+
+   if ( dynlen( dsRemoveDPEWithPowerConfigs) > 0)  // really something to remove
+   {
+      dpSet(\"_dt_\"+dpstr+\".Leaf:_original.._value\", dsLeaf,       // set 1st Level
+            \"_dt_\"+dpstr+\".DynamicAttribute:_original.._value\",dsDynamicAttribute);
+   }
+}
+  
+copyRefToMpDPE( string dpstr )
+{
+  int            i, j, k, l;
+  string         dp = \"_mp_\", s, dpType;
+  dyn_string     dsDpes, daLeaf = makeDynString(), daAttr = makeDynString(), dsdpe, dsdp,    configs = dpGetConfigs();
+  dyn_dyn_string ddsRef;
+  int iPercent;
+  
+  dpType = dpTypeName( dpstr );
+  dp += dpType;
+
+   daCheckDPE ( dpstr) ;  // remove system ans add \".\" if neccessary
+
+  // checking and copying references if exist
+  ddsRef = dpGetDpTypeRefs(dpType);
+
+  dpGet(\"_dt_\"+dpType + \".Leaf:_online.._value\", daLeaf,
+         \"_dt_\"+dpType + \".DynamicAttribute:_online.._value\", daAttr);
+
+
+  if ( dynlen(ddsRef) > 0 )
+  {
+    int        iError;
+    string     sDtDp;
+    dyn_string dsRefEl, dsLeaf, dsAttr;
+    string     dpstrtemp;
+  
+    openProgressBar(\"copy configs\", \"copy.gif\", \"\",\"\",\"\", 2);     
+       
+    for ( i = 1; i <= dynlen(ddsRef); i++ )
+    {
+      
+      ddsRef[i][2] = dp + \".\" + ddsRef[i][2];
+      ddsRef[i][3] = (dpExists(\"_mp_\" + ddsRef[i][1])) ? \"_mp_\" + ddsRef[i][1] : \"\";
+    }
+
+
+
+    for ( i = 1; i <= dynlen(ddsRef); i++ )
+    {
+      if ( ddsRef[i][2] == dpstr && ddsRef[i][3] != \"\" )
+      {
+        showProgressBar(\"dpCopy\",ddsRef[i][3] +\"->\"+ddsRef[i][2],\" \", 1);
+
+        dpCopy(ddsRef[i][3], ddsRef[i][2], iError);
+        if ( iError )
+        {
+          DebugTN(\"error==\" + iError + \" in dpCopy from \" + ddsRef[i][3] + \" to \" + ddsRef[i][2] );
+          return;
+        }
+        showProgressBar(\"dpCopyConfig\",\" \",\" \", -1);
+
+        daFindAllMatchingDp(dpstr, dsdp);
+       
+       
+        
+        dsdpe = dpNames(dpstr+\".**\");
+        if (strpos(dpstr,getSystemName()) < 0)
+           dpstrtemp = getSystemName()+dpstr;
+        else
+            dpstrtemp = dpstr;
+        dynAppend(dsdpe, dpstrtemp);
+ 
+        for (k=1; k<=dynlen(dsdpe); k++)
+        {
+          dpCopyBufferClear();   // clear buffer
+          for ( l = 1; l<= dynlen(  dsdp ) ;l++)
+          {
+ 
+             string sOrigin, sDestination;
+             sOrigin = dsdpe[k];
+             sDestination = sOrigin;
+
+             strreplace(sDestination, dpSubStr(sOrigin, DPSUB_SYS_DP), dsdp[l]);
+
+             if (strpos(sOrigin, \":\"+sDestination)> 0) // because origin == \"Sys:dp.dpe\" and destination == \"p.dpe\" -> \":p.dpe\"
+                continue;
+    
+              iPercent = (100.0*((k-1)*dynlen(dsdp)+l)/dynlen(dsdp)/dynlen(dsdpe));
+             showProgressBar(\"\",sOrigin +\"->\"+sDestination,iPercent + \"%\", iPercent);
+//             DebugN(  k+ \"/\"+l+\" dpCopyConfig\", sOrigin +\"->\"+sDestination, dpSubStr(sOrigin, DPSUB_SYS_DP), dsdp[l]);
+            
+             dpCopyConfig(sOrigin,sDestination ,     configs , iError);
+             if ( iError )
+              {
+                DebugTN(\"error==\" + iError + \" in dpCopy from \" + sOrigin + \" to \" + sDestination );
+                return;
+              }
+          }       
+        }
+        sDtDp = \"_dt_\" + ddsRef[i][1];
+        if ( !dpExists(sDtDp) )
+          continue;
+
+
+
+
+        dpGet(sDtDp + \".Leaf:_online.._value\", dsLeaf,
+              sDtDp + \".DynamicAttribute:_online.._value\", dsAttr);
+        for ( j = 1; j <= dynlen(dsLeaf); j++ )
+        {
+          strreplace(dsLeaf[j], ddsRef[i][3], ddsRef[i][2]);
+          if (strpos( ddsRef[i][2], \".\")>0)         // if node.leaf.: exists -> replace
+            strreplace(dsLeaf[j],\".:\", \":\"); 
+        }
+        dynAppend(daLeaf, dsLeaf);
+        dynAppend(daAttr, dsAttr);
+
+      }
+    }
+
+    dpSet(\"_dt_\"+dpType + \".Leaf:_original.._value\", daLeaf,
+          \"_dt_\"+dpType + \".DynamicAttribute:_original.._value\", daAttr);
+
+  }
+
+   daUpdateDynamicAttributes(dpstr,daLeaf, daAttr );  // rekursion
+}
+
+STOKIOnDpTypeChanging(string dpstr)
+{
+  int i;
+ 
+  addGlobal(\"gDPEToCheckInParaModule\", DYN_STRING_VAR);
+  
+  if (dpExists(\"_mp_\"+dpstr))
+    gDPEToCheckInParaModule =  dpNames(\"_mp_\"+dpstr+\".**\", dpstr);
+
+  string sActRefType;
+  string sLastDPE;
+
+   for ( i= 1; i<= dynlen(gDPEToCheckInParaModule); i++)
+   {
+     if (sLastDPE != \"\" && strpos(gDPEToCheckInParaModule[i], sLastDPE) == 0)  // same type 
+     {
+        // use sActRefType 
+     }
+     else if (sLastDPE != \"\" && strpos(gDPEToCheckInParaModule[i], sLastDPE) == -1)  // other type
+     {
+        sActRefType = \"\";     // clear sActRefType
+        sLastDPE = \"\"; 
+     }
+     else if (sLastDPE == \"\")
+     {
+        sActRefType = dpTypeRefName (gDPEToCheckInParaModule[i]);
+        if ( sActRefType  != \"\")
+           sLastDPE = gDPEToCheckInParaModule[i];
+     }
+ 
+     gDPEToCheckInParaModule[i] = gDPEToCheckInParaModule[i] + \"|\"+sActRefType;
+
+   }  
+}
+
+
+dyn_string dpGetConfigs()
+{
+  dyn_string ds = makeDynString(\"_distrib\", \"_address\", \"_archive\", \"_alert_hdl\",  
+                                \"_cmd_conv\", \"_msg_conv\",
+                                \"_default\", \"_dp_fct\", \"_pv_range\", 
+                                \"_smooth\", \"_u_range\", \"_auth\",
+                                \"_alert_class\", \"_original\" );
+  return ds;
+}
+
+
+void selectionChangesWaitThread(string dpstr, long isType, int sysNum)
+{
+  selectionWaitThreadId = getThreadId();
+  delay(0,50);//wait until tree selection changes are over
+  
+  gMpRightClick = false;
+  SelectionChanged(dpstr, isType, sysNum);
+  dyn_string sysNames;
+  dyn_uint sysIds;
+  bool bOwnSystem = (getSystemId() == sysNum);
+
+  getSystemNames( sysNames, sysIds );
+  // clear panel if system name or dp type name clicked
+  if ( ( dynContains(sysNames, dpstr) >= 0 && dpSubStr(dpstr, DPSUB_DP) == \"\" ) ||
+       ( isType == 1 )
+     )
+  {
+    if (isType == 1 && dpstr!=\"\" && bOwnSystem)  // isType = 1 -> open Configpanel for DPT
+    {
+      mpClearPanel();
+      while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+      paRootPanelOnModule(\"objects_parts/STD_OBJECTS/DPT_config.pnl\",\"\",
+                           myModuleName()+\"_paraPanel\",
+                           makeDynString(\"$dpt:\"+dpstr));
+    }
+  }
+  selectionWaitThreadId = -1;  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  if(!isConnectedToEvent())  //close Panel without setting a DP 
+  { 
+    dyn_anytype da, daa; 
+
+    da[1] = myModuleName(); 
+    da[2] = myPanelName(); 
+    daa = makeDynString(); 
+    da[3] = daa; 
+    panelOff(da); 
+    return; 
+  } 
+
+  mpClearPanel();
+  while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+  PanelOff();
+}
+
+bool isConnectedToEvent() 
+{ 
+  int manNum=0;
+  if (isConnOpen(convManIdToInt(EVENT_MAN, manNum, getSystemId(), 1))) 
+    return true; 
+  if (isRedundant()) 
+    if (isConnOpen(convManIdToInt(EVENT_MAN, manNum, getSystemId(), 2))) 
+      return true; 
+  return false; 
+}
+
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+1 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 7
+"Text1"
+""
+1 80 68 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999997 -2 30.00000000000003 0 E 27 68 82 82
+0 2 2 "0s" 0 0 0 194 0 0  82 68 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 10 DP filter:
+LANG:10004 12 DP过滤器:
+LANG:10000 10 DP-Filter:
+LANG:10027 16 Фильтр DP:
+30 16
+"Frame2"
+""
+1 10 83 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ "main()
+{
+  int i;
+
+  if ( CheckButton1.visible )
+  {
+    DebugN(\"gDaDynamicParaCtlIndex[1]:::\");
+    for(i=1; i<= dynlen(gDaDynamicParaCtlIndex[1]); i++)
+      DebugN(i,gDaDynamicParaCtlIndex[1][i], gDaDynamicParaCtlIndex[2][i]);
+  }
+}" 0
+ E
+14 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "-1 92"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.012048192771084 0 1.493506493506493 0.8795180722891569 7.532467532467533 0 E 10 5 260 83
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 15 Filter options:
+LANG:10004 13 过滤选项:
+LANG:10000 16 Filter-Optionen:
+LANG:10027 26 Опции фильтра:
+20 4
+"interneDp"
+""
+1 19.8993043638568 40.33443751791771 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ "main()
+{
+  if ( CheckButton1.visible )
+    DebugN( gdpCopyBufferdpeAllConfigsAndDetails,gdpCopyBufferdpeAllConfigsAndAttributesContainer);
+}" 0
+ E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  21 40 169 64
+1
+T 
+4
+LANG:10001 19 Internal datapoints
+LANG:10004 8 内部DP
+LANG:10000 19 Interne Datenpunkte
+LANG:10027 23 Внутренние DP
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  setValue(\"\",\"state\",0,false);
+  if (!isMotif())
+    propPut(\"activeX\",\"ShowInternDpTypes\",false);
+}" 0
+"main(int button, int state)
+{
+  bool   intern;
+  string filter;
+
+  getMultiValue(\"\",\"state\",0,intern,
+                \"dp_filter\",\"text\",filter);
+  propPut(\"activeX\",\"ShowInternDpTypes\",intern);
+//  dispatch(\"activeX\",\"SetDpFilter\", filter);
+}" 0
+14 6
+"dp_filter"
+""
+1 88.09756117301262 93.99979473245473 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  bool   ch = CheckButton1.visible;
+  string s  = this.text;
+
+  string sModule = myModuleName();
+  CheckButton1.state(0) = FALSE;
+  strreplace(sModule,\"_paraPanel\",\"\");
+  if ( s == \"DEBUGOLDPARA\" )
+  {
+    this.text = \"\";
+    gMpCustomHandling[sModule] = FALSE;
+    dispatch(\"activeX\",\"SetDpFilter\", \"\");
+    CheckButton1.visible = !ch;
+  }
+}
+
+
+
+
+
+" 0
+ E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+  //19.01.2015 rheiss IM116881: make dp_filter dropable and setFocus after drop on the textfield
+  this.text = information;  
+  //DebugN(information);
+  setInputFocus(myModuleName(), myPanelName(), \"dp_filter\");  
+}"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  88 94 253 120
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+//   string filter;
+//   dyn_string dsDps;
+//   
+//   getValue(\"\",\"text\",filter);
+//   if ( filter == \"DEBUGOLDPARA\" ) return;
+//   
+//   dsDps = dpNames(filter);
+//   
+//   if ( filter == \"\" )
+//     activeX.ExpandElements(filter); // true == collapse first, then expand
+//   else
+//   if ( gMpCustomHandling || dynlen(dsDps) > 200)
+//     dispatch(\"activeX\",\"SetDpFilter\", filter);
+//   else
+//     activeX.ExpandElements(filter);
+
+  commandFilter();
+}
+
+
+
+" 0
+
+29 10
+"activeX"
+""
+1 11 137 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+25
+"editTriggers" "enum 10"
+"verticalScrollBarPolicy" "enum 0"
+"horizontalScrollBarPolicy" "enum 0"
+"verticalScrollMode" "enum 1"
+"defaultDropAction" "enum 0"
+"textElideMode" "enum 3"
+"dragDropMode" "enum 1"
+"sizeAdjustPolicy" "enum 0"
+"horizontalScrollMode" "enum 1"
+"selectionBehavior" "enum 1"
+"hScrollBarMode" "enum 0"
+"inputMethodHints" "enum 0"
+"contextMenuPolicy" "enum 1"
+"selectionMode" "enum 0"
+"resizeMode" "enum 0"
+"resizePolicy" "enum 1"
+"frameShadow" "enum 48"
+"layoutDirection" "enum 0"
+"defaultRenameAction" "enum 1"
+"frameShape" "enum 6"
+"vScrollBarMode" "enum 0"
+"lineWidth" "int 1"
+"alternatingRowColors" "bool FALSE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  11 137 263 537
+29 DatapointTree.DatapointTree.1
+6
+0 "OnButtonDblClk" "(string dpstr, long isType, int sysNum)"
+"  SelectionChanged(dpstr, isType, sysNum);"
+0 "OnSelChanged" "(string dpstr, long isType, int sysNum)"
+"  while(paGlobalPanelOn[myModuleName()]) delay(0,50);//IM 108245
+  if (selectionWaitThreadId != -1)
+  {
+    stopThread(selectionWaitThreadId);
+    selectionWaitThreadId = -1;
+  }
+  
+  startThread(\"selectionChangesWaitThread\", dpstr, isType, sysNum);"
+0 "OnRButtonClk" "(string dpstr, long isType, int xPos, int yPos, int sysNum)"
+"  int        answer, i;
+  string     uPerm4 = (getUserPermission(4)?\"1\":\"0\"), s,
+             sSystem = getSystemName(sysNum);
+  bool       bDebug = FALSE,
+             bOwnSystem = ( dpstr==\"\" || sSystem==getSystemName() );   // edit dptype @own system
+  bool       bBackupRunning,
+             bBackupRunning1 = FALSE,
+             bBackupRunning2 = FALSE;//IM 117215
+  int        iBackupState1 = 0,
+             iBackupState2 = 0;//IM 117215
+  dyn_uint   sysIds; 
+  dyn_string popup= makeDynString(), dps, sysNames, dsConfigs, daLeaf;
+  
+  
+  dpGet(sSystem + \"_DataManager.Backup.Status\", iBackupState1,
+        sSystem + \"_DataManager_2.Backup.Status\", iBackupState2);//IM 117215
+      
+  if(iBackupState1 == 1)//checks if online Backup is running
+    bBackupRunning1 = TRUE;
+  if(iBackupState2 == 1)//checks if online Backup is running //IM 117215
+    bBackupRunning2 = TRUE;
+
+  //IM 117215
+  bBackupRunning = bBackupRunning1 && bActiveHost1;
+  if(!bBackupRunning && isRedundant())
+    bBackupRunning = bBackupRunning2 && bActiveHost2;
+  //////
+  
+  if ( dpSubStr(dpstr,DPSUB_SYS) == dpstr && bOwnSystem)   // own root node
+     dpstr = \"\"; 
+
+  gMpRightClick = true;
+//  mpClearPanel();  // IM 79387
+//  paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName()+\"_paraPanel\",makeDynString(\"\"));  // TI 17846
+
+  // vision without EM
+  if ( !isModeExtended() ) { this.UpdateElement(dpstr); return; }
+
+  getSystemNames( sysNames, sysIds );
+  
+  if ( dpstr != \"\" && !isType && dpSubStr(dpstr, DPSUB_DP) != \"\" )
+  {
+    s = dpstr;
+    if ( strpos(dpstr, \".\") < 1 ) s += \".\";
+    dsConfigs = dpGetAllConfigs(s);
+    dynAppend(dsConfigs, \"_common\");
+    for ( i = dynlen (dsConfigs); i > 0; i-- )
+    {
+      if ( !dynContains(gMpConfigName, dsConfigs[i]) ) dynRemove(dsConfigs, i);
+    }
+  }
+  // empty surface
+  
+  if ( dpstr == \"\" && bOwnSystem)
+  {
+    if (bDebug) DebugN(__LINE__,\"empty surface\");
+    popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"createdptype\")            + \", 1, \" + (int)(uPerm4 && !bBackupRunning),
+                        \"SEPARATOR\",                                                            //IM 108050
+                        \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates\")      + \", 4, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                        \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates4\")      + \",26, \"+ (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                        \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates\") + \", 5, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                        \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates4\") + \",27, \"+ (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost())
+                        );    
+  }
+  else
+
+  // datapoint type
+  if ( isType == 1 && bOwnSystem)
+  {
+    if (bDebug) DebugN(__LINE__,\"datapoint type\");
+    
+    {
+      dps = dpNames(\"_mp_*\", dpstr);
+
+      // no _mp_datapoint yet
+      if ( dynlen(dps) < 1 )
+      {
+        if (bDebug) DebugN(__LINE__,\"no _mp_datapoint yet\");
+        popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"createdp\")                + \", 7, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"creatempdp\")              + \", 6, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createdptype\")            + \", 1, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"editdptype\")              + \", 2, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"deletedptype\")            + \", 3, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"SEPARATOR\",
+                            // empty surface is not reachable
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates\")       + \", 4, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates4\")      + \",26, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates\")  + \", 5, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates4\") + \",27, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"multicreatedp\")         + \", 8, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"multideletedp\")         + \", 9, \" + (int)(uPerm4 && !bBackupRunning )
+                            );
+      }
+
+      // _mp_datapoint exists
+      else
+      {
+        if (bDebug) DebugN(__LINE__,\"_mp_datapoint exists\");
+        popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"createdp\")                + \", 7, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createdptype\")            + \", 1, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"editdptype\")              + \", 2, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"deletedptype\")            + \", 3, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createtemplate\")          + \",10, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createtemplate4\")         + \",24, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writefilledtemplate\")     + \",23, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writefilledtemplate4\")    + \",25, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"SEPARATOR\",
+                            // empty surface is not reachable
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates\")       + \", 4, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"createalltemplates4\")      + \",26, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates\")  + \", 5, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"writeallfilledtemplates4\") + \",27, \" + (int)(uPerm4 && !bBackupRunning && checkDataBG() && isRunningOnHost()),
+                            \"SEPARATOR\",
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"multicreatedp\")         + \", 8, \" + (int)(uPerm4 && !bBackupRunning ),
+                            \"PUSH_BUTTON\", + getCatStr(\"da\", \"multideletedp\")         + \", 9, \" + (int)(uPerm4 && !bBackupRunning )
+                            );
+      }
+    }
+//    else
+//    {
+//      mpWarningNotOwnSystem();
+//      return;
+//    }
+  }
+  else
+  
+  // system name
+  if ( dynContains(sysNames, dpstr) >= 0 && dpSubStr(dpstr, DPSUB_DP) == \"\" )
+  {
+    if ( dpSubStr(dpstr, DPSUB_DP) == getSystemName() )
+    {
+      if (bDebug) DebugN(__LINE__,\"system name\");
+      popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"createdptype\")              + \", 1, \" + (int)(uPerm4 && !bBackupRunning ));
+    }
+  }
+  else
+
+  // datapoint name
+  if ( dpSubStr(dpstr, DPSUB_DP) == dpSubStr(dpstr, DPSUB_DP_EL) )
+  {
+    if (bDebug) DebugN(__LINE__,\"datapoint name\", dpstr);
+    if ( bOwnSystem )
+    {
+      bool bRenameAllowed = false;
+      
+      bRenameAllowed = dpSubStr(dpstr, DPSUB_DP) != \"\" && // leer
+                       strpos(dpTypeName(dpSubStr(dpstr, DPSUB_DP)),\"_\") != 0 && // internal DP is not allowed for rename
+                       strpos(dpSubStr(dpstr, DPSUB_DP),\"_mp\") != 0; // Master DP is not allowed for rename
+      
+        
+      popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"createdp\")                + \", 7, \" + (int)(uPerm4 && !bBackupRunning ));
+      
+      if(bRenameAllowed) //only if dpRename is allowed
+        dynAppend(popup, makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"renamedp\")   + \", 28, \" + (int)(uPerm4 && !bBackupRunning )));
+      
+      dynAppend(popup, makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"deletedp\")     + \",12, \" + (int)(uPerm4 && !bBackupRunning ),
+                                     \"SEPARATOR\"));
+    }
+    // not _mp && not end_element
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") != 0 && dpElementType(dpstr+\".\") == DPEL_STRUCT )
+    {
+      if ( dpExists( \"_mp_\" + dpTypeName(dpstr)) )
+      {
+        //!!!ti16404
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"dapara\")              + \",22, \" + (int)(uPerm4 && !bBackupRunning ));
+        //!!!ti16404
+
+        if (bOwnSystem )
+        {
+          dynAppend(popup, \"SEPARATOR\");
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicreatedp\")            + \", 8, \" + (int)(uPerm4 && !bBackupRunning ));
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multideletedp\")            + \", 9, \" + (int)(uPerm4 && !bBackupRunning ));
+        }
+      }
+      else
+      {
+        if (bOwnSystem )
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"insertconfig\")        + \",14, \" + (int)(uPerm4 && !bBackupRunning ));
+      }
+      if (bDebug) DebugN(__LINE__,\"not _mp && not end_element\");
+    }
+    else
+
+    // not _mp && end_element
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") != 0 && dpElementType(dpstr+\".\") != DPEL_STRUCT )
+    {
+      if (bDebug) DebugN(__LINE__,\"not _mp && end_element\");
+
+      // _mp exists
+      if ( dpExists( \"_mp_\" + dpTypeName(dpstr)) )
+      {
+        if (bDebug) DebugN(__LINE__,\"_mp exists\");
+        dynInsertAt(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"dapara\")              + \",22, \" + (int)(uPerm4 && !bBackupRunning ), 1);
+        if ( bOwnSystem )
+        {
+          dynInsertAt(popup, \"SEPARATOR\", 2);
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicreatedp\")            + \", 8, \" + (int)(uPerm4 && !bBackupRunning ));
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multideletedp\")            + \", 9, \" + (int)(uPerm4 && !bBackupRunning ));
+        }
+      }
+      else
+
+      // _mp does not exist
+      {
+        if (bDebug) DebugN(__LINE__,\"_mp does not exist\");
+        
+        if ( bOwnSystem )
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"insertconfig\")   + \",14, \" + (int)(uPerm4 && !bBackupRunning ));
+        if ( bOwnSystem )
+        {
+          dynAppend(popup, \"SEPARATOR\");
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicreatedp\")  + \", 8, \" + (int)(uPerm4 && !bBackupRunning ));
+//         dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicopydp\")    + \",13, \" + (int)(uPerm4 && !bBackupRunning )); //alang IM 76947
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multideletedp\")  + \", 9, \" + (int)(uPerm4 && !bBackupRunning ));
+        }
+      }
+    }
+    else
+
+    // _mp && end_element
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") == 0 && dpElementType(dpstr+\".\") != DPEL_STRUCT )
+    {
+      string sCfg = dpSubStr(dpstr, DPSUB_CONF);
+      
+      if (bDebug) DebugN(__LINE__,\"_mp && end_element\");
+      if ( bOwnSystem )
+      {
+        dynRemove(popup, 3);
+        dynRemove(popup, 3);
+        dynRemove(popup, (dynlen(popup) -1));
+        dynRemove(popup, (dynlen(popup) -1));
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"deletempdp\")            + \",15, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"SEPARATOR\");
+        dynAppend(popup, \"SEPARATOR\");
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicreatedp\")         + \", 8, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multideletedp\")         + \", 9, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"SEPARATOR\");
+
+        if ( sCfg != \":_original\" && sCfg != \":_common\" && sCfg != \":_lock\" )
+        {
+          string  sDtDp = \"_dt_\" + dpTypeName(dpstr), sS = dpSubStr(dpstr, DPSUB_DP_EL);
+        
+          if ( strpos(sS, \".\") < 1 ) sS += \".\";
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"dainsertconfig\")      + \",20, \" + (int)(uPerm4 && !bBackupRunning ));
+
+          if ( dpExists(sDtDp) && bOwnSystem )
+          {
+            dpGet(sDtDp + \".Leaf:_online.._value\", daLeaf);
+            if ( mpLeafContains(daLeaf, sS) > 0 ) 
+            {
+              // 1 = _mp && end_element
+              mpChangeConfigPopup(dpstr, dsConfigs, 1, popup, bBackupRunning);
+            }
+          }
+        }
+        mpChangeTransferPopup(dpstr, popup, bBackupRunning, 11); // 11 = position of insertation from the configs for transfer only selected config into the menu 
+      }
+    }
+    else
+
+    // _mp && not end_element
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") == 0 && dpElementType(dpstr+\".\") == DPEL_STRUCT )
+    {
+      string  sDtDp = \"_dt_\" + dpTypeName(dpstr), sS = dpSubStr(dpstr, DPSUB_DP_EL);
+
+      if ( strpos(sS, \".\") < 1 ) sS += \".\";
+
+      if (bDebug) DebugN(__LINE__,\"_mp && not end_element\");
+      if ( bOwnSystem )
+      {
+        dynRemove(popup, 3);
+        dynRemove(popup, 3);
+        dynRemove(popup, (dynlen(popup)-1));
+        dynRemove(popup, (dynlen(popup)-1));
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"deletempdp\")            + \",15, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"SEPARATOR\");
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"transferownonly\")       + \",31, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"transfertoalldpe\")      + \",16, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"SEPARATOR\");
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multicreatedp\")         + \", 8, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"multideletedp\")         + \", 9, \" + (int)(uPerm4 && !bBackupRunning ));
+        dynAppend(popup, \"SEPARATOR\");
+        dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"dainsertconfig\")        + \",20, \" + (int)(uPerm4 && !bBackupRunning ));
+        if ( dpExists(sDtDp)  && bOwnSystem )
+        {
+          dpGet(sDtDp + \".Leaf:_online.._value\", daLeaf);
+          if ( mpLeafContains(daLeaf, sS) > 0 )
+          {
+            // 2 = _mp && not end_element
+            mpChangeConfigPopup(dpstr, dsConfigs, 2, popup, bBackupRunning);
+          }
+        }
+      }
+    }
+  }
+  else
+
+  // not datapoint name
+  // not end element (structure)
+
+  if ( dpElementType(dpstr) == DPEL_STRUCT )
+  {
+    string sCfg = dpSubStr(dpstr,DPSUB_CONF);
+ 
+ 
+    
+    if (bDebug) DebugN(__LINE__,\"not end element (structure)\");
+    // config
+    if ( sCfg != \"\" )
+    {
+      // without _mp_dp
+      if ( !dpExists(\"_mp_\"+dpTypeName(dpstr)) )
+      {
+        if ( sCfg != \":_original\" && sCfg != \":_common\" && sCfg != \":_lock\" )
+        {
+          if ( bOwnSystem )
+            popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"deleteconfig\") + \",18, \" + (int)(uPerm4 && !bBackupRunning ));
+        }
+        else
+        {
+          this.UpdateElement(dpstr);
+          return;
+        }
+      }
+    }
+    else
+    {
+      // without _mp_dp
+      if ( !dpExists(\"_mp_\"+dpTypeName(dpstr)) )
+      {
+        popup=makeDynString();
+        mpSetConfigPopup(dpstr, dsConfigs, popup, bBackupRunning);
+      }
+      else
+      // _mp_dp
+      if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") == 0 )
+      {
+        string  sDtDp = \"_dt_\" + dpTypeName(dpstr), sS = dpSubStr(dpstr, DPSUB_DP_EL);
+
+        if ( bOwnSystem )
+        {
+          if ( strpos(sS, \".\") < 1 ) sS += \".\";
+
+          popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"dainsertconfig\") + \",20, \" + (int)(uPerm4 && !bBackupRunning )); 
+          dynAppend(popup, \"SEPARATOR\");                                                                                                
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"transfertoalldpe\")      + \",16, \" + (int)(uPerm4 && !bBackupRunning ));   //Struct Level
+          dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"transferownonly\")       + \",31, \" + (int)(uPerm4 && !bBackupRunning ));
+          if ( dpExists(sDtDp)  && bOwnSystem )
+          {
+            dpGet(sDtDp + \".Leaf:_online.._value\", daLeaf);
+            if ( mpLeafContains(daLeaf, sS) > 0 )
+            {
+              // 1 = _mp && end_element
+//              dynAppend(popup, \"SEPARATOR\");
+              mpChangeConfigPopup(dpstr, dsConfigs, 1, popup, bBackupRunning);
+            }
+          }
+        }
+      }
+      else
+      {
+        //!!!ti16404
+        popup=makeDynString(\"PUSH_BUTTON, \" + getCatStr(\"da\", \"dapara\")            + \",22, \" + (int)(uPerm4 && !bBackupRunning ));
+      }
+    }
+  }
+  else
+  // config
+  if ( dpSubStr(dpstr, DPSUB_CONF) !=\"\" )
+  {
+    string sCfg = dpSubStr(dpstr,DPSUB_CONF);
+
+    if (bDebug) DebugN(__LINE__,\"config\");
+    // without _mp_datapoint
+    if ( !dpExists(\"_mp_\"+dpTypeName(dpstr)) )
+    {
+      if (bDebug) DebugN(__LINE__,\"without _mp_datapoint\");
+      if ( sCfg != \":_original\" && sCfg != \":_common\" && sCfg != \":_lock\" )
+      {
+        if (bOwnSystem) 
+        {        
+          popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"deleteconfig\") + \",18, \" + (int)(uPerm4 && !bBackupRunning ));
+        }
+        else
+        {
+          // Check if a _mp exists on the distributed system and we simply can't recognize it (because we are on another
+          // dist sys and the DPT does not exist on our sys)
+          string mpDP = sSystem + \"_mp_\" + dpTypeName(dpstr);
+          if (!dpExists(mpDP) && (bOwnSystem) ) 
+          {
+            popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"deleteconfig\") + \",18, \" + (int)(uPerm4 && !bBackupRunning ));
+            dynAppend(popup, \"SEPARATOR\"); 
+            dynAppend(popup, \"PUSH_BUTTON, \" + getCatStr(\"da\", \"transfertoalldpe\")      + \",16, \" + (int)(uPerm4 && !bBackupRunning ));
+          }
+        }
+      }
+      else
+      {
+        this.UpdateElement(dpstr);
+        return;
+      }
+    }
+    else
+    // _mp_datapoint
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") == 0 )
+    {
+      if (bDebug) DebugN(__LINE__,\"_mp_datapoint\");
+    }
+    else
+    // severe datapoint
+    {
+      if (bDebug) DebugN(__LINE__,\"with _mp_datapoint\");
+      popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"dapara\")  + \",22, \" + (int)(uPerm4 && !bBackupRunning ));
+    }
+  }
+  else
+  // end element
+  {
+    if (bDebug) DebugN(__LINE__,\"end element\");
+    // without _mp_datapoint
+    if ( !dpExists(\"_mp_\"+dpTypeName(dpstr)) )
+    {
+      if (bDebug) DebugN(__LINE__,\"without _mp_datapoint\");
+      popup=makeDynString();
+      if (bOwnSystem) mpSetConfigPopup(dpstr, dsConfigs, popup, bBackupRunning);
+    }
+    else
+    // _mp_datapoint     --> DPE of a Master DP (no struct)
+    if ( strpos(dpSubStr(dpstr, DPSUB_DP), \"_mp\") == 0 )
+    {
+      string  sDtDp = \"_dt_\" + dpTypeName(dpstr), sS = dpSubStr(dpstr, DPSUB_DP_EL);
+
+      if ( strpos(sS, \".\") < 1 ) sS += \".\";
+
+      if (bDebug) DebugN(__LINE__,\"_mp_datapoint\");
+      
+      if ( bOwnSystem )
+        popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"dainsertconfig\")  + \",20, \" + (int)(uPerm4 && !bBackupRunning ));
+
+      if ( dpExists(sDtDp) )
+      {
+        dpGet(sDtDp + \".Leaf:_online.._value\", daLeaf);
+        if ( mpLeafContains(daLeaf, sS) > 0 )
+        {
+          // 1 = _mp &&  end_element
+          if ( bOwnSystem )
+          {
+//            dynAppend(popup, \"SEPARATOR\");
+            mpChangeConfigPopup(dpstr, dsConfigs, 2, popup, bBackupRunning);
+          }
+        }
+      } 
+      mpChangeTransferPopup(dpstr, popup, bBackupRunning, 5); // 5 = position of insertation from the configs for transfer only selected config into the menu    
+    }
+    else
+    // severe datapoint
+    {
+      if (bDebug) DebugN(__LINE__,\"with _mp_datapoint\");
+      popup=makeDynString(\"PUSH_BUTTON\", + getCatStr(\"da\", \"dapara\")  + \",22, \" + (int)(uPerm4 && !bBackupRunning ));
+    }
+  }
+
+  if ( dynlen(popup) < 1 )
+  {
+    if ( dpstr == dpSubStr(dpstr, DPSUB_SYS))  // changes in dpsubstr
+        return; 
+
+    if ( bOwnSystem )
+      this.UpdateElement(dpstr);
+    return;
+  }
+
+  popupMenuXY(popup, xPos, yPos, answer);
+
+  if ( dpstr == dpSubStr(dpstr, DPSUB_SYS))  // changes in dpsubstr
+    dpstr = \"\"; 
+
+  gMpPowerConfigPara = true;
+  
+  if ( answer >= 500 && answer <2000 )     //checks in the global aray the entries of the deletable configs
+  { mpDaDeleteDaConfigNew(dpstr, isType, answer); }
+  else if (answer >=2000 )                 ////checks in the global aray the entries of the transferable configs
+  { mpTransferToAllDpe(dpstr, isType, answer); }
+  else
+  switch (answer)
+  {
+    case  0: break;
+    case  1: mpCreateDpType(dpstr, isType); break;
+    case  2: mpEditDpType(dpstr, isType); break;
+    case  3: mpDeleteDpType(dpstr, isType); break;
+    case  4: mpCreateAllTemplates(dpstr, isType, 3); break;
+    case  5: mpWriteAllFilledTemplates(dpstr, isType, 3); break;
+    case  6: mpCreateMpDp(dpstr, isType); break;
+    case  7: mpCreateDp(dpstr, isType); break;
+    case  8:
+    {
+      this.updatesEnabled = false;
+      mpMultiCreateDp(dpstr, isType);
+      this.updatesEnabled = true;
+      break;
+    }
+    case  9:
+    {
+      this.updatesEnabled = false;
+      mpMultiDeleteDp(dpstr, isType);
+      this.updatesEnabled = true;
+      break;
+    }
+    case 10: mpCreateTemplate(dpstr, isType, 3); break;
+    case 11: mpCopyDp(dpstr, isType); break;
+    case 12: mpDeleteDp(dpstr, isType); break;
+    case 13: mpMultiCopyDp(dpstr, isType); break;
+    case 14: mpInsertConfig(dpstr, isType); break;
+    case 15: mpDeleteMpDp(dpstr, isType); break;
+    case 16: mpTransferToAllDpe(dpstr, isType, answer); break;
+    case 17: mpDaConfig(dpstr, isType); break;
+    case 18: mpDeleteConfig(dpstr, isType); break;
+    case 19: mpDaDeleteConfig(dpstr, isType); break;
+    case 20: mpDaInsertConfig(dpstr, isType); break;
+    case 21: mpDaPartPara(dpstr, isType); break;
+    case 22: mpDaPara(dpstr, isType); break;
+    case 23: mpWriteFilledTemplate(dpstr, isType, 3); break;
+    case 24: mpCreateTemplate(dpstr, isType, 4); break;
+    case 25: mpWriteFilledTemplate(dpstr, isType, 4); break;
+    case 26: mpCreateAllTemplates(dpstr, isType, 4); break;
+    case 27: mpWriteAllFilledTemplates(dpstr, isType, 4); break;
+    case 28: mpRenameDp(dpstr, isType); break;   
+    case 31: mpTransferOnlyOwn(dpstr, isType); break;
+    case 51: // 51 - 64 are configs which are created in da.ctl in function mpSetConfigPopup
+    case 52:
+    case 53:
+    case 54:
+    case 55:
+    case 56:
+    case 57:
+    case 58:
+    case 59:
+    case 60:
+    case 61: 
+    case 62: 
+    case 63:  
+    case 64: mpCreateConfig(dpstr, isType, answer); break;
+    default: mpDaConfig(dpstr, isType, answer); break;
+  }
+
+//  DebugN(__LINE__, \" answer=\" +answer+\" , dpstr=\"+dpstr + \" , isType=\"+isType); 
+
+  dyn_string dsTemp = dpTypes(dpstr);
+  if(dynlen(dsTemp) > 0) //checks if dpt exists
+    return;
+  
+  if ( dpstr == dpSubStr(dpstr, DPSUB_SYS))  // changes in dpsubstr
+    dpstr = \"\"; 
+  
+  if (dpstr != \"\" )
+  {
+    if (strpos(dpstr, \".\") <= 0) // root -> add \".\"
+       dpstr += \".\";
+    
+    if (isJavaUI() && dpSubStr(dpstr, DPSUB_SYS_DP_EL) == \"\") // if DP has been deleted -> dpSubStr gives \"\" and JavaUI has no possibility to react
+      this.UpdateElement(dpstr);                           // so we call update with the original DPE
+    else
+      this.UpdateElement(dpSubStr(dpstr, DPSUB_SYS_DP_EL));
+  }"
+0 "OnDpTypeChanging" "(string dpstr)"
+"  int i;
+  string sActRefType;
+  string sLastDPE;
+  
+  if(!globalExists(\"gDPEToCheckInParaModule\"))
+    addGlobal(\"gDPEToCheckInParaModule\", DYN_STRING_VAR);
+  else
+    gDPEToCheckInParaModule = makeDynString();
+  
+  dpCopyBufferClear();
+
+  if (dpExists(\"_mp_\"+dpstr))
+    gDPEToCheckInParaModule =  dpNames(\"_mp_\"+dpstr+\".**\", dpstr);
+
+   for ( i= 1; i<= dynlen(gDPEToCheckInParaModule); i++)
+   {
+     if (sLastDPE != \"\" && strpos(gDPEToCheckInParaModule[i], sLastDPE) == 0)  // same type 
+     {
+        // use sActRefType 
+     }
+     else if (sLastDPE != \"\" && strpos(gDPEToCheckInParaModule[i], sLastDPE) == -1)  // other type
+     {
+        sActRefType = \"\";     // clear sActRefType
+        sLastDPE = \"\"; 
+     }
+     if (sLastDPE == \"\")
+     {
+        sActRefType = dpTypeRefName (gDPEToCheckInParaModule[i]);
+        if ( sActRefType  != \"\")
+           sLastDPE = gDPEToCheckInParaModule[i];
+     }
+ 
+     gDPEToCheckInParaModule[i] = gDPEToCheckInParaModule[i] + \"|\"+sActRefType +  \"|\"+dpElementType(gDPEToCheckInParaModule[i] );
+
+   }"
+0 "OnDpTypeChanged" "(string dpstr)"
+"  dyn_string dsDPE, dsRemoveDPEWithPowerConfigs, sDpeRef, dsLeaf,dsDynamicAttribute, ds ;
+  int i, j;
+  dyn_string dsDPEToDelete, dsDPEToAppend, dsDPTypeRefToAppend ;
+  string sSearchString, sSearchStringOld;
+  dyn_dyn_string ddsRef;
+
+  string sActRefType;
+  string sLastDPE;
+
+  if (CheckButton1.state(0) == TRUE)    // old para  -> cancle
+    return;
+
+  dsDPE = dpNames(\"_mp_\"+dpstr+\".**\", dpstr);
+   
+  for ( i= 1; i<= dynlen(dsDPE); i++)
+   {
+
+     if (sLastDPE != \"\" && strpos(dsDPE[i], sLastDPE) == 0)  // same type 
+     {
+        // use sActRefType 
+     }
+     else if (sLastDPE != \"\" && strpos(dsDPE[i], sLastDPE) == -1)  // other type
+     {
+        sActRefType = \"\";     // clear sActRefType
+        sLastDPE = \"\"; 
+     }
+     if (sLastDPE == \"\")
+     {
+        sActRefType = dpTypeRefName (dsDPE[i]);
+        if ( sActRefType  != \"\")
+           sLastDPE = dsDPE[i];
+     }
+ 
+     dsDPE[i] = dsDPE[i] + \"|\"+sActRefType+  \"|\"+dpElementType(dsDPE[i]);
+   }  
+
+  for ( i = dynlen (dsDPE); i>0 ; i--)
+  {
+    sSearchString = dsDPE[i];
+    for ( j= dynlen(  gDPEToCheckInParaModule); j>0 ; j--)
+    {
+       if ( sSearchString == gDPEToCheckInParaModule[j])
+       {
+         dynRemove( dsDPE, i);
+         dynRemove( gDPEToCheckInParaModule, j);
+         break;
+       }
+    }
+  }  
+  dsDPEToDelete= gDPEToCheckInParaModule;
+  dsDPEToAppend = dsDPE;
+
+  for ( i= 1; i<= dynlen(dsDPEToDelete); i++)
+  {
+    ds = strsplit( dsDPEToDelete[i], \"|\"); 
+    dsDPEToDelete[i] = ds[1];
+  }
+  for ( i= 1; i<= dynlen(dsDPEToAppend); i++)
+  {
+    ds = strsplit( dsDPEToAppend[i], \"|\"); 
+    dsDPEToAppend[i] = ds[1];
+  }
+
+  //removeGlobal(\"gDPEToCheckInParaModule\");
+ 
+  
+  if (dynlen(dsDPEToDelete) > 0)
+  {
+     // at least one dpe removed
+     // _mp_ exists -> _dt_ also exists  
+     
+     
+      
+      daRemoveLeafFromDPT(dpstr,  dsDPEToDelete);
+      
+      ddsRef = dpGetRefsToDpType(dpstr);
+
+
+      
+      if ( dynlen(ddsRef) > 0 )         // remove all _dt_ Elements
+      {
+        dyn_string dsLeaf, ds;
+        string dp; 
+
+        for ( j = 1; j <= dynlen(dsDPEToDelete); j++ )
+        {
+          ds =  strsplit( dsDPEToDelete[j], \":\");  // system:_mp  -> _mp
+          dsDPEToDelete[j] = ds[2];
+          strreplace(dsDPEToDelete[j], \"_mp_\"+dpstr, \"\");  // remove dp
+        }  
+
+        for ( i = 1; i <= dynlen(ddsRef); i++ )
+        {
+ 
+           if ( !dpExists(\"_dt_\" + ddsRef[i][1]) )
+              continue;
+      
+          dp  = \"_mp_\"+ ddsRef[i][1] + \".\" + ddsRef[i][2];
+      
+          for ( j = 1; j <= dynlen(dsDPEToDelete); j++ )
+          
+             dsLeaf[j] = dp +  dsDPEToDelete[j]; 
+          
+          daRemoveLeafFromDPT(ddsRef[i][1],  dsLeaf);
+          
+         }
+       }
+   }  
+     
+   // insert
+   // only references intresting !!!
+   // all other DPEs have no PoerConfigs
+   // teferences have to be tested !!
+
+   if ( dynlen(dsDPEToAppend) > 0)
+   {
+     dyn_dyn_string ddsRef = dpGetDpTypeRefs(dpTypeName(dsDPEToAppend[1]))  ; // get all references 
+     dyn_string dsReferenceMasterElements;
+     for ( i= 1; i<= dynlen( ddsRef); i++)
+       dynAppend(dsReferenceMasterElements, getSystemName() + \"_mp_\"+dpTypeName(dsDPEToAppend[1])+\".\"+ddsRef[i][2]);     // necessary for getting all refs
+
+     dynSortAsc(dsDPEToAppend);
+
+     sSearchStringOld = \"&\";  // never exists
+     for ( i= 1; i<= dynlen( dsDPEToAppend); i++)
+     {
+        sSearchString = dsDPEToAppend[i]; 
+        if (strpos(sSearchString, sSearchStringOld+\".\") < 0 && (dpElementType(dsDPEToAppend[i]) != DPEL_STRUCT || dynContains(dsReferenceMasterElements,dsDPEToAppend[i])>0) )     // new element but no struct  
+        {
+          sSearchStringOld = sSearchString;
+          dynAppend( dsDPTypeRefToAppend , sSearchString);
+        }
+     }
+
+     for ( i= 1; i<= dynlen( dsDPTypeRefToAppend); i++)
+        copyRefToMpDPE ( dsDPTypeRefToAppend [i] );
+
+   }
+   
+   closeProgressBar();"
+0 "OnBeginElementEdit" "(string dpstring, bool isType, bool bCancel)"
+"  int iPos = strpos(dpstring, \".\");
+  
+  if ( iPos > 0)
+  dpstring = substr(dpstring,0,iPos);
+  bCancel = (isType  && dpExists(\"_mp_\"+dpstring));"
+"main()
+{
+//begin Filter on Para load with optional $Filter_DPE
+  interneDp.enabled = true;
+  dp_filter.enabled = true;  
+  
+  if (isDollarDefined(\"$Filter_DPE\")) // check if $-Param is defined
+  {
+    if (getDollarValue(\"$Filter_DPE\") != \"\")
+    {
+      if (dpExists(getDollarValue(\"$Filter_DPE\")))        // check if DP exists
+      {  
+        string dpe = dpTypeName(getDollarValue(\"$Filter_DPE\"));    
+        if (substr(dpe,0,1) == \"_\")                                     
+        {  
+          interneDp.state(0) = true;                                    // if internal DP -> set check box
+          propPut(\"activeX\",\"ShowInternDpTypes\",true);
+        }
+        dp_filter.text = getDollarValue(\"$Filter_DPE\");
+        interneDp.enabled = false;
+        dp_filter.enabled = false; 
+      }
+    } 
+  }
+//end Filter on Para load with optional $Filter_DPE      
+  
+  string filter = dp_filter.text;
+
+  if (isMotif())
+  {
+    return;
+  }
+
+  globalModuleName  = myModuleName();
+  
+  // remove slashes in the next line to set old para mode TI 17363
+  // CheckButton1.state(0) = true;
+
+  string sModule = myModuleName();
+  strreplace(sModule,\"_paraPanel\",\"\");
+  gMpCustomHandling[sModule] = CheckButton1.state(0);
+  dispatch(\"\",\"SetDpFilter\", filter);
+
+  propPut(\"panel\",\"ModuleName\",myModuleName()+\"_paraPanel\");
+  RootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName()+\"_paraPanel\",makeDynString(\"\"));  
+
+}
+
+
+
+" 0
+20 12
+"CheckButton1"
+""
+1 138 0 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  136 -2 230 22
+1
+T 
+4
+LANG:10001 8 Old para
+LANG:10004 7 原Para
+LANG:10000 10 Altes Para
+LANG:10027 17 Старый Para
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, bool state)
+{
+  string filter = dp_filter.text;
+  string sModule = myModuleName();
+  strreplace(sModule,\"_paraPanel\",\"\");
+  gMpCustomHandling[sModule] = state;
+  dispatch(\"activeX\",\"SetDpFilter\", filter);
+}
+
+
+
+
+
+" 0
+30 35
+"FRAME2"
+""
+1 410 134 E E E 1 E 1 E N "_3DText" E N {0,0,0} E E
+ E E
+33 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 6.405940594059405 0 8.796610169491524 -2355.435643564356 -1161.745762711864 0 E 410 134 512 194
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 0
+"panel"
+""
+1 290 33.4997 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+9
+"frameShape" "enum 0"
+"frameShadow" "enum 48"
+"alignment" "enum 0"
+"horizontalScrollBarPolicy" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"inputMethodHints" "enum 0"
+"minimumSize" "620 480"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  285 43.5 904 522.5
+15 Canvas.Canvas.1
+0
+E32 46
+"SPACER11"
+""
+1 271 11 E E E 1 E 1 E N {0,0,0} E N {0,0,0} E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "-1 6"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+ 271 11 914 16 2
+32 47
+"SPACER12"
+""
+1 271 537 E E E 1 E 1 E N {0,0,0} E N {0,0,0} E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+ 271 537 918.0000000000001 538 2
+32 49
+"SPACER14"
+""
+1 271 9 E E E 1 E 1 E N {0,0,0} E N {0,0,0} E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+ 271 9 276 533 1
+32 57
+"SPACER22"
+""
+1 919 11 E E E 1 E 1 E N {0,0,0} E N {0,0,0} E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"minimumSize" "1 -1"
+"maximumSize" "1 -1"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+ 919 11 920 537 1
+32 58
+"SPACER23"
+""
+1 920 11 E E E 1 E 1 E N {0,0,0} E N {0,0,0} E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"minimumSize" "1 -1"
+"maximumSize" "1 -1"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+ 920 11 921 537 1
+4 59
+"LINE1"
+""
+1 139.3 267 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  139 267 140 370
+20 60
+"ignoreCase"
+""
+1 23 69 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  21 67 253 91
+1
+T 
+4
+LANG:10001 11 Ignore case
+LANG:10004 15 忽略大小写
+LANG:10000 22 Groß/klein ignorieren
+LANG:10027 34 Без учёта регистра
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  activeX.dpFilterIgnoresCase = state;
+  commandFilter();
+}" 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 0 "LAYOUT_GROUP0" 2
+2 0 
+7 6 
+
+"S 7" "0 0 1 1"
+"S 6" "1 0 1 1"
+"" ""
+0 1 0 0
+4 2 "LAYOUT_GROUP2" 3
+3 1 
+16 4 60 
+0 
+"S 4" "0 0 1 1"
+"S 60" "1 0 1 1"
+"G 0" "2 0 1 1"
+"" ""
+1 2 1 9 9 9 9 1 6
+4 3 "LAYOUT_GROUP3" -1
+1 1 
+10 
+2 
+"S 10" "1 0 1 1"
+"G 2" "0 0 1 1"
+"" ""
+0 2 1 0 0 4 0 1 6
+4 4 "LAYOUT_GROUP4" 5
+2 0 
+35 0 
+
+"S 0" "0 0 1 1"
+"" ""
+1 1 0 0
+4 5 "LAYOUT_GROUP5" 6
+2 1 
+47 46 
+4 
+"S 47" "2 0 1 1"
+"S 46" "0 0 1 1"
+"G 4" "1 0 1 1"
+"" ""
+0 2 0 1 0
+4 6 "LAYOUT_GROUP6" 10
+0 1 
+
+5 
+"G 5" "0 0 1 1"
+"" ""
+0 1 0 0
+4 10 "LAYOUT_GROUP10" 11
+0 1 
+
+6 
+"G 6" "0 0 1 1"
+"" ""
+0 1 0 0
+4 11 "LAYOUT_GROUP11" -1
+2 1 
+57 58 
+10 
+"S 57" "1 0 1 1"
+"S 58" "2 0 1 1"
+"G 10" "0 0 1 1"
+"" ""
+0 1 0 1 0
+1 12 "SHAPE_GROUP12" -1
+1 0 
+59 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+0

@@ -1,0 +1,1938 @@
+V 14
+4
+LANG:10001 26 OPCUA client configuration
+LANG:10004 20 OPCUA客户端配置
+LANG:10000 27 OPCUA Client Parametrierung
+LANG:10027 45 Конфигурация клиента OPCUA
+PANEL,-1 -1 570 778 N "_3DFace" 0
+"main()
+{
+  addOpcUaConnGlobals();
+  initHosts();
+  setValue(\"reduStatus\", \"enabled\", isRedundant());
+  setValue(\"tfConnState_redu\", \"enabled\", FALSE);
+  setValue(\"tfServerState_redu\", \"enabled\", FALSE);
+  setValue(\"tfReduConnState_redu\", \"enabled\", FALSE);
+  setValue(\"tfReduServerState_redu\", \"enabled\", FALSE);
+
+  dsStrategies = opcuaDriver_listStrategies();
+  dsMsgModes = opcuaDriver_listMsgModes();
+  setValue(\"cmbPolicy\", \"items\", dsStrategies);
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"opcuaDriver_plugin.ctl\"
+//mapping mDriverData;
+langString lsDescription;
+string sLastConn;
+dyn_string opcuaDriver_dsConnDpes;
+dyn_string opcuaDriver_dsConnDpesOld;
+//bool passwordChanged = false;
+//bool resetPasswordChanged = false;
+dyn_string dsStrategies;
+dyn_string dsMsgModes;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+sendCommand(string sCommand)
+{
+  string sConnection = cmbConnection.text;
+  anytype aValue;
+
+  if (sConnection == \"\")
+    return;
+
+  switch (sCommand)
+  {
+    case \"GQ\":
+      aValue = (int)0;
+      break;
+    default:
+      DebugN(\"OPCUA Client Command: case not implemented!\",sCommand);
+      return;
+      break;
+  }
+
+  if (dpExists(getSystemName() + OPCUADRIVER_sConnectionDpPrefix + sConnection + \".Command.\"+sCommand))
+  {
+    dpSet(getSystemName() + OPCUADRIVER_sConnectionDpPrefix + sConnection + \".Command.\"+sCommand, aValue);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\", makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyBeforEditSubscr\")));
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+ IM 106046 mPokorny 06.02.2012 : dont show connection if is DPT \"_OPCUAServer\" without DPs
+   + show server states in fields \"ServerState\", \"tfReduServerState\" ,\"tfServerState_redu\" ,\"tfReduServerState_redu\"
+*/
+setTxtServers()//IM 104864
+{
+  if(!mappingHasKey(gOpcUaConn_mData[\"Connection\"],cmbConnection.text()))
+    return;
+
+  string s1a = gOpcUaConn_mData[\"Connection\"][cmbConnection.text()][\"ConnInfo\"];
+  string s1b = gOpcUaConn_mData[\"Connection\"][cmbConnection.text()][\"ConnInfo\"];
+  string s2a = gOpcUaConn_mData[\"Connection\"][cmbConnection.text()][\"ReduConnInfo\"];
+  string s2b = gOpcUaConn_mData[\"Connection\"][cmbConnection.text()][\"ReduConnInfo\"];
+  bool   bOPCRedu = gOpcUaConn_mData[\"Connection\"][cmbConnection.text()][\"ReduActive\"];
+
+  bool   bIsRedundant = isRedundant();
+
+  s1a = substr(s1a,strpos(s1a,\"//\")+2);//disacard opc.tcp://
+  s1b = substr(s1b,strpos(s1b,\"//\")+2);
+  s2a = substr(s2a,strpos(s2a,\"//\")+2);
+  s2b = substr(s2b,strpos(s2b,\"//\")+2);
+
+  int i1a = strpos(s1a,\":\");//discard :<portNo>
+  int i1b = strpos(s1b,\":\");
+  int i2a = strpos(s2a,\":\");
+  int i2b = strpos(s2b,\":\");
+
+  int j1a = strpos(s1a,\"/\");//discard /Pathinfo
+  int j1b = strpos(s1b,\"/\");
+  int j2a = strpos(s2a,\"/\");
+  int j2b = strpos(s2b,\"/\");
+
+  if(i1a > 0) s1a = substr(s1a,0,i1a);
+  else if(j1a > 0) s1a = substr(s1a,0,j1a);
+  if(i1b > 0) s1b = substr(s1b,0,i1b);
+  else if(j1b > 0) s1b = substr(s1b,0,j1b);
+  if(i2a > 0) s2a = substr(s2a,0,i2a);
+  else if(j2a > 0) s2a = substr(s2a,0,j2a);
+  if(i2b > 0) s2b = substr(s2b,0,i2b);
+  else if(j2b > 0) s2b = substr(s2b,0,j2b);
+
+  if(!bIsRedundant)
+  {
+    s1b = s2b = \"\";
+  }
+  if(!bOPCRedu)
+  {
+    s2a = s2b = \"\";
+  }
+
+  Host11.text      = host1;
+  Host12.text      = host2;
+  Host21.text      = host1;
+  Host22.text      = host2;
+
+  status12.enabled = bIsRedundant;
+  status22.enabled = bIsRedundant;
+
+  // IM 106046 mPokorny 06.02.2012
+  tfServerState.text = s1a;
+  tfReduServerState.text = s2a;
+  tfServerState_redu.text = s1b;
+  tfReduServerState_redu.text = s2b;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool clientDpExists(int nr)
+{
+  if(dpExists(\"_Driver\" + nr))
+  {
+    string driverType;
+    dpGet(\"_Driver\" + nr + \".DT\", driverType);
+    if(driverType == \"OPCUAC\")
+      return true;
+  }
+  dyn_string ds;
+  dyn_float df;
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(getCatStr(\"opcua\", \"opcuaDrvNumNotRun\"),
+                                               getCatStr(\"para\", \"yes\"),
+                                               getCatStr(\"para\", \"no\")),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+  {
+    return false;
+  }
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool opcuaDpExists(int nr)
+{
+  if(dpExists(\"_OPCUA\" + nr))
+  {
+    return true;
+  }
+
+  string text = getCatStr(\"opcua\", \"opcuaDpNotExist\");
+
+  strreplace(text, \"$1\", \"_OPCUA\" + nr);
+
+  ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                           getCatStr(\"para\", \"warning\"),
+                           makeDynString(text));
+
+  return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkConnectionDataSaved()
+{
+  if ( cmbConnection.text != \"\" && !dpExists(\"_\" + cmbConnection.text) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             \"\",
+                             makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyBeforEditSubscr\")));
+
+    return 0;
+  }
+  else
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addOpcUaConnGlobals()
+{
+  if ( !globalExists(\"gOpcUaConn_mData\") )
+    addGlobal(\"gOpcUaConn_mData\", MAPPING_VAR);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeOpcUaConnGlobals()
+{
+  if ( globalExists(\"gOpcUaConn_mData\") )
+    removeGlobal(\"gOpcUaConn_mData\");
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  removeOpcUaConnGlobals();
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 174
+"txtdpConnect"
+""
+1 350 25 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+207 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  // IM 105060 05.08.2011 mpokorny
+  if ( dynlen(opcuaDriver_dsConnDpesOld) && dpExists(opcuaDriver_dsConnDpesOld[1]) )
+  {
+    dpDisconnect(\"opcuaServerStateWorkCB\", opcuaDriver_dsConnDpesOld);
+  }
+
+  if ( dynlen(opcuaDriver_dsConnDpes) )
+  {
+    dpConnect(\"opcuaServerStateWorkCB\", true, opcuaDriver_dsConnDpes);
+  }
+
+  opcuaDriver_dsConnDpesOld=opcuaDriver_dsConnDpes;
+
+  dynClear(opcuaDriver_dsConnDpes);
+
+  setValue(\"cmbConnection\",\"enabled\",true);  // IM 105060 mpokorny
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  348 23 512 49
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text=1;
+}" 0
+ E
+22 0
+"cmbConnection"
+""
+1 22 25 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select an equipment
+LANG:10004 18 选择一个设备
+LANG:10000 17 Gerät auswählen
+LANG:10027 35 Выбрать устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  20 24 345 50
+0
+
+E
+"main()
+{
+// IM 105060 05.08.2011 mpokorny
+  string sConnection = this.text;
+
+  this.enabled(false);// IM 105060 mpokorny
+
+  if ( sConnection != \"\" )
+  {
+    // tfs 55028
+    //opcuaDriver_panelToMapping(gOpcUaConn_mData);
+
+    opcuaDriver_displayConnection(gOpcUaConn_mData[\"Connection\"][sConnection], sConnection);
+
+    if (gOpcUaConn_mData[\"Connection\"][sConnection][\"hasRedu\"])
+      opcuaDriver_displayConnection(gOpcUaConn_mData[\"Connection\"][sConnection+\"_2\"], sConnection, true);
+
+    sLastConn = sConnection;
+    setTxtServers();
+  }
+}
+
+
+
+
+" 0
+
+E
+ 0 0
+30 1
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8869698399236525 0 0.8484848484848491 1.130301600763481 -36.27272727272771 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 20 Соединение
+13 2
+"cmdNewDp"
+""
+1 458 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 Create a new equipment with default settings
+LANG:10004 33 使用默认设置创建新设备
+LANG:10000 45 Neues Gerät mit Grundeinstellungen erstellen
+LANG:10027 96 Создать новое устройство с настройками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  450 23 548 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  //checkConnectionDataSaved();
+  opcuaDriver_checkUnsavedDps(cmbConnection.text, \"\");
+
+  dyn_float df;
+  dyn_string ds,ds2;
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                 getCatStr(\"da\",\"createdp\"),
+                                 makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), cmbConnection.text),df,ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+// IM 106046 mPokorny: Warning if dp name (connection) is not legal
+  if(!dpIsLegalName(ds[1]))
+  {
+    string s = getCatStr(\"STD_Symbols\",\"invaliddpname\")+\"\\n\"+ds[1];
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                   getCatStr(\"da\",\"createdp\"),
+                                   makeDynString(s), df, ds2);
+    return;
+  }
+
+
+
+  opcuaDriver_panelToMapping(gOpcUaConn_mData); //save Data of old Connection
+
+  opcuaDriver_createConnection(ds[1], gOpcUaConn_mData, isRedundant() && false, false);  //create a new Connection
+//  if (isRedundant())
+//    createConnection(ds[1]+\"_2\", gOpcUaConn_mData, false, true);  //create a new Connection
+
+  opcuaDriver_displayConnection(gOpcUaConn_mData[\"Connection\"][ds[1]], ds[1]); //display new Connection
+//  if (isRedundant())
+//    displayConnection(gOpcUaConn_mData[\"Connection\"][ds[1]+\"_2\"], ds[1]+\"_2\", true); //display new Connection
+
+  sLastConn = ds[1];
+
+  // check name
+  cmbConnection.text=ds[1];
+
+  // clear status textfields
+  setMultiValue(\"tfConnState\", \"text\", \"\",
+                \"tfServerState\", \"text\", \"\",
+                \"tfReduConnState\", \"text\", \"\",
+                \"tfReduServerState\", \"text\", \"\",
+                \"tfConnState_redu\", \"text\", \"\",
+                \"tfServerState_redu\", \"text\", \"\",
+                \"tfReduConnState_redu\", \"text\", \"\",
+                \"tfReduServerState_redu\", \"text\", \"\");
+  sbDrvNum.enabled = true;
+}
+
+
+
+
+" 0
+ E E E
+13 3
+"cmdRemoveDp"
+""
+1 347 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove an equipment
+LANG:10004 18 移除一个设备
+LANG:10000 16 Gerät entfernen
+LANG:10027 35 Удалить устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  350 23 448 51
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  string sConnectionName = cmbConnection.text;
+
+  dyn_float  df;
+  dyn_string ds;
+
+  if ( sConnectionName == \"\" )
+    return;
+  else
+  {
+    dyn_string dsSubs;
+    dpGet(\"_\" + sConnectionName + \".Config.Subscriptions\", dsSubs);
+
+    if ( dynlen(dsSubs) )
+    {
+      ChildPanelOnCentralModalReturn(\"para/opcuaRemoveDp.pnl\",
+                                     getCatStr(\"general\", \"info\"),
+                                     makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyDeleteConn\"),
+                                                   \"$2:\" + getCatStr(\"general\", \"yes\"),
+                                                   \"$3:\" + getCatStr(\"general\", \"no\"),
+                                                   \"$4:\" + dynStringToString(dsSubs)),
+                                     df, ds);
+    }
+    else
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                     getCatStr(\"general\", \"info\"),
+                                     makeDynString(getCatStr(\"opcua\", \"applyDeleteConn\"),
+                                                   getCatStr(\"general\", \"yes\"),
+                                                   getCatStr(\"general\", \"no\")),
+                                     df, ds);
+    }
+
+    if ( dynlen(df) < 1 || df[1] < 1 )
+      return;
+    else
+    {
+      if ( dynlen(dsSubs) && df[1] == 2 && ds[1] == \"true\" )
+      {
+        for ( int i = dynlen(dsSubs); i >= 1; i-- )
+        {
+          if ( isRedundant() && dpExists(dsSubs[i] + \"_2\") )
+            dpDelete(dsSubs[i] + \"_2\");
+
+          if ( dpExists(dsSubs[i]) )
+            dpDelete(dsSubs[i]);
+        }
+      }
+
+      opcuaDriver_removeConnection(sConnectionName, gOpcUaConn_mData);
+
+      delay(0,500);
+
+      opcuaDriver_panelToMapping(gOpcUaConn_mData);
+      opcuaDriver_saveDataFromMapping(gOpcUaConn_mData, \"\", cmbConnection.text);
+    }
+  }
+}
+
+" 0
+ E E E
+14 4
+"txtDescription"
+""
+1 144.9999999999999 61 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E "main()
+{
+  if ( getNoOfLangs() == 1)
+  {
+    lsDescription=this.text;
+    opcuaDriver_setConnectionModified(gOpcUaConn_mData, cmbConnection.text);
+  }
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 59 516 85
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  string sConnection = cmbConnection.text;
+
+  if ( getNoOfLangs() > 1)
+  {
+    langEditor(lsDescription);
+    opcuaDriver_setConnectionModified(gOpcUaConn_mData, cmbConnection.text);
+    this.text=lsDescription;
+  }
+}
+" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ E
+13 5
+"langedit1"
+""
+1 515 53 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  520 58 548 86
+
+P 
+4294967295
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+
+  if ( getNoOfLangs() > 1)
+  {
+    langEditor(lsDescription);
+    opcuaDriver_setConnectionModified(gOpcUaConn_mData, cmbConnection.text);
+    txtDescription.text=lsDescription;
+  }
+}
+
+" 0
+ E E "main()
+{
+  this.visible = getNoOfLangs() != 1;
+}" 0
+
+2 6
+"Text1"
+""
+1 -26 -931.1635296576832 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9952978056426333 -2 -38.52037617554859 0 E 17 102 140 119
+0 2 0 "0s" 0 0 0 66 0 0  17 102 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Device Description:
+LANG:10004 13 设备描述:
+LANG:10000 20 Gerätebeschreibung:
+LANG:10027 31 Описание устр-ва:
+30 16
+"FRAME1"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.433843942800789 0 0.5422800470219435 5.661560571992111 358.235192476489 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+14 25
+"tfConnState"
+""
+1 126.6986753765197 555.9529780564262 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  128 544 268 570
+2 "0s" 0 0 0 0 0 -1  E E E
+2 26
+"status11"
+""
+1 834 -88.77982039344573 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 47 38.40752351097176 1 E 3 511.9999999999999 74 531.0897637795275
+0 2 2 "0s" 0 0 0 66 0 0  3 511.9999999999999 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+13 44
+"bGQ"
+""
+1 89.26349999999999 464.6689513061651 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  153 463 261 491
+
+T 
+4
+LANG:10001 13 General Query
+LANG:10004 15 总召唤数值
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+"main()
+{
+  sendCommand(\"GQ\");
+}" 0
+ E E E
+13 52
+"cmdApply"
+""
+1 363 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  351 742 449 770
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+
+  opcuaDriver_panelToMapping(gOpcUaConn_mData);
+  opcuaDriver_saveDataFromMapping(gOpcUaConn_mData, \"\", cmbConnection.text);
+  setTxtServers();
+
+  sbDrvNum.enabled = false;
+}
+
+" 0
+ E E E
+13 53
+"cmdCancel"
+""
+1 463 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+86 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  451 742 549 770
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  //checkConnectionDataSaved();
+  opcuaDriver_checkUnsavedDps(cmbConnection.text, \"\");
+
+  removeOpcUaConnGlobals();
+  PanelOff();
+}
+" 0
+ E E E
+13 54
+"cmdHelp"
+""
+1 10 742 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 742 106 770
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"opcua\" ) ;  
+}
+" 0
+ E E E
+13 55
+"cmdOk"
+""
+1 263 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  251 742 349 770
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  opcuaDriver_panelToMapping(gOpcUaConn_mData);
+  opcuaDriver_saveDataFromMapping(gOpcUaConn_mData, \"\", cmbConnection.text);
+
+  removeOpcUaConnGlobals();
+  PanelOff();
+}
+
+" 0
+ E E "main()
+{
+  gOpcUaConn_mData = opcuaDriver_loadDataIntoMapping();
+  opcuaDriver_mappingToPanel(gOpcUaConn_mData);
+
+  // IM 106046 mPokorny: dont show connection if is DPT \"_OPCUAServer\" without DPs
+  if (mappinglen(gOpcUaConn_mData[\"Connection\"])>0)
+    setTxtServers();
+}
+
+
+
+
+" 0
+
+30 57
+"FRAME4"
+""
+1 10 282 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+90 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.856715600988089 0 0.8125000000000059 -38.56715600988088 -138.125000000002 0 E 10 282 124 347
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+14 74
+"tfServerState"
+""
+1 127.4215931772818 585.9529780564263 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 574 268 600
+2 "0s" 0 0 0 0 0 -1  E E E
+2 75
+"txtServer1a"
+""
+1 1114 -58.77982039344573 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 44 38.54858934169278 1 E 38 542 74 557
+0 2 2 "0s" 0 0 0 194 0 0  74 542 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+14 113
+"tfReduConnState"
+""
+1 287.3779096112377 653 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+146 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  128 651 268 677
+2 "0s" 0 0 0 0 0 -1  E E E
+2 114
+"status21"
+""
+1 726.9999999999998 -81.41369670872069 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+147 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 47 55.83072100313472 1 E 3 602 74 616.0661417322835
+0 2 2 "0s" 0 0 0 66 0 0  3 602 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+14 115
+"tfReduServerState"
+""
+1 144.578313253012 683 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+148 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 681 268 707
+2 "0s" 0 0 0 0 0 -1  E E E
+2 116
+"txtServer2a"
+""
+1 -14043.99999999997 3866.112497064777 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+149 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 0.9952978056426333 -218.9999999999999 132.6097178683385 1 E 301 555 337 570
+0 2 2 "0s" 0 0 0 194 0 0  337 555 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+2 133
+"ptReconnectTimer"
+""
+1 554 -908.3985615063331 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 -123 -38.28526645768026 0 E 158 152 263 169
+0 2 2 "0s" 0 0 0 66 0 0  158 152 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Reconnect Timer:
+LANG:10004 22 重新连接计时器:
+LANG:10000 16 Reconnect Timer:
+LANG:10027 22 Повт. подкл.:
+14 134
+"tfReconnectTimer"
+""
+1 145 111.0000000000005 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+167 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setConnectionModified(gOpcUaConn_mData, cmbConnection.text);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 109 197 135
+3 "0d" 0 0 0 0 0 -1  E E E
+2 136
+"ptReconnectTimerSec"
+""
+1 252 127.8595959301725 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 202 113 217 130
+0 2 2 "0s" 0 0 0 64 0 0  202 113 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 [s]
+LANG:10004 3 [s]
+LANG:10000 3 [s]
+LANG:10027 4 [с]
+30 144
+"FRAME9"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+177 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4342744296919623 0 0.5422800470219434 285.6735791987472 358.235192476489 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Subscriptions
+LANG:10004 6 订阅
+LANG:10000 13 Subscriptions
+LANG:10027 16 Подписки
+13 145
+"bManage"
+""
+1 366.6877594853294 461.668951306165 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+178 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  370.4242594853292 463 478.4242594853292 491
+
+T 
+4
+LANG:10001 6 Manage
+LANG:10004 6 管理
+LANG:10000 9 Verwalten
+LANG:10027 20 Управление
+"main()
+{
+  if ( cmbConnection.text )
+  {
+    if ( dpExists(\"_\" + cmbConnection.text) )
+    {
+      ChildPanelOnRelativModal(\"para/opcuaSubscription.pnl\",
+                               \"\",
+                               makeDynString(\"$SERVER_DP:\" + \"_\" + cmbConnection.text),
+                               0, 0);
+    }
+    else
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               \"\",
+                               makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyBeforEditSubscr\")));
+    }
+  }
+}
+" 0
+ E E E
+14 147
+"tfConnState_redu"
+""
+1 360.872229511685 454.4326018808778 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+180 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 544 498 570
+2 "0s" 0 0 0 0 0 -1  E E E
+2 148
+"status12"
+""
+1 461 -86.84497748890192 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+181 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 27 39.40752351097176 1 E 260 511.9999999999999 327 525.0614173228347
+0 2 2 "0s" 0 0 0 66 0 0  260 511.9999999999999 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+14 149
+"tfServerState_redu"
+""
+1 360.6892442994433 484.4326018808778 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+182 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 574 498 600
+2 "0s" 0 0 0 0 0 -1  E E E
+2 150
+"txtServer1b"
+""
+1 737 -68.174106424705 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+183 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 25 38.54858934169271 1 E 291 542 327 557
+0 2 2 "0s" 0 0 0 194 0 0  327 542 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+14 151
+"tfReduConnState_redu"
+""
+1 385.9621010304098 650 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+184 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 648 498 674
+2 "0s" 0 0 0 0 0 -1  E E E
+2 152
+"status22"
+""
+1 -543.9999999999968 2949.104982622413 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+185 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 287 653 354 669
+0 2 2 "0s" 0 0 0 66 0 0  287 653 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+14 153
+"tfReduServerState_redu"
+""
+1 375.5448431308395 681.9997611285265 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+186 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 5 State
+LANG:10027 18 Состояние
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 680 498 706
+2 "0s" 0 0 0 0 0 -1  E E E
+2 154
+"txtServer2b"
+""
+1 -72.99999999999481 3893.63576284435 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+187 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 0.9952978056426333 15.00000000000006 132.6097178683386 1 E 301 555 337 570
+0 2 2 "0s" 0 0 0 194 0 0  337 555 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+30 171
+"FRAME14"
+""
+1 30 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+204 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.143019603581445 0 1.194827586206896 -24.29058810744335 25.9500000000005 0 E 30 493 511 581
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 Status OPC UA Server 2
+LANG:10004 9 服务器
+LANG:10000 22 Status OPC UA Server 2
+LANG:10027 40 Состояние OPC UA сервер 2
+1 212 2 "" 0
+31 "transform" 0 0 1 0 1 2.000000000000007 43
+0
+1 213 2 "" 1
+31 "transform" 0 0 1 0 1 2.000000000000007 43
+0
+2 179
+"Host11"
+""
+1 1527 -1344.456930368141 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+212 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 124 -75.1692789968653 1 E 34 602 68 617
+0 2 2 "0s" 0 0 0 193 0 0  51 602 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Host1
+LANG:10004 7 主机1
+LANG:10000 5 Host1
+LANG:10027 9 Хост1
+2 180
+"Host12"
+""
+1 3857 -1354.340041865755 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+213 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 357 -76.1786833855799 1 E 34 602 68 617
+0 2 2 "0s" 0 0 0 193 0 0  51 602 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Host2
+LANG:10004 7 主机2
+LANG:10000 5 Host2
+LANG:10027 9 Хост2
+2 181
+"Host21"
+""
+1 1527 -287.0253859090913 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+214 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 124 34.83072100313473 1 E 34 602 68 617
+0 2 2 "0s" 0 0 0 193 0 0  51 602 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Host1
+LANG:10004 7 主机1
+LANG:10000 5 Host1
+LANG:10027 9 Хост1
+2 182
+"Host22"
+""
+1 3867 -316.3984843662873 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+215 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 358 31.83072100313473 1 E 34 602 68 617
+0 2 2 "0s" 0 0 0 193 0 0  51 602 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Host2
+LANG:10004 7 主机2
+LANG:10000 5 Host2
+LANG:10027 9 Хост2
+21 188
+"sbDrvNum"
+""
+1 486 108.75 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+217 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Select driver number
+LANG:10004 15 选择驱动号
+LANG:10000 21 Treibernummer wählen
+LANG:10027 40 Выбор номера драйвера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  469 109 523 135
+0
+
+E
+"main()
+{
+  if(!opcuaDpExists(this.text) || !clientDpExists(this.text))
+  {
+    this.text = gOpcUaConn_mData[\"Connection\"][cmbConnection.text][\"DriverNumber\"];
+  }
+  opcuaDriver_setConnectionModified(gOpcUaConn_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 1 255 1 1 1 1
+2 190
+"ptDrvNum"
+""
+1 554 -908.3985615063331 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+219 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9952978056426333 200.5 -37.99529780564277 0 E 158 152 263 169
+0 2 2 "0s" 0 0 0 66 0 0  158 152 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Driver number:
+LANG:10004 12 驱动号：
+LANG:10000 14 Treibernummer:
+LANG:10027 28 Номер драйвера:
+13 194
+"bBrowse"
+""
+1 34.99999999999999 470 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+221 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 463 136 491
+
+T 
+4
+LANG:10001 6 Browse
+LANG:10004 6 浏览
+LANG:10000 6 Browse
+LANG:10027 17 Просмотр 
+"main()
+{
+  if ( !dpExists(\"_\" + cmbConnection.text) )
+    return;
+
+  ChildPanelOnCentralModal(\"para/address_opcua_server_items.pnl\",
+                           \"OPCUA Server Items\",
+                           makeDynString(\"$SERVER:\" + cmbConnection.text,
+                                         \"$EVENT_SOURCE:\" + 0,
+                                         \"$VARIANT:\" + 0,
+                                         \"$METHOD:FALSE\",
+                                         \"$ALARM_TYPES:FALSE\"));
+}
+" 0
+ E E E
+28 205
+"TAB1"
+""
+1 55 180 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+226 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  8 148 561 441
+E2 "conn" 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 20 Соединение
+1 "para/opcua_conn.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"advanced" 4
+LANG:10001 8 Advanced
+LANG:10004 6 高级
+LANG:10000 9 Erweitert
+LANG:10027 26 Дополнительно
+1 "para/opcua_advanced.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+13 208
+"bAssign"
+""
+1 519.2635000000002 461.668951306165 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+227 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  523 463 551 491
+
+T 
+4
+LANG:10001 6 Unused
+LANG:10004 9 未使用
+LANG:10000 6 Unused
+LANG:10027 29 Не используется
+"main()
+{
+  if ( !cmbConnection.text || !dpExists(\"_\" + cmbConnection.text) )
+    return;
+
+  ChildPanelOnCentralModal(\"para/opcuaAssignSubs.pnl\",
+                           \"OPCUA assign subscriptions\",
+                           makeDynString(\"$conn:\" + cmbConnection.text));
+}
+" 0
+ E E E
+30 211
+"FRAME15"
+""
+1 30 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+228 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.143019603581445 0 1.194827586206896 -24.29058810744336 -84.0499999999995 0 E 30 493 511 581
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 Status OPC UA Server 1
+LANG:10004 9 服务器
+LANG:10000 22 Status OPC UA Server 1
+LANG:10027 40 Состояние OPC UA сервер 1
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+1 1 "reduStatus" -1
+8 0 
+153 154 152 151 149 150 148 147 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+3 2 "PANEL_REF2" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 25 680 T 211 1.152304609218437 0 1 -33.80761523046093 10
+0
+0

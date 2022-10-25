@@ -1,0 +1,2192 @@
+V 14
+4
+LANG:10001 4 MQTT
+LANG:10004 4 MQTT
+LANG:10000 4 MQTT
+LANG:10027 4 MQTT
+PANEL,-1 -1 555 620 N "_3DFace" 0
+"main()
+{
+  dyn_string dsJson;
+
+  if ( dpExists(\"_MqttConfig\") )
+    dpGet(\"_MqttConfig.JsonProfiles\", dsJson);
+
+  if ( dynlen(dsJson) <= 0 )
+    ChildPanelOnCentral(\"para/mqtt_json.pnl\",
+                        \"Json Profile\",
+                        makeDynString());
+
+  int        i;
+  string     sOldCon = \"\", sCon = \"\";
+  dyn_string dsCon, ds;
+
+  dsCon = dpNames(getSystemName()+\"*\",\"_MqttConnection\");
+  // get list of Connections from IDP \"_MqttConnection\" - with redu dps
+
+  // remove redu dps from list of Connections
+  for ( i = dynlen(dsCon); i > 0; i-- )
+  {
+    ds = strsplit(dsCon[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsCon,i);
+      continue;
+    }
+    dsCon[i] = dpSubStr(dsCon[i],DPSUB_DP);
+
+    if ( strpos(dsCon[i], \"_\", 0) != -1 )
+      dsCon[i] = strltrim(dsCon[i], \"_\");
+  }
+
+  if ( dynlen(dsCon) < 1 )
+  {
+    shapesEnabled(FALSE);
+    cmbConns.text = \"\";
+    //return;
+  }
+  else
+    sCon = dsCon[1];
+
+  cmbConns.items = dsCon;
+  cmbConns.text  = sCon;
+
+  sCon =  \"_\" + sCon;
+
+  // get the actual conneicton state
+  //getConnState(sCon);
+
+  shapesReduEnabled(isRedundant());
+
+  while ( true )
+  {
+    sCon = cmbConns.text;
+    if ( sCon != \"\" )
+      sCon = \"_\" + sCon;
+
+    if ( sCon != sOldCon )
+    {
+      if ( sOldCon != \"\" && dpExists(sOldCon) )
+      {
+        dpDisconnect(\"workConnState\",
+                   sOldCon + sSTATE + \"ConnState\",
+                   sOldCon + sCONF  + \"EnableStatistics\",
+                   sOldCon + sSTATE + \"Connections.State\");
+
+        dpDisconnect(\"workStatistics\",
+                     sOldCon + sSTATISTICS + \"WritesSent\",
+                     sOldCon + sSTATISTICS + \"WritesRej\",
+                     sOldCon + sSTATISTICS + \"Notifications\",
+                     sOldCon + sSTATISTICS + \"WritesPerSec\",
+                     sOldCon + sSTATISTICS + \"NotificationsPerSec\");
+
+        if ( isRedundant() && dpExists(sOldCon + \"_2\") )
+        {
+          dpDisconnect(\"workReduConnState\",
+                       sOldCon + \"_2\" + sSTATE + \"ConnState\",
+                       sOldCon + \"_2\" + sCONF  + \"EnableStatistics\",
+                       sOldCon + \"_2\" + sSTATE + \"Connections.State\");
+
+          dpDisconnect(\"workReduStatistics\",
+                       sOldCon + \"_2\" + sSTATISTICS + \"WritesSent\",
+                       sOldCon + \"_2\" + sSTATISTICS + \"WritesRej\",
+                       sOldCon + \"_2\" + sSTATISTICS + \"Notifications\",
+                       sOldCon + \"_2\" + sSTATISTICS + \"WritesPerSec\",
+                       sOldCon + \"_2\" + sSTATISTICS + \"NotificationsPerSec\");
+        }
+      }
+
+      if ( sCon != \"\" && dpExists(sCon) )
+      {
+
+        getGeneralDP(sCon);
+
+        getCommandsDP(sCon);
+        // get properties for connection panel
+        getConnectionDP(sCon);
+        // initialize LastWill Panel
+        getAdvSettings(sCon);
+        // get initial statistic values
+        getStatistics(sCon);
+
+        dpConnect(\"workConnState\",
+                  sCon + sSTATE + \"ConnState\",
+                  sCon + sCONF  + \"EnableStatistics\",
+                  sCon + sSTATE + \"Connections.State\");
+
+        dpConnect(\"workStatistics\",
+                   sCon + sSTATISTICS + \"WritesSent\",
+                   sCon + sSTATISTICS + \"WritesRej\",
+                   sCon + sSTATISTICS + \"Notifications\",
+                   sCon + sSTATISTICS + \"WritesPerSec\",
+                   sCon + sSTATISTICS + \"NotificationsPerSec\");
+
+        if ( isRedundant() && dpExists(sCon + \"_2\") )
+        {
+          dpConnect(\"workReduConnState\",
+                    sCon + \"_2\" + sSTATE + \"ConnState\",
+                    sCon + \"_2\" + sCONF  + \"EnableStatistics\",
+                    sCon + \"_2\" + sSTATE + \"Connections.State\");
+
+          dpConnect(\"workReduStatistics\",
+                    sCon + \"_2\" + sSTATISTICS + \"WritesSent\",
+                    sCon + \"_2\" + sSTATISTICS + \"WritesRej\",
+                    sCon + \"_2\" + sSTATISTICS + \"Notifications\",
+                    sCon + \"_2\" + sSTATISTICS + \"WritesPerSec\",
+                    sCon + \"_2\" + sSTATISTICS + \"NotificationsPerSec\");
+        }
+      }
+
+      sOldCon = sCon;
+    }
+
+    delay(1);
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "
+string sORIVAL   = \":_original.._value\"; // dpSet
+string sONLVAL   = \":_online.._value\";   // dpGet
+string sCONF     = \".Config.\";
+string sLASTWILL = sCONF + \"LastWill.\";
+string sCMD      = \".Command.\";
+string sSTATE    = \".State.\";
+string sSTATISTICS = sSTATE + \"Statistics.\";
+string sDEFAULTCERT = \"__default__\";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//        create a new data point and set default values
+//
+void createNewDp(string dp)
+{
+  mapping mAddressMap;
+  string sAddress;
+
+  mAddressMap = makeMapping(\"ConnectionType\" , 2,
+                            \"ConnectionString\", \"\",
+                            \"Username\", \"\",
+                            \"Password\", \"\",
+                            \"Certificate\", \"\");
+
+  dyn_uint duiDrvNums = paMqttCheckDrvNums();
+  uint uiDrvNum;
+
+  if ( dynlen(duiDrvNums) )
+    uiDrvNum = duiDrvNums[1];
+  else
+    uiDrvNum = 1;
+
+  sbDrvNumber.text = uiDrvNum;
+
+  sAddress = jsonEncode(mAddressMap, 0);
+  dpCreate(dp, \"_MqttConnection\");
+
+  dpSet( dp + sCONF + \"Address\"          ,  sAddress,
+         dp + sCONF + \"EstablishmentMode\",  0,
+         dp + sCONF + \"SetInvalidBit\"    ,  false,
+         dp + sCONF + \"UseUTC\"           ,  true,
+         dp + sCONF + \"DrvNumber\"        ,  uiDrvNum,
+         dp + sCONF + \"CheckConn\"        ,  false,
+         dp + sCONF + \"EnableStatistics\" ,  true, // .State values from driver
+         dp + sCONF + \"Timezone\"         ,  0,
+         dp + sCONF + \"LifebeatTimeout\"  ,  20,
+         dp + sCONF + \"ReconnectTimeout\" ,  20,
+         dp + sCONF + \"ReduAddress\"      ,  sAddress,
+         dp + sLASTWILL + \"Topic\"        ,  \"\",
+         dp + sLASTWILL + \"Message\"      ,  \"\",
+         dp + sLASTWILL + \"QoS\"          ,  0,
+         dp + sLASTWILL + \"Retain\"       ,  false,
+         dp + sCONF + \"PersistentSession\",  true,
+         dp + sCMD + \"Enable\"            , 1,
+         dp + sCMD + \"IGQ\"               , 0);
+
+  setAuthConfig(dp);
+
+  if ( isRedundant() )
+  {
+    // create redundant dp
+    dp = dp + \"_2\";
+    dpCreate(dp, \"_MqttConnection\");
+
+    dpSet( dp + sCONF + \"Address\"          ,  sAddress,
+           dp + sCONF + \"EstablishmentMode\",  0,
+           dp + sCONF + \"SetInvalidBit\"    ,  false,
+           dp + sCONF + \"UseUTC\"           ,  true,
+           dp + sCONF + \"DrvNumber\"        ,  uiDrvNum,
+           dp + sCONF + \"CheckConn\"        ,  false,
+           dp + sCONF + \"EnableStatistics\" ,  true, // .State values from driver
+           dp + sCONF + \"Timezone\"         ,  0,
+           dp + sCONF + \"LifebeatTimeout\"  ,  20,
+           dp + sCONF + \"ReconnectTimeout\" ,  20,
+           dp + sCONF + \"ReduAddress\"      ,  sAddress,
+           dp + sLASTWILL + \"Topic\"        ,  \"\",
+           dp + sLASTWILL + \"Message\"      ,  \"\",
+           dp + sLASTWILL + \"QoS\"          ,  0,
+           dp + sLASTWILL + \"Retain\"       ,  false,
+           dp + sCONF + \"PersistentSession\",  true,
+           dp + sCMD + \"Enable\"            , 1,
+           dp + sCMD + \"IGQ\"               , 0);
+
+    setAuthConfig(dp);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// set dp to check real connection, if we have no DP configured
+void setCheckConnAddress(string sDp, string sConn, string sRef)
+{
+  string sDistribCfg = \":_distrib..\";
+  string sAddressCfg = \":_address..\";
+
+  dpSetWait(sDp + sCONF + \"CheckConn\" + sDistribCfg + \"_type\",   DPCONFIG_DISTRIBUTION_INFO,
+            sDp + sCONF + \"CheckConn\" + sDistribCfg + \"_driver\", sbDrvNumber.text);
+
+  dpSetWait(sDp + sCONF + \"CheckConn\" + sAddressCfg + \"_type\",       DPCONFIG_PERIPH_ADDR_MAIN,
+            sDp + sCONF + \"CheckConn\" + sAddressCfg + \"_drv_ident\",  \"MQTT\",
+            sDp + sCONF + \"CheckConn\" + sAddressCfg + \"_connection\", sConn,
+            sDp + sCONF + \"CheckConn\" + sAddressCfg + \"_reference\",  sRef,
+            sDp + sCONF + \"CheckConn\" + sAddressCfg + \"_active\",     TRUE);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// set auth config to structs Config and Command on creating a new connection
+void setAuthConfig(string sDp)
+{
+  dpSetWait(sDp + \".Config:_auth.._type\",            DPCONFIG_AUTH,
+            sDp + \".Config:_auth._original._write\",  4,
+            sDp + \".Command:_auth.._type\",           DPCONFIG_AUTH,
+            sDp + \".Command:_auth._original._write\", 4);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//      set general properties to connection datapoint
+//      EstablishmentMode:  Inactive = 0, AutomaticActive = 1, Default=1
+//      CheckConn:          DPE for adding a Peripheral Address Config to check connection
+//      DrvNumber:          Driver number in the WinCC OA project
+void setGeneralDP(string dp)
+{
+  bool bEstMode, bCheckConn;
+  uint uiDriver;
+
+  // get values from controls
+  bEstMode   = cbEstMode.state(0);
+  uiDriver   = sbDrvNumber.value;
+
+  // set values to data point
+  dpSet( dp + sCONF + \"EstablishmentMode\",  bEstMode,
+         dp + sCONF + \"DrvNumber\"        ,  uiDriver);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//      set command properties to connection datapoint
+//      Enable:    Enable/Disable connection state machine
+void setCommandsDP(string dp)
+{
+  bool bEnable;
+
+  bEnable = cbEnableStateMachine.state(0);
+
+  //dpSet( dp + sCMD + \"Enable\",  bEnable);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         set Json connection string to address data point
+//         if we have an redundant project, so set redundant
+//         address to reduaddress datapoint too
+void setConnectionDP(string dp)
+{
+  string sAddress, sHostPort, sUserName, sPassword, sCertificate, sClientId, sClientCert, sClientKey, sClientPass;
+  string sAddressRedu, sHostPortRedu, sUserNameRedu, sPasswordRedu, sCertificateRedu, sClientIdRedu, sClientCertRedu, sClientKeyRedu, sClientPassRedu;
+  mapping mAddressMap, mAddressMapRedu;
+  uint uiConnType = 1, uiConnTypeRedu = 1;
+  bool bDefaultCert;
+
+  uiConnType   = cmbConnType1.selectedPos;
+  sHostPort    = tfHostPort1.text;
+  sUserName    = tfUsername1.text;
+  sPassword    = tfPasswd1.text;
+  sCertificate = tfCertificate1.text;
+  sClientId    = tfClientId1.text;
+  bDefaultCert = cbUseDefaultCert.state(0);
+  sClientCert  = ( bDefaultCert ) ? sDEFAULTCERT : tfClientCert.text;
+  sClientKey   = ( bDefaultCert ) ? sDEFAULTCERT : tfClientKey.text;
+  sClientPass  = tfClientPass.text;
+
+  if ( ( sClientCert != \"\" && sClientKey == \"\" ) || ( sClientCert == \"\" && sClientKey != \"\" ) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"mqtt\", \"mqttCertFields1\")));
+    return;
+  }
+
+  if ( sClientCert == \"\" && sClientKey == \"\" && sClientPass != \"\" )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"mqtt\", \"mqttCertFields2\")));
+    return;
+  }
+
+  mAddressMap = makeMapping(\"ConnectionType\" ,  uiConnType,
+                            \"ConnectionString\", sHostPort,
+                            \"Username\",         sUserName,
+                            \"Password\",         sPassword,
+                            \"Certificate\",      sCertificate,
+                            \"ClientId\",         sClientId,
+                            \"ClientCert\",       sClientCert,
+                            \"ClientKey\",        sClientKey,
+                            \"ClientPass\",       sClientPass);
+
+  if ( sClientId == \"\" )
+    mappingRemove(mAddressMap, \"ClientId\");
+  if ( sClientCert == \"\" )
+    mappingRemove(mAddressMap, \"ClientCert\");
+  if ( sClientKey == \"\" )
+    mappingRemove(mAddressMap, \"ClientKey\");
+  if ( sClientPass == \"\" )
+    mappingRemove(mAddressMap, \"ClientPass\");
+
+
+  sAddress = jsonEncode(mAddressMap, 0);
+
+  // set string to address data point
+  dpSet( dp + sCONF + \"Address\",  sAddress);
+
+  if ( cbReduConn.state(0) == false )
+  {
+    cmbConnType2.selectedPos = uiConnType;
+    tfHostPort2.text    = \"\";
+    tfUsername2.text    = \"\";
+    tfPasswd2.text      = \"\";
+    tfCertificate2.text = \"\";
+    tfClientId2.text    = \"\";
+  }
+
+  uiConnTypeRedu   = cmbConnType2.selectedPos;
+  sHostPortRedu    = tfHostPort2.text;
+  sUserNameRedu    = tfUsername2.text;
+  sPasswordRedu    = tfPasswd2.text;
+  sCertificateRedu = tfCertificate2.text;
+  sClientIdRedu    = tfClientId2.text;
+  sClientCertRedu  = ( bDefaultCert ) ? sDEFAULTCERT : tfClientCert.text;
+  sClientKeyRedu   = ( bDefaultCert ) ? sDEFAULTCERT : tfClientKey.text;
+  sClientPassRedu  = tfClientPass.text;
+
+
+  mAddressMapRedu = makeMapping(\"ConnectionType\" ,  uiConnTypeRedu,
+                                \"ConnectionString\", sHostPortRedu,
+                                \"Username\",         sUserNameRedu,
+                                \"Password\",         sPasswordRedu,
+                                \"Certificate\",      sCertificateRedu,
+                                \"ClientId\",         sClientIdRedu,
+                                \"ClientCert\",       sClientCertRedu,
+                                \"ClientKey\",        sClientKeyRedu,
+                                \"ClientPass\",       sClientPassRedu);
+
+  if ( sClientIdRedu == \"\" )
+    mappingRemove(mAddressMapRedu, \"ClientId\");
+  if ( sClientCertRedu == \"\" )
+    mappingRemove(mAddressMapRedu, \"ClientCert\");
+  if ( sClientKeyRedu == \"\" )
+    mappingRemove(mAddressMapRedu, \"ClientKey\");
+  if ( sClientPassRedu == \"\" )
+    mappingRemove(mAddressMapRedu, \"ClientPass\");
+
+  sAddressRedu = jsonEncode(mAddressMapRedu, 0);
+
+  // set string to reduaddress data point
+  dpSet( dp + sCONF + \"ReduAddress\",  sAddressRedu);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//        set advanced settings to data point
+//        SetInvalidBit:    Set invalid bit in case of connection loss
+//        UseUTC:           False=Local Time (plus Timezone offset), True=UTC is written to
+//                          PLC, Default=True
+//        EnableStatistics: Collect statistical information, Default=True
+//        Lastwill:         MQTT specific settings being applied by broker at connection loss
+void setAdvSettings(string dp)
+{
+  string sLWTopic, sLWMessage;
+  uint sLWQoS, uiLifebeatTimeout, uiReconnTimeout, uiTimezone;
+  bool bLWRetain, bSetInvalidBit, bUseUTC, bEnableStatistics, bPersistSession;
+
+  // get values from controls
+  bSetInvalidBit     = cbSetInvalidBit.state(0);
+  bUseUTC            = cbUseUTC.state(0);
+  uiTimezone         = sbTimezone.text;
+  bEnableStatistics  = cbEnableStatistic.state(0);
+  bPersistSession    = cbPersistSession.state(0);
+  sLWTopic           = tfLWTopic.text;
+  sLWMessage         = tfLWMessage.text;
+  sLWQoS             = sbLWQoS.value;
+  bLWRetain          = cbLWRetain.state(0);
+  uiLifebeatTimeout  = sbKeepAlive.text;
+  uiReconnTimeout    = sbReconnect.text;
+
+  // set values to datapoints
+  dpSet( dp + sCONF + \"SetInvalidBit\"    ,  bSetInvalidBit,
+         dp + sCONF + \"UseUTC\"           ,  bUseUTC,
+         dp + sCONF + \"Timezone\"         ,  uiTimezone,
+         dp + sCONF + \"EnableStatistics\" ,  bEnableStatistics,
+         dp + sCONF + \"LifebeatTimeout\"  ,  uiLifebeatTimeout,
+         dp + sCONF + \"ReconnectTimeout\" ,  uiReconnTimeout,
+         dp + sCONF + \"PersistentSession\",  bPersistSession,
+         dp + sLASTWILL + \"Topic\"        ,  sLWTopic,
+         dp + sLASTWILL + \"Message\"      ,  sLWMessage,
+         dp + sLASTWILL + \"QoS\"          ,  sLWQoS,
+         dp + sLASTWILL + \"Retain\"       ,  bLWRetain);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         reset controls to initial values
+void initGeneralControls()
+{
+  cbEstMode.state(0)  = true;
+  cbReduConn.state(0) = false;
+  sbDrvNumber.value   = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//      get general properties from connection datapoint
+//      EstablishmentMode:  Inactive = 0, AutomaticActive = 1, Default=1
+//      CheckConn:          DPE for adding a Peripheral Address Config to check connection
+//      DrvNumber:          Driver number in the WinCC OA project
+void getGeneralDP(string dp)
+{
+  bool bEstMode;
+  uint uiDriver;
+
+  // get values from data point
+  dpGet( dp + sCONF + \"EstablishmentMode\",  bEstMode,
+         dp + sCONF + \"DrvNumber\"        ,  uiDriver);
+
+  // set values to controls
+  cbEstMode.state(0)   = bEstMode;
+  sbDrvNumber.value    = uiDriver;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         reset controls to initial values
+void initCommandsControls()
+{
+  cbEnableStateMachine.state(0) = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//      get command properties from connection datapoint
+//      Enable:    Enable/Disable connection state machine
+void getCommandsDP(string dp)
+{
+  bool bEnable;
+
+  // get property from datapoint
+  dpGet( dp + sCMD + \"Enable\",  bEnable);
+
+  // set value to control
+  //cbEnableStateMachine.state(0) = bEnable;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         reset controls to initial values
+void initConnectionDPControls()
+{
+  cbEnableStateMachine.state(0) = false;
+  // set default values if no address string exists
+  cmbConnType1.selectedPos = 0;
+  tfHostPort1.text = \"\";
+  tfUsername1.text = \"\";
+  tfPasswd1.text = \"\";
+  tfCertificate1.text = \"\";
+
+  // set default values if no address string exists
+  cmbConnType2.selectedPos = 0;
+  tfHostPort2.text = \"\";
+  tfUsername2.text = \"\";
+  tfPasswd2.text = \"\";
+  tfCertificate2.text = \"\";
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         get Json connection string from data point
+//         get Json redundant connection string from redu data point
+void getConnectionDP(string dp)
+{
+  string sAddress, sAddressRedu;
+  uint uiConnType, uiConnTypeRedu;
+  mapping mAddressMap, mAddressMapRedu;
+
+  // get address from data point
+  dpGet(dp + sCONF + \"Address\", sAddress);
+  mAddressMap              = jsonDecode(sAddress);
+
+
+  // set values from data point
+  uiConnType               = mAddressMap[\"ConnectionType\"];
+  cmbConnType1.selectedPos = uiConnType;
+  tfHostPort1.text         = mAddressMap[\"ConnectionString\"];
+  tfUsername1.text         = mAddressMap[\"Username\"];
+  tfPasswd1.text           = mAddressMap[\"Password\"];
+  tfCertificate1.text      = mAddressMap[\"Certificate\"];
+  tfClientId1.text         = (mappingHasKey(mAddressMap, \"ClientId\")   ? mAddressMap[\"ClientId\"]   : \"\");
+  //tfClientCert.text        = (mappingHasKey(mAddressMap, \"ClientCert\") ? mAddressMap[\"ClientCert\"] : \"\");
+  //tfClientKey.text         = (mappingHasKey(mAddressMap, \"ClientKey\")  ? mAddressMap[\"ClientKey\"]  : \"\");
+  checkDefaultCert(mAddressMap);
+  tfClientPass.text        = (mappingHasKey(mAddressMap, \"ClientPass\") ? mAddressMap[\"ClientPass\"] : \"\");
+
+  tfCertificate1.enabled   = (uiConnType == 2);
+
+  // get redu address from data point
+  dpGet(dp + sCONF + \"ReduAddress\", sAddressRedu);
+  mAddressMapRedu          = jsonDecode(sAddressRedu);
+
+  // set values from data point
+  uiConnTypeRedu           = mAddressMapRedu[\"ConnectionType\"];
+  cmbConnType2.selectedPos = uiConnTypeRedu;
+  tfHostPort2.text         = mAddressMapRedu[\"ConnectionString\"];
+  tfUsername2.text         = mAddressMapRedu[\"Username\"];
+  tfPasswd2.text           = mAddressMapRedu[\"Password\"];
+  tfCertificate2.text      = mAddressMapRedu[\"Certificate\"];
+  tfClientId2.text         = (mappingHasKey(mAddressMapRedu, \"ClientId\") ? mAddressMapRedu[\"ClientId\"] : \"\");
+
+  tfCertificate2.enabled   = (uiConnTypeRedu == 2);
+  cbReduConn.state(0)      = (tfHostPort2.text != \"\");
+
+  enableReduConnetion(cbReduConn.state(0));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkDefaultCert(mapping mCert)
+{
+  string sClientCert, sClientKey;
+
+  if ( mappingHasKey(mCert, \"ClientCert\") )
+    sClientCert = mCert[\"ClientCert\"];
+  if ( mappingHasKey(mCert, \"ClientKey\") )
+    sClientKey  = mCert[\"ClientKey\"];
+
+  bool bDefaultCert = ( sClientCert == sDEFAULTCERT && sClientKey == sDEFAULTCERT );
+
+  setMultiValue(\"cbUseDefaultCert\", \"state\", 0, bDefaultCert,
+                \"ptClientCert\", \"enabled\", !bDefaultCert,
+                \"tfClientCert\", \"enabled\", !bDefaultCert,
+                \"tfClientCert\", \"text\",    ( bDefaultCert ) ? \"\" : sClientCert,
+                \"ptClientKey\",  \"enabled\", !bDefaultCert,
+                \"tfClientKey\",  \"enabled\", !bDefaultCert,
+                \"tfClientKey\",  \"text\",    ( bDefaultCert ) ? \"\" : sClientKey);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableReduConnetion(bool bEnable)
+{
+  uint uiConnType = cmbConnType2.selectedPos;
+
+  ptType2.enabled = bEnable;
+  cmbConnType2.enabled = bEnable;
+
+  frmConn2.enabled = bEnable;
+  ptHostPort2.enabled = bEnable;
+  tfHostPort2.enabled = bEnable;
+  ptUsername2.enabled = bEnable;
+  tfUsername2.enabled = bEnable;
+  ptPasswd2.enabled = bEnable;
+  tfPasswd2.enabled = bEnable;
+
+  ptClientId2.enabled = bEnable;
+  tfClientId2.enabled = bEnable;
+
+  ptCertificate2.enabled = (uiConnType == 2 && bEnable);
+  tfCertificate2.enabled = (uiConnType == 2 && bEnable);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//         reset controls to initial values
+void initAdvControls()
+{
+  cbSetInvalidBit.state(0)   = false;
+  cbUseUTC.state(0)          = false;
+  sbTimezone.text            = \"\";
+  cbEnableStatistic.state(0) = false;
+  cbPersistSession.state(0)  = true;
+  tfLWTopic.text             = \"\";
+  tfLWMessage.text           = \"\";
+  sbLWQoS.value              = 0;
+  cbLWRetain.state(0)        = false;
+  sbKeepAlive.text           = 0;
+  sbReconnect.text           = 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//        get advanced settings from data point
+//        SetInvalidBit:    Set invalid bit in case of connection loss
+//        UseUTC:           False=Local Time (plus Timezone offset), True=UTC is written to
+//                          PLC, Default=True
+//        EnableStatistics: Collect statistical information, Default=True
+//        Lastwill:         MQTT specific settings being applied by broker at connection loss
+void getAdvSettings(string dp)
+{
+  string sLWTopic, sLWMessage;
+  uint sLWQoS, uiLifebeatTimeout, uiReconnTimeout, uiTimezone;
+  bool bLWRetain, bSetInvalidBit, bUseUTC, bEnableStatistics, bPersistSession;
+
+  // read values from datapoint
+  dpGet( dp + sCONF + \"SetInvalidBit\"    ,  bSetInvalidBit,
+         dp + sCONF + \"UseUTC\"           ,  bUseUTC,
+         dp + sCONF + \"Timezone\"         ,  uiTimezone,
+         dp + sCONF + \"EnableStatistics\" ,  bEnableStatistics,
+         dp + sCONF + \"LifebeatTimeout\"  ,  uiLifebeatTimeout,
+         dp + sCONF + \"ReconnectTimeout\" ,  uiReconnTimeout,
+         dp + sCONF + \"PersistentSession\",  bPersistSession,
+         dp + sLASTWILL + \"Topic\"        ,  sLWTopic,
+         dp + sLASTWILL + \"Message\"      ,  sLWMessage,
+         dp + sLASTWILL + \"QoS\"          ,  sLWQoS,
+         dp + sLASTWILL + \"Retain\"       ,  bLWRetain);
+
+  // set values to controls
+  cbSetInvalidBit.state(0)   = bSetInvalidBit;
+  cbUseUTC.state(0)          = bUseUTC;
+  sbTimezone.text            = uiTimezone;
+  sbTimezone.enabled         = !bUseUTC;
+  cbEnableStatistic.state(0) = bEnableStatistics;
+  cbPersistSession.state(0)  = bPersistSession;
+  tfLWTopic.text             = sLWTopic;
+  tfLWMessage.text           = sLWMessage;
+  sbLWQoS.value              = sLWQoS;
+  cbLWRetain.state(0)        = bLWRetain;
+  sbKeepAlive.text           = uiLifebeatTimeout;
+  sbReconnect.text           = uiReconnTimeout;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initStatisticsControls()
+{
+  // set values to controls
+  tfWritesSent.text = \"\";
+  tfLWritesRej.text = \"\";
+  tfNotifications.text = \"\";
+  tfWritesPerSec.text = \"\";
+  tfNotificationsPerSec.text = \"\";
+
+  // set values to controls redundant
+  tfWritesSentRedu.text = \"\";
+  tfLWritesRejRedu.text = \"\";
+  tfNotificationsRedu.text = \"\";
+  tfWritesPerSecRedu.text = \"\";
+  tfNotificationsPerSecRedu.text = \"\";
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// get statistic values
+void getStatistics(string dp)
+{
+  double dWritesSent, dWritesRej, dNotifications, dWritesPerSec, dNotificationsPerSec;
+  mapping mAddressMap1;
+
+  // read values from datapoints
+  dpGet( dp + sSTATISTICS + \"WritesSent\"         ,  dWritesSent,
+         dp + sSTATISTICS + \"WritesRej\"          ,  dWritesRej,
+         dp + sSTATISTICS + \"Notifications\"      ,  dNotifications,
+         dp + sSTATISTICS + \"WritesPerSec\"       ,  dWritesPerSec,
+         dp + sSTATISTICS + \"NotificationsPerSec\",  dNotificationsPerSec);
+
+  // set values to controls
+  tfWritesSent.text = dWritesSent;
+  tfLWritesRej.text = dWritesRej;
+  tfNotifications.text = dNotifications;
+  tfWritesPerSec.text = dWritesPerSec;
+  tfNotificationsPerSec.text = dNotificationsPerSec;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initStateDetailControls()
+{
+  // set values to controls
+  tfDrvType1.text = \"\";
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// callback to set statistic values
+workStatistics(string sWritesSent, double dWritesSent,
+               string sWritesRej, double dWritesRej,
+               string sNotifications, double dNotifications,
+               string sWritesPerSec, double dWritesPerSec,
+               string sNotificationsPerSec, double dNotificationsPerSec)
+{
+  // set values to controls
+  tfWritesSent.text = dWritesSent;
+  tfLWritesRej.text = dWritesRej;
+  tfNotifications.text = dNotifications;
+  tfWritesPerSec.text = dWritesPerSec;
+  tfNotificationsPerSec.text = dNotificationsPerSec;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// callback to set statistic values (redundant)
+workReduStatistics(string sWritesSent, double dWritesSent,
+                   string sWritesRej, double dWritesRej,
+                   string sNotifications, double dNotifications,
+                   string sWritesPerSec, double dWritesPerSec,
+                   string sNotificationsPerSec, double dNotificationsPerSec)
+{
+  // set values to controls
+  tfWritesSentRedu.text = dWritesSent;
+  tfLWritesRejRedu.text = dWritesRej;
+  tfNotificationsRedu.text = dNotifications;
+  tfWritesPerSecRedu.text = dWritesPerSec;
+  tfNotificationsPerSecRedu.text = dNotificationsPerSec;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+workConnState( string dp11, uint uiConnState,
+               string dp12, bool bEnabled,
+               string dp13, dyn_uint duiState)
+{
+  // state host 1
+  string sShape = \"tfConnStateHost1\";
+  string sState1, sState2;
+
+  // set state of connectin 1
+  setConnStateField(uiConnState, sShape);
+
+  sState1 = (bEnabled && dynlen(duiState)>0)  ? getCatStr(\"mqtt\", \"mqttConnectionsState\"   +duiState[1]):  \"---\";
+  sState2 = (bEnabled && dynlen(duiState)>0)  ? getCatStr(\"mqtt\", \"mqttConnectionsState\"   +duiState[2]):  \"---\";
+
+  tfDrvType1.text = sState1;
+  tfDrvType2.text = sState2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+workReduConnState( string dp11, uint uiConnState,
+                   string dp12, bool bEnabled,
+                   string dp13, dyn_uint duiState)
+{
+  // state host 2
+  string sShape = \"tfConnStateHost2\";
+  string sState1, sState2;
+
+  // set state of connectin 2
+  setConnStateField(uiConnState, sShape);
+
+  sState1 = (bEnabled && dynlen(duiState)>0)  ? getCatStr(\"mqtt\", \"mqttConnectionsState\"   +duiState[1]):  \"---\";
+  sState2 = (bEnabled && dynlen(duiState)>0)  ? getCatStr(\"mqtt\", \"mqttConnectionsState\"   +duiState[2]):  \"---\";
+
+  tfDrvType1Redu.text = sState1;
+  tfDrvType2Redu.text = sState2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool setDp()
+{
+  uint uiEstMode;
+ // string sHost=\"\", sUsedHost;
+ // int    iPort=0, iStation=0, iCPU=0, iTimeout=0;
+  int    iContains;
+ // bool   bActive=false, bUsedHost=false;
+
+  string     sDp, sDp2;
+  dyn_string dsCon = cmbConns.items, ds, dsRemoveCurrent;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"general\",\"permission\")));
+    return false;
+  }
+
+  sDp = \"_\" + cmbConns.text;
+  sDp2 = sDp+\"_2\";
+
+  if ( sDp == \"\" )
+    return false;
+
+  if ( !dpExists(sDp) )
+  {
+    dpCreate(sDp, \"_MqttConnection\");
+
+    if ( !dpExists(sDp2) )
+      dpCreate(sDp2, \"_MqttConnection\");
+  }
+
+  string sConn1 = tfHostPort1.text;
+  string sConn2 = tfHostPort2.text;
+  bool bReduConn = cbReduConn.state(0);
+
+  if ( ( sConn1 == \"\" ) || (  bReduConn  && ( sConn1 == \"\" || sConn2 == \"\" ) ) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"mqtt\", \"mqttFillFields\")));
+
+    tabMain.activeRegister(0);
+
+    if(sConn1 == \"\")
+      setInputFocus(myModuleName(), myPanelName(), \"tfHostPort1\");
+    else
+      setInputFocus(myModuleName(), myPanelName(), \"tfHostPort2\");
+
+    return false;
+  }
+
+  if ( sbDrvNumber.enabled == TRUE )
+  {
+    setCheckConnAddress(sDp, sDp, \"__check__\");
+
+    if ( isRedundant() )
+      setCheckConnAddress(sDp2, sDp, \"__checkredu__\");
+
+    if ( checkRunningDrvNums() )
+      sbDrvNumber.enabled = FALSE;
+  }
+
+ // sbDrvNumber.enabled = false;
+ // bActive  = chkActive.state(0);
+  uiEstMode = cbEstMode.state(0);
+
+  for ( int i = 1; i <= dynlen(dsCon); i++ )
+    dsCon[i] = \"_\" + dsCon[i];
+
+  dsRemoveCurrent = dsCon;
+  iContains = dynContains(dsRemoveCurrent, sDp);
+
+  if ( iContains != 0 )
+    dynRemove(dsRemoveCurrent, iContains);
+
+  if ( uiEstMode == 0 )
+  {
+    dpSetWait(sDp + sCMD + \"Enable\", (bool)uiEstMode);
+    delay(0,100);
+  }
+
+  // remove redu dps from list of PLCs
+  for ( int i = dynlen(dsCon); i > 0; i-- )
+  {
+    ds = strsplit(dsCon[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsCon,i);
+      continue;
+    }
+    dsCon[i] = dpSubStr(dsCon[i],DPSUB_DP);
+    sDp = dpSubStr(sDp,DPSUB_DP);
+
+    if ( strpos(dsCon[i], \"_\", 0) != -1 )
+      dsCon[i] = strltrim(dsCon[i], \"_\");
+  }
+
+  // set all general properties
+  setGeneralDP(sDp);
+
+  // set command properties
+  setCommandsDP(sDp);
+
+  // save connection properties
+  setConnectionDP(sDp);
+  // save Last Will infos
+  setAdvSettings(sDp);
+
+  if (isRedundant())
+  {
+    // set all general properties
+    setGeneralDP(sDp + \"_2\");
+    // set command properties
+    setCommandsDP(sDp + \"_2\");
+    setConnectionDP(sDp + \"_2\");
+    setAdvSettings(sDp + \"_2\");
+  }
+
+  if ( uiEstMode == 1 )
+  {
+    delay(0,100);
+    dpSetWait(sDp + sCMD + \"Enable\", (bool)uiEstMode);
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkRunningDrvNums()
+{
+  dyn_uint duiDrvNums = paMqttCheckDrvNums();
+  uint uiDrvNum;
+  string sConn = txtSystem.text+\"_\"+cmbConns.text;
+  string sSys = txtSystem.text;
+
+  dyn_string ds;
+  dyn_float df;
+
+  dpGet(sConn + +sCONF + \"DrvNumber\", uiDrvNum);
+
+  if ( uiDrvNum == 0 )
+  {
+    if ( dynlen(duiDrvNums) )
+      uiDrvNum = duiDrvNums[1];
+  }
+
+  //if ( !dpExists(sSys + \"_Driver\" + uiDrvNum) )
+  //  dpCreate(sSys + \"_Driver\" + uiDrvNum, \"_DriverCommon\");
+
+  if ( !dynContains(duiDrvNums, sbDrvNumber.text) )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"mqtt\", \"mqttDrvNumNotRun\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( dynlen(df) < 1 || df[1] == 0 )
+    {
+      sbDrvNumber.text = uiDrvNum;
+      sbDrvNumber.enabled = true;
+      return false;
+    }
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+getConnState(string sConn)
+{
+  uint     uiConnState;
+
+  dpGet(sConn + sSTATE + \"ConnState\", uiConnState);
+
+  // state host 1
+  string sShape = \"tfConnStateHost1\";
+
+  setConnStateField(uiConnState, sShape);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+shapesEnabled(bool bEnabled)
+{
+  shapesGeneralEnabled(bEnabled);
+  shapesCommandsEnabled(bEnabled);
+  shapesConnectionEnabled(bEnabled);
+  shapesAdvEnabled(bEnabled);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+shapesGeneralEnabled(bool bEnabled)
+{
+  cbEstMode.enabled = bEnabled;
+  cbReduConn.enabled = bEnabled;
+  cmdRemoveDp.enabled = bEnabled;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+shapesCommandsEnabled(bool bEnabled)
+{
+  cbEnableStateMachine.enabled = bEnabled;
+  cmdIGQ.enabled = bEnabled;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+shapesConnectionEnabled(bool bEnabled)
+{
+//   frmConn1.enabled = bEnabled;
+//   frmConn2.enabled = bEnabled;
+//   ptType1.enabled = bEnabled;
+//   cmbConnType1.enabled = bEnabled;
+//   ptType2.enabled = bEnabled;
+//   cmbConnType2.enabled = bEnabled;
+//   ptHostPort1.enabled = bEnabled;
+//   tfHostPort1.enabled = bEnabled;
+//   ptHostPort2.enabled = bEnabled;
+//   tfHostPort2.enabled = bEnabled;
+//   ptUsername1.enabled = bEnabled;
+//   tfUsername1.enabled = bEnabled;
+//   ptUsername2.enabled = bEnabled;
+//   tfUsername2.enabled = bEnabled;
+//   ptPasswd1.enabled = bEnabled;
+//   tfPasswd1.enabled = bEnabled;
+//   ptPasswd2.enabled = bEnabled;
+//   tfPasswd2.enabled = bEnabled;
+//   ptCertificate1.enabled = bEnabled;
+//   tfCertificate1.enabled = bEnabled;
+//   ptCertificate2.enabled = bEnabled;
+//   tfCertificate2.enabled = bEnabled;
+
+  sgConn.enabled = bEnabled;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+shapesAdvEnabled(bool bEnabled)
+{
+  // set enabled state to controls
+//   cbSetInvalidBit.enabled    = bEnabled;
+//   cbUseUTC.enabled           = bEnabled;
+//   sbTimezone.enabled         = bEnabled;
+//   txtTimezone.enabled        = bEnabled;
+//   sbTimezone.enabled         = bEnabled;
+//   txtTimezoneMin.enabled     = bEnabled;
+//   cbEnableStatistic.enabled  = bEnabled;
+//   cbPersistSession.enabled   = bEnabled;
+//   ptKeepAlive.enabled        = bEnabled;
+//   sbKeepAlive.enabled        = bEnabled;
+//   ptKeepAliveSec.enabled     = bEnabled;
+//   ptReconnect.enabled        = bEnabled;
+//   sbReconnect.enabled        = bEnabled;
+//   ptReconnectSec.enabled     = bEnabled;
+//   ptClientId1.enabled        = bEnabled;
+//   tfClientId1.enabled        = bEnabled;
+//   ptClientId2.enabled        = bEnabled;
+//   tfClientId2.enabled        = bEnabled;
+//   tfLWTopic.enabled          = bEnabled;
+//   tfLWMessage.enabled        = bEnabled;
+//   sbLWQoS.enabled            = bEnabled;
+//   cbLWRetain.enabled         = bEnabled;
+
+  sgAdvanced.enabled = bEnabled;
+  sgLw.enabled       = bEnabled;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// TODO check if required
+shapesReduEnabled(bool bEnabled)
+{
+  ptConnStateHost2.enabled = bEnabled;
+  tfConnStateHost2.enabled = bEnabled;
+  ptStatsH2.enabled = bEnabled;
+  ptStateDetailsH2.enabled = bEnabled;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//        set connection string and color depending on conn state
+//
+setConnStateField(uint uiConnState, string sShape)
+{
+
+  string sBackCol, sForeCol;
+
+  if ( uiConnState == 3 )
+  {
+    sBackCol = \"green\";
+    sForeCol = \"black\";
+  }
+  else if ( uiConnState == 1 || uiConnState == 5 )
+  {
+    sBackCol = \"red\";
+    sForeCol = \"white\";
+  }
+  else
+  {
+    sBackCol = \"yellow\";
+    sForeCol = \"black\";
+  }
+
+  setMultiValue(sShape, \"text\",    getCatStr(\"mqtt\", \"mqttConnState\"+uiConnState),
+                sShape, \"backCol\", sBackCol,
+                sShape, \"foreCol\", sForeCol);
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 63
+"frPLC"
+""
+1 10 90 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 1.204081632653062 -0.09451795841210053 -43.16326530612249 0 E 10 40 540 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 20 Соединение
+13 19
+"cmdApply"
+""
+1 370 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 583 456 611
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbConns.text == \"\" )
+    return;
+  else
+    setDp();
+}
+
+
+" 0
+ E E E
+13 20
+"cmdCancel"
+""
+1 460 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 46 Panel schließen, ohne eine Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  458 583 546 611
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 47
+"cmdHelp"
+""
+1 9 583 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 583 96 611
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"mqtt\" );
+}
+
+
+" 0
+ E E E
+22 59
+"cmbConns"
+""
+1 35 24.5 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Select connection
+LANG:10004 12 选择连接
+LANG:10000 21 Verbindung auswählen
+LANG:10027 37 Выбрать подключение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 25 341 51
+0
+
+E
+E
+E
+ 0 0
+1 162 0 "" 0
+0
+30 95
+"frSettings"
+""
+1 10 327 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+90 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 0.2898461326702668 -0.09451795841210019 46.64062235148219 0 E 10 90 540 330
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Common settings
+LANG:10004 12 指令设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+13 103
+"cmdIGQ"
+""
+1 -305 307.0654761904763 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 38 Publishes all output addresses at once
+LANG:10004 36 一次性发布全部的输出地址
+LANG:10000 41 Publisht alle Ausgangsadressen auf einmal
+LANG:10027 38 Publishes all output addresses at once
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 468.0654761904763 151 495.0654761904763
+
+T 
+4
+LANG:10001 10 Inverse GQ
+LANG:10004 10 Inverse GQ
+LANG:10000 10 Inverse GA
+LANG:10027 17 Инверс.ОЗ
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+  string sDp;
+  sDp = \"_\" + cmbConns.text;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(\"$1:\" + getCatStr(\"mqtt\", \"mqttStartIGQ\"),
+                                               \"$2:\" + \"OK\",
+                                               \"$3:\" + getCatStr(\"general\", \"cancel\")),
+                                 df, ds);
+
+  if ( dynlen(ds) > 0 )
+  {
+    if ( df[1] == 1 )
+    {
+      dpSet(sDp + sCMD + \"IGQ\", 1);
+      return;
+    }
+  }
+}
+
+" 0
+ E E E
+30 104
+"frCommands"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 0.5555555555555556 -0.09451795841210019 259.1111111111111 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+30 108
+"frState"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+103 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 0.5454545454545459 -0.09451795841209891 322.5454545454544 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+13 114
+"cmdNewDp"
+""
+1 484 -4.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Create a new connection with default settings
+LANG:10004 6 创建
+LANG:10000 48 Neue Verbindung mit Grundeinstellungen erstellen
+LANG:10027 98 Создать новое подключение с настройками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  348 24 436 52
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  string     sConn = \"_\" + cmbConns.text, sInput = cmbConns.text;
+  dyn_float  df;
+  dyn_string dsCon = cmbConns.items, ds;
+
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                getCatStr(\"da\",\"createdp\"),
+                                makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), sInput),df,ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 ) return;
+
+  sConn = (dynlen(ds)>0)?ds[1]:\"\";
+  sConn = strrtrim(strltrim(sConn));
+
+  if ( strpos(sConn, \" \") != -1 || strpos(sConn, \"__\") != -1 || patternMatch(\"*_1\", sConn) || patternMatch(\"*_2\", sConn) || patternMatch(\"*_\", sConn) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"mqtt\",\"mqttDpInvalid\")));
+    return;
+  }
+  else if ( (sConn == \"\") || (sConn == \"_\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"mqtt\",\"mqttDpEmpty\")));
+    return;
+  }
+  else if ( dpExists(\"_\"+sConn) || dpExists(sConn) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"mqtt\",\"mqttDpExists\")));
+    return;
+  }
+
+  if ( strpos(sConn, \"_\", 0) != -1 )
+    sConn = strltrim(sConn, \"_\");
+
+
+  if (sConn != \"\" || sConn != \"_\")
+  {
+    createNewDp(\"_\" + sConn);
+  }
+
+  // enable the shapes again, because the first PLC has been created
+  if (dynlen(dsCon) < 1)
+  {
+    shapesEnabled(TRUE);
+  }
+
+  sbDrvNumber.enabled = true;
+  cmbConns.text = sConn;
+
+  dsCon = cmbConns.items;
+
+  dynAppend(dsCon, sConn);
+  dynSortAsc(dsCon);
+  dynUnique(dsCon);
+
+  cmbConns.items = dsCon;
+  cmbConns.selectedPos = dynContains(dsCon, sConn);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 115
+"cmdRemoveDp"
+""
+1 623 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Remove connection
+LANG:10004 6 删除
+LANG:10000 20 Verbindung entfernen
+LANG:10027 37 Удалить подключение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  443 24 531 52
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbConns.selectedPos;
+  string     sConn = cmbConns.text, sConn2 = sConn + \"_2\",
+             dp = \"_\" + sConn, dp_2 = dp + \"_2\";
+  dyn_float  df;
+  dyn_string dsCon = cmbConns.items, ds;
+
+  if ( sConn == \"\" )
+    return;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\",\"information\"),
+                                 makeDynString(getCatStr(\"diskspace\",\"dpDelete\"),
+                                               getCatStr(\"para\",\"yes\"),
+                                               getCatStr(\"para\",\"no\")),
+                                 df, ds);
+
+  if ( !df[1] )
+    return;
+
+  dynRemove(dsCon, iPos);
+  cmbConns.items = dsCon;
+
+  if ( dynlen(dsCon) < 1 )
+  {
+    initGeneralControls();
+    initConnectionDPControls();
+    initAdvControls();
+    initStateDetailControls();
+    initStatisticsControls();
+    shapesEnabled(FALSE);      // there is no connection in the list so disable settings
+  }
+  else
+  {
+    if ( iPos < 1 )
+      iPos = 1;
+    if ( iPos > dynlen(dsCon) )
+      iPos = dynlen(dsCon);
+
+    cmbConns.selectedPos(iPos);
+    cmbConns.text = dsCon[iPos];
+  }
+
+  delay(0,501);
+
+  if ( dpExists(dp_2) )
+    dpDelete(dp_2);
+  if ( dpExists(dp) )
+    dpDelete(dp);
+}
+
+" 0
+ E E E
+13 127
+"cmdOk"
+""
+1 280 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+116 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  278 583 366 611
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbConns.text == \"\" )
+  {
+    PanelOff();
+    return;
+  }
+  else
+  {
+    if(setDp())
+      PanelOff();
+  }
+}
+
+
+
+
+
+
+" 0
+ E E E
+2 130
+"ptConnStateHost1"
+""
+1 35 530.9771006611609 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 35 530.9771006611609 114 546
+0 2 2 "0s" 0 0 0 192 0 0  35 530.9771006611609 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State Host 1:
+LANG:10004 16 主机1状态：
+LANG:10000 14 Status Host 1:
+LANG:10027 23 Сост. хоста 1:
+2 131
+"ptConnStateHost2"
+""
+1 301 530.9771006611609 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 301 530.9771006611609 380 546
+0 2 2 "0s" 0 0 0 192 0 0  301 530.9771006611609 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State Host 2:
+LANG:10004 16 主机2状态：
+LANG:10000 14 Status Host 2:
+LANG:10027 23 Сост. хоста 2:
+28 132
+"tabMain"
+""
+1 10.00000000000006 212.904761904762 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 153 546 441
+E6 "#1" 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 20 Соединение
+1 "para/mqtt_connection.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#2" 3
+LANG:10000 9 Erweitert
+LANG:10001 8 Advanced
+LANG:10027 8 Advanced
+1 "para/mqtt_advanced.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#3" 3
+LANG:10000 10 Zertifikat
+LANG:10001 11 Certificate
+LANG:10027 11 Certificate
+1 "para/mqtt_certificate.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#4" 4
+LANG:10001 9 Last Will
+LANG:10004 9 Last Will
+LANG:10000 9 Last Will
+LANG:10027 9 Last Will
+1 "para/mqtt_lw.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#5" 4
+LANG:10001 13 State details
+LANG:10004 12 状态细节
+LANG:10000 13 Statusdetails
+LANG:10027 31 Детали состояния
+1 "para/mqtt_statedetails.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#6" 4
+LANG:10001 10 Statistics
+LANG:10004 6 统计
+LANG:10000 9 Statistik
+LANG:10027 20 Статистики
+1 "para/mqtt_statistic.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+21 135
+"sbDrvNumber"
+""
+1 487 93.36734693877546 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+120 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Select driver number
+LANG:10004 15 选择驱动号
+LANG:10000 21 Treibernummer wählen
+LANG:10027 40 Выбор номера драйвера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  470 93.36734693877546 528 119.3673469387755
+0
+
+E
+E
+E
+
+N 1 255 1 1 1 1
+2 136
+"ptDrvNum"
+""
+1 364.75 98.6798469387755 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 364.75 98.6798469387755 449 114
+0 2 2 "0s" 0 0 0 192 0 0  364.75 98.6798469387755 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Driver number:
+LANG:10004 12 驱动号：
+LANG:10000 14 Treibernummer:
+LANG:10027 28 Номер драйвера:
+20 139
+"cbEstMode"
+""
+1 -458.7434082559012 227.9315476190476 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+122 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 Establish connection(s) to broker and stay connected
+LANG:10004 48 建立到代理服务器的连接并保持连接
+LANG:10000 57 Verbindung(en) zu Broker herstellen und verbunden bleiben
+LANG:10027 52 Establish connection(s) to broker and stay connected
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 92.0625 188 116.0625
+1
+T 
+4
+LANG:10001 20 Establish connection
+LANG:10004 12 建立连接
+LANG:10000 21 Verbindung herstellen
+LANG:10027 37 Установить подключ.:
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE14 143
+"tfConnStateHost1"
+""
+1 116 525 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+124 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Connection state host 1
+LANG:10004 23 Connection state host 1
+LANG:10000 24 Verbindungsstatus Host 1
+LANG:10027 52 Состояние подключения Хост 1
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  123 526 256 552
+2 "0s" 0 0 0 1 0 -1  E E E
+14 144
+"tfConnStateHost2"
+""
+1 395 528 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+125 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Connection state host 2
+LANG:10004 23 Connection state host 2
+LANG:10000 24 Verbindungsstatus Host 2
+LANG:10027 52 Состояние подключения Хост 2
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  393 526 526 552
+2 "0s" 0 0 0 1 0 -1  E E E
+20 152
+"cbEnableStateMachine"
+""
+1 -300 605.4345238095239 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Establish connection(s) to PLC and stay connected
+LANG:10004 38 建立与 PLC 的连接并保持连接
+LANG:10000 54 Verbindung(en) zu SPS herstellen und verbunden bleiben
+LANG:10027 57 Установить подключение(я) к ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  181.7434082559013 469.5654761904763 346.7434082559013 493.5654761904763
+1
+T 
+4
+LANG:10001 17 Enable Connection
+LANG:10004 12 激活链接
+LANG:10000 22 Verbindung herstellen:
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE20 155
+"cbReduConn"
+""
+1 25 113.1681034482759 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+130 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Set redundant connection active/inactive
+LANG:10004 46 设置冗余连接正在运行的/未运行的
+LANG:10000 41 Setzt redundante Verbindung aktiv/inaktiv
+LANG:10027 97 Активировать/деактивировать резервное оборудование
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 112 186 135
+1
+T 
+4
+LANG:10001 20 Redundant connection
+LANG:10004 12 冗余连接
+LANG:10000 21 Redundante Verbindung
+LANG:10027 37 Резервир. подключен.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  enableReduConnetion(cbReduConn.state(0));
+}
+
+
+
+" 0
+2 158
+"txtSystem"
+""
+1 -23000.99999999998 67534.41772151884 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+131 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  this.text = getSystemName();
+}
+
+" 0
+ E 0 1 1 0 1 E 0.9999999999999999 0 0.9999999999999999 -201.9999999999999 445.5 0 E 315 144 362 159
+1 2 2 "0s" 0 0 0 192 0 0  315 144 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 System
+LANG:10004 6 系统
+LANG:10000 6 System
+LANG:10027 14 система
+13 161
+"PUSH_BUTTON1"
+""
+1 -112.625 -68.13265306122449 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+132 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Edit global JSON profiles.
+LANG:10004 22 编辑全局JSON配置
+LANG:10000 43 Allgemein gültige JSON Profile bearbeiten.
+LANG:10027 26 Edit global JSON profiles.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  215.375 92.86734693877547 343.375 119.8673469387755
+
+T 
+4
+LANG:10001 13 JSON profiles
+LANG:10004 13 JSON profiles
+LANG:10000 12 JSON Profile
+LANG:10027 19 Профили JSON
+"main()
+{
+  string     sInput;
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentral(\"para/mqtt_json.pnl\", \"Json Profile\",
+                                  makeDynString());
+}
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 650 T 71 1.110220440881764 0 1 0 -75
+0
+0

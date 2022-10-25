@@ -1,0 +1,1592 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+    tbl_correlation.enabled(false);
+    btn_ccCalc.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  ssc_dataExp_initializeCorrelation();
+}
+" 0
+ E E E E 1 -1 -1 0  -10 690
+""0  1
+E "/*
+Author: Paul Schneeweiß, paul.schneeweiss@siemens.com
+Data Exploration Cross Correlation Panel
+
+Copyright (C) Siemens AG 2015. All Rights Reserved.
+*/
+
+#uses \"SmartSCADA/analytics/dataExp\"
+
+bool panelChanged = false;
+
+int SaveSession()
+{
+  //iterating through table and appending all selected lines to a dyn_string
+  bool isSelected;
+  int error;  
+  int allLines;  
+  dyn_string selectedDPs;
+  string dpe1, dpe2;
+    
+  getValue(SSC_TABLE_CORRELATION, \"lineCount\", allLines);
+
+  for(int i = 0; i < allLines; i++)
+  {
+    getValue(SSC_TABLE_CORRELATION, \"cellValueRC\", i, SSC_TABLE_CORRELATION_FWD_COLUMN, isSelected);
+    if(isSelected)
+    {
+      getValue(SSC_TABLE_CORRELATION, \"cellValueRC\", i, SSC_TABLE_CORRELATION_DPE1, dpe1);
+      getValue(SSC_TABLE_CORRELATION, \"cellValueRC\", i, SSC_TABLE_CORRELATION_DPE2, dpe2);
+      dynAppend(selectedDPs, makeDynString(dpe1, dpe2));
+    }
+  }
+  dynUnique(selectedDPs);
+  
+  if(!getUserPermission(USER_PERMISSION))
+  {
+    dyn_string inputDPs;
+    string session;
+    time startTime, endTime;
+    int equiTimeInterval, maxLagDetection;
+    bool quality;
+    
+    session = \"dm_\" + SSC_TEMP_SESSION;
+    
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".inputDPs\", inputDPs);
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".startTime\", startTime);
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".endTime\", endTime);
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".equiTimeInterval\", equiTimeInterval);
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".maxLagDetection\", maxLagDetection);
+    dpGet(\"dm_\" + g_dataMiningSessionName + \".quality\", quality);   
+    
+    dpSet(session + \".inputDPs\", inputDPs);
+    dpSet(session + \".startTime\", startTime);
+    dpSet(session + \".endTime\", endTime);
+    dpSet(session + \".equiTimeInterval\", equiTimeInterval);
+    dpSet(session + \".maxLagDetection\", maxLagDetection);
+    dpSet(session + \".quality\", quality); 
+    dpSet(session + \".lastSaved\", getCurrentTime());
+    dpSet(session + \".selectedDPs\", selectedDPs);
+    g_dataMiningSessionName = SSC_TEMP_SESSION;
+  }
+  else
+  {
+    dpSet(\"dm_\" + g_dataMiningSessionName + \".selectedDPs\", selectedDPs);
+  }
+  ssc_dataExp_setSelectedDPs();
+  panelChanged = false;
+  wf_bottomBar_reload();
+  return WF_PANEL_SAVE_SAVED;
+}
+
+/**
+ This Function is for the Wizard Framework Bottom Bar (Save and Reset) 
+  @return 1 or -1 either if changes are open or not
+*/
+int isPanelChanged()
+{
+  if (panelChanged)
+    return WF_PANEL_CHANGED;
+  else
+    return WF_PANEL_NO_CHANGE;
+}
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+20 32
+"chkBoxHideBelowCorrelation"
+"WF"
+1 328 62 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignRight|AlignTrailing"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  326 60 610 81
+1
+T 
+4
+LANG:10001 23 Hide correlations below
+LANG:10004 24 隐藏下面的相关性
+LANG:10000 42 Korrelationen unter diesem Wert ausblenden
+LANG:10027 23 Hide correlations below
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  int langIndex;
+  string lang;
+  langIndex = getActiveLang();
+  lang = getLocale(langIndex);
+
+  //German
+  if(lang == \"de_AT.utf8\")
+  {
+  chkBoxHideBelowCorrelation.position(330,62);
+  }
+  //Russian
+  else if(lang == \"ru_RU.utf8\")
+  {
+  chkBoxHideBelowCorrelation.position(450,62);
+  }  
+  //English and everything else
+  else
+  {
+  chkBoxHideBelowCorrelation.position(450,62);
+  }
+}
+" 0
+"main(int button, int state)
+{
+  bool local_state;
+  if (button == 0)
+  {
+    local_state = state;
+  }
+  else
+  {
+    local_state = FALSE;
+  }
+  ssc_dataExp_handleLowCorrelations(local_state);
+
+}
+
+
+
+" 0
+29 63
+"txt_details"
+""
+1 715 435.1340101522843 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+17
+"wordWrap" "enum 1"
+"sizeAdjustPolicy" "enum 0"
+"wrapPolicy" "enum 0"
+"alignment" "enum 1"
+"horizontalScrollBarPolicy" "enum 0"
+"layoutDirection" "enum 0"
+"frameShape" "enum 0"
+"textInteractionFlags" "enum 1"
+"inputMethodHints" "enum 1024"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"contextMenuPolicy" "enum 1"
+"textFormat" "enum 2"
+"frameShadow" "enum 48"
+"readOnly" "bool TRUE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  715 435 1265 515
+15 PVSS.TextEdit.1
+0
+E6 62
+"RECTANGLE3"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.340378472626198 0 0.8856126192470993 -77.19365988623609 84.53685251870905 1 E 23 503 406 536
+19 23
+"rad_chart"
+"WF"
+1 721.624597873833 63.13124999999999 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  713.0000000000001 59 1010.607568042142 80
+3
+T 
+4
+LANG:10001 10 Line chart
+LANG:10004 9 折线图
+LANG:10000 6 Linien
+LANG:10027 10 Line chart
+
+1 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Scatter plot
+LANG:10004 9 散点图
+LANG:10000 6 Punkte
+LANG:10027 12 Scatter plot
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 9 Histogram
+LANG:10004 9 直方图
+LANG:10000 10 Histogramm
+LANG:10027 9 Histogram
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  ssc_dataExp_showChart(\"rad_chart\", \"trd_lines\", \"trd_scatter\", \"bar_histogram\", 
+                    \"bar_histogram1\", \"bar_histogram2\", \"spn_breaks\", \"chk_vislag\", 
+                    \"txt_breaksInfo\", \"txt_histogram1\", \"txt_histogram2\", g_dpe1, g_dpe2);
+}
+
+
+         
+
+
+
+
+
+
+" 0
+
+25 8
+"tbl_correlation"
+"WF"
+1 -1.253617945007078 85.48623251748248 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int rows;
+  getValue(\"tbl_correlation\", \"getSelectedLines\", rows);
+  
+  if(sizeof(rows) > 0)
+  {
+    ssc_dataExp_handleCorrelationTabelChange(rows[1], \"dpe1\");
+  }
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 82.99999999999996 702 532
+"main()
+{
+  tbl_correlation.tableMode(TABLE_SELECT_MULTIPLE);
+  tbl_correlation.selectByClick(TABLE_SELECT_LINE);
+  tbl_correlation.alternatingRowColors( makeDynString(\"WF_TableAlternatingRowColor_2\",\"WF_TableAlternatingRowColor_1\"));
+}
+" 0
+"
+main(int row, string column, string value)
+{
+  if(column == SSC_TABLE_CORRELATION_FWD_COLUMN)
+  {
+    dyn_int selectedRows;
+    bool checked;
+    int selectedRowsCount;
+
+    getValue(\"tbl_correlation\", \"getSelectedLines\", selectedRows);
+    getValue(\"tbl_correlation\", \"cellValueRC\", row, SSC_TABLE_CORRELATION_FWD_COLUMN, checked);
+    selectedRowsCount = dynlen(selectedRows);
+  
+    for (int i = 1; i<= selectedRowsCount; i++)
+    {
+      setValue(\"tbl_correlation\", \"cellValueRC\", selectedRows[i], SSC_TABLE_CORRELATION_FWD_COLUMN, checked);
+    }
+
+    panelChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 1 0 1 7 0 "forwardColumn" 1 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 3 ►
+LANG:10004 3 ►
+LANG:10000 3 ►
+LANG:10027 3 ►
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+20 "dpe1" 25 0 0 "s" 4
+LANG:10001 5 DPE 1
+LANG:10004 5 DPE 1
+LANG:10000 5 DPE 1
+LANG:10027 5 DPE 1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+287 "dpe_desc1" 25 1 0 "s" 4
+LANG:10001 17 DPE 1 Description
+LANG:10004 12 DPE 1 描述
+LANG:10000 18 DPE 1 Beschreibung
+LANG:10027 17 DPE 1 Description
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+287 "dpe2" 25 0 0 "s" 4
+LANG:10001 5 DPE 2
+LANG:10004 5 DPE 2
+LANG:10000 5 DPE 2
+LANG:10027 5 DPE 2
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+287 "dpe_desc2" 25 1 0 "s" 4
+LANG:10001 17 DPE 2 Description
+LANG:10004 12 DPE 2 描述
+LANG:10000 18 DPE 2 Beschreibung
+LANG:10027 17 DPE 2 Description
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+287 "corrCoef" 3 1 0 "s" 4
+LANG:10001 5 Corr.
+LANG:10004 5 Corr.
+LANG:10000 5 Korr.
+LANG:10027 5 Corr.
+E
+4
+LANG:10001 23 Correlation coefficient
+LANG:10004 12 相关系数
+LANG:10000 23 Korrelationskoeffizient
+LANG:10027 23 Correlation coefficient
+
+45 "lag" 3 1 0 "s" 4
+LANG:10001 3 Lag
+LANG:10004 6 滞后
+LANG:10000 3 Lag
+LANG:10027 3 Lag
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+45 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+21 33
+"spn_minCorrelation"
+"WF"
+1 612.6929824561403 63.89337716149007 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  611 56.38350874043744 685 85.38350874043743
+0
+
+E
+"main()
+{
+  bool state;   
+  getValue(\"chkBoxHideBelowCorrelation\", \"state\", 0, state);
+  if (state) 
+  {
+    ssc_dataExp_handleLowCorrelations(state);
+  }
+}
+" 0
+
+E
+
+N 0 100 1 30 1 1
+6 37
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.342036553524804 0 0.7146023317458572 -76.86684073107048 -329.2132358310797 1 E 23 503 406 536
+2 38
+"Session_Header"
+"WF"
+1 14.99999999999999 9.267017480874983 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999994 0 1 3.375077994860476e-14 25.38916677045561 0 E 14.99999999999999 9.267017480874983 93 24
+0 2 2 "0s" 0 0 0 192 0 0  14.99999999999999 9.267017480874983 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Correlations
+LANG:10004 9 相关性
+LANG:10000 13 Korrelationen
+LANG:10027 12 Correlations
+2 41
+"txt_sessionName"
+"WF"
+1 66 82.86633740437492 E E E 1 E 0 E N "WF_TextOver" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignHCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 0.8823529411764707 796 -60.00000000000004 0 E 66 82.86633740437492 482 99.86633740437492
+0 2 2 "0s" 0 0 0 64 0 0  66 82.86633740437492 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 45
+"PRIMITIVE_TEXT4"
+"WF"
+1 14.99999999999999 9.267017480874983 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999994 0 1 700 25.38916677045561 0 E 14.99999999999999 9.267017480874983 124 24
+0 2 2 "0s" 0 0 0 192 0 0  14.99999999999999 9.267017480874983 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Chart and details
+LANG:10004 12 图标详细
+LANG:10000 17 Trend und Details
+LANG:10027 17 Chart and details
+4 44
+"LINE1"
+""
+1 700 29.99999999999997 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  700 29.99999999999997 700 559
+13 48
+"btn_ccCalc"
+"WF_Transparent"
+1 659.5 535.6126082175772 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 (Re-)Calculation
+LANG:10004 18 （重新）计算
+LANG:10000 15 (Neu-)Berechnen
+LANG:10027 16 (Re-)Calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  658 530.1126082175772 687 559.1126082175772
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 16 (Re-)Calculation
+LANG:10004 18 （重新）计算
+LANG:10000 16 (Neu-) Berechnen
+LANG:10027 16 (Re-)Calculation
+"main()
+{
+  dmCorr_clearTable();
+  this.enabled(false);
+  tbl_correlation.enabled(false);
+  btn_stopCalcCorr.enabled(true);
+  
+  ssc_dataExp_refreshCrossCorrelation();
+  
+  int dpePairCount;
+  getValue(\"tbl_correlation\", \"lineCount\", dpePairCount);
+  if (dpePairCount > 0)
+  {
+    ssc_setIcon(\"btn_ccCalc\", \"recalculate\");
+  }
+
+  this.enabled(true);
+  tbl_correlation.enabled(true);
+  btn_stopCalcCorr.enabled(false);
+  g_stopCalculationCorrelationPanel = false;
+}
+
+void dmCorr_clearTable()
+{
+  int lines = tbl_correlation.lineCount();
+  
+  for(int i = 0; i < lines; i++)
+  {
+    tbl_correlation.cellValueRC(i, \"corrCoef\", \"\");
+    tbl_correlation.cellValueRC(i, \"lag\", \"\");
+  }
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"calculate\");
+}" 0
+
+13 49
+"PUSH_BUTTON1"
+"WF_Transparent"
+1 1240.02933596002 537.1126082175772 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+45 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1238 530.1126082175772 1267 559.1126082175772
+
+P 
+4294967295
+"pictures/wf/buttons/dots.png"
+4
+LANG:10001 17 Correction values
+LANG:10004 9 修正值
+LANG:10000 14 Korrekturwerte
+LANG:10027 17 Correction values
+"main()
+{
+  dyn_float df; 
+  dyn_string ds;
+  dyn_string dp;
+  ChildPanelOnCentralModalReturn(\"para/ac/ac_corr_value.pnl\", getCatStr(\"RDBArchive\", \"paneltemplatenew\"), dp, df, ds);
+    
+  if(dynlen(ds) > 0)
+  {
+    //do not know which dpes were changed - so delete the cache for all
+    ssc_dataExp_clearCache();
+  
+    dyn_int rows;
+    getValue(\"tbl_correlation\", \"getSelectedLines\", rows);
+  
+    if(sizeof(rows) > 0)
+    {
+      ssc_dataExp_handleCorrelationTabelChange(rows[1], \"dpe1\");
+    }
+  }
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"dots\");
+  this.enabled(getUserPermission(USER_PERMISSION));
+}" 0
+
+14 51
+"wf_txtF_answer"
+""
+1 1110.878643365033 494.1542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1110 483 1262 517
+3 "0s" 0 0 0 0 0 -1  E E E
+14 52
+"wf_txtF_cmd"
+""
+1 1110.878643365033 447.1542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1110 436 1262 470
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+29 53
+"txt_status"
+""
+1 407.6402116402121 533.4168956043957 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShadow" "enum 16"
+"alignment" "enum 132"
+"bold" "bool TRUE"
+"frameShape" "enum 0"
+"midLineWidth" "int 1"
+"readOnly" "bool TRUE"
+"currentColor" "color {255,0,4}"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  411.5 533.8273809523811 538.5 555.1726190476192
+15 PVSS.TextEdit.1
+0
+E29 54
+"att_Calculating"
+"WF"
+1 512.25 151.0863095238096 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color WF_Text"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  515 255 614 354
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+6 57
+"RECTANGLE1"
+""
+1 23 503 E E E 1 E 1 E N "WF_PanelBackground" E N "WF_PanelBackground" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.339423552424734 0 0.8924373597063155 -76.80674170576889 -449.0664092161053 1 E 23 503 406 536
+29 58
+"txt_tf_Header"
+"WF_Transparent"
+1 10.99453094863385 2.008301680458999 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+5
+"frameShape" "enum 0"
+"styleSheet" "string WF"
+"currentFont" "font Arial,-1,13,5,50,0,0,0,0,0"
+"textFormat" "enum 0"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10.99453094863385 2.008301680458999 1276.005469051366 28.13733393852353
+15 PVSS.TextEdit.1
+0
+E13 59
+"btn_stopCalcCorr"
+"WF_Transparent"
+1 670.7836899100339 536.1126082175772 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Stops the calculation
+LANG:10004 12 停止计算
+LANG:10000 21 Stoppt die Berechnung
+LANG:10027 21 Stops the calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  632.7836899100339 530.1126082175772 661.7836899100339 559.1126082175772
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 16 Stop Calculation
+LANG:10004 12 停止计算
+LANG:10000 18 Berechnung stoppen
+LANG:10027 16 Stop Calculation
+"main()
+{
+  g_stopCalculationCorrelationPanel = true;
+  this.enabled(false);
+}
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"stop\");
+}" 0
+
+2 60
+"PRIMITIVE_TEXT1"
+""
+1 780 530 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.8432203389830508 0 0.608695652173913 367.6016949152542 215.0039125654033 0 E 780 530 1016 553
+0 2 2 "0s" 0 0 0 66 0 0  780 530 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Correction values
+LANG:10004 9 修正值
+LANG:10000 14 Korrekturwerte
+LANG:10027 17 Correction values
+4 66
+"LINE4"
+""
+1 2.270406085358445e-13 530 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  2.270406085358445e-13 530 1279 530
+20 56
+"chk_vislag"
+"WF"
+1 1099.556077298555 60.53125 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1098 59 1232.101290605795 80
+1
+T 
+4
+LANG:10001 13 Visualize lag
+LANG:10004 15 滞后可视化
+LANG:10000 12 Lag anzeigen
+LANG:10027 13 Visualize lag
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  dyn_int lines;
+  string column;
+  string value;
+  getValue (\"tbl_correlation\", \"getSelectedLines\", lines);
+  getValue (\"tbl_correlation\", \"currentColumn\", column);
+  getValue (\"tbl_correlation\", \"cellValue\", value);
+  
+  if (dynlen(lines) == 1)
+    ssc_dataExp_handleCorrelationTabelChange(lines[1], column, value);
+}
+" 0
+27 24
+"bar_histogram"
+""
+1 1115.456071867471 124.3644249517732 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  698 83 1282 422
+2 0 100 1 2 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+0 0 100 1 0 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+1 1 1 20 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  3 0 1 0 1 N {0,0,0}
+0 0 1 0 1 N {0,0,0} 1 0 0 20 20 N {255,0,0} N {255,0,0} N {102,102,102} 1 
+E
+4 67
+"LINE5"
+""
+1 1.00000000000023 54.77478356484568 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1.00000000000023 54.77478356484568 1280 54.77478356484568
+4 68
+"LINE6"
+""
+1 -0.000389710663284748 30.28967129635839 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  -0.000389710663284748 30.28967129635839 1278.999610289337 30.28967129635839
+27 29
+"bar_histogram2"
+""
+1 1406.938087521798 123.9850831184426 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  988 83 1282 422
+2 0 100 1 2 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+0 0 100 1 0 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+1 1 1 20 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  3 0 1 0 1 N {0,0,0}
+0 0 1 0 1 N {0,0,0} 1 0 0 20 20 N {255,0,0} N {255,0,0} N {102,102,102} 1 
+E
+27 28
+"bar_histogram1"
+""
+1 923.3077596302097 124.0065665431207 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  698 83 992 422
+2 0 100 1 2 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+0 0 100 1 0 "%H:%M" 0 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 3 0 1 0 1 N {0,0,0}
+1 1 1 20 4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  3 0 1 0 1 N {0,0,0}
+0 0 1 0 1 N {0,0,0} 1 0 0 20 20 N {255,0,0} N {255,0,0} N {102,102,102} 1 
+E
+14 30
+"txt_histogram1"
+""
+1 699.7317444182147 402.9351653812086 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10004 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10000 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  698 397.9999999999999 992 421.9999999999999
+3 "0s" 0 0 0 1 0 -1  E E E
+14 31
+"txt_histogram2"
+""
+1 989.6789819787051 402.893503187315 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+
+}"
+4
+LANG:10001 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10004 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10000 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  988 398.0000000000001 1282 422
+3 "0s" 0 0 0 1 0 -1  E E E
+21 25
+"spn_breaks"
+"WF"
+1 1195.699202713143 63.4247081085679 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1195 56 1267 85
+0
+
+E
+"main()
+{
+  if(g_dpe1!=\"\" && g_dpe2!=\"\")
+  {
+    ssc_dataExp_refreshHistogram(g_dpe1, spn_breaks.text, \"bar_histogram1\"); 
+    ssc_dataExp_refreshHistogram(g_dpe2, spn_breaks.text, \"bar_histogram2\"); 
+  }
+  else
+  {
+    ssc_dataExp_refreshHistogram(g_dpe1, spn_breaks.text, \"bar_histogram\"); 
+  }
+}
+
+
+" 0
+
+E
+
+N 2 100 1 100 1 1
+2 50
+"txt_breaksInfo"
+""
+1 1004 65 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9845478489903415 0 0.9999999999999997 75.7769973661114 2.000000000000007 0 E 928.5714285714287 60.00000000000002 1131.710362047441 81.36363636363637
+0 2 2 "0s" 0 0 0 66 0 0  928.5714285714287 60.00000000000002 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Breaks suggested:
+LANG:10004 17 Breaks suggested:
+LANG:10000 30 Histogramm Zellen vorschlagen:
+LANG:10027 17 Breaks suggested:
+23 21
+"trd_scatter"
+""
+1 700 84.84752208109481 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  698.4863739641547 83 1282.486373964155 422.0094940349026
+5 E E E 1 579 N {0,0,0} 0 0 1 0 1 0 1 1 "scatter" "" 7 0 0 0 1 "3 2 0.0" "%x" 0 1 2 0 E
+E
+1 0 0 3 2
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 "" ""  1 0 0 1 0 1 N "Red"
+0 0 0 0 0 0 0 0
+"" 1 "3 2 0.0" "%x" 0 1 0 0 1 0 0 3 2 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 0 0 0 0 0 0 0 0
+0 
+E 0 1 0 0 90 0 20 3600
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  100 
+N {0,0,0} 0 0 1 0 1 150 1 5 5 1 2
+0
+23 9
+"trd_lines"
+""
+1 699.8538816550807 84.64299384259323 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  698.0000000000001 83 1282 422
+5 E E E 1 579 N {0,0,0} 0 0 1 0 1 0 2 0 "dpe1" "" 0 2 0 0 1 "3 2 0.0" "%x" 0 1 2 0 E
+E
+1 0 0 3 2
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 "" ""  1 0 0 1 0 1 N "Red"
+0 0 0 0 0 0 0 0
+0 "dpe2" "" 0 2 0 0 1 "3 2 0.0" "%x" 0 1 2 0 E
+E
+1 0 0 3 2
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 "" ""  1 0 0 1 0 1 N "blue"
+0 0 0 0 0 0 0 0
+1 1 "%H:%M:%S" "%x" 0 1 0 0 
+E 1 1 0 0 90 1 20 3600
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  100 
+N {0,0,0} 0 0 1 0 1 150 1 5 5 1 2
+0
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

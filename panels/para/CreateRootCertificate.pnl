@@ -1,0 +1,1558 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 550 485 N "_3DFace" 0
+"main()
+{
+  txtOrganization.placeholderText = getCatStr(\"SSLCerts\", \"warnDifferentRoot\");
+  txtMail.placeholderText = getCatStr(\"SSLCerts\", \"warnDifferentRoot\");
+
+  string path = PROJ_PATH + CONFIG_REL_PATH;
+
+  if (!isEvConnOpen())  // in PA
+    path = getTempDir();
+
+  if ( _WIN32 )
+    strreplace(path, \"/\", \"\\\\\");
+
+  txtPath.text = path;
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "const string myPathChar = (_WIN32 ? \"\\\\\" : \"/\");
+
+string getTempDir()
+{
+  string tmpDir;
+  string help;
+  if (_WIN32)
+  {
+    tmpDir = getenv(\"TEMP\");
+    if (tmpDir == \"\")
+      tmpDir = \"C:\";
+    tmpDir = tmpDir +\"\\\\\";
+  }
+  else
+  {
+    tmpDir = \"/tmp/\";
+  }
+  help = tmpDir + \"cert\";
+  if (mkdir(help))
+    tmpDir = help + myPathChar;
+
+  return tmpDir;
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 3
+"cmdCreateCert"
+""
+1 424.6666666666666 399.1885245901639 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 27 Create the root certificate
+LANG:10004 37 创建根证书（root certificate）
+LANG:10000 31 Erstellen des root-Zertifikates
+LANG:10027 57 Cоздание корневого сертификата
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  422.6666666666666 397.1885245901639 511 425
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  string keyFile;
+  string pemFile;
+
+  // check parameter, issue warning and error messages
+  if ( CmbCertType.selectedPos == 1 )    // free certificate
+  {
+    keyFile = txtPath.text + myPathChar + rootCertName.text+\".key\";
+    pemFile = txtPath.text + myPathChar + rootCertName.text+\".crt\";
+    if (rootCertName.text == \"\")
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                               makeDynString(getCatStr(\"SSLCerts\", \"invalidCertName\")));
+      return;
+    }
+  }
+  else if ( CmbCertType.selectedPos == 2 )  // proxy
+  {
+    keyFile = txtPath.text + myPathChar + \"root-key.pem\";
+    pemFile = txtPath.text + myPathChar + \"root-cert.pem\";
+  }
+  else if ( CmbCertType.selectedPos == 3 )    // HTTPS
+  {
+    keyFile = txtPath.text + myPathChar + \"root-privkey.key\";
+    pemFile = txtPath.text + myPathChar + \"root-certificate.pem\";
+  }
+
+  if ( (txtPath.text == \"\") || !isdir(txtPath.text) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"invalidPath\")));
+    return;
+  }
+
+  if (rootKeyPwd.text == \"\")
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"noPwd\")));
+    return;
+  }
+
+  if (strpos(rootKeyPwd.text, \" \", 0) > 0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"wrongPwd\")));
+    return;
+  }
+
+  if ( (access(keyFile, F_OK) == 0) ||
+       (access(pemFile, F_OK) == 0) )
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                                   makeDynString(getCatStr(\"SSLCerts\", \"certAlreadyExists\"),
+                                                 getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")), df, ds);
+
+    if ( (dynlen(df) == 0) || !df[1] )  // abort/x or cancel
+      return;
+
+    remove(keyFile);
+    remove(pemFile);
+  }
+
+  // disable panel and activate progress bar
+  setValue(\"grShapes\", \"enabled\", false);
+  progress.visible = true;
+  this.enabled = false;
+
+  string param = \"-subj /C=\\\"\"+ txtCountry.text + \"\\\"/ST=\\\"\" + txtProvince.text + \"\\\"/L=\\\"\" + txtLocality.text +
+                   \"\\\"/O=\\\"\" + txtOrganization.text + \"\\\"/OU=\\\"\" + txtDepartment.text + \"\\\"/CN=\\\"\" + txtMail.text + \"\\\"\";
+
+  string setOpenSSLPath = getPath(BIN_REL_PATH, \"openssl.cnf\");
+  setOpenSSLPath = \"set OPENSSL_CONF=\" + setOpenSSLPath;
+  string sOut, sErr;
+  int rc;
+
+  string cmd = setOpenSSLPath + \"&\" + \"openssl genrsa -aes256 -out \\\"\" + keyFile +
+                                      \"\\\" -passout pass:\" + rootKeyPwd.text + \" 2048 \";
+
+  rc = system(cmd, sOut, sErr);
+  if (rc == 0)
+  {
+    cmd = setOpenSSLPath + \"&\" + \"openssl req -new -x509 -days \" + spDaysValid.text + \" -key \\\"\" + keyFile +
+            \"\\\" -passin pass:\" + rootKeyPwd.text + \" -out \\\"\" + pemFile + \"\\\" \" + param;
+    rc = system(cmd, sOut, sErr);
+  }
+
+  if ( (rc != 0) && (sErr != \"\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"warnCertCreateLog\")));
+
+    // throw output in logfile
+    strreplace(sErr, \"\\n\", \"; \");
+    throwError(makeError(\"SSLCerts\", PRIO_WARNING, ERR_CONTROL, 1, sErr));
+  }
+  else if ( (access(keyFile, F_OK) != 0) ||
+            (access(pemFile, F_OK) != 0) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"SSLCerts\", \"warnCertCreate\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"couldNotCreateCert\")));
+
+    // be paranoid maybe one of them was created
+    remove(pemFile);
+    remove(keyFile);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", getCatStr(\"general\", \"information\"),
+                             makeDynString(getCatStr(\"SSLCerts\", \"certCreated\")));
+  }
+
+  setValue(\"grShapes\", \"enabled\", true);
+  progress.visible = false;
+  this.enabled = true;
+}
+
+" 0
+ E E E
+2 8
+"PRIMITIVE_TEXT5"
+""
+1 177.6666666666666 268.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 268.1885245901639 160 285
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 268.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Country Code:
+LANG:10004 12 国家代码
+LANG:10000 12 Ländercode:
+LANG:10027 20 Код страны:
+14 10
+"txtCountry"
+""
+1 165.8560348218436 264.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 262.1885245901639 206 288
+3 "2s" 2 0 0 0 0 -1  E E E
+2 11
+"PRIMITIVE_TEXT6"
+""
+1 341.6666666666666 268.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 206.6666666666666 268.1885245901639 269 291
+0 2 2 "0s" 0 0 0 66 0 0  206.6666666666666 268.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Province:
+LANG:10004 7 省份:
+LANG:10000 8 Provinz:
+LANG:10027 17 Край/обл.:
+14 12
+"txtProvince"
+""
+1 274.6666666666666 264.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  272.6666666666666 262.1885245901639 511 288
+3 "0s" 0 0 0 0 0 -1  E E E
+2 13
+"PRIMITIVE_TEXT7"
+""
+1 177.6666666666666 295.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 295.1885245901639 160 313
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 295.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 City:
+LANG:10004 7 城市:
+LANG:10000 10 Ort/Stadt:
+LANG:10027 26 Населен.пункт:
+14 14
+"txtLocality"
+""
+1 165.6666666666666 291.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 289.1885245901639 511 315
+3 "0s" 0 0 0 0 0 -1  E E E
+2 15
+"PRIMITIVE_TEXT8"
+""
+1 177.6666666666666 322.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 322.1885245901639 160 340
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 322.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Organization:
+LANG:10004 13 组织机构:
+LANG:10000 13 Organisation:
+LANG:10027 23 Организация:
+14 16
+"txtOrganization"
+""
+1 165.6666666666665 318.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 316.1885245901639 511 342
+3 "0s" 0 0 0 0 0 -1  E E E
+2 17
+"PRIMITIVE_TEXT9"
+""
+1 177.6666666666666 349.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 349.1885245901639 160 367
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 349.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Department:
+LANG:10004 7 部门:
+LANG:10000 10 Abteilung:
+LANG:10027 27 Подразделение:
+14 18
+"txtDepartment"
+""
+1 165.6666666666665 345.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 343.1885245901639 511 369
+3 "0s" 0 0 0 0 0 -1  E E E
+14 21
+"txtMail"
+""
+1 165.6666666666665 372.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 370.1885245901639 511 396
+3 "0s" 0 0 0 0 0 -1  E E E
+2 22
+"Product_IP"
+""
+1 177.6666666666666 376.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 376.1885245901639 160 394
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 376.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 CN Name:
+LANG:10004 9 CN名称:
+LANG:10000 8 CN Name:
+LANG:10027 23 CN (Общее имя):
+2 24
+"PRIMITIVE_TEXT12"
+""
+1 177.6666666666666 240.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 55.66666666666657 240.1885245901639 160 258
+0 2 2 "0s" 0 0 0 66 0 0  55.66666666666657 240.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Expiration date:
+LANG:10004 13 截止日期:
+LANG:10000 18 Gültigkeitsdauer:
+LANG:10027 30 Действителен по:
+21 25
+"spDaysValid"
+""
+1 290.6666666666666 238.5655737704917 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  288.6666666666666 236.1885245901639 402 262
+0
+
+E
+E
+E
+
+N 1 999999999 1 1096 1 1
+2 26
+"PRIMITIVE_TEXT13"
+""
+1 531.6666666666665 242.1885245901639 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 409.6666666666666 242.1885245901639 514 260
+0 2 2 "0s" 0 0 0 64 0 0  409.6666666666666 242.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 days
+LANG:10004 4 days
+LANG:10000 4 Tage
+LANG:10027 8 Дней
+14 28
+"txtDnsName"
+""
+1 110.9999999999999 448.128945860594 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  109 446 456 472
+3 "0s" 0 0 0 0 0 -1  E E E
+2 29
+"PRIMITIVE_TEXT14"
+""
+1 124 451.128945860594 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 2 451.128945860594 106 469
+0 2 2 "0s" 0 0 0 66 0 0  2 451.128945860594 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 DNS Name:
+LANG:10004 10 DNS名称:
+LANG:10000 9 DNS Name:
+LANG:10027 11 Имя DNS:
+2 33
+"PRIMITIVE_TEXT15"
+""
+1 127.6666666666666 173.8551912568306 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 32 Certificate and private key name
+LANG:10004 27 证书和私有密钥名称
+LANG:10000 31 Zertifikat und Private Key Name
+LANG:10027 32 Certificate and private key name
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 17.66666666666657 173.8551912568306 158 194
+0 2 2 "0s" 0 0 0 66 0 0  17.66666666666657 173.8551912568306 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 7 名称:
+LANG:10000 5 Name:
+LANG:10027 32 Имя сертиф./ключа:
+14 34
+"rootCertName"
+""
+1 165.6666666666666 169.4781420765028 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 93 File name of the root certificate authority certificate and the private root certificate key.
+LANG:10004 66 根证书颁发机构证书和专用根证书密钥的文件名。
+LANG:10000 109 Dateiname des Root-Zertifizierungsstellenzertifikats und des privaten Root-Zertifizierungsstellenschlüssels.
+LANG:10027 93 File name of the root certificate authority certificate and the private root certificate key.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 167.8551912568306 511 194
+3 "0s" 0 0 0 0 0 -1  E E E
+2 37
+"PRIMITIVE_TEXT16"
+""
+1 129.6666666666666 201.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 19.66666666666657 201.1885245901639 160 221
+0 2 2 "0s" 0 0 0 66 0 0  19.66666666666657 201.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Password:
+LANG:10004 7 密码:
+LANG:10000 9 Passwort:
+LANG:10027 34 Пароль файла кл.КС:
+14 38
+"rootKeyPwd"
+""
+1 165.6666666666666 197.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 195.1885245901639 511 221
+3 "0s" 0 0 0 0 0 -1  E E E
+2 40
+"rootKeyFile"
+""
+1 16.74000000000001 456 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E -93.25999999999999 456 47 476
+0 2 2 "0s" 0 0 0 66 0 0  -93.25999999999999 456 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Root keyfile:
+LANG:10004 16 根密钥文件:
+LANG:10000 13 Root Keyfile:
+LANG:10027 62 Файл ключа корневого сертификата:
+14 41
+"rootKeyFileName"
+""
+1 52.74000000000001 455 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  51 453 398 479
+3 "0s" 0 0 0 0 0 -1  E E E
+30 42
+"FRAME1"
+""
+1 30 174 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+42 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.8918918918918919 0 3.938412289446839 -13.83206323661666 -595.3201819273696 0 E 30 174 621 261
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18  Root certificate 
+LANG:10004 9 根证书
+LANG:10000 17  Root Zertifikat 
+LANG:10027 78  Корневой сертификат ("КС" на данной панели)
+13 43
+"rootCertPath"
+""
+1 511 141.6229508196712 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Select certificate destination path
+LANG:10004 24 选择证书目标路径
+LANG:10000 35 Zielpfad für Zertifikat auswählen
+LANG:10027 61 Выбор директории для сертификата
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  509 140 537 168
+
+P 
+4294967295
+"pictures/StandardIcons/open.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string path = txtPath.text;
+  folderSelector(path);
+
+  if ( _WIN32 )
+    strreplace(path, \"/\", \"\\\\\");
+
+  if (path != \"\")
+    txtPath.text = path;
+}" 0
+ E E E
+2 44
+"PRIMITIVE_TEXT1"
+""
+1 159.6666666666666 147.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 110 147.1885245901639 159.6666666666666 161
+0 2 2 "0s" 0 0 0 194 0 0  159.6666666666666 147.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Destination path:
+LANG:10004 16 目的地路径:
+LANG:10000 9 Zielpfad:
+LANG:10027 24 Целевой путь:
+14 45
+"txtPath"
+""
+1 165.6666666666665 142.1448087431695 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 140.5218579234972 511 167
+3 "0s" 0 0 0 0 0 -1  E E E
+22 47
+"CmbCertType"
+""
+1 165.6666666666666 115.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 113.1885245901639 351 139
+3
+4
+LANG:10001 16 Free certificate
+LANG:10004 15 自定义证书
+LANG:10000 27 Freies Zertifikat erstellen
+LANG:10027 45 Сертификат общ.назначен.
+
+0
+4
+LANG:10001 26 Certificate for WCCILproxy
+LANG:10004 16 WCCILproxy证书
+LANG:10000 26 Zertifikat für WCCILproxy
+LANG:10027 38 Сертификат для WCCILproxy
+
+0
+4
+LANG:10001 27 Certificate for HTTP-server
+LANG:10004 19 HTTP服务器证书
+LANG:10000 26 Zertifkat für HTTP-Server
+LANG:10027 47 Сертификат для сервера HTTP
+
+0
+
+E
+"main()
+{
+  if (CmbCertType.selectedPos() != 1)
+  {
+    switch( CmbCertType.selectedPos() )
+    {
+      case 2: //Proxy
+        {
+          rootCertName.enabled(false);
+          rootKeyFileName.enabled(false);    
+          rootCertName.text(\"root-cert.pem & root-key.pem\");
+//           rootKeyFileName.text(\"root-key.pem\");
+          dyn_string texte;
+          texte[1] = \"CN Name:\";
+          texte[2] = \"CN Name:\";    
+          dyn_langString dstring = texte;   
+          Product_IP.text(dstring);
+        }
+        break;
+      case 3: //HTTP
+        {
+          rootCertName.enabled(false);
+          rootKeyFileName.enabled(false);    
+          rootCertName.text(\"root-certificate.pem & root-privkey.key\");
+//           rootKeyFileName.text(\"root-privkey.key\");
+          dyn_string texte;
+          texte[1] = \"CN Name:\";
+          texte[2] = \"CN Name:\";    
+          dyn_langString dstring = texte;   
+          Product_IP.text(dstring);
+        }
+        break;
+      }
+
+  }
+  else
+  {
+    rootCertName.enabled(true);
+    rootKeyFileName.enabled(true);   
+    rootCertName.text(\"\");
+    rootKeyFileName.text(\"\"); 
+    dyn_string texte;
+    texte[1] = \"CN Name:\";
+    texte[2] = \"CN Name:\";    
+    dyn_langString dstring = texte;   
+    Product_IP.text(dstring);
+  }
+    
+}
+" 0
+
+E
+ 0 0
+2 48
+"PRIMITIVE_TEXT20"
+""
+1 157.6666666666666 119.1885245901639 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 80 119.1885245901639 157.6666666666666 133
+0 2 2 "0s" 0 0 0 194 0 0  157.6666666666666 119.1885245901639 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Certificate type:
+LANG:10004 13 证书类别:
+LANG:10000 15 Zertifikat Typ:
+LANG:10027 30 Тип сертификата:
+6 49
+"RECTANGLE8"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.7147427889503087 0 0.6105769230769227 -9.999999999999991 30.52884615384614 1 E 0 80 880 -50
+2 50
+"PRIMITIVE_TEXT21"
+""
+1 13.00000000000006 11.0000000000001 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 13.00000000000006 11.0000000000001 408 41
+0 2 2 "0s" 0 0 0 64 0 0  13.00000000000006 11.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 SSL root certificate
+LANG:10004 12 SSL根证书
+LANG:10000 19 SSL Root Zertifikat
+LANG:10027 41 SSL корневой сертификат
+2 51
+"shortdesc"
+""
+1 -144.9999999999992 31.17291024298099 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 0.9575092371223652 -11.99999999999994 1.28493805694432 0 E 47 31.99999999999997 462 126
+0 1 1 "0s" 0 0 0 192 0 0  47 31.99999999999997 6
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 63 Within this panel self-signed root certificates can be created.
+LANG:10004 51 在此面板中，可以创建自签名根证书。
+LANG:10000 74 In diesem Panel können selbst signierte Root Zertifikate erstellt werden.
+LANG:10027 106 Данная панель предназначена для создания самозаверенных 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 73 0 "" 0
+0
+13 54
+"cancel"
+""
+1 455 451 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+54 0 0 0 27 0
+E E E
+8
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  455 451 543 479
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(0),makeDynString());
+}" 0
+ E E E
+13 55
+"Button1"
+""
+1 8.999999999999979 451 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 112 0
+E E E
+8
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  9 451 97 479
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"ssl_cert\");
+}
+" 0
+ E E E
+13 56
+"ok"
+""
+1 362 450.9337748344371 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+53 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  362 451 450 479
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if (txtPath.text == \"\")
+  {
+    PanelOffReturn(makeDynFloat(0),makeDynString());
+  }
+  else
+  {
+    string sKey;
+    string sCrt;
+
+    if ( CmbCertType.selectedPos == 1 )
+    {
+      sKey = rootCertName.text+\".key\";
+      sCrt = rootCertName.text+\".crt\";
+    }
+    else if ( CmbCertType.selectedPos == 2 )
+    {
+      sKey = \"root-key.pem\";
+      sCrt = \"root-cert.pem\";
+    }
+    else if ( CmbCertType.selectedPos == 3 )
+    {
+      sKey = \"root-privkey.key\";
+      sCrt = \"root-certificate.pem\";
+    }
+
+    string x;
+    if ( (strlen(txtPath.text) > 0) && (substr(txtPath.text, strlen(txtPath.text) - 1) != myPathChar) )  // last char is \"/\"?
+      x = myPathChar;
+
+    PanelOffReturn(makeDynFloat(0),makeDynString(txtPath.text() + x + sCrt,
+                                                 txtPath.text() + x + sKey,
+                                                 rootKeyPwd.text()));
+  }
+}" 0
+ E E E
+14 63
+"TEXT_FIELD1"
+""
+1 166.2098542696743 237.374907755464 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  163.6666666666666 235.1885245901639 277 261
+2 "0s" 0 0 0 0 0 -1  "#uses \"sched.ctl\"
+
+main()
+{
+  time tAct = txtTimeInt.text;
+  time tNew;
+  
+  while (true)
+  {
+    dyn_string ds;
+    dyn_float df;
+    
+    dateTimePicker(tAct, tNew, false, false, false, false, 0, 0, false, false, false);
+    
+    if ( (int)tNew <= (int)getCurrentTime() )
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", \"a\", makeDynString(getCatStr(\"SSLCerts\", \"invalidDate\")), df, ds);
+    else
+      break;
+  }
+
+
+  if ( (int)tNew == 0 )
+    return;
+  
+  string s = formatTime(\"%d.%m.%Y\", tNew);
+  this.text = s;
+  txtTimeInt.text = tNew;
+  spDaysValid.text = (int)(tNew-getCurrentTime())/86400;
+}" 0
+ "main()
+{
+  time t = (time)(getCurrentTime()+(86400*(10*365)));
+  txtTimeInt.text = t;
+  spDaysValid.text = (int)(t-getCurrentTime())/86400;
+  string s = formatTime(\"%d.%m.%Y\", t);
+  this.text = s;
+}" 0
+ E
+14 64
+"txtTimeInt"
+""
+1 287.6666666666666 225.4705013392438 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  285.6666666666666 219.1885245901639 410 242
+3 "0s" 0 0 0 0 0 -1  E E E
+13 67
+"PUSH_BUTTON1"
+""
+1 278.6666666666666 235.1885245901639 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  276.6666666666666 233.1885245901639 305 261
+
+P 
+4294967295
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"#uses \"sched.ctl\"
+
+main()
+{
+  time tAct = txtTimeInt.text;
+  time tNew;
+  
+  while (true)
+  {
+    dyn_string ds;
+    dyn_float df;
+    
+    dateTimePicker(tAct, tNew, false, false, false, false, 0, 0, false, false, false);
+    
+    if ( (int)tNew <= (int)getCurrentTime() )
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", \"a\", makeDynString(getCatStr(\"SSLCerts\", \"invalidDate\")), df, ds);
+    else
+      break;
+  }
+
+
+  if ( (int)tNew == 0 )
+    return;
+  
+  string s = formatTime(\"%d.%m.%Y\", tNew);
+  TEXT_FIELD1.text = s;
+  txtTimeInt.text = tNew;
+  spDaysValid.text = (int)(tNew-getCurrentTime())/86400;
+}" 0
+ E E E
+29 72
+"progress"
+""
+1 276.6666666666666 394.1885245901639 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"value" "int 100"
+"progress" "int 100"
+"maximum" "int 0"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  160 395 410 419
+11 ProgressBar
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 0 T 52 1.240480961923848 0 1 0 441.128945860594
+0
+1 1 "grShapes" -1
+27 0 
+8 10 11 12 13 14 15 16 17 18 21 22 24 25 26 33 34 37 38 43 44 45 47 48 63 64 67 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+0

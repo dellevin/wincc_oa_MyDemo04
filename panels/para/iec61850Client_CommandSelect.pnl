@@ -1,0 +1,1321 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 550 270 N "_3DFace" 11
+"$check"
+"$cmdDp"
+"$cmdObj"
+"$ctlDp"
+"$ctlObj"
+"$ied"
+"$rcbDp"
+"$rcbRef"
+"$src"
+"$test"
+"$time"
+"main()
+{
+  initIedList();
+  iCtlMdl = -1;
+  iCheck  = -1;
+  iTimeout = 1;
+  bInit = 0;
+
+  if ( initConfiguredData() == 0 )
+  {
+    pbCmdObj.enabled = (iSrc == 1);
+    pbCtlObj.enabled = false;
+    pbRcb.enabled    = false;
+
+    pbOK.enabled = (iSrc != 1);
+  }
+  else
+  {
+    bInit = 1;
+    dsInitData = getCfgData();
+  }
+
+  //recWarning.visible = 0;
+}
+" 0
+ E E E E 1 -1 -1 0  7.999999999999995 -2.000000000000012
+""0  1
+E "string sIed, sLd, sLn, sDo, sCmdRef, sCmdDt, sCmdDp, sCtlRef, sCtlDt, sCtlDp, sRcbRef, sRcbDp;
+int iCtlMdl, iCheck, iTimeout, iSrc;
+bool bTest, bInit;
+dyn_string dsIedList, dsInitData;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initIedList()
+{
+  dsIedList = dpNames(\"*\", IEC61850_DPT_NAME);
+
+  for (int i = 1; i <= dynlen(dsIedList); i++)
+  {
+    if ( dynContains(dsIedList, dsIedList[i] + IEC61850_2) )
+      dynRemove(dsIedList, dynContains(dsIedList, dsIedList[i] + IEC61850_2));
+
+    dsIedList[i] = dpSubStr(dsIedList[i], DPSUB_DP);
+    dsIedList[i] = strltrim(dsIedList[i], IEC61850_INOA);
+  }
+
+  dynSort(dsIedList);
+  dynInsertAt(dsIedList, \"\", 1);
+  cmbIedList.items = dsIedList;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool initConfiguredData()
+{
+  if ( isDollarDefined(\"$ied\") )
+    sIed    = $ied;
+
+  if ( isDollarDefined(\"$cmdObj\") )
+    sCmdRef = $cmdObj;
+//   if ( isDollarDefined(\"$cmdDt\") )
+//     sCmdDt  = $cmdDt;
+  if ( isDollarDefined(\"$cmdDp\") )
+    sCmdDp  = $cmdDp;
+  if ( isDollarDefined(\"$ctlObj\") )
+    sCtlRef = $ctlObj;
+//   if ( isDollarDefined(\"$ctlDt\") )
+//     sCtlDt  = $ctlDt;
+  if ( isDollarDefined(\"$ctlDp\") )
+    sCtlDp  = $ctlDp;
+
+  //if ( isDollarDefined(\"$ctlMdl\") )
+  //  iCtlMdl = $ctlMdl;
+
+  if ( isDollarDefined(\"$check\") )
+    iCheck   = $check;
+  if ( isDollarDefined(\"$test\") )
+    bTest    = $test;
+  if ( isDollarDefined(\"$time\") )
+    iTimeout = $time;
+  if ( isDollarDefined(\"$rcbRef\") )
+    sRcbRef  = $rcbRef;
+  if ( isDollarDefined(\"$rcbDp\") )
+    sRcbDp   = $rcbDp;
+
+  if ( isDollarDefined(\"$src\") )
+    iSrc = $src;
+
+  if ( iSrc == 1 )
+  {
+    ptIedValue.text = sIed;
+    setValue(\"cmbIedList\",  \"selectedPos\", dynContains(dsIedList, sIed));
+    //selectCmdObj();
+    //return 1;
+  }
+  else
+    setMultiValue(\"pbCmdObj\", \"enabled\", false,
+                  \"pbCtlObj\", \"enabled\", false);
+                  //\"pbRcb\",    \"enabled\", false);
+
+  if ( iCheck >= 0 )
+  {
+    setMultiValue(\"cmbIedList\",  \"selectedPos\", dynContains(dsIedList, sIed),
+                  \"ptIedValue\",  \"text\",        sIed,
+                  \"tfCmdObj\",    \"text\",        sCmdRef,
+                  \"tfCtlObj\",    \"text\",        sCtlRef,
+                  //\"cmbCtlModel\", \"selectedPos\", iCtlMdl+1,
+                  \"cmbCheck\",    \"selectedPos\", iCheck+1,
+                  \"cbTest\",      \"state\", 0,    bTest,
+                  \"sbTimeout\",   \"value\",       (iTimeout>0)?iTimeout:1,
+                  \"tfRcb\",       \"text\",        (dpExists(sRcbDp))?sRcbRef:\"\");
+
+    string sTempCmdRef = sCmdRef;
+    strreplace(sTempCmdRef, \"/\", \"$\");
+    dyn_string dsTemp = strsplit(sTempCmdRef, \"$\");
+
+    if ( dynlen(dsTemp) > 3 )
+    {
+      sLd = dsTemp[1];
+      sLn = dsTemp[2];
+      sDo = dsTemp[4];
+    }
+
+    return 1;
+  }
+  else
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string getCfgData()
+{
+  dyn_string dsCfgData = makeDynString(sIed,
+                                       sCmdRef, sCmdDt, sCmdDp,
+                                       sCtlRef, sCtlDt, sCtlDp,
+                                       iCtlMdl, iCheck, iTimeout,
+                                       bTest,
+                                       sRcbRef, sRcbDp);
+  return dsCfgData;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string cleanDpName(string sDp)
+{
+  strreplace(sDp, \"$\", \"_\");
+  strreplace(sDp, \"/\", \"_\");
+  return sDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool createCmdCtlTags()
+{
+  string sIed = cmbIedList.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  string sCmdOaName = cleanDpName(\"CMD_\" + sIed + \"_\" + sCmdRef);
+  string sCtlOaName = cleanDpName(\"CTL_\" + sIed + \"_\" + sCtlRef);
+
+  if ( dpExists(sRcbDp) )
+    dpSet(sRcbDp + IEC61850_DPE_RCB_GI, true);
+
+  if ( dpExists(sCmdOaName) || dpExists(sCtlOaName) )
+    return 0;
+
+  int iDrvNum;
+  uint uiBrowseSource;
+  uint uiConnState;
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum,
+        sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource,
+        sIedDp + IEC61850_DPE_IDP_DEVICE_STATE , uiConnState);
+
+  // command object - create dpt/dpe + set address configs
+  int iCmdOaDpel = iec61850_getDataTypeToOa(sCmdDt, 1);
+  string sCmdOaType = IEC61850_PREVIEW_TYPE + \"CMD_\" + varTypeToString(iec61850_getDataTypeToOa(sCmdDt));
+  int iCmdTransType;
+
+  if ( uiBrowseSource == 1 )
+    iec61850_getDataTypeTransInfoOffline(sCmdDt, iCmdTransType);
+  else if ( uiBrowseSource == 2 )
+    iec61850_getDataTypeTransInfo(sCmdDt, iCmdTransType);
+
+  dyn_string dsCmdOaDpes = makeDynString(IEC61850_DPE_OPERVAL,
+                                         IEC61850_DPE_CTLVAL,
+                                         IEC61850_DPE_OPERTM,
+                                         IEC61850_DPE_ERROR,
+                                         IEC61850_DPE_ADDCAUSE);
+
+  dyn_string dsCmdOaStDp = makeDynString(IEC61850_STRUCT_OPER  + \".\" + IEC61850_DPE_OPERVAL,
+                                         IEC61850_STRUCT_OPER  + \".\" + IEC61850_DPE_CTLVAL,
+                                         IEC61850_STRUCT_OPER  + \".\" + IEC61850_DPE_OPERTM,
+                                         IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ERROR,
+                                         IEC61850_STRUCT_STATE + \".\" + IEC61850_DPE_ADDCAUSE);
+
+  dyn_string dsCmdOaRefs;
+
+  for ( int i = 1; i <= dynlen(dsCmdOaDpes); i++ )
+  {
+    string sCmdRefTemp = sCmdRef;
+
+    if ( i > 3 )
+    {
+      dyn_string dsSplit = strsplit(sCmdRefTemp, \"$\");
+
+      if ( dsSplit[dynlen(dsSplit)] == \"f\" || dsSplit[dynlen(dsSplit)] == \"i\" )
+        sCmdRefTemp = substr(sCmdRefTemp, 0, strlen(sCmdRefTemp)-2);
+    }
+
+    strreplace(sCmdRefTemp, \"$\" + IEC61850_DPE_CTLVAL, \"$\" + dsCmdOaDpes[i]);
+    dsCmdOaRefs[i] = sCmdRefTemp;
+  }
+
+  dyn_int diCmdTransTypes = makeDynInt(iCmdTransType,
+                                       iCmdTransType,
+                                       IEC61850_TRANS_TIMESTAMP,
+                                       IEC61850_TRANS_INT32,
+                                       IEC61850_TRANS_INT32);
+
+  dyn_int diCmdDirections = makeDynInt(DPATTR_ADDR_MODE_OUTPUT,
+                                       DPATTR_ADDR_MODE_OUTPUT,
+                                       DPATTR_ADDR_MODE_OUTPUT,
+                                       DPATTR_ADDR_MODE_INPUT_SPONT,
+                                       DPATTR_ADDR_MODE_INPUT_SPONT);
+
+  dyn_int diCmdLowLevel = makeDynInt(0, 0, 0, 0, 0);
+
+  dyn_dyn_string ddsCmdE;
+  dyn_dyn_int ddiCmdT;
+
+  ddsCmdE[1]  = makeDynString(sCmdOaType, \"\", \"\");
+  ddsCmdE[2]  = makeDynString(\"\", IEC61850_STRUCT_OPER, \"\");
+  ddsCmdE[3]  = makeDynString(\"\", \"\", IEC61850_DPE_OPERVAL);
+  ddsCmdE[4]  = makeDynString(\"\", \"\", IEC61850_DPE_CTLVAL);
+  ddsCmdE[5]  = makeDynString(\"\", \"\", IEC61850_DPE_OPERTM);
+  ddsCmdE[6]  = makeDynString(\"\", IEC61850_STRUCT_STATE, \"\");
+  ddsCmdE[7]  = makeDynString(\"\", \"\", IEC61850_DPE_ERROR);
+  ddsCmdE[8]  = makeDynString(\"\", \"\", IEC61850_DPE_ADDCAUSE);
+  ddsCmdE[9]  = makeDynString(\"\", IEC61850_STRUCT_CFG, \"\");
+  ddsCmdE[10] = makeDynString(\"\", \"\", IEC61850_DPE_IED);
+  ddsCmdE[11] = makeDynString(\"\", \"\", IEC61850_DPE_CTLOBJDP);
+  ddsCmdE[12] = makeDynString(\"\", \"\", IEC61850_DPE_RCBDP);
+  ddsCmdE[13] = makeDynString(\"\", \"\", IEC61850_DPE_CTLMODEL);
+  ddsCmdE[14] = makeDynString(\"\", \"\", IEC61850_DPE_CHECK);
+  ddsCmdE[15] = makeDynString(\"\", \"\", IEC61850_DPE_TEST);
+
+  ddiCmdT[1]  = makeDynInt(DPEL_STRUCT);
+  ddiCmdT[2]  = makeDynInt(0, DPEL_STRUCT);
+  ddiCmdT[3]  = makeDynInt(0, 0, iCmdOaDpel);
+  ddiCmdT[4]  = makeDynInt(0, 0, iCmdOaDpel);
+  ddiCmdT[5]  = makeDynInt(0, 0, DPEL_TIME);
+  ddiCmdT[6]  = makeDynInt(0, DPEL_STRUCT);
+  ddiCmdT[7]  = makeDynInt(0, 0, DPEL_INT);
+  ddiCmdT[8]  = makeDynInt(0, 0, DPEL_INT);
+  ddiCmdT[9]  = makeDynInt(0, DPEL_STRUCT);
+  ddiCmdT[10] = makeDynInt(0, 0, DPEL_STRING);
+  ddiCmdT[11] = makeDynInt(0, 0, DPEL_STRING);
+  ddiCmdT[12] = makeDynInt(0, 0, DPEL_STRING);
+  ddiCmdT[13] = makeDynInt(0, 0, DPEL_INT);
+  ddiCmdT[14] = makeDynInt(0, 0, DPEL_INT);
+  ddiCmdT[15] = makeDynInt(0, 0, DPEL_BOOL);
+
+  sCmdDp = sCmdOaName;
+  iec61850_createDpTypeInst(sCmdOaType, sCmdOaName, ddsCmdE, ddiCmdT);
+
+  for ( int i = 1; i <= dynlen(dsCmdOaDpes); i++ )
+    iec61850_setAddressCfg(sCmdOaName + \".\" + dsCmdOaStDp[i],
+                           sIed + \".\" + dsCmdOaRefs[i],
+                           paIec61850ClientTransformationMapping(diCmdTransTypes[i], 1),
+                           iDrvNum,
+                           dsCmdOaRefs[i],
+                           diCmdDirections[i],
+                           1,
+                           diCmdLowLevel[i]);
+
+  // command object - set address config for DPE <CmdObj>.config.ctlModel
+  string sCtlMdl = iec61850_getCtlModel(sIed, tfCmdObj.text, 1);
+
+  string sCtlMdlTag = strsplit(sCtlMdl, \"|\")[1];
+  string sCtlMdlVal = strsplit(sCtlMdl, \"|\")[2];
+
+  int iCtlMdlTransType;
+
+  if ( uiBrowseSource == 1 )
+    iec61850_getDataTypeTransInfoOffline(sCtlMdlVal, iCtlMdlTransType);
+  else if ( uiBrowseSource == 2 )
+    iec61850_getDataTypeTransInfo(sCtlMdlVal, iCtlMdlTransType);
+
+  iec61850_setAddressCfg(sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CTLMODEL,
+                         sIed + \".\" + sCtlMdlTag,
+                         paIec61850ClientTransformationMapping(iCtlMdlTransType, 1),
+                         iDrvNum,
+                         sCtlMdlTag,
+                         DPATTR_ADDR_MODE_IO_SQUERY,
+                         1,
+                         0);
+
+  // controlled object - create dpt/dp + set address config
+  string sTempCtlDt = sCtlDt;
+  if ( sTempCtlDt == \"bitString\" || sTempCtlDt == \"Dbpos\" || sTempCtlDt == \"Tcmd\" )
+    sTempCtlDt = \"INT32\";
+
+  int iCtlOaDpel = iec61850_getDataTypeToOa(sTempCtlDt, 1);
+  string sCtlOaType = IEC61850_PREVIEW_TYPE + \"CTL_\" + varTypeToString(iec61850_getDataTypeToOa(sTempCtlDt));
+
+  int iCtlTransType;
+  iec61850_getDataTypeTransInfoOffline(sCtlDt, iCtlTransType);
+
+  dyn_dyn_string ddsCtlE;
+  dyn_dyn_int ddiCtlT;
+  ddsCtlE[1] = makeDynString(sCtlOaType);
+  ddiCtlT[1] = makeDynInt(iCtlOaDpel);
+
+  sCtlDp = sCtlOaName;
+  iec61850_createDpTypeInst(sCtlOaType, sCtlOaName, ddsCtlE, ddiCtlT);
+  iec61850_setAddressCfg(sCtlOaName + \".\",
+                         sIed + \".\" + sCtlRef,
+                         paIec61850ClientTransformationMapping(iCtlTransType, 1),
+                         iDrvNum,
+                         sCtlRef,
+                         2,
+                         1);
+
+  // azure dev ops server issue #121611 - save data type to ctl dp general config
+  dpSetWait(sCtlOaName + \".:_general.._type\", DPCONFIG_GENERAL);
+  dpSetWait(sCtlOaName + \".:_general.._string_01\", sCtlDt);
+
+  // browse state == 1 --> dpSet to ctl model
+  // browse state == 2
+  //           connected to device --> set address config --> SQ
+  //           not connected to device --> status-only
+
+  //iCtlMdl = cmbCtlModel.selectedPos()-1;
+  iCheck = cmbCheck.selectedPos()-1;
+
+  // save command configuation data to dp
+  dpSetWait(sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_IED     , sIed,
+            sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_RCBDP   , sRcbDp,
+            sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CTLOBJDP, sCtlDp,
+            sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CHECK   , iCheck,
+            sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_TEST    , bTest);
+
+  dpSetDescription(sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_RCBDP, (langString)sRcbRef);
+
+  dyn_uint duiDrvNums = iec61850_checkDrvNums();
+
+  if ( uiConnState > 0 && dynlen(duiDrvNums) > 0 && dynContains(duiDrvNums, (uint)iDrvNum) > 0 )
+    dpSetWait(IEC61850_INTL + \"Driver\" + iDrvNum + \".SQ\", sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CTLMODEL);
+
+  if ( uiBrowseSource == 1 && uiConnState == 0 )
+    dpSetWait(sCmdOaName + \".\" + IEC61850_STRUCT_CFG + \".\" + IEC61850_DPE_CTLMODEL, iCtlMdl);
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool selectCmdObj()
+{
+  //recWarning.visible = 0;
+  sIed = cmbIedList.text;
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(IEC61850_ADDRESS_TREE_PANEL_PATH,
+                                 \"Command object selection\",
+                                 makeDynString(\"$p1:\" + sIed,
+                                               //\"$p2:\" + \"\",
+                                               \"$paneltype:\" + 1),
+                                 df, ds);
+
+  if ( !dynlen(df) || df[1] == 0 )
+    return false;
+    //PanelOffReturn(makeDynFloat(0), makeDynString());
+
+  if ( dynlen(ds) > 4 )
+  {
+    tfCmdObj.text = ds[1];
+    sCmdRef = ds[1];
+    sLd = ds[2];
+    sLn = ds[3];
+    sDo = ds[4];
+    sCmdDt = ds[5];
+
+    iCtlMdl = iec61850_getCtlModel(sIed, tfCmdObj.text);
+    //cmbCtlModel.selectedPos = (iCtlMdl+1);
+
+    tfCtlObj.text = \"\";
+    //selectCtlObj();
+
+    return true;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void selectCtlObj()
+{
+  //recWarning.visible = 0;
+  sIed = cmbIedList.text;
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(IEC61850_ADDRESS_TREE_PANEL_PATH,
+                                 \"Controlled object selection\",
+                                 makeDynString(\"$p1:\" + sIed,
+                                               //\"$p2:\" + \"\",
+                                               \"$paneltype:\" + 2,
+                                               \"$ld:\" + sLd,
+                                               \"$ln:\" + sLn,
+                                               \"$do:\" + sDo),
+                                 df, ds);
+
+  if ( !dynlen(df) || df[1] == 0 )
+    return;
+    //PanelOffReturn(makeDynFloat(0), makeDynString());
+
+  if ( dynlen(ds) > 1 )
+  {
+    tfCtlObj.text = ds[1];
+    sCtlRef = ds[1];
+    sCtlDt = ds[2];
+
+    pbCmdObj.enabled = false;
+    pbCtlObj.enabled = false;
+
+    tfRcb.text = \"\";
+    pbOK.enabled = true;
+    //selectRcb();
+  }
+
+  pbRcb.enabled = (tfCtlObj.text != \"\");// && iCtlMdl > 0);
+  //recWarning.visible = (iCtlMdl == 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void selectRcb()
+{
+  sIed = cmbIedList.text;
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(IEC61850_COMMAND_RCB_PANEL_PATH,
+                                 \"RCB selection\",
+                                 makeDynString(\"$ied:\"    + sIed,
+                                               \"$ctlObj:\" + sCtlRef,
+                                               \"$ctlDp:\"  + sCtlDp,
+                                               \"$cmdDp:\"  + sCmdDp,
+                                               \"$src:\"    + iSrc),
+                                 df, ds);
+
+  if ( !dynlen(df) || df[1] == 0 )
+  {
+    //PanelOffReturn(makeDynFloat(0), makeDynString());
+    pbOK.enabled = true;
+    return;
+  }
+
+  if ( dynlen(ds) > 1 )
+  {
+    tfRcb.text = ds[1];
+    sRcbRef = ds[1];
+    sRcbDp = ds[2];
+  }
+
+  //pbOK.enabled = (tfRcb.text != \"\");
+  pbOK.enabled = true;
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 0
+"frmCfg"
+""
+1 10 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.102083333333333 0 0.538659793814433 -1.020833333333339 3.92268041237113 0 E 10 2 491 391
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 32 Object selection / configuration
+LANG:10004 19 对象选择/配置
+LANG:10000 30 Objekt-Auswahl / Konfiguration
+LANG:10027 46 Выбор объекта / настройка
+2 1
+"ptCmdObj"
+""
+1 25 64.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 64.5 129 80
+0 2 2 "0s" 0 0 0 192 0 0  25 64.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Command object:
+LANG:10004 12 指令对象
+LANG:10000 15 Command Objekt:
+LANG:10027 34 Объект управления:
+14 2
+"tfCmdObj"
+""
+1 630 476.25 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  pbCtlObj.enabled = (tfCmdObj.text != \"\" && iSrc == 1);
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 59.25 486 85.25
+2 "0s" 0 0 0 0 0 -1  E E E
+13 3
+"pbCmdObj"
+""
+1 889 545.25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 58.25 526 86.25
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  if ( !selectCmdObj() )
+    PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+" 0
+ E E E
+2 4
+"ptCtlObj"
+""
+1 25 94.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 94.5 128 110
+0 2 2 "0s" 0 0 0 192 0 0  25 94.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Controlled object:
+LANG:10004 12 被控对象
+LANG:10000 18 Controlled Objekt:
+LANG:10027 13 Объект:
+14 5
+"tfCtlObj"
+""
+1 630 510.25 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  pbRcb.enabled = (tfCtlObj.text != \"\");// && iCtlMdl > 0);
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 89.25 486 115.25
+2 "0s" 0 0 0 0 0 -1  E E E
+13 6
+"pbCtlObj"
+""
+1 889 575.25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 88.25 526 116.25
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  selectCtlObj();
+}
+" 0
+ E E E
+22 9
+"cmbCheck"
+""
+1 -235 104 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 151 346 177
+4
+4
+LANG:10001 8 no-check
+LANG:10004 8 no-check
+LANG:10000 8 no-check
+LANG:10027 23 Без проверки
+
+0
+4
+LANG:10001 12 synchrocheck
+LANG:10004 12 synchrocheck
+LANG:10000 12 synchrocheck
+LANG:10027 37 Синхронная проверка
+
+0
+4
+LANG:10001 18 interlocking-check
+LANG:10004 18 interlocking-check
+LANG:10000 18 interlocking-check
+LANG:10027 42 Проверка на блокировку
+
+0
+4
+LANG:10001 4 both
+LANG:10004 4 both
+LANG:10000 4 both
+LANG:10027 23 Обе проверки
+
+0
+
+E
+"main()
+{
+  iCheck = cmbCheck.selectedPos()-1;
+}
+" 0
+
+E
+ 0 0
+2 10
+"ptCheck"
+""
+1 25 155 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 155 120.25 173
+0 2 2 "0s" 0 0 0 64 0 0  25 155 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Check:
+LANG:10004 9 检查：
+LANG:10000 6 Check:
+LANG:10027 17 Проверка:
+13 11
+"pbClose"
+""
+1 435 392 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  453 233 541 261
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  if ( bInit && dsInitData != getCfgData() )
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"iec61850\", \"CmdApplyCfgData\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( dynlen(df) && df[1] == 1 )
+    {
+      bool bReturn = createCmdCtlTags();
+
+      if ( bReturn )
+        PanelOffReturn(makeDynFloat(1), getCfgData());
+      else
+      {
+        string sMsg = getCatStr(\"iec61850\", \"CmdCtlObjExists\");
+        iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+      }
+    }
+    else
+      PanelOffReturn(makeDynFloat(1), dsInitData);
+  }
+  else if ( dsInitData == getCfgData() && sCmdDp != \"\" && sCtlDp != \"\" )
+  {
+    PanelOffReturn(makeDynFloat(1), getCfgData());
+  }
+  else
+  {
+    PanelOffReturn(makeDynFloat(0), makeDynString());
+  }
+}
+" 0
+ E E E
+13 12
+"pbOK"
+""
+1 455 392 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 16777221 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  363 233 451 261
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  bool bReturn = createCmdCtlTags();
+
+  if ( bReturn || iSrc != 1 )
+    PanelOffReturn(makeDynFloat(1), getCfgData());
+  else
+  {
+    string sMsg = getCatStr(\"iec61850\", \"CmdCtlObjExists\");
+    iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+  }
+}
+" 0
+ E E E
+1 41 0 "" 0
+0
+22 15
+"cmbIedList"
+""
+1 -25.72872340425531 260.625 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  318 29.625 521 55.625
+0
+
+E
+"main()
+{
+  //recWarning.visible = 0;
+  pbCmdObj.enabled = iSrc != 1;//(cmbIedList.text != \"\" );
+  tfCmdObj.text = \"\";
+  tfCtlObj.text = \"\";
+}
+" 0
+
+E
+ 0 0
+2 18
+"ptIedList"
+""
+1 25 35.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 35.25 52 50
+0 2 2 "0s" 0 0 0 192 0 0  25 35.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 IED:
+LANG:10004 4 IED:
+LANG:10000 4 IED:
+LANG:10027 4 IED:
+2 21
+"ptTimeout"
+""
+1 25 239.65625 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 25 239.65625 124 255
+0 2 2 "0s" 0 0 0 192 0 0  25 239.65625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Operate timeout:
+LANG:10004 15 操作超时：
+LANG:10000 16 Operate timeout:
+LANG:10027 29 Тайм-аут работы:
+21 22
+"sbTimeout"
+""
+1 190 237 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 234 226 260
+0
+
+E
+"main()
+{
+  iTimeout = sbTimeout.value;
+}
+" 0
+
+E
+
+N 1 100 1 1 1 1
+2 25
+"ptTimeoutSec"
+""
+1 240 239.65625 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 240 239.65625 299 255
+0 2 2 "0s" 0 0 0 192 0 0  240 239.65625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 (seconds)
+LANG:10004 9 (seconds)
+LANG:10000 9 (seconds)
+LANG:10027 9 (seconds)
+20 28
+"cbTest"
+""
+1 4.999999999999986 506 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 179.5 176 205.5
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  bTest = state;
+}
+" 0
+2 29
+"ptTest"
+""
+1 25 185 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 25 185 55 200
+0 2 2 "0s" 0 0 0 192 0 0  25 185 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Test:
+LANG:10004 6 测试
+LANG:10000 5 Test:
+LANG:10027 9 Тест:
+2 35
+"ptRcb"
+""
+1 25 125 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 125 58 140
+0 2 2 "0s" 0 0 0 192 0 0  25 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 RCB:
+LANG:10004 4 RCB:
+LANG:10000 4 RCB:
+LANG:10027 4 RCB:
+14 36
+"tfRcb"
+""
+1 630 540.5 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  pbOK.enabled = (tfRcb.text != \"\");
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  143 119.5 486 145.5
+2 "0s" 0 0 0 0 0 -1  E E E
+13 37
+"pbRcb"
+""
+1 889 605.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 118.5 526 146.5
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  selectRcb();
+}
+" 0
+ E E E
+2 40
+"ptIedValue"
+""
+1 147 35.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 147 35.25 186 50
+0 2 2 "0s" 0 0 0 192 0 0  147 35.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 <IED>
+LANG:10004 5 <IED>
+LANG:10000 5 <IED>
+LANG:10027 5 <IED>
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF1" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 35 435 T 14 1.100200400801603 0 1 -38.50701402805613 -210
+0
+0

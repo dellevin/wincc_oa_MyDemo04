@@ -1,0 +1,678 @@
+V 14
+4
+LANG:10001 23 Correct/remove projects
+LANG:10004 19 纠正/删除项目
+LANG:10000 32 Projekt(e) korrigieren/entfernen
+LANG:10027 58 Корректировать/удалить проекты
+PANEL,-1 -1 350 189 N "_3DFace" 1
+"$1"
+"main()
+{
+  int        i;
+  string     s;
+  dyn_int    diLines;
+  dyn_string ds = strsplit($1, \"|\"), ds2, dsProjs, dsErrs;
+
+  for ( i = 1; i <= dynlen(ds); i++ )
+  {
+    s = strrtrim(strltrim(ds[i]));
+    ds2 = strsplit(s, \"§\");
+    if ( dynlen(ds2) > 0 )
+    {
+      dsProjs[i] = strrtrim(strltrim(ds2[1])); dsErrs[i] = \"\";
+    }
+    if ( dynlen(ds2) > 1 )
+    {
+      dsErrs[i] = strrtrim(strltrim(ds2[2]));
+    }
+  }
+
+  tblProjects.tableMode(TABLE_SELECT_BROWSE);
+  tblProjects.selectByClick(TABLE_SELECT_LINE);  
+  tblProjects.selectColors (\"_ButtonShadow\", \"_Window\");
+
+  tblProjects.appendLines(dynlen(dsProjs), \"project\", dsProjs, \"error\", dsErrs);
+
+  tblProjects.tableMode(TABLE_SELECT_MULTIPLE);
+  tblProjects.lineVisible(0);
+  tblProjects.visible = true;
+}" 0
+ E E E E 1 -1 -1 0  251 55
+""0  1
+E "editConfig()
+{
+  dyn_anytype daResult;
+  dyn_int     di = tblProjects.getSelectedLines();
+  string      sFile, s,
+              sDir, projName = tblProjects.cellValueRC(di[1],\"project\");
+  int         iErr = paProjName2InstallDir(projName, sDir), x, y, iErrConf = 1;
+  
+  
+  if ( iErr )
+  {
+    pmon_warningOutput(\"errorGetProjAttr\", iErr, projName, false);
+    return;
+  }
+
+  strreplace(sDir, \"\\\\\", \"/\");
+  if ( sDir[strlen(sDir)-1] != \"/\" ) sDir += \"/\";
+  
+  sDir += CONFIG_REL_PATH;
+  
+  while ( iErrConf != 0 )
+  {
+    iErr = fileSelector(sFile, sDir, (!isMotif()), \"config*\");
+    if ( iErr )
+    {
+      pmon_warningOutput(\"errorGetProjAttr\", iErr, projName);
+      return;
+    }
+  
+    if ( strrtrim(strltrim(sFile)) == \"\" && iErrConf == 0 )
+    {
+      return;
+    }
+    else
+    if ( strrtrim(strltrim(sFile)) != \"\" )
+    {
+      if ( _WIN32 )
+        strreplace(sFile, \"/\", \"\\\\\");
+
+      fileEditor(sFile);
+    }
+    
+    iErrConf = paCheckProj(projName);
+    if ( iErrConf )
+    {
+      dynClear(daResult);
+      getChildPanelCentralPosition(\"vision/MessageWarning2\", x, y);
+      gParams[1]  = myModuleName();
+      gParams[3]  = myPanelName();
+      gParams[2]  = \"vision/MessageWarning2\";
+      gParams[4]  = getCatStr(\"para\", \"warning\");
+      gParams[5]  = x;
+      gParams[6]  = y;
+        gParams[9]  = makeDynString(getCatStr(\"pmon\", \"errEditedConfig3\"),
+                                    getCatStr(\"general\", \"yes\"),
+                                    getCatStr(\"general\", \"no\"));
+      childPanel(gParams, daResult);
+
+      // config error ==> project invalid
+      if ( dynlen(daResult) < 1 || daResult[1] == 0 )
+      {
+        return;
+      }
+      else
+      {
+        continue;
+      }
+    }
+    else
+    {
+      tblProjects.deleteLineN(di[1]);
+      if ( tblProjects.lineCount < 1 )
+      {
+        dyn_anytype da, daa;
+        da[1] = myModuleName();
+        da[2] = myPanelName();
+        daa[1] = 1.0; daa[2] = \"true\";
+        da[3] = daa;
+        panelOff(da);
+      }
+    }
+  }
+}
+//=============================================================================
+removeProject()
+{
+  int         i, iErr, x, y;
+  string      sDel = getCatStr(\"pmon\", \"sureDeleteProj\");
+  errClass    eClass;
+  dyn_int     di = tblProjects.getSelectedLines();
+  dyn_string  ds;
+  dyn_anytype da, daa, daResult, daResultDeleteDir;
+  bool bDeleteWithDirs = TRUE;
+  
+  if ( dynlen(di) > 0 )
+  {
+    if ( dynlen(di) > 1 )
+      sDel = getCatStr(\"pmon\", \"suredeleteprojs\");
+    getChildPanelCentralPosition(\"vision/MessageWarning2\", x, y);
+    gParams[1]  = myModuleName();
+    gParams[3]  = myPanelName();
+    gParams[2]  = \"vision/MessageWarning2\";
+    gParams[4]  = getCatStr(\"pmon\", \"delProj\");
+    gParams[5]  = x;
+    gParams[6]  = y;
+    gParams[9]  = makeDynString(sDel,
+                                getCatStr(\"general\", \"yes\"),
+                                getCatStr(\"general\", \"no\"));
+    childPanel(gParams, daResult);
+    
+    sDel = getCatStr(\"pmon\", \"deleteWithDirs\");
+    
+    getChildPanelCentralPosition(\"vision/MessageWarning2\", x, y);
+    gParams[1]  = myModuleName();
+    gParams[3]  = myPanelName();
+    gParams[2]  = \"vision/MessageWarning2\";
+    gParams[4]  = getCatStr(\"pmon\", \"delProj\");
+    gParams[5]  = x;
+    gParams[6]  = y;
+    gParams[9]  = makeDynString(sDel,
+                                getCatStr(\"general\", \"yes\"),
+                                getCatStr(\"general\", \"no\"));
+    childPanel(gParams, daResultDeleteDir);
+    
+    if ( dynlen(daResultDeleteDir) < 1 || daResultDeleteDir[1] == 0 ) bDeleteWithDirs = FALSE;
+   
+    
+ 
+    if ( dynlen(daResult) < 1 || daResult[1] == 0 ) return;
+
+    for ( i = 1; i <= dynlen(di); i++ )
+    {
+      ds[i] = tblProjects.cellValueRC(di[i], \"project\");
+      iErr = paDelProj(ds[i], bDeleteWithDirs);
+      eClass = makeError(\"pmon\", PRIO_INFO, ERR_CONTROL, 37, ds[i]);
+      throwError(eClass);
+    }
+    
+    dynSortAsc(di);
+    for ( i = dynlen(di); i > 0; i--)
+    {
+      tblProjects.deleteLineN(di[i]);
+    }
+
+    if ( tblProjects.lineCount < 1 )
+    {
+      dyn_anytype da, daa;
+      da[1] = myModuleName();
+      da[2] = myPanelName();
+      daa[1] = 1.0; daa[2] = \"true\";
+      da[3] = daa;
+      panelOff(da);
+    }
+
+  }
+}
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 20
+"RECTANGLE2"
+""
+1 0 350 E E E 1 E 1 E N "_ButtonBarBackground" E N "_ButtonBarBackground" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.6993987975951904 0 1.022727272727273 0 143 1 E 0 0 499 44
+30 12
+"Frame1"
+""
+1 10 210 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Minimum Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5238095238095238 0 0.5628140703517588 9.761904761904763 9.371859296482413 0 E 10 10 620 210
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20  Corrupted projects 
+LANG:10004 12 项目损坏
+LANG:10000 23  Beschädigte Projekte 
+LANG:10027 39  Поврежденный проект 
+13 8
+"cancel"
+""
+1 259 152.0833333333333 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 27 0
+E E E
+8
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schliessen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  257 152 335 179
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  dyn_anytype da, daa;
+  
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa[1] = 0.0; daa[2] = \"false\";
+  da[3] = daa;
+
+  panelOff(da);
+}" 0
+ E E E
+25 11
+"tblProjects"
+""
+1 -22.13559322033903 32.18181818181819 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  int         iPos = -1, iSel = 0, answer, row, col, len = tblProjects.lineCount(),
+              x, y, i;
+  bool        bSel = false;
+  string      sEdit = getCatStr(\"pmon\", \"editConfig2\"),
+              sRemove = getCatStr(\"pmon\", \"removeBadProject\"),
+              sProj, s1, s2, s3;
+  dyn_int     di;
+  dyn_string  popup;
+  dyn_anytype daResult;
+  
+  getValue(\"\", \"currentCell\", row, col);
+  if ( row < 0 ) return;
+
+  di = tblProjects.getSelectedLines();
+  if ( dynlen(di) < 2 )
+  {
+    tblProjects.tableMode(TABLE_SELECT_BROWSE);
+    tblProjects.selectLineN(row);
+    cmdEdit.enabled = true;
+    buDelete.enabled  = true;
+    tblProjects.tableMode(TABLE_SELECT_MULTIPLE);
+  }
+
+  getValue(\"\", \"cellValueRC\", row, \"project\", sProj);
+
+  s1 = \"PUSH_BUTTON, \" + \"Info\" + \", 1, \";
+  s1 += ( cmdEdit.enabled ) ? \"1\" : \"0\";
+  s2 = \"PUSH_BUTTON, \" + sEdit + \", 2, \";
+  s2 += ( cmdEdit.enabled ) ? \"1\" : \"0\";
+  if ( buDelete.enabled && !cmdEdit.enabled )
+  {
+    sRemove = getCatStr(\"pmon\", \"removeBadProject2\");
+  }
+  s3 = \"PUSH_BUTTON, \" + sRemove + \", 3, \";
+  s3 += ( buDelete.enabled )  ? \"1\" : \"0\";
+
+  popup = makeDynString(s1, \"SEPARATOR\", s2, s3);
+  popupMenu(popup, answer);
+
+  switch (answer)
+  {
+    case 1:
+      sProj = this.cellValueRC(row,\"#1\");
+    
+      getChildPanelCentralPosition(\"projAdmin/project_admin_delete.pnl\", x, y);
+      gParams[1]  = myModuleName();
+      gParams[3]  = myPanelName();
+      gParams[2]  = getCatStr(\"pmon\",\"infoProj\");
+      gParams[5]  = x;
+      gParams[6]  = y;
+      gParams[2]  = \"projAdmin/project_admin_delete.pnl\";
+      gParams[4]  = getCatStr(\"pmon\",\"projInfo\");
+      gParams[9]  = makeDynString(sProj, \"$info:1\");
+      childPanel(gParams, daResult);
+      break;
+    case 2:
+      editConfig();
+      break;
+    case 3:
+      removeProject();
+      break;
+  }
+}" 0
+ E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  26 37 285 116
+"main()
+{
+  this.columnStretchable(0, TRUE);
+}" 0
+"main(int row, string column, string value)
+{
+  dyn_int di = this.getSelectedLines();
+
+  cmdEdit.enabled = (dynlen(di) == 1);
+  buDelete.enabled  = (dynlen(di) >  0);
+}" 0
+ 1 0 1 2 8 "project" 12 1 0 "s" 4
+LANG:10001 12 Project name
+LANG:10004 9 项目名
+LANG:10000 11 Projektname
+LANG:10027 21 Имя проекта
+E
+4
+LANG:10001 12 Project name
+LANG:10004 9 项目名
+LANG:10000 11 Projektname
+LANG:10027 21 Имя проекта
+
+150 "error" 39 1 0 "s" 4
+LANG:10001 5 Error
+LANG:10004 5 Error
+LANG:10000 6 Fehler
+LANG:10027 12 Ошибка
+E
+4
+LANG:10001 17 Error description
+LANG:10004 6 错误
+LANG:10000 18 Fehlerbeschreibung
+LANG:10027 29 Описание ошибки
+
+437 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 0 7
+1 0
+13 0
+"buDelete"
+""
+1 290 87.57692307692309 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 24 Remove selected projects
+LANG:10004 18 删除所选项目
+LANG:10000 30 Selektierte Projekte entfernen
+LANG:10027 48 Удалить выбранные проекты
+
+5
+"hoverbclr" "N \"STD_hover\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  288 87.5 323 116.5
+
+P 
+4294967295
+"pictures/StandardIcons/delete.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  removeProject();
+}
+" 0
+ E E E
+13 13
+"cmdEdit"
+""
+1 290 55.5 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 16 Edit config file
+LANG:10004 18 编辑配置文件
+LANG:10000 22 Konfig-Datei editieren
+LANG:10027 60 Редактировать файл конфигурации
+
+5
+"hoverbclr" "N \"STD_hover\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  288 53.5 323 84.5
+
+P 
+4294967295
+"pictures/StandardIcons/edit.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  editConfig();
+}" 0
+ E E E
+32 16
+"SPACER1"
+""
+1 290 39.00000000000001 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 290 39.00000000000001 321 48.00000000000001 2
+32 19
+"SPACER2"
+""
+1 16 154 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 16 154 252 177 1
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 3 "LAYOUT_GROUP3" 4
+3 0 
+16 13 0 
+
+"S 16" "0 0 1 1"
+"S 13" "1 0 1 1"
+"S 0" "2 0 1 1"
+"" ""
+0 2 1 0 0 0 0 1 6
+4 4 "LAYOUT_GROUP4" 6
+2 1 
+12 11 
+3 
+"S 11" "0 0 1 1"
+"G 3" "1 0 1 1"
+"" ""
+1 1 1 10 10 5 10 0
+4 5 "LAYOUT_GROUP5" 7
+3 0 
+20 8 19 
+
+"S 8" "1 0 1 1"
+"S 19" "0 0 1 1"
+"" ""
+1 1 1 15 15 10 10 0
+4 6 "LAYOUT_GROUP6" 7
+0 1 
+
+4 
+"G 4" "0 0 1 1"
+"" ""
+0 2 1 15 15 15 15 0
+4 7 "LAYOUT_GROUP7" -1
+0 2 
+
+5 6 
+"G 5" "1 0 1 1"
+"G 6" "0 0 1 1"
+"" ""
+0 2 1 0 0 0 0 1 0
+0

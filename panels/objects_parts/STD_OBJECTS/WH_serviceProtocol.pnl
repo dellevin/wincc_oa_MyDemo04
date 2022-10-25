@@ -1,0 +1,800 @@
+V 13
+4
+LANG:10001 15 Serviceprotocol
+LANG:10004 6 服务
+LANG:10000 17 Wartungsprotokoll
+LANG:10027 41 Протокол обслуживания
+PANEL,-1 -1 910 596 N "_3DFace" 3
+"$masch"
+"$stdmax"
+"$type"
+E E E E E 1 -1 -1 0  44 38
+""0  1
+E E 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+13 0
+"cmdProtClose"
+""
+1 658 558 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+0 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  658 558 772 588
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 1
+"cmdProtPrint"
+""
+1 528 558 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  528 558 642 588
+
+T 
+4
+LANG:10001 10 Print list
+LANG:10004 12 打印列表
+LANG:10000 13 Liste Drucken
+LANG:10027 25 Печать списка
+"main()
+{
+  int        leftSpace=8,i,count,
+             paperFormat=PAPER_FORMAT_A4_COND,
+             lineSpace=0,iRemain,type,newTime,
+             ye,mo,da,ho,mi,aR;
+  bool       bAlarm,bWH,bSC,bCheck;
+  time       tDone,tPlan,ti=getCurrentTime(),t;
+  char       separator=\"|\";
+  bool       landscape=true,
+             showAll=false;
+  string     cfgFile=(isMotif())?\"AS_UNIX.cfg\":\"AS_NT.cfg\",
+             device,dateDone,timeDone,datePlan,tType,total,
+             user,serviceText,comment,remain,sDone,dp,interval,nextDate,
+             tiStr=ti,sVon,sBis;
+  dyn_string header,
+             columnFormat=makeDynString(),
+             footer,
+             ds=cboType.items,dsFilter;
+
+//  lstFilter1.items=makeDynString(Alarm,wh,sc,check,maschine,filter);
+//  lstFilter2.items=makeDynString(wh,sc,check,maschine,iVon,iBis);
+
+  getValue(\"reg_wartung\",\"activeRegister\",aR);
+  if (aR==0)
+  {
+    // RegKarte ' anstehende Wartungen'
+    // ----------------------------------------------------
+
+    header[1] = \"\\\\bold\\\\left{\"+ substr(tiStr, 0, 16) +\"}\";
+    header[1]+= \"\\\\center{\"+getCatStr(\"STD_Symbols\",\"Wartungsprotokoll\")+\": \"+
+                            getCatStr(\"STD_Symbols\",\"anstehende Wartungen\")+\"}\";
+    header[1]+= \"\\\\right{\"+ getCatStr(\"STD_Symbols\",\"Seite\")+\": \\\\page/\\\\numpages}\";
+    header[2] = \"\\\\fill{_}\";
+    header[3] = \"\\\\tablehead\";
+    header[4] = \"\\\\fill{_}\";
+    footer[1] = \"\\\\fill{_}\";
+
+    footer[2] = \"\\\\bold\\\\left{\"+getCatStr(\"STD_Symbols\",\"printedby\")+getUserName()+\"}  \";
+    dsFilter=lstFilter1.items;
+    bAlarm=dsFilter[1]; bWH=dsFilter[2]; bSC=dsFilter[3]; bCheck=dsFilter[4];
+    footer[2]+= \"\\\\right{Filter: \";
+    footer[2]+= (bAlarm)?getCatStr(\"STD_Symbols\",\"onlyalert\")+\", \":\"\";
+    footer[2]+= (bWH)?getCatStr(\"STD_Symbols\",\"Betriebsstunden\")+\", \":\"\";
+    footer[2]+= (bSC)?getCatStr(\"STD_Symbols\",\"Schaltspiele\")+\", \":\"\";
+    footer[2]+= (bCheck)?getCatStr(\"STD_Symbols\",\"Maschine\")+dsFilter[5]+\", \":getCatStr(\"STD_Symbols\",\"alle Maschinen\")+\", \";
+    footer[2]+= \"<\"+dsFilter[6]+\" \"+getCatStr(\"STD_Symbols\",\"Std.\")+\"}\";
+
+    footer[3] = \"\\\\fill{_}\";
+
+    tabForPrint1.deleteAllLines;
+    count=bsz_tab.lineCount;
+    for (i=0;i<count;i++)
+    {
+      getValue(\"bsz_tab\",\"cellValueRC\",i,\"Maschine\",device,
+                         \"cellValueRC\",i,\"Wartungstext\",serviceText,
+                         \"cellValueRC\",i,\"Gesamtbetrieb\",total,
+                         \"cellValueRC\",i,\"dp\",dp,
+                         \"cellValueRC\",i,\"Restzeit\",remain,
+                         \"cellValueRC\",i,\"Wartungsintervall\",interval);
+      dpGet(dpSubStr(dp,DPSUB_DP)+\".para.type:_online.._value\",type);
+      if (type==2) type=4; else if (type==4) type=2;
+      tType=ds[type];
+  
+      if (type==3 || type==6)
+      {
+        nextDate=interval;
+      }
+      else
+      {
+        iRemain=remain;
+        newTime=ti; newTime+=iRemain*3600;
+        t=newTime;
+        nextDate=formatTime(\"%Y.%m.%d %H:00\",t);
+      }
+      tabForPrint1.appendLine(\"device\",device,
+                              \"type\",tType,
+                              \"serviceText\",serviceText,
+                              \"total\",total,
+                              \"remain\",remain,
+                              \"nextDate\",nextDate,
+                              \"interval\",interval);
+    }
+
+    tabForPrint1.printTable(header,columnFormat,footer,cfgFile,paperFormat,
+                           landscape,showAll,separator,leftSpace,lineSpace);
+  }
+  else if (aR==1)
+  {
+    // RegKarte 'durchgeführte Wartungen'
+    // ----------------------------------------------------
+
+    header[1] = \"\\\\bold\\\\left{\"+ substr(tiStr, 0, 16) +\"}\";
+    header[1]+= \"\\\\center{\"+getCatStr(\"STD_Symbols\",\"Wartungsprotokoll\")+\": \"+
+                            getCatStr(\"STD_Symbols\",\"durchgeführte Wartungen\")+\"}\";
+    header[1]+= \"\\\\right{\"+ getCatStr(\"STD_Symbols\",\"Seite\")+\": \\\\page/\\\\numpages}\";
+    header[2] = \"\\\\fill{_}\";
+    header[2] = \"\\\\fill{_}\";
+    header[3] = \"\\\\tablehead\";
+    header[4] = \"\\\\fill{_}\";
+
+    footer[1] = \"\\\\fill{_}\";
+
+    footer[2] = \"\\\\left{\"+getCatStr(\"STD_Symbols\",\"printedby\")+getUserName()+\"}\";
+    dsFilter=lstFilter2.items;
+    i=dsFilter[5]; t=i; sVon=t; sVon=substr(sVon,0,16);
+    i=dsFilter[6]; t=i; sBis=t; sBis=substr(sBis,0,16);
+    bWH=dsFilter[1]; bSC=dsFilter[2]; bCheck=dsFilter[3];
+    footer[2]+= \"\\\\bold\\\\right{Filter: \";
+    footer[2]+= (bWH)?getCatStr(\"STD_Symbols\",\"Betriebsstunden\")+\",  \":\"\";
+    footer[2]+= (bSC)?getCatStr(\"STD_Symbols\",\"Schaltspiele\")+\",  \":\"\";
+    footer[2]+= (bCheck)?getCatStr(\"STD_Symbols\",\"Maschine\")+dsFilter[4]+\",  \":getCatStr(\"STD_Symbols\",\"alle Maschinen\")+\",  \";
+    footer[2]+= getCatStr(\"STD_Symbols\",\"von\")+sVon+\" \"+getCatStr(\"STD_Symbols\",\"bis\")+sBis+\"}\";
+    footer[3] = \"\\\\fill{_}\";
+
+    tabForPrint2.deleteAllLines;
+    count=bsz_tab2.lineCount;
+    for (i=0;i<count;i++)
+    {
+      getValue(\"bsz_tab2\",\"cellValueRC\",i,\"#1\",device,
+                          \"cellValueRC\",i,\"#7\",dateDone,
+                          \"cellValueRC\",i,\"#6\",timeDone,
+                          \"cellValueRC\",i,\"#8\",user,
+                          \"cellValueRC\",i,\"Text\",serviceText,
+                          \"cellValueRC\",i,\"#9\",comment,
+                          \"cellValueRC\",  i,\"dp\",dp,
+                          \"cellValueRC\",i,\"Restzeit\",remain);
+      sDone=dateDone+timeDone;
+      sscanf(sDone,\"%d.%d.%d %d:%d\",ye,mo,da,ho,mi);
+      tDone=makeTime(ye,mo,da,ho,mi);
+      iRemain=remain; iRemain*=3600;
+      tPlan=tDone+iRemain;
+      datePlan=formatTime(\"%Y.%m.%d %H:00\",tPlan);
+      dpGet(dp+\".para.type:_online.._value\",type);
+      if (type==2) type=4; else if (type==4) type=2;
+      tType=ds[type];
+  
+      tabForPrint2.appendLine(\"device\",device,
+                             \"type\",tType,
+                             \"serviceText\",serviceText,
+                             \"datePlanned\",datePlan,
+                             \"dateDone\",sDone,
+                             \"user\",user,
+                             \"comment\",comment,
+                             \"remain\",remain);
+    }
+    tabForPrint2.printTable(header,columnFormat,footer,cfgFile,paperFormat,
+                           landscape,showAll,separator,leftSpace,lineSpace);
+  }
+}
+
+//Function Button3_EventClick()" 0
+ E E E
+28 3
+"reg_wartung"
+""
+1 8 8 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 8 902 552
+E2 "#1" 4
+LANG:10001 18 Pending services  
+LANG:10004 12 待定服务
+LANG:10000 24   Anstehende Wartungen  
+LANG:10027 42 Обслуживание в очереди
+1 "objects_parts\\STD_OBJECTS\\WH_serviceProtocol_1.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+3
+"$masch""$masch"
+"$stdmax""$stdmax"
+"$type""$type"
+
+"#2" 4
+LANG:10001 15 Done services  
+LANG:10004 12 完成服务
+LANG:10000 28   Durchgeführte Wartungen  
+LANG:10027 47 Выполненное обслуживание
+1 "objects_parts\\STD_OBJECTS\\WH_serviceProtocol_2.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2
+"$masch""$masch"
+"$type""$type"
+
+
+13 4
+"cmdProtHelp"
+""
+1 788 558 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  788 558 902 588
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"WH_serviceProcol\");
+}" 0
+ E E E
+25 6
+"tabForPrint2"
+""
+1 -2 522 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 538 152 592
+EE 1 0 1 8 1 "device" 17 1 0 "s" 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 6 Gerät
+LANG:10027 20 Устройство
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "type" 17 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 11 Wartungstyp
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "datePlanned" 17 1 0 "s" 4
+LANG:10001 12 Date planned
+LANG:10004 12 计划日期
+LANG:10000 10 Geplant am
+LANG:10027 25 Плановая дата
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "dateDone" 17 1 0 "s" 4
+LANG:10001 9 Date done
+LANG:10004 12 完成日期
+LANG:10000 14 Ausgeführt am
+LANG:10027 29 Выполнено [дата]
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "user" 15 1 0 "s" 4
+LANG:10001 13 Service stuff
+LANG:10004 15 服务工程师
+LANG:10000 15 Durchführender
+LANG:10027 16 Персонал
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "serviceText" 35 1 0 "s" 4
+LANG:10001 12 Service-text
+LANG:10004 18 服务备注文本
+LANG:10000 12 Wartungstext
+LANG:10027 41 Описание обслуживания
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+400 "comment" 33 1 0 "s" 4
+LANG:10001 7 Comment
+LANG:10004 6 备注
+LANG:10000 9 Kommentar
+LANG:10027 22 Комментарий
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+380 "remain" 15 1 0 "s" 4
+LANG:10001 10 Remain (h)
+LANG:10004 9 保持(h)
+LANG:10000 15 Restzeit (Std.)
+LANG:10027 23 Остаток (час)
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+25 8
+"tabForPrint1"
+""
+1 37 505 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  58 538 212 592
+EE 1 0 1 7 1 "device" 17 1 0 "s" 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 6 Gerät
+LANG:10027 20 Устройство
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "type" 17 1 0 "s" 4
+LANG:10001 12 Service type
+LANG:10004 12 服务类型
+LANG:10000 11 Wartungstyp
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "serviceText" 35 1 0 "s" 4
+LANG:10001 12 Service text
+LANG:10004 12 服务文本
+LANG:10000 12 Wartungstext
+LANG:10027 41 Описание обслуживания
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+400 "total" 17 1 0 "s" 4
+LANG:10001 11 Total hours
+LANG:10004 15 全部小时数
+LANG:10000 10 Gesamt (h)
+LANG:10027 15 Всего (ч)
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "remain" 15 1 0 "s" 4
+LANG:10001 10 Remain (h)
+LANG:10004 9 保持(h)
+LANG:10000 15 Restzeit (Std.)
+LANG:10027 23 Остаток (час)
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "interval" 13 1 0 "s" 4
+LANG:10001 8 Interval
+LANG:10004 6 间隔
+LANG:10000 9 Intervall
+LANG:10027 16 Интервал
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+160 "nextDate" 17 1 0 "s" 4
+LANG:10001 12 Date planned
+LANG:10004 12 计划日期
+LANG:10000 16 Nächste Wartung
+LANG:10027 43 Следующее обслуживание
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+1 10 0 "" 0
+0
+13 9
+"cmdExport"
+""
+1 397 560 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  395 558 509 588
+
+T 
+4
+LANG:10001 11 Export list
+LANG:10004 12 导出列表
+LANG:10000 17 Liste exportieren
+LANG:10027 27 Экспорт списка
+"main()
+{
+  int        leftSpace=8,i,count,
+             paperFormat=PAPER_FORMAT_A4_COND,
+             lineSpace=0,iRemain,type,newTime,
+             ye,mo,da,ho,mi,aR;
+  bool       bAlarm,bWH,bSC,bCheck;
+  time       tDone,tPlan,ti=getCurrentTime(),t;
+  char       separator=\"\\t\";
+  bool       landscape=true,
+             showAll=false;
+  string     cfgFile=(isMotif())?\"AS_UNIX.cfg\":\"AS_NT.cfg\",
+             device,dateDone,timeDone,datePlan,tType,total,fileName,head,foot,
+             user,serviceText,comment,remain,sDone,dp,interval,nextDate,
+             tiStr=ti,sVon,sBis;
+  dyn_string header,
+             columnFormat=makeDynString(),
+             footer,
+             ds=cboType.items,dsFilter;
+
+//  lstFilter1.items=makeDynString(Alarm,wh,sc,check,maschine,filter);
+//  lstFilter2.items=makeDynString(wh,sc,check,maschine,iVon,iBis);
+
+  getValue(\"reg_wartung\",\"activeRegister\",aR);
+  if (aR==0)
+  {
+    // RegKarte ' anstehende Wartungen'
+    // ----------------------------------------------------
+
+    header[1] = substr(tiStr, 0, 19) +\"\\t\";
+    header[1]+= getCatStr(\"STD_Symbols\",\"Wartungsprotokoll\")+\": \"+
+                getCatStr(\"STD_Symbols\",\"anstehende Wartungen\");
+    header[3] = whGetTabHeader(\"tabForPrint1\",separator);
+    header[4] = \"\";
+
+    footer[2] = getCatStr(\"STD_Symbols\",\"printedby\")+getUserName()+\",\\t\";
+    dsFilter=lstFilter1.items;
+    bAlarm=dsFilter[1]; bWH=dsFilter[2]; bSC=dsFilter[3]; bCheck=dsFilter[4];
+    footer[2]+= \"Filter: \";
+    footer[2]+= (bAlarm)?getCatStr(\"STD_Symbols\",\"onlyalert\")+\", \":\"\";
+    footer[2]+= (bWH)?getCatStr(\"STD_Symbols\",\"Betriebsstunden\")+\", \":\"\";
+    footer[2]+= (bSC)?getCatStr(\"STD_Symbols\",\"Schaltspiele\")+\", \":\"\";
+    footer[2]+= (bCheck)?getCatStr(\"STD_Symbols\",\"Maschine\")+dsFilter[5]+\", \":getCatStr(\"STD_Symbols\",\"alle Maschinen\")+\", \";
+    footer[2]+= \"<\"+dsFilter[6]+\" \"+getCatStr(\"STD_Symbols\",\"Std.\");
+    tabForPrint1.deleteAllLines;
+    count=bsz_tab.lineCount;
+    for (i=0;i<count;i++)
+    {
+      getValue(\"bsz_tab\",\"cellValueRC\",i,\"Maschine\",device,
+                         \"cellValueRC\",i,\"Wartungstext\",serviceText,
+                         \"cellValueRC\",i,\"Gesamtbetrieb\",total,
+                         \"cellValueRC\",i,\"dp\",dp,
+                         \"cellValueRC\",i,\"Restzeit\",remain,
+                         \"cellValueRC\",i,\"Wartungsintervall\",interval);
+      dpGet(dpSubStr(dp,DPSUB_DP)+\".para.type:_online.._value\",type);
+      if (type==2) type=4; else if (type==4) type=2;
+      tType=ds[type];
+  
+      if (type==3 || type==6)
+      {
+        nextDate=interval;
+      }
+      else
+      {
+        iRemain=remain;
+        newTime=ti; newTime+=iRemain*3600;
+        t=newTime;
+        nextDate=formatTime(\"%Y.%m.%d %H:00\",t);
+      }
+      tabForPrint1.appendLine(\"device\",device,
+                              \"type\",tType,
+                              \"serviceText\",serviceText,
+                              \"total\",total,
+                              \"remain\",remain,
+                              \"nextDate\",nextDate,
+                              \"interval\",interval);
+    }
+
+    if (fileSelector(fileName, DATA_PATH, false, \"*.*\", FALSE)<0 || fileName==\"\")
+      return;
+    if (strpos(fileName,\".\")<0) fileName+=\".txt\";
+    whWriteToFile(\"tabForPrint1\",fileName,header,footer,separator);
+  }
+  else if (aR==1)
+  {
+    // RegKarte 'durchgeführte Wartungen'
+    // ----------------------------------------------------
+
+    header[1] = substr(tiStr, 0, 19) +\"\\t\";
+    header[1]+= getCatStr(\"STD_Symbols\",\"Wartungsprotokoll\")+\": \"+
+                getCatStr(\"STD_Symbols\",\"durchgeführte Wartungen\");
+    header[3] = whGetTabHeader(\"tabForPrint2\",separator);
+    header[4] = \"\";
+    
+    footer[2] = getCatStr(\"STD_Symbols\",\"printedby\")+getUserName()+\"\\t\";
+    dsFilter=lstFilter2.items;
+    i=dsFilter[5]; t=i; sVon=t; sVon=substr(sVon,0,16);
+    i=dsFilter[6]; t=i; sBis=t; sBis=substr(sBis,0,16);
+    bWH=dsFilter[1]; bSC=dsFilter[2]; bCheck=dsFilter[3];
+    footer[2]+= \"Filter: \";
+    footer[2]+= (bWH)?getCatStr(\"STD_Symbols\",\"Betriebsstunden\")+\",\\t\":\"\";
+    footer[2]+= (bSC)?getCatStr(\"STD_Symbols\",\"Schaltspiele\")+\",\\t\":\"\";
+    footer[2]+= (bCheck)?getCatStr(\"STD_Symbols\",\"Maschine\")+dsFilter[4]+\",\\t\":getCatStr(\"STD_Symbols\",\"alle Maschinen\")+\",\\t\";
+    footer[2]+= getCatStr(\"STD_Symbols\",\"von\")+sVon+\" \"+getCatStr(\"STD_Symbols\",\"bis\")+sBis;
+
+    tabForPrint2.deleteAllLines;
+    count=bsz_tab2.lineCount;
+    for (i=0;i<count;i++)
+    {
+      getValue(\"bsz_tab2\",\"cellValueRC\",i,\"#1\",device,
+                          \"cellValueRC\",i,\"#7\",dateDone,
+                          \"cellValueRC\",i,\"#6\",timeDone,
+                          \"cellValueRC\",i,\"#8\",user,
+                          \"cellValueRC\",i,\"Text\",serviceText,
+                          \"cellValueRC\",i,\"#9\",comment,
+                          \"cellValueRC\",  i,\"dp\",dp,
+                          \"cellValueRC\",i,\"Restzeit\",remain);
+      sDone=dateDone+timeDone;
+      sscanf(sDone,\"%d.%d.%d %d:%d\",ye,mo,da,ho,mi);
+      tDone=makeTime(ye,mo,da,ho,mi);
+      iRemain=remain; iRemain*=3600;
+      tPlan=tDone+iRemain;
+      datePlan=formatTime(\"%Y.%m.%d %H:00\",tPlan);
+      dpGet(dp+\".para.type:_online.._value\",type);
+      tType=ds[type];
+  
+      tabForPrint2.appendLine(\"device\",device,
+                             \"type\",tType,
+                             \"serviceText\",serviceText,
+                             \"datePlanned\",datePlan,
+                             \"dateDone\",sDone,
+                             \"user\",user,
+                             \"comment\",comment,
+                             \"remain\",remain);
+    }
+
+    if (fileSelector(fileName, DATA_PATH, false, \"*.*\")<0 || fileName==\"\")
+      return;
+    if (strpos(fileName,\".\")<0) fileName+=\".txt\";
+    whWriteToFile(\"tabForPrint2\",fileName,header,footer,separator);
+  }
+}
+
+string whGetTabHeader(string table, char separator)
+{
+  int        cCount,i;
+  string     s,header;
+  langString ls;
+  
+  getValue(table,\"columnCount\",cCount);
+  for (i=0;i<cCount;i++)
+  {
+    getValue(table,\"columnHeader\",i,ls);
+    s=ls;
+    header+=s; if (i<cCount-1) header+=separator;
+  }
+  return header;
+}
+
+//Function Button3_EventClick()" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "Group2" -1
+"" ""
+"objects/STD_PARTS/ELEMENT_WH_SERVICE_TYPE.pnl" 310 470 T 5 1 0 1 -170.0000000000001 90
+0
+0

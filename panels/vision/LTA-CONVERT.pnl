@@ -1,0 +1,2800 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 1100 840 N "_3DFace" 0
+"main()
+{
+//	initHDBConverter();  
+	initHDB();
+	initLZA();
+}
+
+
+
+initLZA()
+{
+  string query, dp, dp2, tString;
+  dyn_dyn_anytype result;
+  int i, j, k;
+  dyn_string ds, ds2;
+  string mySystem = getSystemName();
+  dyn_string name, vnumber;
+  dyn_int interval;
+  dyn_time dt;
+  time startTime;
+  time now = getCurrentTime();
+  int count;
+  int iArchivIndex;
+  string tEndString;
+  dyn_string dsDpList;
+	bool bUseValueArchive;
+
+  int summ;
+  
+ 
+  setValue(\"tabLZA\",\"selectByClick\",TABLE_SELECT_LINE ,
+    \"selectColors\",\"[60,60,60]\",\"[100,100,100]\",
+    \"tableMode\", TABLE_SELECT_BROWSE,
+    \"sortOnClick\",TRUE);
+  
+  
+  dpGet(\"_DataManager.UseValueArchive:_online.._value\", bUseValueArchive);
+  
+  if (!dpExistsDPE(\"_DataManager.UseValueArchive\") || !bUseValueArchive)
+	{
+  
+  	DebugN( \"Die Datenbank läuft nicht im HDB Modus !!! \");
+    ChildPanelOnCentral(\"vision/MessageInfo1\", \"Abbruch\",makeDynString( \"Die Datenbank läuft nicht im HDB Modus oder\\ndas Projekt ist noch nicht nachgezogen!\\nImport kann nicht gestartet werden!\", \"Abbruch\"));
+	}
+     
+  //  query =  \"SELECT 'vnumber:_online.._value, interval:_online.._value, name:_online.._value' FROM '*' WHERE _DPT=\\\"_CompressStructure\\\"\";
+  //  dpQuery(query, result);  
+    
+  ds= dpNames(\"*\",\"_CompressStructure\");
+    
+   for ( i= dynlen(ds); i>0;  i--)
+       if (isReduDp(ds[i]))
+        dynRemove(ds, i);
+ 
+
+  for ( i= 1; i<= dynlen( ds); i++)
+  {
+    dpGet(  ds[i]+\".vnumber:_online.._value\", vnumber,
+        ds[i]+\".interval:_online.._value\", interval,
+        ds[i]+\".name:_online.._value\",  name);
+        
+    strreplace(ds[i], getSystemName() ,\"\");              // replace own systemname
+
+    for (j=1; j<= dynlen(vnumber);j++)
+    {
+      startTime = now;            // resetTime
+      count = 0;
+      ds2=dpNames(ds[i]+\"_\"+vnumber[j]+\"_*\", \"_Archive\");    // find all archives od this group
+            count = 0;
+      for (k=1; k<= dynlen(ds2); k++)          // use the earlierst archivation time
+      {
+        dpGet(ds2[k]+\".archiveCreateDate:_original.._value\", dt);
+        count += dynlen(dt) ;              // nuumber of entries 
+      }
+      startTime = makeTime(1998,1,1);                // lowest time in array
+      summ += count;
+      if (interval[j] != 0)
+	      iArchivIndex = findArchiveForLZA(86400.0/interval[j]);  
+  
+      tEndString = \"jetzt\";
+  
+      dp2 = ds[i] + \".\"+vnumber[j];
+      if (interval[j] != 0)
+  	    tabLZA.updateLine(1,\"dp\",dp2,\"dp\",dp2,\"type\", \"LZA\", \"time\",  interval[j], \"interval\", name[j], \"valueperhour\", (86400.0/interval[j]), \"start\", startTime == now ? \"???\": startTime, \"count\", count, \"archiveDp\", gArchiveDp[iArchivIndex], \"archiveText\", gArchiveName[iArchivIndex], \"end\", tEndString , \"dpType\", ds[i] ,\"shortcut\" , vnumber[j]);  // Lineupdate
+  		else
+       tabLZA.updateLine(1,\"dp\",dp2,\"dp\",dp2,\"type\", \"LZA\", \"time\",  \"???\", \"interval\", name[j], \"valueperhour\", \"???\", \"start\", startTime == now ? \"???\": startTime, \"count\", count, \"archiveDp\", \"???\", \"archiveText\", \"???\", \"end\", tEndString , \"dpType\", ds[i] ,\"shortcut\" , vnumber[j]);  // Lineupdate
+ 		
+    }              
+  }
+  // append all HDB*
+  ds2=dpNames(\"HDB_*\", \"_Archive\");                       // find all archives od this group
+  for (k=1; (k<= dynlen(ds2) && k<= dynlen(gArchiveDp)); k++)                         // use the earlierst archivation time
+  {
+    strreplace(ds2[k], getSystemName() ,\"\");              // replace own systemname
+    dpGet(ds2[k]+\".archiveCreateDate:_original.._value\", dt);
+    count = dynlen(dt) ;                                  // number of entries 
+		if (dynlen(dt)>0)
+			startTime = ds[1];
+		else
+      startTime = makeTime(1998,1,1);                // lowest time in array
+		
+    iArchivIndex = k ;      
+    dp2 = ds2[k]; 
+    tabLZA.updateLine(1,\"dp\",dp2,\"dp\",dp2,\"type\", \"Raima\", \"time\",  \"0\", \"interval\", \"???\", \"valueperhour\", \"0\", \"start\", startTime == now ? \"???\": startTime, \"count\", count, \"archiveDp\", gArchiveDp[iArchivIndex], \"archiveText\", gArchiveName[iArchivIndex], \"end\", tEndString , \"dpType\", \"\" ,\"shortcut\" , \"\");  // Lineupdate
+  
+  }
+  
+
+
+}
+
+
+
+initHDB()
+{
+  string query, dp, dp2, name, tString;
+  dyn_dyn_anytype result;
+  int i, j, value, iperiod, state;
+  dyn_string ds, dsName;
+  string mySystem = getSystemName();
+  dyn_time startTime;
+  
+  addGlobal(\"gArchiveName\", DYN_STRING_VAR);   
+  addGlobal(\"gArchiveDp\", DYN_STRING_VAR);
+  addGlobal(\"gArchiveCount\", DYN_FLOAT_VAR);
+  
+  dynClear(gArchiveName);
+  dynClear(gArchiveDp);
+  dynClear(gArchiveCount);
+  
+  setValue(\"tabHDB\",\"selectByClick\",TABLE_SELECT_LINE ,
+    \"selectColors\",\"[60,60,60]\",\"[100,100,100]\",
+    \"tableMode\", TABLE_SELECT_BROWSE,
+    \"sortOnClick\",TRUE);
+  
+  
+	ds = dpNames(\"_ValueArchive*\", \"_ValueArchive\");
+ 
+
+  for ( i= dynlen(ds); i>0;  i--)
+    if (isReduDp(ds[i]))
+        dynRemove(ds, i);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+  {
+    strreplace(ds[i], getSystemName() ,\"\");              // replace own systemname
+ 
+    dpGet(ds[i]+\".size.maxValuesGet:_original.._value\", value,
+        ds[i]+\".setMgmt.fileSwitch.switchTimeGet.interval:_original.._value\", iperiod,
+        ds[i]+\".general.arName:_online.._value\", name,
+        ds[i]+\".state:_online.._value\", state,
+        ds[i]+\".files.startTime:_online.._value\", startTime);
+        
+    if (state != 3)  // if ! deleted
+    {
+      if (dynlen(startTime)>0)
+          tString = startTime[1];
+      else
+          tString = \"???\";
+          
+      tabHDB.updateLine(1,\"dp\",ds[i],\"dp\",ds[i],\"name\", name,\"valueperhour\", iperiod>0?value*86400.0/iperiod:\"???\", \"time\", iperiod, \"start\", tString);  // Zeilenupdate
+  
+      dynAppend(dsName, name);
+      dynAppend(gArchiveDp, ds[i]);
+      dynAppend(gArchiveCount, iperiod>0?value*86400.0/iperiod:0);
+    }
+  }
+  gArchiveName = dsName;
+}
+
+
+int findArchiveForLZA(float count)
+{
+  float fOldMax;
+  int i, iFound;
+  
+  
+  for (i=1; i<= dynlen(gArchiveCount); i++)
+  {
+    if   ((gArchiveCount[i] >= fOldMax && fOldMax <= count) || (gArchiveCount[i] <= fOldMax && fOldMax >= count) && gArchiveCount[i]> count)
+    {
+      fOldMax = gArchiveCount[i];
+      iFound = i;
+    }
+  }
+   return(iFound) ;
+}
+
+" 0
+ E E E E 1 -1 -1 0  298 630
+""0  1
+E E 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+1
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 7
+"Text1"
+""
+1 20 510 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 512 136 526
+1 2 0 "0s" 0 0 0 192 0 0  22 512 1
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 23 HDB Archivinformationen
+LANG:10004 16 HDB 归档信息
+LANG:10000 23 HDB Archivinformationen
+LANG:10027 30 Архив БД истории
+2 8
+"Text2"
+""
+1 20 10 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 12 206 26
+1 2 0 "0s" 0 0 0 192 0 0  22 12 1
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 23 LZA Archivinformationen
+LANG:10004 16 LZA 归档信息
+LANG:10000 23 LZA Archivinformationen
+LANG:10027 51 Долгосрочное архивирование
+2 12
+"Text3"
+""
+1 653 590 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 655 592 811 606
+1 2 0 "0s" 0 0 0 192 0 0  655 592 1
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 19 Statusinformationen
+LANG:10004 12 状态信息
+LANG:10000 19 Statusinformationen
+LANG:10027 42 Информация о состоянии
+25 3
+"tabLZA"
+""
+1 -451 -159 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  18 28 1087 503
+E"main(int row, string column, string value)
+{
+  dyn_int rows;
+  dyn_int columns;
+  int element;
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+  time t;
+  string type;
+  
+  string tStringStart = \"???\";
+  string tStringNow = \"jetzt\";
+  string timeHeader = \"Zeitangabe\";
+  string archiveHeader = \"Archivangabe\";
+  
+  type = this.cellValueRC(row,\"type\");
+  
+  if (type != \"HDB\")
+  {
+    if (column == \"start\")
+    {
+      if (value == tStringStart)
+        value = makeTime(1990,1,1);
+      dateTimePicker(value, t);
+      if (makeTime(1990,1,1) < t)  // if Date < starttime -> Text \"???\"
+        tStringStart = t;
+      this.cellValueRC(row,column) = tStringStart;
+    }
+  }
+  else if (column == \"end\")
+  {
+    if (value == tStringNow )
+      value = getCurrentTime();
+    dateTimePicker(value, t);
+    if (makeTime(year(getCurrentTime()), month(getCurrentTime()), day((getCurrentTime()))) > t)  // if Date > today 0:00 -> Text \"now\"
+      tStringNow = t;
+    this.cellValueRC(row,column) = tStringNow;
+  }
+  else if (column == \"archiveText\")
+  {
+    //this.cellValueRC(row,\"archiveDp\");
+    ChildPanelOnCentralModalReturn(\"vision/LTA-CONVERT_child.pnl\",archiveHeader,makeDynString(\"$list:\"+gArchiveName, \"$pos:\"+dynContains(gArchiveName, value)), dfReturn, dsReturn);
+    if (dfReturn[1] > 0)
+    {
+      this.cellValueRC(row,\"archiveDp\") = gArchiveDp[dfReturn[1]];
+      this.cellValueRC(row,\"archiveText\") = gArchiveName[dfReturn[1]];
+    }
+  }
+}" 0
+ 1 0 1 12 1 "dp" 17 1 0 "s" 4
+LANG:10001 5 DPTyp
+LANG:10004 8 DP类型
+LANG:10000 5 DPTyp
+LANG:10027 9 Тип DP
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "type" 6 1 0 "s" 4
+LANG:10001 9 ArchivTyp
+LANG:10004 12 归档类型
+LANG:10000 9 ArchivTyp
+LANG:10027 19 Тип архива
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "interval" 6 1 0 "s" 4
+LANG:10001 9 Intervall
+LANG:10004 6 周期
+LANG:10000 9 Intervall
+LANG:10027 16 Интервал
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "valueperhour" 6 1 0 "s" 4
+LANG:10001 6 Wert/t
+LANG:10004 15 每小时数值
+LANG:10000 6 Wert/t
+LANG:10027 18 Значение/t
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "time" 6 1 0 "s" 4
+LANG:10001 4 time
+LANG:10004 6 时间
+LANG:10000 4 time
+LANG:10027 10 Время
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "count" 6 1 0 "s" 4
+LANG:10001 8 Anz. DPe
+LANG:10004 8 Anz. DPe
+LANG:10000 8 Anz. DPe
+LANG:10027 15 Кол-во DPE
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "start" 10 1 0 "s" 4
+LANG:10001 10 Beginn ...
+LANG:10004 15 起始时间...
+LANG:10000 10 Beginn ...
+LANG:10027 16 Начало ...
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+128 "end" 10 1 0 "s" 4
+LANG:10001 8 Ende ...
+LANG:10004 12 结束时间
+LANG:10000 8 Ende ...
+LANG:10027 22 Окончание ...
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+128 "archiveDp" 8 0 0 "s" 4
+LANG:10001 10 HDB-Archiv
+LANG:10004 10 HDB-归档
+LANG:10000 10 HDB-Archiv
+LANG:10027 30 Архив БД истории
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+96 "archiveText" 21 1 0 "s" 4
+LANG:10001 14 HDB-Archiv ...
+LANG:10004 12 HDB归档...
+LANG:10000 14 HDB-Archiv ...
+LANG:10027 34 Архив БД истории ...
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+240 "dpType" 21 0 0 "s" 4
+LANG:10001 6 dpType
+LANG:10004 8 DP类型
+LANG:10000 6 dpType
+LANG:10027 6 dpType
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+240 "shortcut" 21 0 0 "s" 4
+LANG:10001 8 shortcut
+LANG:10004 12 快捷方式
+LANG:10000 8 shortcut
+LANG:10027 10 ярлык
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+240 
+27 27 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 72
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+25 6
+"tabHDB"
+""
+1 -218 395 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 528 490 802
+EE 1 0 1 7 1 "dp" 21 0 0 "s" 4
+LANG:10001 2 dp
+LANG:10004 2 dp
+LANG:10000 2 dp
+LANG:10027 2 dp
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+240 "name" 21 1 0 "s" 4
+LANG:10001 10 Archivname
+LANG:10004 9 归档名
+LANG:10000 10 Archivname
+LANG:10027 19 Имя архива
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+240 "valueperhour" 6 1 0 "s" 4
+LANG:10001 6 Wert/t
+LANG:10004 15 每小时数值
+LANG:10000 6 Wert/t
+LANG:10027 18 Значение/t
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "time" 8 0 0 "s" 4
+LANG:10001 4 time
+LANG:10004 6 时间
+LANG:10000 4 time
+LANG:10027 10 Время
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+96 "start" 10 1 0 "s" 4
+LANG:10001 10 Beginn ...
+LANG:10004 15 起始时间...
+LANG:10000 10 Beginn ...
+LANG:10027 16 Начало ...
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+128 "end" 10 0 0 "s" 4
+LANG:10001 4 Ende
+LANG:10004 12 结束时间
+LANG:10000 4 Ende
+LANG:10027 10 Конец
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+128 "archive" 8 0 0 "s" 4
+LANG:10001 10 HDB-Archiv
+LANG:10004 10 HDB-归档
+LANG:10000 10 HDB-Archiv
+LANG:10027 30 Архив БД истории
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+96 
+27 27 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 72
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 13
+"bu_start"
+""
+1 1125 1180 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  943 568 1087 598
+
+T 
+4
+LANG:10001 20 Starte Konvertierung
+LANG:10004 12 开始转换
+LANG:10000 20 Starte Konvertierung
+LANG:10027 28 Начать конверт.
+"int gHDBfileSwitchProgress;
+int gHDBfileDeleteProgress; 
+
+main()
+{
+  int i, j, k, maxLines;
+  string mySystem = getSystemName();
+  dyn_anytype da;
+  dyn_string archiveDps;
+  dyn_int archiveDpsCount;
+  dyn_string archiveText, ds, dps;
+  dyn_bool dbIsRaimaDPE;
+  int pos;
+  string dp, DP;
+  string sArchive;
+  string value;
+  time startTime, endTime, now = getCurrentTime();
+  
+  string     tStringStart = \"???\";
+  string     tStringNow = \"jetzt\";
+  string     timeHeader = \"Zeitangabe\";
+  string     archiveHeader = \"Archivangabe\";
+  string     sOutputAmount = \"Datenpunkte werden bearbeitet\";
+  dyn_string   tempds;
+  string     tempString;
+  int     iArchiveNumber;
+  string     sArchiveDP;
+  
+  dyn_string   copyArchiveArchive;
+  dyn_string   copyArchiveDp;
+  dyn_time   copyArchiveStartTime;
+  dyn_time   copyArchiveEndTime;
+  dyn_int   copyArchiveNumber;
+
+  dyn_time   archiveStartTime;
+
+  dyn_anytype   daValue;
+  dyn_time   dtTime, dtTimeState;
+  dyn_bit32  dbState;
+  dyn_int dbIntState;  
+
+  dyn_string files;
+  int maxElementGet;
+
+  int co_find, co_stat;
+
+  unsigned dpId;
+  int dpEl;
+  
+  string s;
+  string sOldArchive;
+  int rc;
+  
+  file f;
+  float fPercent;
+    
+  dyn_int gRaimaArchiveDpsCount;
+  bool bUseValueArchive;
+  
+  
+  string sNewDPE;
+  bool bCheck;
+ 
+  bool       bStringCast;      // temp values for lza CAST !!
+  string    sStringCast;
+  // anytype   aStringCast;   local definition!!
+  float     fStringCast;
+  int       iStringCast;
+  long      lStringCast;
+  bit32     b32StringCast;
+  bit64     b64StringCast;
+  int       iDPEType;
+  unsigned   uStringCast;
+  ulong     ulStringCast;
+  time       tStringCast;
+  char       cStringCast;
+  anytype   aStringCastEmpty;
+  dyn_string dsStringCast;
+  dyn_float dfStringCast;
+  dyn_int    diStringCast;
+  dyn_long    dlStringCast;
+  dyn_bool  dbStringCast;
+
+  dyn_string didStringCast;    // dyn_dpid didStringCast;
+  string idStringCast;        // dpid idStringCast;
+
+  string name;
+  int state;
+  int iSetCount;
+  int iElementCount;
+
+  dyn_string dsArchiveSets;
+  dyn_time dsArchiveSetsTime;
+  
+  dyn_bool copyArchiveFileCheck;
+  bool bArchiveOK;
+  int iBit32;
+  
+  
+
+  dpGet(\"_DataManager.UseValueArchive:_online.._value\", bUseValueArchive);
+  
+  if (!dpExistsDPE(\"_DataManager.UseValueArchive\") || !bUseValueArchive)
+  {
+  
+    DebugN( \"Die Datenbank läuft nicht im HDB Modus !!! \");
+    ChildPanelOnCentral(\"vision/MessageInfo1\", \"Abbruch\",makeDynString( \"Die Datenbank läuft nicht im HDB Modus oder\\ndas Projekt ist noch nicht nachgezogen!\\nImport kann nicht gestartet werden!\", \"Abbruch\"));
+
+    return;
+  }
+
+
+  // disable all elements !!
+  tabHDB.enabled  = false;
+  tabLZA.enabled  = false;
+  bu_info.enabled = false;
+  bu_setTime.enabled = false;
+  bu_start.enabled = false;
+  bu_test.enabled = false;
+
+  addGlobal(\"gdpElementCount\", INT_VAR );
+
+  openProgressBar(\"LZA / Raima Import\", \"import.gif\", \"Der Importvorgang wird vorbetreitet\", \"\", \"\", 2);
+  
+  showProgressBar(\"\", \"\", \"Erstelle Statistiken\", 1);
+
+  initHosts();
+
+  tabLog.deleteAllLines;
+  
+  tabLog.appendLine(\"#1\", \"compact /C \"+PROJ_PATH);
+  system(\"start compact /C \"+PROJ_PATH);      // compact all new data!!
+  
+
+//
+//  count and prepare dpe
+//
+
+  
+//
+//  build HDB array
+//
+  ds = dpNames(\"_ValueArchive*\", \"_ValueArchive\");
+
+  for ( i= dynlen(ds); i>0;  i--)
+    if (isReduDp(ds[i]))
+        dynRemove(ds, i);
+
+  pos = 0;
+
+  for ( i= 1; i<= dynlen( ds); i++)
+  {
+    dpGet(ds[i]+\".general.arName:_online.._value\", name,
+        ds[i]+\".state:_online.._value\", state);
+ 
+    strreplace(ds[i], getSystemName() ,\"\");              // replace own systemname
+
+    if (state == 3)  // if ! deleted
+      continue;
+    
+    pos ++;
+      
+    archiveDps[pos] = ds[i];
+    archiveDpsCount[pos] =  0;
+    archiveText[pos]=name;
+    gRaimaArchiveDpsCount[pos] = 0;
+    
+  }
+
+//
+//  count LZA; if called in an external script this session has to be reprogrammed !!!
+//
+
+  maxLines = tabLZA.lineCount;
+  
+  for ( i= 0; i< maxLines; i++)      // 0 to max-1 !!
+  {
+    da= tabLZA.getLineN(i);
+    if (da[2] != \"Raima\")      // if LZA
+    {
+      pos = dynContains(archiveDps, da[9]);
+      if  (da[6] != \"0\" && pos > 0 )
+      {
+        archiveDpsCount[pos] = archiveDpsCount[pos] + da[6];
+      }
+    }  
+    else
+    {      // RAIMA
+       pos = dynContains(archiveDps,   (\"_ValueArchive_\"+substr(da[1], 4,99)) );
+      if  (da[6] != \"0\" )
+      {
+        gRaimaArchiveDpsCount[pos] = gRaimaArchiveDpsCount[pos] + da[6];
+      }
+    }
+  }
+
+  // logoutput
+  for ( i= 1; i<= dynlen(archiveDpsCount); i++)
+  ds[i] =  archiveText[i]+\" : \"+  archiveDpsCount[i] + \" (LZA), \"+gRaimaArchiveDpsCount[i]+\" (Raima)\";
+  dynSortAsc(ds);
+  
+  tabLog.appendLines(dynlen(archiveDps), \"#1\", ds);
+
+
+  
+  // build up all dpe 
+  showProgressBar(\"\", \"\", \"Bearbeite \"+dynlen(archiveText)+ \" Archive\", 1);
+
+
+  for ( i= 0; i< maxLines; i++)      // 0 to max-1 !!
+  {
+    da= tabLZA.getLineN(i);      
+    sArchive =  da[1];
+
+    if (da[2] != \"Raima\")
+      sArchive += \"_*\";    // dp
+
+    value = da[7];
+    if (value == tStringStart)
+      value = makeTime(1998,1,1);
+    startTime = value;
+    value = da[8];
+    if (value == tStringNow )
+      value = now;
+    endTime = value;
+    sArchiveDP =  da[9];    // _ValueArchive_1
+    tempString = sArchiveDP;
+    strreplace(tempString, \"_ValueArchive_\", \"\");
+    iArchiveNumber = tempString;
+
+ 
+    strreplace(sArchive, \".\", \"_\");
+    ds = dpNames(sArchive, \"_Archive\");
+
+ 
+
+    for (j= 1; j<= dynlen(ds); j++)        // all _Archive DP's of this line
+    {
+     
+      dpGet(ds[j]+\".dpListString:_online.._value\", dps);
+
+      strreplace(ds[j], getSystemName(), \"\");
+      
+      bArchiveOK = TRUE;
+
+      if (access(PROJ_PATH + \"db\\\\lta\\\\\"+ds[j]+\"\\\\archive.def\", F_OK) && da[2] != \"Raima\")
+      {
+         DebugN(\"!!! Fehler bei Zugrif auf \"+ ds[j]+ \". Es fehlt das lta Verzeichnis !!!\");
+         bArchiveOK = FALSE;
+      }
+      
+
+      for (k = 1; k<= dynlen(dps); k++)
+      {
+        if (dps[k] != \"\")
+        {
+          strreplace(  ds[j], mySystem , \"\");
+          strreplace(  dps[k], mySystem , \"\");
+          strreplace(dps[k], \" \", \"\");
+          dynAppend(dbIsRaimaDPE, (da[2] == \"Raima\"));        // check if Raima od not ;-)
+          dynAppend(copyArchiveArchive,ds[j]);
+          dynAppend(copyArchiveDp,dps[k]);
+          dynAppend(copyArchiveStartTime,startTime);
+          dynAppend(copyArchiveEndTime,endTime);
+          dynAppend(copyArchiveNumber, iArchiveNumber+1);      // Archive 0 -> #1 !!
+          dynAppend(copyArchiveFileCheck, bArchiveOK);        // test if archive.def exists
+        }        
+      }
+    }
+  }
+  showProgressBar(\"Archivsatzvorbereitungen\", \" \", \" \", 1);
+  //
+  //  1st Step: check count of dpe in archive
+  //            reprogramm archive
+  //            programm dpe to different valarchs
+  //            fileswitch
+  //            delete all old fileswitches
+  //            
+
+  for ( i= 1; i<= dynlen (archiveDps); i++)
+  {
+    showProgressBar(\"\", \"Bearbeite Archiv \"+i+\"/\"+dynlen (archiveDps), \" \", (100.0*i/dynlen(archiveDps)));
+    tabLog.appendLine(\"#1\", archiveText[i] + \": File statistic\");
+  
+    gdpElementCount = -1;
+    dpConnect(\"statisticCB\",false,archiveDps[i]+\".statistics.dpElementCount:_original.._value\");
+    
+   showProgressBar(\"\", \"\", \"Filestatistik\", -1);
+    
+    dpGet(archiveDps[i]+\".files.fileName:_original.._value\",files,
+         archiveDps[i]+\".size.maxDpElGet:_original.._value\",maxElementGet);
+    dpSet(archiveDps[i]+\".statistics.index:_original.._value\",dynlen(files));
+    
+    while ( gdpElementCount < 0)    // wait until answer
+      delay(1);
+    dpDisconnect(\"statisticCB\",archiveDps[i]+\".statistics.dpElementCount:_original.._value\");
+
+   showProgressBar(\"\", \"\", \"Parametrieränderungen\", -1);
+    
+    tabLog.appendLine(\"#1\", archiveText[i] + \": Parameter change\");
+
+    if (dynlen (archiveDpsCount) < i)
+      archiveDpsCount[i]  = 0;
+
+    if (   (archiveDpsCount[i] +  gdpElementCount  +gRaimaArchiveDpsCount[i]) > maxElementGet )
+      dpSet( archiveDps[i]+\".size.maxDpElSet:_original.._value\",(1.0 + (archiveDpsCount[i]+gdpElementCount +gRaimaArchiveDpsCount[i]  )*1.1));    // +10 %
+    
+    tabLog.appendLine(\"#1\", archiveText[i]+ \": File switch\");
+    _vaFileSwitch(   archiveDps[i] );     // fileswitch
+    
+   showProgressBar(\"\", \"\", \"Filewechsel\", -1);
+    
+    gHDBfileSwitchProgress = -1;
+    
+    dpConnect(\"fileSwitchProgressCB\",false,archiveDps[i]+\".action.fileSwitch.progress:_original.._value\");    // wait until ready !!
+    while (gHDBfileSwitchProgress != 0)
+      delay(1);
+    dpDisconnect(  \"fileSwitchProgressCB\",archiveDps[i]+\".action.fileSwitch.progress:_original.._value\");
+    
+    tabLog.appendLine(\"#1\", archiveText[i]+ \": File deletion\");
+
+   showProgressBar(\"\", \"\", \"Lösche überzähligen Archivsatz\", -1);
+
+    dpGet(archiveDps[i]+\".files.fileName:_original.._value\",files);    // get new Statistice
+    dynRemove(files, 1);                                  // 
+
+    dpSet(\"_ValueArchiveMedia.source:_original.._value\",\"\",           // set deletion DP
+          \"_ValueArchiveMedia.destination:_original.._value\",\"\", 
+          \"_ValueArchiveMedia.files:_original.._value\",files, 
+          \"_ValueArchiveMedia.action:_original.._value\",11, 
+          \"_ValueArchiveMedia.host:_original.._value\",host1, 
+          \"_ValueArchiveMedia.sourceDp:_original.._value\",archiveDps[i] + \".action.fileDeletion.progress\"); 
+  
+  
+    gHDBfileDeleteProgress = -1;
+
+    
+    dpConnect(\"fileDeleteProgressCB\",false,archiveDps[i]+\".action.fileDeletion.progress:_original.._value\");    // wait until ready !!
+    while (gHDBfileDeleteProgress != 0)
+      delay(1);
+    dpDisconnect(  \"fileDeleteProgressCB\",archiveDps[i]+\".action.fileDeletion.progress:_original.._value\");
+
+    
+   showProgressBar(\"\", \"\", \"Parametrieränderugen der DPE's\", -1);
+
+    tabLog.appendLine(\"#1\", \"Expand: \"+  archiveText[i]);
+
+    for (j = 1 ; j <=  dynlen ( copyArchiveDp); j++)
+    {
+      if (archiveDps[i] == \"_ValueArchive_\"+(copyArchiveNumber[j]-1))    // correct dp
+      {
+         dpSetWait(copyArchiveDp[j]+\":_archive.._type\", 45,
+               copyArchiveDp[j]+\":_archive.._archive\", 1,
+               copyArchiveDp[j]+\":_archive.1._type\", 15, 
+               copyArchiveDp[j]+\":_archive.1._class\", \"_ValueArchive_\"+(copyArchiveNumber[j]-1));
+      }
+    }
+
+   showProgressBar(\"\", \"\", \"Archiv beenden\", -1);
+
+     delay(10);
+
+    tabLog.appendLine(\"#1\", \"STOP: \"+  archiveText[i]);
+    dpSetWait(archiveDps[i]+\".state:_original.._value\", 3);
+    dpSetWait(archiveDps[i]+\".state:_original.._value\", 0);
+  }
+
+
+
+//
+//     Teste Archive  !!!
+//
+
+ 
+if (1)
+{
+    float fdpel, fdpcount, fdpsize, fdpelperc, fdpsizeperc, size, fCountArchive, AvailKB, NeedKB; 
+
+
+    dpGet( \"_ArchivDisk.AvailKB:_online.._value\", AvailKB);
+
+	  for ( i=1; i<=dynlen(copyArchiveNumber); i++)                // Archive #0 == number 1
+	  {
+		  if (dynlen(archiveStartTime) < copyArchiveNumber[i])          // new archive found
+		    archiveStartTime[copyArchiveNumber[i]] = copyArchiveStartTime[i];  // copy time  
+		  if (copyArchiveStartTime[i]  < archiveStartTime[copyArchiveNumber[i]] || archiveStartTime[copyArchiveNumber[i]] == 0 )  // test if time 
+		    archiveStartTime[copyArchiveNumber[i]] = copyArchiveStartTime[i];  // copy time  
+		}
+		
+		for (i = 1; i<= dynlen(archiveStartTime); i++)                // Archive checking and creating
+		{
+		  tempString = archiveStartTime[i];
+		  if (archiveStartTime[i] > 0)
+		  {
+		      createLZAArchiveSets(archiveStartTime[i], i-1, TRUE, fCountArchive );
+		  }
+		
+			dpGet(archiveDps[i]+\".size.maxValuesGet:_original.._value\",fdpcount,
+			      archiveDps[i]+\".size.maxDpElGet:_original.._value\",fdpel, 
+			      archiveDps[i]+\".size.maxFillPctGet:_original.._value\",fdpsizeperc, 
+			      archiveDps[i]+\".size.maxHeapSizeGet:_original.._value\",fdpsize);
+			
+			size =fdpel* fdpcount ;   
+			size =fdpel* fdpcount/1024*48;        // Anz der Elemente berechnen [kB] 
+			size = size+64 ;              // 64 KB Header dazu   
+			if (size < 6400) size = 6400;     // Stripsize 6,4 MB 
+			size=ceil(size/64,0)*64;      // aufrunden auf nächste 64 KB Grenze 
+
+      NeedKB += size * fCountArchive;
+      
+       DebugN(\"Plattenbedarf: \"+archiveDps[i]+\":\"+size+\" * \"+fCountArchive+\" => \"+(size * fCountArchive));
+      
+	  }   
+
+    if (NeedKB > AvailKB*6.0)
+    {
+        DebugN( \"ERROR: Fespplattenwarnung:  \"+ NeedKB+ \" > \"+  (AvailKB*6.0)+\" !!!\");
+        ChildPanelOnCentral(\"vision/MessageInfo1\", \"Trotzdem weiter konvertieren...\",makeDynString( \"Info: Auf Ihrem System ist wahrscheinlich nicht\\ngenügend Plattenplatz vorhanden. Komprimiert\\nwerden ca. \"+(NeedKB/6)+\" KB benötigt!\", \"Troztdem weiter\"));
+   }    	
+}
+
+
+
+  tabLog.appendLine(\"#1\", dynlen(copyArchiveArchive) + sOutputAmount);
+
+
+
+//
+//    2nd step: generate all archivesets of LZA  and Raima
+//
+
+
+
+
+  showProgressBar(\"Archivsatz anlegen\", \" \", \" \", 0);
+
+  for ( i=1; i<=dynlen(copyArchiveNumber); i++)                // Archive #0 == number 1
+  {
+    if (dynlen(archiveStartTime) < copyArchiveNumber[i])          // new archive found
+      archiveStartTime[copyArchiveNumber[i]] = copyArchiveStartTime[i];  // copy time  
+    if (copyArchiveStartTime[i]  < archiveStartTime[copyArchiveNumber[i]] || archiveStartTime[copyArchiveNumber[i]] == 0 )  // test if time 
+      archiveStartTime[copyArchiveNumber[i]] = copyArchiveStartTime[i];  // copy time  
+  }
+
+  for (i = 1; i<= dynlen(archiveStartTime); i++)                // Archive checking and creating
+  {
+    int iCountArchive;  // dummy parameter
+    tempString = archiveStartTime[i];
+    if (archiveStartTime[i] > 0)
+    {
+        createLZAArchiveSets(archiveStartTime[i], i-1 , FALSE, iCountArchive);
+    }
+  }
+
+  showProgressBar(\"Daten importieren\", \" \", \" \", 0);
+
+
+
+
+//
+//   3rd step: Copy all data of LZA in already created archives
+//
+
+  sOldArchive = \"\";
+  for ( i=1; i<=dynlen(copyArchiveNumber); i++)
+
+  {
+    int iArchiv = copyArchiveNumber[i]-1;
+
+//   if (strpos(copyArchiveDp[i], \"W_P40_PU01_EV.in\")<0)
+//   {
+//    DebugN( \"skip:\", iArchiv, copyArchiveDp[i]);
+//    continue;
+//  }
+//  else
+//    DebugN(copyArchiveDp[i]+ \" geöffnet !!\");
+//if ( iArchiv != 5)
+//{
+//    DebugN( \"skip:\", iArchiv, copyArchiveDp[i]);
+//    continue;
+//}
+//else
+//  DebugN(\"geöffnet\");
+
+
+    if ( !copyArchiveFileCheck[i])
+    {
+      DebugN(\"!!! Filezugriff nicht möglich !!! Optimierung \",  copyArchiveArchive[i], copyArchiveDp[i]);
+      continue;
+    }
+
+
+    dynClear(dsArchiveSetsTime);
+    dynClear(dsArchiveSets);
+
+    DebugN(\"Archivnummer: \"+  (copyArchiveNumber[i]-1), copyArchiveDp[i] );
+     
+     dpGet(\"_ValueArchive_\"+iArchiv+\".files.fileName:_online.._value\",dsArchiveSets,      // remember all filesets
+          \"_ValueArchive_\"+iArchiv+\".size.maxValuesGet:_online.._value\", maxElementGet);
+
+    maxElementGet --;   // 1 less maximum !!
+
+    for(j=1; j<=dynlen(dsArchiveSets);j++)
+    {
+    
+      string s2, s1 ;
+
+      s1 = substr(dsArchiveSets[j], 8, 10);
+      strreplace(dsArchiveSets[j], \"-\", \"\");
+      s2 = substr(dsArchiveSets[j], 19);
+      strreplace(s2, \".\", \":\");
+      dsArchiveSets[j]=  s1 + \" \" +s2+\".000\";      // remember time for Archivesets    regular
+    }
+
+
+    for(j=1; j<=dynlen(dsArchiveSets);j++)
+    {
+      dsArchiveSetsTime[j]= dsArchiveSets[j];      // remember time for Archivesets    regular
+    }
+
+    if ( dynlen(dsArchiveSetsTime)> 1 )                        // check if wrong order
+    {
+      if ( dsArchiveSetsTime[1] > dsArchiveSetsTime[2])
+      {
+        for(j=1; j<=dynlen(dsArchiveSets);j++)
+        {
+          dsArchiveSetsTime[dynlen(dsArchiveSets)-j+1]= dsArchiveSets[j];      // remember time for Archivesets  revert !!!
+        }
+      }
+    }  
+      
+   for(j=1; j<=dynlen(dsArchiveSetsTime);j++)                                        // recalculate time
+      dsArchiveSetsTime[j] = dsArchiveSetsTime[j] +   timeFromGMT ()  + 3600 * daylightsaving (getCurrentTime());    // example: CET (summer) = GMT + 2h
+
+    
+    fPercent = 100.0*i/dynlen(copyArchiveNumber);
+ 
+    showProgressBar(\"\", \"Schreibe \"+copyArchiveDp[i]+ \" in Archiv \"+copyArchiveNumber[i], \"bearbeite Element \"+i + \"/\" +dynlen(copyArchiveNumber), fPercent);
+
+    delay(0,1);      // Dummy delay for refresh 
+
+    if ( copyArchiveNumber[i] != sOldArchive)
+    {
+      if ( sOldArchive != \"\")
+      {
+          hdb_CloseArchive(rc);
+          sOldArchive = copyArchiveNumber[i]; 
+           hdb_OpenArchive(copyArchiveNumber[i]-1, rc);
+//          DebugN(\"OPEN another ARCHIVE \", copyArchiveNumber[i]-1, rc);
+      }
+      else
+      {
+        hdb_OpenArchive(copyArchiveNumber[i]-1, rc);
+        sOldArchive = copyArchiveNumber[i]; 
+//        DebugN(\"OPEN ARCHIVE \", copyArchiveNumber[i]-1, rc);
+      }
+     }
+
+
+    bCheck =  translateDpeToNewDpe(copyArchiveDp[i], sNewDPE);      // translate old dpe -> new dpe
+    if (!bCheck)
+      sNewDPE = dpSubStr(copyArchiveDp[i], DPSUB_SYS_DP_EL);        // empty or new (old) dpe
+    
+    if ( sNewDPE ==\"\")
+    {
+      DebugN(\"FEHLER IN DER DATENKONVERTIERUNG !!!!!!  \"+ copyArchiveDp[i]+ \" nicht mehr vorhanden !!!!\");
+      continue;    // next dpe
+    }
+    if (dbIsRaimaDPE[i])                                                      // Raima -> 
+    {
+      anytype aStringCast;    // local definition
+      int  iActualTimesetCounter;
+
+    
+      dynClear(daValue);
+      dynClear(dtTime);
+      dynClear(dbState);
+      iElementCount = 0;
+      iActualTimesetCounter = 1;
+
+      iSetCount = 1;
+      
+      // check type for casting   
+      iDPEType = dpElementType(sNewDPE);      // new DP !!
+      switch (iDPEType)
+      {
+        case DPEL_INT:        aStringCast = iStringCast; break;
+        case DPEL_LONG:        aStringCast = lStringCast; break;
+        case DPEL_FLOAT:      aStringCast = fStringCast; break;
+        case DPEL_BOOL:       aStringCast = bStringCast; break;
+        case DPEL_BIT32:      aStringCast = b32StringCast; break;
+        case DPEL_BIT64:      aStringCast = b64StringCast; break;
+        case DPEL_STRING:     aStringCast = sStringCast; break;
+        case DPEL_UINT:       aStringCast = uStringCast; break;
+        case DPEL_ULONG:      aStringCast = ulStringCast; break;
+        case DPEL_TIME:       aStringCast = tStringCast; break;
+        case DPEL_CHAR:       aStringCast = cStringCast; break;
+        case DPEL_DYN_STRING: aStringCast = dsStringCast; break;
+        case DPEL_DYN_INT:    aStringCast = diStringCast; break;
+        case DPEL_DYN_LONG:   aStringCast = dlStringCast; break;
+        case DPEL_DYN_FLOAT:  aStringCast = dfStringCast; break;
+        case DPEL_DYN_BOOL:   aStringCast = dbStringCast; break;
+        default: break;
+      }
+
+       if (iDPEType == DPEL_DYN_DPID ||iDPEType ==  DPEL_DPID)
+       {
+       	DebugN(\"Keine Konvertierung :\"+ copyArchiveDp[i]);  
+        continue;
+       }
+
+
+
+      delay(0,1);      // Dummy delay for refresh 
+  
+      DebugN(\"Bearbeite Raima:\" + PROJ_PATH + \"db\\\\raimasave\\\\\"+copyArchiveDp[i]+ \" -> \"+sNewDPE);
+      if ( access(PROJ_PATH + \"db\\\\raimasave\\\\\"+copyArchiveDp[i], R_OK) >= 0)
+      {
+        
+        iActualTimesetCounter = 1;
+        
+        for (k= dynlen( dsArchiveSetsTime); k> 0; k--)              // find startindex
+        {
+          if (dsArchiveSetsTime[k] < startTime)
+          {
+            iActualTimesetCounter = k + 1;                          // Startindex is last element
+            break;
+          }
+        }
+
+        if (dynlen( dsArchiveSetsTime) < iActualTimesetCounter)      // test if not too high
+          iActualTimesetCounter = dynlen(dsArchiveSetsTime);
+
+//        DebugN(\"Startindex:\", iActualTimesetCounter, dsArchiveSetsTime[iActualTimesetCounter]);
+      
+        f= fopen(PROJ_PATH + \"db\\\\raimasave\\\\\"+copyArchiveDp[i], \"r\");    // get from file<
+        while (!feof(f))
+        {
+          fgets(s, 10240, f);
+          strreplace(s, \"\\n\",\"\");
+          ds= strsplit(s, \"\\t\");
+          if (dynlen(ds) == 3)
+          {
+            iElementCount ++;
+
+
+            // check if time not fits
+            // in this case find new set
+            // but check if maximum setnumber reached !!
+            if ( dsArchiveSetsTime[iActualTimesetCounter] < ds[2])      // ds[2] .. Time of data
+            {
+              if (iActualTimesetCounter>1)
+                DebugN(\" Actual Fileset:\", dsArchiveSetsTime[iActualTimesetCounter-1], \" to \", dsArchiveSetsTime[iActualTimesetCounter], \"max: \"+  maxElementGet, \" actual (max):\"+iElementCount  );
+              else 
+                DebugN(\" Actual Fileset:\", makeTime(1970,1,1), \" to \", dsArchiveSetsTime[iActualTimesetCounter], \"max: \"+  maxElementGet, \" actual (max):\"+iElementCount  );
+  
+  
+              if ((dynlen( dsArchiveSetsTime) -1) > iActualTimesetCounter)
+               {
+                while ((dsArchiveSetsTime[iActualTimesetCounter] < ds[2]) && (dynlen( dsArchiveSetsTime) -1) > iActualTimesetCounter)  // find next correct fileset
+                {
+                  iActualTimesetCounter  ++;  // use next fileset
+                }                
+
+                if (dynlen( dsArchiveSetsTime) >= iActualTimesetCounter)  // 
+                {
+                  iElementCount = 0;        // reset counter
+//                  DebugN(\"New Fileset: \", iActualTimesetCounter, ds[2], \"EndTime: \", dsArchiveSetsTime[iActualTimesetCounter]);
+                }
+              }
+            }
+
+            if (iElementCount < maxElementGet)
+            {
+              if (ds[2]> startTime)
+              {
+                if (iDPEType == DPEL_FLOAT || iDPEType == DPEL_DYN_FLOAT)
+                  strreplace(ds[1], \".\", \",\");      // pvss users , for floats
+
+                if (iDPEType == DPEL_BOOL)
+                {
+                  if (ds[1] == \"FALSE\")
+                    aStringCast = false;
+                  else
+                    aStringCast = true;
+                }
+                else if ( iDPEType == DPEL_DYN_STRING || iDPEType == DPEL_DYN_INT || iDPEType == DPEL_DYN_LONG || iDPEType == DPEL_DYN_BOOL || iDPEType == DPEL_DYN_FLOAT|| iDPEType == DPEL_DYN_DPID )
+                {
+                  strreplace(ds[1], \" | \", \"|\");        // replace seperator
+                  aStringCast = strsplit(ds[1], \"|\");    // split 
+                  DebugN(\"*****************DYN:\",ds[1], aStringCast);
+
+                }    
+                else
+                  aStringCast = ds[1]; 
+
+                dynAppend(daValue, aStringCast);
+                dynAppend(dtTime, ds[2]);
+                iBit32 = ds[3];
+                dynAppend(dbState, iBit32);
+              }
+            }
+
+//            if ( iElementCount > maxElementGet)
+//            {
+//              DebugN(\"verwerfe: \", iElementCount,  iActualTimesetCounter, ds[2], dsArchiveSetsTime[iActualTimesetCounter], dsArchiveSetsTime[iActualTimesetCounter -1]);
+//              delay(0,10);
+//            }
+
+          }
+        }  
+        fclose(f);
+//        DebugN( \"got Raima DPE from file; \"+dynlen(dtTime)+\" Elements! \");
+      }
+      else
+        DebugN( \"Cannot open File!\");
+    }
+    else
+    {
+      dpGetPeriodArchiv(copyArchiveStartTime[i], copyArchiveEndTime[i], copyArchiveArchive[i], copyArchiveDp[i]+\":_offline.._value\", daValue, dtTime);
+      tabLog.appendLine(\"#1\", copyArchiveDp[i] + \": \" + i+ \"/\"+dynlen(daValue));
+      dpGetPeriodArchiv(copyArchiveStartTime[i], copyArchiveEndTime[i], copyArchiveArchive[i], copyArchiveDp[i]+\":_offline.._status\", dbState, dtTimeState);
+  
+//      DebugN(\"Data Found: \",  copyArchiveNumber[i]-1, copyArchiveDp[i], dynlen ( daValue) , dynlen (    dbState)); 
+    
+      //
+      //   check matching \":_offline.._status\" <-> \":_offline.._value\"
+      //
+      
+      dynClear(dbIntState);                
+      if (dynlen(dbState)==0)
+      {
+        // .. es wurde kein Status ermittelt (z.B. Laborwert oder LA-Typ2), es wird daher ein
+        //    gueltiger Status gesetzt;
+        // ------------------------------------------------------------------------------------------
+        for (co_stat = 1; co_stat<=dynlen(daValue); co_stat++)
+        {
+            dbIntState[co_stat] = 257;
+        }
+      }
+      else if (dynlen(dbState) != dynlen(daValue))
+      {
+        // Wenn weniger Statuswerte vorliegen als Werte, dann Statuswerte den richtigen
+        // Werte-Zeitstempel zuweisen.
+        // ------------------------------------------------------------------------------------------
+        co_find =1;
+        for (co_stat = 1; co_stat<=dynlen(daValue); co_stat++)
+        {
+          if (co_find <= dynlen(dtTimeState) )
+          {
+            if (dtTime[co_stat] ==dtTimeState[co_find])
+            {
+              dbIntState[co_stat] = dbState[co_find];
+              co_find++;
+            }
+            else
+              dbIntState[co_stat] = 257;      
+          }
+          else
+            dbIntState[co_stat] = 257;
+        }
+      }
+      else 
+      {
+        dbIntState = dbState;              
+      }
+    
+      dbState =   dbIntState;
+    }
+
+    delay(0,1);      // Dummy delay for refresh 
+
+    if (sNewDPE != \"\")    // test again
+    {
+//      DebugN(\"Write Bulk Data \",copyArchiveNumber[i]-1, sNewDPE, dynlen ( daValue) , dynlen ( dbState));
+      dpGetId(sNewDPE, dpId, dpEl);
+//      DebugN(getCurrentTime());
+      if (dynlen(   daValue) > 0)
+         hdb_WriteBulkDataID(dpId, dpEl, daValue, dtTime, dbState, rc);
+//       DebugN(\"Write Bulk Data ready \",copyArchiveNumber[i]-1, rc, getCurrentTime());
+    
+    }
+    else
+      DebugN(\"!!!!!  ERROR:   no DPEL for \",copyArchiveDp[i]);
+
+  }
+  hdb_CloseArchive(rc);
+
+  tabLog.appendLine(\"#1\", \"compact /U \"+PROJ_PATH);
+  system(\"start compact /U \"+PROJ_PATH);      // stop compacting!!
+
+  closeProgressBar();
+
+  tabHDB.enabled  = TRUE;
+  tabLZA.enabled  = TRUE;
+  bu_info.enabled = TRUE;
+  bu_setTime.enabled = TRUE;
+  bu_start.enabled = TRUE;
+  bu_test.enabled = TRUE;
+
+}
+
+fileDeleteProgressCB( string dp, int HDBfileDeleteProgress)
+{
+  gHDBfileDeleteProgress = HDBfileDeleteProgress; 
+}
+
+
+
+fileSwitchProgressCB( string dp, int HDBfileSwitchProgress)
+{
+  gHDBfileSwitchProgress = HDBfileSwitchProgress; 
+}
+
+
+statisticCB( string dp, int dpElementCount)
+{
+  gdpElementCount = dpElementCount; 
+}
+
+
+
+
+dpGetPeriodArchiv(time from, time to, string dpArchiv, string DP, dyn_anytype &valueList, dyn_time &timeList)
+{
+  int i, ret, pos, savePeriod;
+  string ar, dp, saveIntervall;
+  dyn_dyn_anytype in, out;
+
+ dp = dpSubStr(DP, DPSUB_DP_EL_CONF_DET_ATT);
+  strreplace(dp, \".\", \"_\");
+  strreplace(dp, \":\", \"_\");
+  strreplace(dp, \"wert\", \"_value\");     // R.H. 6.8. wg Bug in der Konstanten bei _offline.._value
+  strreplace(dp, \"offline\", \"_offline\");  // R.H. 6.8. wg Bug in der Konstanten bei _offline.._value
+  strreplace(dp, \"status\", \"_status\");  // R.H. 15.9. wg Bug in der Konstanten bei _offline.._value
+
+  ar = dpSubStr(dpArchiv, DPSUB_DP_EL_CONF_DET_ATT);
+
+//   DebugN(\"***********************************\",ar, dpArchiv, dp , DP);
+
+  dpGet(dpArchiv + \".saveInterval:_online.._value\" ,saveIntervall);           
+  dpGet(dpArchiv + \".savePeriod:_online.._value\", savePeriod);
+
+
+
+  if (substr(saveIntervall, 0, 1) == \"4\") { // Monatswerte Spezialbehandlung
+
+    int YY;
+    int MM;
+    int sec;
+
+    YY  = year(from)  - 1970;
+    MM = month(from);
+    in[1] = makeDynTime(12*YY + MM + savePeriod);
+
+    YY  = year(to)  - 1970;
+    MM = month(to);
+    in[2] = makeDynTime(12*YY + MM + savePeriod+1);  // '+1' RH 4.1.99 
+    }
+    else  {
+    in[1] = makeDynTime(from);
+    in[2] = makeDynTime(to);
+    }
+
+  in[3] = makeDynString(ar);
+  in[4] = makeDynString(dp);
+  ret = userDefFunc( \"LangzeitArchiv\", \"dpGetPeriodArchCTRL\", in, out);
+
+
+  valueList = out[1];
+  timeList = out[2];
+
+  if ((substr(saveIntervall, 0, 1) >  \"1\"        ) ||
+        (substr(saveIntervall, 0, 8) == \"0..86400\" ) || 
+        (substr(saveIntervall, 0, 9) == \"0..604800\"))
+    { 
+    for (i = 1; i<= dynlen(timeList); i++)  
+      {
+      int YY;
+      int MM;
+    // Monatswerte Spezialbehandlung
+      if (substr(saveIntervall, 0, 1) == \"4\")  
+        {
+      YY  = (period(timeList[i]-savePeriod) / 12) + 1970;
+      MM = (period(timeList[i]-savePeriod) % 12);
+      timeList[i] = makeTime(YY, MM, 1, 0, 0, 0);
+        }
+        // Wochenwerte Spezialbehandlung
+      if ((substr(saveIntervall, 0, 1) == \"3\"         ) ||
+            (substr(saveIntervall, 0, 8) == \"0..604800\" )
+           )
+        {
+        timeList[i] = daylightsaving(timeList[i]) ? timeList[i] - 3600 : timeList[i];
+        }
+        // Tageswerte Spezialbehandlung
+      if ((substr(saveIntervall, 0, 1) == \"2\"        ) ||
+            (substr(saveIntervall, 0, 8) == \"0..86400\" )
+           )
+        {
+        timeList[i] = daylightsaving(timeList[i]) ? timeList[i] - 3600 : timeList[i];
+        }
+
+
+      }
+    }
+
+  if  ( (ret > 1) && (ret !=18) ) DebugN(\"dpGetPeriodArchiv: \", ret, \"DP: \" + DP, ar_ErrorText(ret));  // R.H. 12.3.99
+}
+
+
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// Fehlertexte fuer die Fehlernummern die der Aufruf von userDefFunc liefert
+// ----------------------------------------------------------------------------------------------------------------------------------------
+string ar_ErrorText(int errno)
+{
+  string nrStr;
+
+  if (errno == 1) return(\"FA_SUCCESS:\");
+  if (errno == 2) return(\"FA_DEF_FILE_INVALID: Archive definition file is destroyed\");
+  if (errno == 3) return(\"FA_NOT_A_TIME_VAR: timeList has not only TIME_VAR member\");
+  if (errno == 4) return(\"FA_NO_VALUES: timeList or valueList is empty\");
+  if (errno == 5) return(\"FA_WRONG_TYPE_P1: Parameter P1 has wrong type\");
+  if (errno == 6) return(\"FA_WRONG_TYPE_P2: Parameter P2 has wrong type\");
+  if (errno == 7) return(\"FA_WRONG_TYPE_P3: Parameter P3 has wrong type\");
+  if (errno == 8) return(\"FA_WRONG_TYPE_P4: Parameter P4 has wrong type\");
+  if (errno == 9) return(\"FA_WRONG_TYPE_P5: Parameter P5 has wrong type\");
+  if (errno == 10) return(\"FA_WRONG_TYPE_P6: Parameter P6 has wrong type\");
+  if (errno == 11) return(\"FA_MIXED_DATA_TYPE: valueList contains different types\");
+  if (errno == 12) return(\"FA_TIMELIST_TO_SHORT: timeList has to contain more than one elements\");
+  if (errno == 13) return(\"FA_TYPE_NOT_SUPPORTED: this datatype is not supported\");
+  if (errno == 14) return(\"FA_TIME_VALUE_DIFFERENT: timeList and valueList have different size\");
+  if (errno == 15) return(\"FA_NOT_ENOUGH_PARAMETER:\");
+  if (errno == 16) return(\"FA_OUT_OF_MEM: can not allocate Variable\");
+  if (errno == 17) return(\"FA_ERR_OPEN_ARCHIVE:\");
+  if (errno == 18) return(\"FA_NOT_FOUND:\");
+  if (errno == 19) return(\"FA_INVALID_TYPE: can not get size of given Type\");
+  if (errno == 20) return(\"FA_ERR_WRITE: Fehler beim Schreiben aufgetreten\");
+  if (errno == 21) return(\"FA_DIFF_DELTA_TIMES: You try to save different types of data\");
+
+  nrStr = errno;
+  return(\"unknown Error Nr.: \" + nrStr);
+}
+
+
+
+createLZAArchiveSets(time startTime, int archiveNumber, bool bSimulate, float &fCountArchive)
+{
+  string sArchiveDp;
+  int iWeekday, iDay, iMonth, iPeriod;
+  time t, t2;
+  int rc;
+  time endTime = getCurrentTime();
+  file f;
+  string s1, s2, s, st;
+  dyn_string dsArchiveSets;
+  float fLineCount;  
+
+  sprintf(sArchiveDp, \"_ValueArchive_%d\",archiveNumber);
+  
+  dpGet(sArchiveDp+\".setMgmt.fileSwitch.switchTimeSet.syncDay:_online.._value\",iDay,
+  sArchiveDp+\".setMgmt.fileSwitch.switchTimeSet.syncTime:_online.._value\",iPeriod,
+  sArchiveDp+\".setMgmt.fileSwitch.switchTimeSet.syncMonth:_online.._value\",iMonth,
+  sArchiveDp+\".setMgmt.fileSwitch.switchTimeSet.syncWeekDay:_online.._value\",iWeekday);
+
+  rc = 1;
+  
+  if ( iPeriod > 0)                                                              // Timed archive
+  {
+    if (!bSimulate) showProgressBar(\"Raimaarchivsatz anlegen\", \"\", \"\", -1);
+
+    if (!bSimulate) hdb_OpenArchive(archiveNumber, rc);
+
+    delay(0,1);      // Dummy delay for refresh 
+    if (!bSimulate) tabLog.appendLine(\"#1\", \"hdbOpenArchive: #\" +archiveNumber+\" returns \"+rc );
+    if (rc > 0)
+    {
+//      DebugN(\" vor Archivsatz anlegen\", startTime);
+      if (!bSimulate) hdb_CreateFileSet(startTime, 0, rc);
+
+      s=  startTime -   timeFromGMT ()  - 3600 * daylightsaving (getCurrentTime());    // example: CET (summer) = GMT + 2h
+
+      dsArchiveSets = makeDynString(\"test____\"+s);
+      dpSet(sArchiveDp+\".files.fileName:_original.._value\",dsArchiveSets);      // remember all filesets
+
+
+      if (rc != 1) DebugN(\" nach Archivsatz anlengen\", rc);
+
+      delay(0,1);      // Dummy delay for refresh 
+
+
+      s = startTime; 
+      if (!bSimulate) tabLog.appendLine(\"#1\", \"1st hdbCreateFileSet: #\" +archiveNumber+\" returns \"+rc+\" \"+ s);
+      if (rc != 1) DebugN(sArchiveDp, archiveNumber, t, \"hdbCreateFileSet returns \", rc, startTime);
+      startTime += 7200; // add 3 hours for 
+      for ( t= startTime; t< endTime ; t+= 7200)
+      {
+        t =  _vaSyncTime2( iPeriod,makeTime(1970,1,1) , iWeekday, iDay, iMonth, t);      // 
+        if ( t < endTime)
+        {
+          if (!bSimulate) hdb_CreateFileSet(t, 0, rc);
+          s=  t -   timeFromGMT ()  - 3600 * daylightsaving (getCurrentTime());    // example: CET (summer) = GMT + 2h
+          if (rc != 1) DebugN(sArchiveDp, archiveNumber, t, \"hdbCreateFileSet returns \", rc, startTime);
+
+          if ( fmod( fLineCount, 100) == 0)
+          {
+            if (!bSimulate) DebugN(fLineCount + \" Filesätze erreicht -> Open/Close \", getCurrentTime());
+            if (!bSimulate) hdb_CloseArchive(rc);
+            if (!bSimulate) delay(1);
+            if (!bSimulate) hdb_OpenArchive(archiveNumber, rc);
+          }
+          fLineCount ++;  
+
+          if (!bSimulate) showProgressBar(\"\", \"\", \"Archivsatz \"+s+\" angelegt\", -1);
+
+          dpGet(sArchiveDp+\".files.fileName:_online.._value\",dsArchiveSets);      // remember all filesets
+          dynAppend(dsArchiveSets, \"test____\"+s);
+          dpSet(sArchiveDp+\".files.fileName:_original.._value\",dsArchiveSets);      // remember all filesets
+
+          if (!bSimulate)  tabLog.appendLine(\"#1\", \"hdbCreateFileSet: #\" +archiveNumber+\" returns \"+rc+\" \"+ s);
+        }
+      } 
+      if (!bSimulate) hdb_CloseArchive(rc);
+      if (rc != 1) DebugN(\"hdbCloseArchive returns \", rc);
+      if (!bSimulate) tabLog.appendLine(\"#1\", \"hdbCloseArchive: #\" +archiveNumber+\" returns \"+rc );
+    }
+  }
+  else
+  {
+    if (!bSimulate) showProgressBar(\"HDB Archivsatz anlegen\", \"\", \"\", -1);
+    if (!bSimulate) hdb_OpenArchive(archiveNumber, rc);
+    if (!bSimulate) tabLog.appendLine(\"#1\", \"hdbOpenArchive for Raima: #\" +archiveNumber+\" returns \"+rc );
+    if (rc > 0)
+    {
+      if (!bSimulate) hdb_CreateFileSet(startTime, 0, rc);
+      s=  startTime -   timeFromGMT ()  - 3600 * daylightsaving (getCurrentTime());    // example: CET (summer) = GMT + 2h
+      dsArchiveSets = makeDynString(\"test____\"+s);
+      dpSet(sArchiveDp+\".files.fileName:_original.._value\",dsArchiveSets);      // remember all filesets
+
+      if (!bSimulate) tabLog.appendLine(\"#1\", \"1st hdbCreateFileSet Raima: #\" +archiveNumber+\" returns \"+rc+\" \"+ s);
+      delay(0,1);      // Dummy delay for refresh 
+      f= fopen(PROJ_PATH + \"db\\\\raimasave_switch._ValueArchive_\"+  archiveNumber, \"r\");
+      fLineCount = 1;
+      while (!feof(f))
+      {
+        fscanf(f, \"%s %s\\n\", s1, s2);
+        t = (s1+\" \"+s2);
+        if (t>startTime)      
+        {
+
+          if ( fmod( fLineCount, 100) == 0)
+          {
+            if (!bSimulate) DebugN(fLineCount + \" Filesätze erreicht -> Open/Close \", getCurrentTime());
+            if (!bSimulate) hdb_CloseArchive(rc);
+            if (!bSimulate) delay(1);
+            if (!bSimulate) hdb_OpenArchive(archiveNumber, rc);
+          }
+          fLineCount ++;  
+
+ 
+
+           if (!bSimulate) hdb_CreateFileSet(t, 0, rc);
+           s=  t -   timeFromGMT ()  - 3600 * daylightsaving (getCurrentTime());    // example: CET (summer) = GMT + 2h
+          if (rc != 1) DebugN(sArchiveDp, archiveNumber, t, \"hdbCreateFileSet for Raima returns \", rc, s);
+           if (!bSimulate)  showProgressBar(\"\", \"\", \"Archivsatz \"+s+\" angelegt\", 0);
+
+          dpGet(sArchiveDp+\".files.fileName:_online.._value\",dsArchiveSets);      // remember all filesets
+          dynAppend(dsArchiveSets, \"test____\"+s);
+          dpSet(sArchiveDp+\".files.fileName:_original.._value\",dsArchiveSets);      // remember all filesets
+
+           if (!bSimulate) tabLog.appendLine(\"#1\", \"1st hdbCreateFileSet Raima: #\" +archiveNumber+\" returns \"+rc+\" \"+ s);
+          delay(0,1);      // Dummy delay for refresh 
+        }
+        else
+           if (rc != 1) DebugN(\"Skip hdbCreateFileSet for Raima: \" +archiveNumber, t, startTime);
+      }  
+      fclose(f);
+       if (!bSimulate) hdb_CloseArchive(rc);
+    }
+  }
+
+  fCountArchive = fLineCount;
+}
+
+///////////////////////////////////////////////////////////////////////////////////// 
+//  _vaSyncTime 
+//  liefert den nächsten Zeitpunkt für die Aktion 
+//  period 
+//    Zeitperiode ( Tag, Woche etc. ) 
+//  time 
+//    Synczeit 
+//  iWeekDay 
+//    Syncwochentag ( -1 = irrelevant, 1(Montag) - 7 ) 
+//  iDay 
+//    Syncmonatstag ( -1 = irrelevant, 1 - 31 ) 
+//  iMonth 
+//    Syncmonat ( -1 = irrelevant, 1 - 12 ) 
+ 
+///////////////////////////////////////////////////////////////////////////////////// 
+time _vaSyncTime2(int period,time t,int iWeekDay,int iDay,int iMonth, time tNow) 
+{ 
+  time tDestination, tTemptime; 
+  int iD=day(tNow), iMo=month(tNow), iY=year(tNow), iH=hour(tNow), iMi=minute(tNow); 
+  int iHour = hour(t), iMinute = minute(t); 
+  int iAddHour, iAddDay, iAddMonth, iAddYear, iYear; 
+ 
+  if (iMinute >= 0) 
+  { 
+    if (iMinute < iMi) 
+      iAddHour++; 
+    iMi = iMinute; 
+  } 
+ 
+  iH  = iH+iAddHour; 
+  if (iH > 23) 
+  { 
+    iD++; 
+    iH = 0; 
+  }       // Tagesmaximum von 24 h überschritten 
+     
+  if (iHour >= 0)           // Stunde berücksichtigen 
+  { 
+    if (iHour < iH) 
+      iAddDay ++; 
+    iH = iHour; 
+  } 
+ 
+  // Maketime arbeitet richtig - auch bei 32 Tagen 
+  tTemptime = makeTime(iY, iMo, iD, iH, iMi); 
+  if (iAddDay>0) tTemptime+=86400*iAddDay;    // Tagesmaximum überschritten, 24h hinzuzählen !! 
+  iD=day(tTemptime); iMo=month(tTemptime); iY=year(tTemptime); iH=hour(tTemptime); iMi=minute(tTemptime); 
+ 
+  if (iDay > 0)           // Tag berücksichtigen 
+  { 
+    if (iDay < iD) 
+      iAddMonth ++; 
+    iD=iDay; 
+  } 
+  iMo  = iMo+iAddMonth; 
+ 
+  if (iMo > 12) 
+  { 
+    iY++; 
+    iMo = 1; 
+  }       // Tagesmaximum von 24 h überschritten 
+  tTemptime = makeTime(iY, iMo, iD, iH, iMi); 
+ 
+  if (iWeekDay > 0)         // Wochentag berücksichtigen 
+  { 
+    if (iWeekDay > weekDay(tTemptime))    // Tag vor Jetzt 
+      tTemptime = tTemptime + (86400 * (iWeekDay - weekDay(tTemptime)));  // jeweils 1 Tag hinzuzählen 
+    else if (iWeekDay < weekDay(tTemptime)) 
+      tTemptime = tTemptime + (86400 * (7-weekDay(tTemptime)+iWeekDay)); 
+  } 
+ 
+  iD=day(tTemptime); iMo=month(tTemptime); iY=year(tTemptime); iH=hour(tTemptime); iMi=minute(tTemptime); 
+ 
+  if (iMonth > 0) 
+    if (iMonth < iMo)         //Finde das richtige Monat 
+    { 
+      iY++; 
+      iMo = iMonth; 
+    } 
+    else 
+      iMo = iMonth; //Monat vorbei -> Faktor Addieren 
+ 
+  if (iMo > 12) 
+  { 
+    iY++; 
+    iMo = 1; 
+  }       // Tagesmaximum von 24 h überschritten 
+ 
+  tTemptime = makeTime(iY, iMo, iD, iH, iMi); 
+  iD=day(tTemptime); iMo=month(tTemptime); iY=year(tTemptime); iH=hour(tTemptime); iMi=minute(tTemptime); 
+ 
+  if (iYear > iY) 
+  { 
+     if (iYear < iY)          //Finde das richtige Jahr 
+    {iAddYear ++;}          //Jahr vorbei -> Faktor Addieren 
+     iY = iYear; 
+  } 
+  iY  = iY+iAddYear; 
+ 
+  tDestination = makeTime(iY, iMo, iD, iH, iMi); 
+ 
+  // Umrechnung GTM -> MEZ ?? 
+  // Achtung - moegliche Fehlerquelle bei anderen Zeitzonen !!!! 
+  // makeTime(1970.1.1 0:00) => 1970.1.1 01:00  
+  return tDestination-3600; 
+ 
+} 
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------------------------------------------
+//
+//  File: arhdb.ctl
+//  Funktionen zum Ueberspielen von LZA-Daten in die HDB
+//  hdb_OpenArchive .. Oeffnen eines ValueArchives mit Nr. und Pfad
+//
+// Aenderungshistorie:   
+// ---------------------------
+//  32.01.01 - E. Sperrer   - (Basisversion)
+//  xx.xx.xxx - (bitte ausfuellen)
+//
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// Fehlertexte fuer die Fehlernummern die der Aufruf von userDefFunc liefert
+// ----------------------------------------------------------------------------------------------------------------------------------------
+string hdb_ErrorText(int errno)
+{
+  string nrStr;
+
+  if (errno == 1) return(\"FA_SUCCESS:\");
+  if (errno == 2) return(\"FA_DEF_FILE_INVALID: Archive definition file is destroyed\");
+  if (errno == 3) return(\"FA_NOT_A_TIME_VAR: timeList has not only TIME_VAR member\");
+  if (errno == 4) return(\"FA_NO_VALUES: timeList or valueList is empty\");
+  if (errno == 5) return(\"FA_WRONG_TYPE_P1: Parameter P1 has wrong type\");
+  if (errno == 6) return(\"FA_WRONG_TYPE_P2: Parameter P2 has wrong type\");
+  if (errno == 7) return(\"FA_WRONG_TYPE_P3: Parameter P3 has wrong type\");
+  if (errno == 8) return(\"FA_WRONG_TYPE_P4: Parameter P4 has wrong type\");
+  if (errno == 9) return(\"FA_WRONG_TYPE_P5: Parameter P5 has wrong type\");
+  if (errno == 10) return(\"FA_WRONG_TYPE_P6: Parameter P6 has wrong type\");
+  if (errno == 11) return(\"FA_MIXED_DATA_TYPE: valueList contains different types\");
+  if (errno == 12) return(\"FA_TIMELIST_TO_SHORT: timeList has to contain more than one elements\");
+  if (errno == 13) return(\"FA_TYPE_NOT_SUPPORTED: this datatype is not supported\");
+  if (errno == 14) return(\"FA_TIME_VALUE_DIFFERENT: timeList and valueList have different size\");
+  if (errno == 15) return(\"FA_NOT_ENOUGH_PARAMETER:\");
+  if (errno == 16) return(\"FA_OUT_OF_MEM: can not allocate Variable\");
+  if (errno == 17) return(\"FA_ERR_OPEN_ARCHIVE:\");
+  if (errno == 18) return(\"FA_NOT_FOUND:\");
+  if (errno == 19) return(\"FA_INVALID_TYPE: can not get size of given Type\");
+  if (errno == 20) return(\"FA_ERR_WRITE: Fehler beim Schreiben aufgetreten\");
+  if (errno == 21) return(\"FA_DIFF_DELTA_TIMES: You try to save different types of data\");
+  if (errno == 22) return(\"FA_ARCHIVE_NOT_PRESENT: Selected value archive not found\");
+  if (errno == 23) return(\"FA_ARCHIVE_RUNNING: Value archive must be stopped for this operation\");
+  if (errno == 24) return(\"FA_NOT_A_BIT32_VAR: statusList has a non-bit32-type entry\");
+  if (errno == 25) return(\"FA_DP_NOT_EXISTS: Datapoint for writing into archive not found\");
+
+  nrStr = errno;
+  return(\"unknown Error Nr.: \" + nrStr);
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ValueArchive oeffnen
+// RETURNS:  1.. alles Ok
+//          -1.. Fehler aufgetreten + Fehlermeldung wird ausgegeben
+// ----------------------------------------------------------------------------------------------------------------------------------------
+hdb_OpenArchive(int vaNr, int &rtc)
+{
+  dyn_dyn_anytype in;
+  dyn_dyn_anytype out;
+  string vaPath;
+  string sNumber;
+
+  in[1] = makeDynUInt(vaNr);
+
+  vaPath = \"\";
+  dpGet(\"_ValueArchive_\" + vaNr + \".general.filePathGet:_original.._value\", vaPath);
+  if (vaPath == \"\")
+  {
+    sprintf(sNumber, \"%04d\",vaNr);
+    vaPath = PROJ_PATH+\"db/wincc_oa/VA_\"+sNumber;
+  }
+
+  in[2] = makeDynString(vaPath);
+
+  rtc = userDefFunc( \"LangzeitArchiv\", \"hdbOpenArchiveCTRL\", in, out);
+  
+  if (rtc > 1) DebugN(\"hdb_OpenArchive: \", hdb_ErrorText(rtc));
+  if (rtc != 1) rtc = -1;
+
+  return;
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// FileSet anlegen
+// RETURNS:  1.. alles Ok
+//          -1.. Fehler aufgetreten + Fehlermeldung wird ausgegeben
+// ----------------------------------------------------------------------------------------------------------------------------------------
+hdb_CreateFileSet(time startTime, int maxValues, int &rtc)
+{
+  dyn_dyn_anytype in;
+  dyn_dyn_anytype out;
+
+  in[1] = makeDynTime(startTime);
+  in[2] = makeDynUInt(maxValues);
+
+  rtc = userDefFunc( \"LangzeitArchiv\", \"hdbCreateFileSetCTRL\", in, out);
+  
+  if (rtc > 1) DebugN(\"hdb_CreateFileSet: \", hdb_ErrorText(rtc));
+  if (rtc != 1) rtc = -1;
+
+  return;
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// Wertezeile je DPE schreiben
+// RETURNS:  1.. alles Ok
+//          -1.. Fehler aufgetreten + Fehlermeldung wird ausgegeben
+// ----------------------------------------------------------------------------------------------------------------------------------------
+hdb_WriteBulkDataID(unsigned dpId, int dpEl, dyn_anytype &valueList, dyn_time &timeList, dyn_bit32 &statusList, int &rtc)
+{
+  string dp;
+  dyn_dyn_anytype out;
+  dyn_dyn_anytype in;
+  int max, i, j;
+  dyn_anytype temp1;
+  dyn_time temp2;
+  dyn_bit32 temp3;
+
+  int iTest;
+//  DebugN(\"Funktionsaufruf\", getCurrentTime());  
+
+  max= dynlen(valueList);
+  i=1;
+  rtc = 0;
+
+  while (i<= max && rtc < 2)
+  {
+ 
+    DebugN(i, max, j, rtc);
+
+    in[1] = makeDynUInt(dpId);
+    in[2] = makeDynInt(dpEl);
+    if (rtc > 1)
+      break;
+
+//    DebugN(\"vor Schleife\", getCurrentTime());  
+    for (j = 1; (i <= max && j <= 30000); j++)
+    {
+      dynAppend(temp1, valueList[i]);
+      dynAppend(temp2, timeList[i]);
+      dynAppend(temp3, statusList[i]);
+      iTest  =     statusList[i];
+         
+      i++;
+    }
+    
+//    DebugN(\"nach Schleife\", getCurrentTime(), dynlen( temp1), \"von:\", temp2[1], \"bis:\", temp2[dynlen(temp2)]);  
+    in[3]= temp1;
+    in[4]= temp2;
+    in[5]= temp3;
+    
+    dynClear( temp1);
+    dynClear( temp2);
+    dynClear( temp3);
+  
+
+    Debug(\"hdbWriteBulkData\",  i + \" von \" +max, getCurrentTime());
+  
+    rtc = userDefFunc( \"LangzeitArchiv\", \"hdbWriteBulkDataCTRL\", in, out);
+
+   DebugN(\" RTC=\"+rtc);
+    
+    dynClear(in);
+   }
+  if (rtc > 1) 
+    DebugN(\"hdb_WriteBulkData: \", hdb_ErrorText(rtc));
+  if (rtc != 1) 
+    rtc = -1;
+  return;
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// Archivzugriff beenden
+// RETURNS:  1.. alles Ok
+//          -1.. Fehler aufgetreten + Fehlermeldung wird ausgegeben
+// ----------------------------------------------------------------------------------------------------------------------------------------
+hdb_CloseArchive(int &rtc)
+{
+  dyn_dyn_anytype in;
+  dyn_dyn_anytype out;
+
+  rtc = userDefFunc( \"LangzeitArchiv\", \"hdbCloseArchiveCTRL\", in, out);
+  
+  if (rtc > 1) DebugN(\"hdb_CloseArchive: \", hdb_ErrorText(rtc));
+  if (rtc != 1) rtc = -1;
+
+  return;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//    OK's function not tested yet !!!
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool translateDpeToNewDpe(string oldDpe, string &NewDpe)
+{
+  int x,z,i,zeilen;
+  dyn_dyn_string neu;
+  string pat;
+  bool bFirstCall;  
+  
+  
+  if (!globalExists(\"g_alt\"))
+    {
+      addGlobal(\"g_alt\",DYN_STRING_VAR);
+      bFirstCall = TRUE;
+    }
+  
+  if (!globalExists(\"g_geaendert\"))
+    {
+      addGlobal(\"g_geaendert\",DYN_STRING_VAR);
+      bFirstCall = TRUE;
+
+    }
+
+  if (bFirstCall)
+  {
+    
+    pat = PROJ_PATH + \"data\\\\altneu\";
+    
+    x=access(pat,F_OK);
+    
+    if (x != 0)
+    {
+      DebugN(\"Konvertierungsdatei nicht gefunden !!!\");
+      return false;
+    }
+    dynClear(g_geaendert);
+    dynClear(g_alt);
+    zeilen=KT_fileToTable_(neu, pat, \"\\t\");
+    
+    for (i = 1; i <= dynlen(neu);i++)
+    {
+      dynAppend(g_alt, neu[i][1]);
+      dynAppend(g_geaendert, neu[i][2]);
+    }
+  }
+
+  if ((dynlen(g_alt) <= 0 || dynlen(g_geaendert) <= 0 ) && !bFirstCall)      // empty
+    return false;
+
+  
+  z = dynContains(g_alt,oldDpe);
+  if (z!=0)
+  {
+    NewDpe = g_geaendert[z];
+    return true;
+  }
+}
+
+//------------------------------------------------------------------------------
+
+int KT_tableToFile(dyn_dyn_string table, string fileName, char separator)
+// 
+{
+file   dataFile;    // Datenfile Handling
+int    zeilen;      // Anzahl der Zeilen
+int    spalten;     // Anzahl der Spalten einer Zeile
+string daten;       // Datenzeile
+int    i, j;  
+
+  // Datendatei öffnen
+  dataFile= fopen(fileName, \"w\");
+  if (ferror(dataFile)) // Bei Dateifehlern
+  {
+    DebugN(\"Dateifehler: #\"+ferror(dataFile)+\" ist Datei: \"+fileName);
+    // Datendatei schließen
+    fclose(dataFile);
+    return(-1);         // Fehlercode #-1 zurückliefern
+  }
+
+  // Daten zeilenweise in die Datei schreiben
+  zeilen= dynlen(table);
+  for (i=1; i<=zeilen; i++)
+  {
+    // Datenzeile füllen
+    daten= \"\";
+    spalten= dynlen(table[i]);
+    for (j=1; j<=spalten; j++)
+      if (j<spalten)
+        sprintf(daten, \"%s%s%c\", daten, table[i][j], separator);
+      else
+        sprintf(daten, \"%s%s%c\", daten, table[i][j], '\\n');
+    fputs(daten, dataFile); 
+  } 
+  // Datendatei schließen
+  fclose(dataFile);
+ 
+  return(zeilen);       // Erfolg bei Funktion (Anzahl der Zeilen)
+}
+
+
+//------------------------------------------------------------------------------
+int KT_fileToTable_(dyn_dyn_string &table, string fileName, char separator)
+{
+file   dataFile;    // Datenfile Handling
+int    zeilen;      // Anzahl der eingelesenen Zeilen
+string daten;     // Datenzeile
+int    i, iPos, iIndex, iLenStr;  
+string strNew, strSmall;  
+
+  // Tabelle löschen (um Mißverständnissen vorzubeugen)
+  dynClear(table);
+  // Datendatei öffnen
+  dataFile= fopen(fileName, \"r\");
+  if (ferror(dataFile)) // Bei Dateifehlern
+  {
+    DebugN(\"Dateifehler: #\"+ferror(dataFile)+\" ist Datei: \"+fileName);
+    // Datendatei schließen
+    fclose(dataFile);
+    return(-1);         // Fehlercode #-1 zurückliefern
+  }
+
+  // Daten bis Dateiende einlesen
+  while (!feof(dataFile))
+  {
+    fgets(daten, 1000000, dataFile);
+
+    // Wenn Daten vorhanden
+    if (daten!=\"\")
+    {
+      zeilen++;
+      iIndex = 1;  
+      iPos   = 1;  
+
+      // Teile aus str2dyn von T.Oodes übernommen
+      while (iPos >= 0 )    
+      {   
+        // Position des Trennzeichens bestimmen und Teilstring herausfiltern 
+        iPos=strpos(daten, separator);  
+        strSmall = substr(daten,0,iPos);  
+        if(iPos!=-1) 
+          table[zeilen][iIndex] = strSmall; 
+        else
+          // Bei letzem Element auch den CR abschneiden
+          table[zeilen][iIndex] = strrtrim(daten, \"\\n\");
+ 
+        // Neuen Reststring erzeugen, ab Pos. des zuvor gefundenen Teilstrings  
+        iLenStr = strlen(daten);  
+        strNew = substr(daten,iPos+1,iLenStr-iPos);   
+        daten = strNew; 
+
+        // nächsten Index für den dynstring vorbereiten 
+        iIndex++;  
+      }    // off while (iPos>=0)
+    }    // off Daten vorhanden
+  }    // off Daten einlesen
+ 
+  // Datendatei schließen
+  fclose(dataFile);
+  return(zeilen);       // Erfolg bei Funktion (Anzahl der Zeilen)
+}
+//------------------------------------------------------------------------------
+
+
+
+
+" 0
+ E E E
+25 14
+"tabLog"
+""
+1 655 610 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  653 608 1090 808
+EE 0 0 1 1 1 "#1" 61 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+435 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 64
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+13 15
+"bu_setTime"
+""
+1 1125 1150 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  943 538 1087 568
+
+T 
+4
+LANG:10001 20 Setze min. Startzeit
+LANG:10004 24 设置最小开始时间
+LANG:10000 20 Setze min. Startzeit
+LANG:10027 35 Уст.мин.врем.начала
+"main()
+{
+  int i, j, k;
+  int maxLines = tabLZA.lineCount;
+  time value, t;
+  dyn_anytype da;
+
+  value = makeTime(1990,1,1);
+  dateTimePicker(value, t);
+  if (makeTime(1990,1,1) > t)  // if Date < starttime -> Text \"???\"
+    t = value;
+
+  for ( i= 0; i< maxLines; i++)      // 0 to max-1 !!
+  {
+    da= tabLZA.getLineN(i);
+    if (da[7] < t && da[2] != \"HDB\")
+      tabLZA.cellValueRC(i,\"start\")   = t;
+  }
+}" 0
+ E E E
+13 37
+"bu_info"
+""
+1 1123 1120 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  943 508 1087 538
+
+T 
+4
+LANG:10001 18 Info: Zähle Werte
+LANG:10004 19 信息:计算数值
+LANG:10000 18 Info: Zähle Werte
+LANG:10027 28 Кол-во значений
+"main()
+{
+	int i, j, k, maxLines;
+	string mySystem = getSystemName();
+	dyn_anytype da;
+	dyn_string archiveDps;
+	dyn_int archiveDpsCount;
+	dyn_string archiveText, ds, dps;
+	int pos;
+	string dp, DP;
+	string sArchive;
+	string value;
+	time startTime, endTime, now = getCurrentTime();
+	  dyn_int gRaimaArchiveDpsCount;
+
+	string     tStringStart = \"???\";
+	string     tStringNow = \"jetzt\";
+	string     timeHeader = \"Zeitangabe\";
+	string     archiveHeader = \"Archivangabe\";
+	string     sOutputAmount = \" LZA Datenpunkte sollen bearbeitet werden \";
+	string     sOutputAmountHDB = \" Raima Datenpunkte sollen bearbeitet werden \";
+	dyn_string   tempds;
+	string     tempString;
+	int     iArchiveNumber;
+	string     sArchiveDP;
+	
+	dyn_string   copyArchiveArchive;
+	dyn_string   copyArchiveDp;
+	dyn_time   copyArchiveStartTime;
+	dyn_time   copyArchiveEndTime;
+	dyn_int   copyArchiveNumber;
+	
+	dyn_time   archiveStartTime;
+	
+	dyn_float   dsValue;
+	dyn_time   dtTime, dtTimeState;
+	dyn_bit32  dbState;
+	
+	int max;
+	string name;
+	int state;
+	
+	maxLines = tabLZA.lineCount;
+
+	tabLog.deleteAllLines;
+
+
+  addGlobal(\"gdpElementCount\", INT_VAR );
+
+  
+//
+//	build HDB array
+//
+	ds = dpNames(\"_ValueArchive*\", \"_ValueArchive\");
+
+  for ( i= dynlen(ds); i>0;  i--)
+    if (isReduDp(ds[i]))
+        dynRemove(ds, i);
+
+  pos = 0;
+
+  for ( i= 1; i<= dynlen( ds); i++)
+  {
+    dpGet(ds[i]+\".general.arName:_online.._value\", name,
+        ds[i]+\".state:_online.._value\", state);
+ 
+    strreplace(ds[i], getSystemName() ,\"\");              // replace own systemname
+
+    if (state == 3)  // if ! deleted
+			continue;
+		
+		pos ++;
+			
+    archiveDps[pos] = ds[i];
+    archiveDpsCount[pos] =  0;
+    archiveText[pos]=name;
+    gRaimaArchiveDpsCount[pos] = 0;
+		
+	}
+
+//
+//	count LZA; if called in an external script this session has to be reprogrammed !!!
+//
+
+	maxLines = tabLZA.lineCount;
+	
+	for ( i= 0; i< maxLines; i++)      // 0 to max-1 !!
+  {
+    da= tabLZA.getLineN(i);
+    if (da[2] != \"Raima\")      // if LZA
+    {
+      pos = dynContains(archiveDps, da[9]);
+		  if  (da[6] != \"0\" && pos > 0 )
+      {
+        archiveDpsCount[pos] = archiveDpsCount[pos] + da[6];
+      }
+    }	
+    else
+    {			// RAIMA
+     	pos = dynContains(archiveDps,   (\"_ValueArchive_\"+substr(da[1], 4,99)) );
+			if  (da[6] != \"0\" )
+      {
+        gRaimaArchiveDpsCount[pos] = gRaimaArchiveDpsCount[pos] + da[6];
+      }
+    }
+  }
+
+	// logoutput
+	for ( i= 1; i<= dynlen(archiveDpsCount); i++)
+	ds[i] =  archiveText[i]+\" : \"+  archiveDpsCount[i] + \" (LZA), \"+gRaimaArchiveDpsCount[i]+\" (Raima)\";
+	dynSortAsc(ds);
+	
+	tabLog.appendLines(dynlen(archiveDps), \"#1\", ds);
+
+}
+
+" 0
+ E E E
+13 38
+"bu_test"
+""
+1 764 860 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  653 558 747 588
+
+T 
+4
+LANG:10001 12 Teste Raima 
+LANG:10004 11 Raima测试
+LANG:10000 12 Teste Raima 
+LANG:10027 14 Тест RAIMA
+"string sFilePath;
+
+main()
+{
+
+
+
+  dyn_string ds=dpNames(\"HDB_*\", \"_Archive\");                       // find all archives od this group
+
+  int iMaxElements = 500, i, j;
+
+  time tMinimumTimestamp, 
+       tStartTime= 0, 							
+       tEndTime = makeTime(2000,8,1);//getCurrentTime();					// possible to set
+
+  dyn_dyn_anytype daArchiveData;   					// dyn_dyn_anytype daArchiveData;
+
+  bool bUseValueArchive;
+  
+
+  this.backCol	= \"betrKamUnq\";
+
+
+	openProgressBar(\"Raima TEST\", \"export.gif\", \"Der Testvorgang wird vorbetreitet\", \"\", \"\", 2);
+  
+  showProgressBar(\"\", \"\", \"Setze automatische Komprimierung\", 1);
+  
+  sFilePath = PROJ_PATH + \"db/raimatest\";		// path where to store
+  system( \"mkdir \"+sFilePath);							// genreate directory
+
+
+	DebugN(\"START:\", getCurrentTime());
+
+
+
+  for (i=1; (i<= dynlen(ds) && i<= dynlen(gArchiveDp)); i++)                         // use the earlierst archivation time
+  {
+    
+	  showProgressBar(\"Teste\", \"Archiv \"+ gArchiveDp[i] + \" (#\"+i+\" von \" + dynlen(gArchiveDp)+ \")\", \"\", -1);
+  
+		// get alle DPE's of this archive
+		hdbInitdaArchiveData( daArchiveData, iMaxElements, ds[i], gArchiveDp[i]);
+
+	 // for each DPE
+   for ( j= 1; j<= dynlen( daArchiveData); j++)
+    {
+	
+		  showProgressBar(\"\", \"\", \"Datenpunktelement \"+j+\"/\"+dynlen( daArchiveData), (100.0*j/dynlen( daArchiveData)));
+		
+    	hdbRefillData(daArchiveData, tStartTime, tEndTime, j);
+    }	
+    // all dpe's written find optimal timestamp für fileswitch	
+
+		dynClear(daArchiveData);
+		
+	}
+
+  DebugN(\"****************************\");
+	DebugN(\"****    R E A D Y     ******\");
+  DebugN(\"****************************\");
+  DebugN(\"ENDE :\", getCurrentTime());  
+  closeProgressBar();
+
+}
+
+
+
+///////////////////////////////////////////////////////
+//
+//  function initializes daArchiveData 
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+time hdbInitdaArchiveData (dyn_dyn_anytype &daArchiveData , int &iMaxElements,  string sSourceDp, string sArchive)
+{
+  //organisation of daArchiveData
+	//daArchiveData[j][1] = 1;									// Position 
+	//daArchiveData[j][2] = 1; 									// length of data
+	//daArchiveData[j][3] = dsArchivDPE[j]; 		// DPE
+	//daArchiveData[j][4] = dtArchivTime[j]; 		// planned endtime of getPeriod
+	//daArchiveData[j][5] = daData;							// all data
+	//daArchiveData[j][6] = dtData;							// all timestamps
+	//daArchiveData[j][7] = diData;							// all statusbits
+	//daArchiveData[j][8] = FALSE;							// got more than nessesary ?
+
+  int code;
+  int pos;
+
+  dyn_time dtArchiveStartTime, dtArchivTime;
+  dyn_anytype da;
+
+  dyn_string value;
+  dyn_string dps, dsArchivDPE; 
+	dyn_string dsArchiveDPE;
+
+  dyn_anytype daData;
+  dyn_time dtData;
+  dyn_int diData;
+  
+  int i, j, k;
+
+	dpGet(sSourceDp+\".dpListString:_online.._value\", dsArchivDPE,
+				sSourceDp+\".archiveCreateDate:_online.._value\", dtArchivTime);
+	
+	
+	dpGet( sArchive + \".size.maxValuesSet:_online.._value\", iMaxElements);
+
+	DebugN(\"SIZE: \", iMaxElements);
+
+//	for ( j = 3; j > 0 ; j--)
+	for ( j = dynlen(dsArchivDPE); j > 0 ; j--)	// !!!
+		{
+
+			daArchiveData[j][1] = 0;								// Position 
+			daArchiveData[j][2] = 0; 								// length of data
+			daArchiveData[j][3] = dsArchivDPE[j]; 	// DPE
+			daArchiveData[j][4] = getCurrentTime(); // planned endtime of getPeriod
+			daArchiveData[j][5] = \"\";								// all data
+			daArchiveData[j][6] = makeDynTime();		// all timestamps
+			daArchiveData[j][7] = makeDynInt();			// all statusbits
+      daArchiveData[j][8] = TRUE;							// got more than nessesary ?
+			daArchiveData[j][9] = dtArchivTime[j];	// starttime
+ 	}
+}
+
+///////////////////////////////////////////////////////
+//
+//  function finds starttime
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbFindSwitchTime ( 	dyn_dyn_anytype &daArchiveData , int iMaxElements,  time tStartTime, string sArchive)
+{
+  //organisation of daArchiveData
+	//daArchiveData[j][1] = 1;									// Position 
+	//daArchiveData[j][2] = 1; 									// length of data
+	//daArchiveData[j][3] = dsArchivDPE[j]; 		// DPE
+	//daArchiveData[j][4] = dtArchivTime[j]; 		// planned endtime of getPeriod
+	//daArchiveData[j][5] = daData;							// all data
+	//daArchiveData[j][6] = dtData;							// all timestamps
+	//daArchiveData[j][7] = diData;							// all statusbits
+	//daArchiveData[j][8] = FALSE;							// got more than nessesary ?
+
+	
+	//
+	//  for each timearray 
+	//  find minimum time at iMaxElements
+	//	
+	
+	int i, j;
+	time tCheckTime = getCurrentTime();
+	time tReferenceTime = tCheckTime;
+	int iCheckElement;
+	int iStartElement;
+	bool bExit = FALSE;
+  file f;
+  string s;
+
+}
+
+
+///////////////////////////////////////////////////////
+//
+//  function writes data to files;
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbWriteData(string dp,   dyn_anytype daData,  dyn_time dtData, dyn_int diData)
+{
+  int i, j;
+  file f;
+  bool bIsFileOpen;  
+  string s1, s2, s3, s;
+
+  DebugN(\"Export...\", getCurrentTime() );
+
+
+
+	f = fopen(sFilePath + \"/\" + dp,\"w\");
+
+
+  if (f != 0)
+	{
+	  for ( i = 1; i<= dynlen( daData); i++)
+		{
+			s1 = \"\";																									// clear s1
+			for ( j = i; (j < i+100)&&(j<= dynlen( daData)); j++)			// try to add 100 Elements
+			{
+				s = dtData[j];
+  	    s1 =  s1 + daData[j] + \"\\t\"+ s + \"\\t\"+diData[j]+\"\\n\";		// add more element
+			}
+		  i = i + (j-i);																						// add j -i
+		
+			fprintf(f,\"%s\",s1 );																			// Write data to file including flush?
+		}
+		fclose(f);
+	}
+  DebugN(\" Export \"+dp+ \" fertig \", getCurrentTime());
+}
+
+
+///////////////////////////////////////////////////////
+//
+//  check all DPE and refill if dynlen < iMaxElements if possible !
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbRefillData(dyn_dyn_anytype &daArchiveData, time tStartTime, time tEndTime, int position)
+{
+  int i;
+  dyn_anytype daData;
+  dyn_time dtData;
+  dyn_int diData;
+  
+  int code;
+ 
+  //organisation of daArchiveData
+	//daArchiveData[j][1] = 1;									// Position 
+	//daArchiveData[j][2] = 1; 									// length of data
+	//daArchiveData[j][3] = dsArchivDPE[j]; 		// DPE
+	//daArchiveData[j][4] = dtArchivTime[j]; 		// planned endtime of getPeriod
+	//daArchiveData[j][5] = daData;							// all data
+	//daArchiveData[j][6] = dtData;							// all timestamps
+	//daArchiveData[j][7] = diData;							// all statusbits
+	//daArchiveData[j][8] = FALSE;							// got more than nessesary ?
+
+//	   if (strpos(daArchiveData[position][3], \"W_P40_PU01_EV.in\")<0)
+//	   {
+//			DebugN( \"skip:\", daArchiveData[position][3]);
+//			return;
+//		 }
+
+			
+			
+			  if (daArchiveData[position][9] > 0)																														// if time > 0 -> get data !!
+				{
+			  	code = dpGetPeriod(tStartTime, tEndTime,0,daArchiveData[position][3]+\":_offline.._value\" ,daData, dtData);
+			  	code = dpGetPeriod(tStartTime, tEndTime,0,daArchiveData[position][3]+\":_offline.._status\" ,diData, dtData);
+				}
+			  DebugN( daArchiveData[position][3], tStartTime, tEndTime);
+	//check
+	//sort in daArchiveData
+	if ( dynlen( daData) > 0)
+	{
+		DebugN(position + \"/\"+ dynlen(daArchiveData) ,\"Elementanzahl:\"+ dynlen(daData),\"erstes Element:\" + dtData[1], \"letztes Element:\" +dtData[dynlen(daData)], daArchiveData[position][3]);
+		daArchiveData[position][6] = dtData;
+		daArchiveData[position][2] = dynlen( daData);
+		
+		DebugN(\"Anzahl der Zeiteinträge:\",dynlen(daArchiveData[position][6]));
+		
+		hdbWriteData(daArchiveData[position][3], daData, dtData, diData);
+		
+	}
+	else
+	{
+		DebugN(position + \"/\"+ dynlen(daArchiveData) ,dynlen(daData),\" NO DATA ! \"); 
+		daArchiveData[position][2] = 0;
+	}
+}
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

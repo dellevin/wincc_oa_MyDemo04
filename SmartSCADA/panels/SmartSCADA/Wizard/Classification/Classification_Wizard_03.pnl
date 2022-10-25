@@ -1,0 +1,904 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 4 asdf
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+#uses \"CtrlR\"
+#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+    btn_TrainModel.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  attention_calc.visible(true);
+  attention_calc.start();
+  btn_TrainModel.enabled(false);
+  
+  ssc_initPanelGlobal(3);
+  initPanel();
+  initDPEs();
+  
+  attention_calc.visible(false);
+  btn_TrainModel.enabled(true);
+  attention_calc.stop();
+}
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  87 53
+""0  1
+E "#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+
+void initPanel()
+{
+  txt_infotraining.text = \"\";
+  txt_infotraining.insert(getCatStr(SSC_WIZARDS_CAT, \"cl00015\"));    // \"The training table displays all data selected for the given time range. 
+                                                                   //  Data entries may be checked by cluster distances and labels may be changed where needed. 
+                                                                   //  To generate the model click on the \\\"Train Model\\\" button. \"   
+  if( g_currentKmModel == \"\" ) 
+  {
+    g_currentKmModel = g_kmTempModel;
+    g_currentRfModel = g_rfTempModel;
+  }
+  ssc_displayModelNameAndTimeRange();
+  reloadDataTable();
+  txt_status.text=\"\";
+}
+
+void initDPEs()
+{
+  ssc_getSystemDPName(g_currentRfModel, g_randomForestNameSystem, g_randomForestNameDP);
+
+  DebugFN(SSC_DEBUG_FLAG, g_randomForestNameSystem, g_randomForestNameDP );
+  //Create Random Forest Model if not exists
+  if ( dpExists(g_randomForestNameSystem + g_randomForestNameDP) == false )
+  {
+    dpCreate(g_randomForestNameDP, \"_SSC_METADATA_RF\", getSystemId(g_randomForestNameSystem));  
+  }
+  
+  if ( dpExists(g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP) == false )
+  {
+    dpCreate(\"_SSC_Model_\" + g_randomForestNameDP, \"_SSC_Model\", getSystemId(g_randomForestNameSystem));  
+  }
+  
+  dpSet(g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP + \".metadataRef\", g_randomForestNameSystem + g_randomForestNameDP);
+
+  dyn_int clusterVector;
+  dpGet(g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, clusterVector);
+  dpSet(g_currentRfModel + \".labelVector\", clusterVector);
+}
+
+setLabelWarning(string msg) 
+{
+  txt_status.foreCol=g_colWarning;
+  txt_status.text = getCatStr(SSC_WIZARDS_CAT, msg);
+}
+
+setLabelOk(string msg) 
+{
+  txt_status.foreCol=g_colOk;
+  txt_status.text = getCatStr(SSC_WIZARDS_CAT, msg);
+}
+
+
+void reloadDataTable()
+{
+  dataTable.deleteAllLines();
+  int numCluster;
+  dyn_float clusterCenter;
+  dyn_string inputDPs;
+  dyn_string labels;
+  dyn_string units;
+  
+  string labelsetref;
+  dyn_string clusterLabels;
+  dyn_string labelMapping;
+  
+  dyn_int clusterVector;
+  dyn_float centerDist;
+  dyn_dyn_float dataMatrix;
+
+  if ( g_currentKmModel == \"\" )
+  {
+    g_currentKmModel = \"km_temp\";
+    g_currentRfModel = \"rf_temp\";
+  }
+  
+  setLabelWarning(\"cl00018\"); // \"Loading data ...\");
+  dpGet(g_currentKmModel+SSC_MDKM_NUM_CLUSTERS, numCluster,
+        g_currentKmModel+SSC_MDKM_CENTERS, clusterCenter,
+        g_currentKmModel+SSC_MDKM_INPUT_DPS, inputDPs);
+  labels = ssc_getLabels(inputDPs);
+  units = ssc_getUnits(inputDPs);
+  dpGet(g_currentKmModel+SSC_MDKM_LABELSET_REF, labelsetref,  
+        g_currentKmModel+SSC_MDKM_LABEL_MAPPING, labelMapping);
+  dpGet(labelsetref+\".labels\", clusterLabels);
+  
+  int resData = ssc_getDataMatrix(dataMatrix);
+  int res = ssc_recalcKmeansClusters(dataMatrix, clusterCenter, clusterVector, centerDist);
+  
+  if ( isDbgFlag(SSC_DEBUG_FLAG) )
+  {
+    DebugN(\"dataMatrix length: \"+dynlen(dataMatrix));
+    DebugN(\"clusterCenter length: \"+dynlen(clusterCenter));
+    DebugN(\"clusterVector length: \"+dynlen(clusterVector));
+    DebugN(\"centerDist length: \"+dynlen(centerDist));
+  }
+  if ( res != 0 )
+  {
+    setLabelWarning(\"cl00005\");  // No data available
+    return;
+  }
+  
+  // create table
+  dataTable.tableMode(TABLE_SELECT_BROWSE);
+  dataTable.selectByClick(TABLE_SELECT_LINE);
+
+  if ( dataTable.columnCount() != (2 * dynlen(inputDPs) + 3) ||
+       dataTable.lineCount() != dynlen(clusterVector) )
+  {
+    dataTable.deleteAllLines();
+    while ( dataTable.columnCount() )
+    {
+      dataTable.deleteColumn(0);
+    }
+    int x, y;
+    getValue(\"dataTable\", \"size\", x, y);
+    int colSize = (x - 185) / ((2 * dynlen(inputDPs)) + 1);
+    if ( colSize < 40 )
+      colSize = 40;
+    int j = 0;
+    for (int i = 0; i <= (dynlen(inputDPs) + 2); i++)  // add 3 cols for id, sumDistance and labels
+    {
+      dataTable.updatesEnabled(false); // because better performance
+      dataTable.insertColumn(j);
+      if ( i == 0)    // id
+      {
+        dataTable.columnName(j) = \"id\";
+        dataTable.namedColumnHeader(\"id\", \" \");
+        dataTable.namedColumnToolTipText(\"id\", getCatStr(SSC_WIZARDS_CAT, \"LineNumber\"));    // \"Line number\"
+        dataTable.columnFormat(\"id\", \"[0d,False,False,ALIGNMENT_CENTER,False]\");
+        dataTable.columnWidth(j, 45);
+      }
+      else if ( (i > 0) && (i <= dynlen(inputDPs)) )        // datapoints
+      {
+        string colName = \"#\" + i;
+        dataTable.columnName(j, colName);                // Value
+        dataTable.namedColumnHeader(colName, labels[i]);
+        dataTable.namedColumnToolTipText(colName, ssc_dpTooltipWithUnit(inputDPs[i], labels[i], units[i]));
+        dataTable.columnFormat(colName, \"[0.2f,False,False,ALIGNMENT_END,False]\");
+        dataTable.columnWidth(j, colSize);
+        // dataTable.columnEditable(j, true);
+      
+        j++;
+        dataTable.insertColumn(j);
+        colName = colName + \"Dist\";
+        dataTable.columnName(j, colName);
+        dataTable.namedColumnHeader(colName, getCatStr(SSC_WIZARDS_CAT, \"00004\"));    // Distance
+        dataTable.columnFormat(colName, \"[0.2f,False,False,ALIGNMENT_END,False]\");
+        dataTable.columnWidth(j, colSize);
+      }
+      else if ( i == (dynlen(inputDPs) + 1) )    // summarized distance
+      {
+        dataTable.columnWidth(j, colSize);
+        dataTable.columnName(j) = \"sumDist\";
+        dataTable.namedColumnHeader(\"sumDist\", getCatStr(SSC_WIZARDS_CAT, \"00005\"));   // \"Summarized Distance\"
+        dataTable.columnFormat(\"sumDist\", \"[0.5f,False,False,ALIGNMENT_END,False]\");
+      }
+      else                                       // latest: labels
+      {
+        x = x - 63 - (((2 * dynlen(inputDPs)) + 1) * colSize );
+        if ( x < 60 )
+          x = 60;
+        dataTable.columnWidth(j, x);
+        dataTable.columnName(j) = \"labels\";
+        dataTable.namedColumnHeader(\"labels\", getCatStr(SSC_WIZARDS_CAT, \"00001\"));    // \"Label\"
+        dataTable.columnEditable(j, true);
+      }
+      if (i > 0)
+      {
+        string tooltip;
+        getValue(\"dataTable\", \"columnHeader\", j, tooltip);
+        dataTable.columnToolTipText(j, tooltip);
+      }
+      j++;
+      dataTable.updatesEnabled(true);
+    }
+  
+    dataTable.appendLines(dynlen(clusterVector));
+    for (int i = 0; i < dynlen(clusterVector); i++)
+    {
+      dataTable.cellValueRC(i, \"id\", i+1); // index col
+      dataTable.cellToolTipRC(i, \"id\", getCatStr(SSC_WIZARDS_CAT, \"LineNumber\") + \": \" + (string)(i+1));
+    }
+  }
+  else
+  {
+    dataTable.sort(true, \"id\");
+  }
+  
+  setLabelOk(\"cl00019\");    // \"Load finished\");
+
+  // set values and distances
+  for (int col = 1; col <= dynlen(inputDPs); col++)
+  {
+    for (int row = 1; row <= dynlen(dataMatrix[col]); row++)
+    {
+      string colName = \"#\" + col;         
+      dataTable.cellValueRC(row - 1, colName, dataMatrix[col][row]);
+      dataTable.cellToolTipRC(row - 1, colName, ssc_dpValueTooltip(inputDPs[col], labels[col], units[col], dataMatrix[col][row]));
+      
+      colName += \"Dist\";      
+      float val = fabs(dataMatrix[col][row] - clusterCenter[(col - 1) * numCluster + clusterVector[row]]);
+      dataTable.cellValueRC(row - 1, colName, val);
+      string valString;
+      sprintf(valString, \"%0.2f\", val);
+      dataTable.cellToolTipRC(row - 1, colName, getCatStr(SSC_WIZARDS_CAT, \"00004\") + \": \" + valString);
+    }
+  }
+  
+  for (int row = 1; row <= dynlen(centerDist); row++)
+  {
+    dataTable.cellValueRC(row - 1, \"sumDist\", centerDist[row]);
+    string centerDistString;
+    sprintf(centerDistString, \"%0.5f\", centerDist[row]);
+    dataTable.cellToolTipRC(row - 1, \"sumDist\", getCatStr(SSC_WIZARDS_CAT, \"00005\") + \": \" + centerDistString);
+  }
+  
+  // set labels
+  dyn_string cb;
+  cb = clusterLabels;    
+  dynInsertAt(cb, false, 1);   // cb itself is not editable
+  for (int row = 1; row <= dynlen(clusterVector); row++)
+  {
+    dataTable.cellWidgetRC(row - 1, \"labels\", \"ComboBox\", cb);
+
+    if(clusterVector[row] <= dynlen(labelMapping) && clusterVector[row] > 0) //TFS 13656: if session has never been assigned any lables labelMapping size is 0 and index out of range will happen
+    {
+      int lm = labelMapping[clusterVector[row]];
+      if(lm <= dynlen(clusterLabels)) // TFS 13775: prevents index out of range
+      {
+        string clusterLabel = (lm > 0) ? clusterLabels[lm] : \"\";
+        dataTable.cellValueRC(row - 1, \"labels\", clusterLabel);
+        dataTable.cellToolTipRC(row - 1, \"labels\", getCatStr(SSC_WIZARDS_CAT, \"00001\") + \": \" + clusterLabel);
+      }
+    }
+  }
+  
+  dataTable.lineVisible = 0;  // on top
+  dataTable.alternatingRowColors(makeDynString(\"_Window\", \"{236,239,242}\"));  // white & background of panel
+}
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"type" "WF"
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+13 2
+"btn_TrainModel"
+"WF_Transparent"
+1 1099.398725199747 554.3970646682071 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignRight|AlignTrailing"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1098 531.7467138539987 1127 560.7467138539987
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 11 Train Model
+LANG:10004 12 训练模型
+LANG:10000 15 Modell erzeugen
+LANG:10027 11 Train Model
+"#uses \"SmartSCADA/analytics/RandomForest\"
+
+main()
+{  
+  attention_calc.visible(true);
+  attention_calc.start();
+  
+  string clusterModelDP;
+  time startTime, endTime, minTransformDate;
+  dyn_string headers, inputDPs;
+  dyn_int labelVectorKM, dValueMapping;
+  dyn_float dfConfusionMatrix, dfImportanceMatrix, labelVectorRF;
+  dyn_dyn_float ddfData;
+  dyn_float dfResult;
+  string labelsetRef;
+  dyn_time times;
+  string strHeader;
+  time minTransformDate;
+  string rModel;
+  dyn_dyn_float ddfConfusionMatrix, ddfImportanceMatrix;
+  float outOfBagError;
+  int iRes, equiTimeInterval, iErr;
+  dyn_dyn_int ddValueMapping;
+  int equiTimeInterval, context, numClusters;
+  string err_desc;
+  dyn_dyn_float dataTEST;
+  dyn_int labelTEST;
+  
+  setLabelWarning(\"cl00020\");    // \"Training Random Forest Model ...\");
+  
+  ssc_getSystemDPName(g_currentRfModel, g_randomForestNameSystem, g_randomForestNameDP);
+
+  DebugFN(SSC_DEBUG_FLAG, g_randomForestNameSystem, g_randomForestNameDP);
+
+  clusterModelDP=g_currentKmModel;
+  
+  //Get KMEANS metadata  
+  dpGet(clusterModelDP + SSC_MDKM_START_TIME, startTime,
+        clusterModelDP + SSC_MDKM_END_TIME, endTime,
+        clusterModelDP + SSC_MDKM_INPUT_DPS, inputDPs,
+        clusterModelDP + SSC_MDKM_LABEL_MAPPING, dValueMapping,
+        clusterModelDP + SSC_MDKM_CLUSTER_VECTOR, labelVectorKM,
+        clusterModelDP + SSC_MDKM_LABELSET_REF, labelsetRef,
+        clusterModelDP + SSC_MDKM_EQUI_TIME_INTVL, equiTimeInterval,
+        clusterModelDP + SSC_MDKM_NUM_CLUSTERS, numClusters); 
+
+  for(int i = 1; i <= dynlen(dValueMapping) && i <= numClusters; i++)
+  {
+    if(dValueMapping[i] == 0) {
+      setLabelWarning(\"cl00021\");    // \"Please assign labels to all clusters (previous step)\"
+      notificationBar_newMsg(\"ssc_wizards\", \"cl00021\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      attention_calc.visible(false);
+      attention_calc.stop();
+      return;     
+    }
+  }  
+  //Map KM clusterVector
+  for(int i=1;i<=dynlen(labelVectorKM);i++)
+  {
+    // the position of a number in dValueMapping denotes the cluster number, 
+    // whereas the number itself indicates the label position in the 
+    // cluster label array
+    dynAppend(labelVectorRF, dValueMapping[labelVectorKM[i]]);
+  }  
+  
+  //Generate headers from inputDPs and remove special characters
+  headers=ssc_getHeaders(inputDPs);
+
+  
+  if(dynlen(inputDPs) == 0) {
+    setLabelWarning(\"cl00022\");   //\"Please choose DPE(s) and timerange in the first Panel. \");
+    attention_calc.visible(false);
+    attention_calc.stop();
+    return;    
+  }  
+  
+  if ( isDbgFlag(SSC_DEBUG_FLAG) )
+  {
+    DebugN(\"START TIME\");
+    DebugN(startTime);
+    DebugN(\"END TIME\");
+    DebugN(endTime);
+    DebugN(\"LABELVECTOR LEN\");
+    DebugN(dynlen(labelVectorRF));
+    DebugN(\"HEADERS\");
+    DebugN(headers);
+  }
+
+  //Save Random Forest metadata
+  dpSet(g_currentRfModel + \".startTime\", startTime);
+  dpSet(g_currentRfModel + \".endTime\", endTime);
+  dpSet(g_currentRfModel + \".inputDPs\", inputDPs);
+  dpSet(g_currentRfModel + \".clusterModel\", clusterModelDP);
+  dpSet(g_currentRfModel + \".headers\", headers);
+  dpSet(g_currentRfModel + \".labelsetRef\", labelsetRef);
+  dpSet(g_currentRfModel + \".equiTimeInterval\", equiTimeInterval);  
+  dpSet(g_currentRfModel + \".labelVector\", labelVectorRF); 
+  dpSet(g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP + \".modelName\", \"rf\");
+  
+  ssc_getDataRandomForest(g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP, rModel, ddfData, labelVectorRF );
+  
+  if ( isDbgFlag(SSC_DEBUG_FLAG) )
+  {
+    DebugN(\"DATA LEN COLUMNS\");
+    DebugN(dynlen(ddfData));
+  
+    DebugN(\"DATA LEN ROWS\");
+    DebugN(dynlen(ddfData[1]));
+  
+    DebugN(\"LABEL LEN\");
+    DebugN(dynlen(labelVectorRF));  
+  }
+  
+  //Generate Random Forest Model
+  if( dynlen(ddfData[1]) == dynlen(labelVectorRF) )
+  {
+    
+    DebugFN(SSC_DEBUG_FLAG, \"START RF\");
+    
+    //RRandomForest_Train
+    iRes=RRandomForest_Train(rModel, headers, ddfData, labelVectorRF, true, 500, 2, outOfBagError, ddfConfusionMatrix, ddfImportanceMatrix);
+    iErr = RGetLastErr(err_desc, context);
+    if ( isDbgFlag(SSC_DEBUG_FLAG) )
+    {
+      DebugN(rModel);
+      DebugN(g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP + \".modelName\");
+      DebugN(\"Error Message\", err_desc);
+      DebugN(\"Error Code\", iErr);
+      DebugN(\"iRES\", iRes);
+      DebugN(\"OOB\", outOfBagError);
+    
+      DebugN(\"SAVE MODEL TO DP\");
+    }
+    
+    if(iRes==0)
+    {
+      iRes=ssc_RSaveModelSerializedToDP(rModel, g_randomForestNameSystem + \"_SSC_Model_\" + g_randomForestNameDP + \".model\");
+      if(iRes == 0) {
+        setLabelOk(\"cl00017\");    // \"Random Forest Model saved\");
+      }
+      else {
+        setLabelWarning(\"cl00016\");    // \"Error saving Random Forest Model\");
+      }
+    }
+    else {
+      setLabelWarning(\"cl00016\");    // \"Error saving Random Forest Model\");
+    }
+    
+    //Convert ddf to df
+    dfConfusionMatrix=ssc_dyndyn_to_dyn(ddfConfusionMatrix);
+    dfImportanceMatrix=ssc_dyndyn_to_dyn(ddfImportanceMatrix);
+  
+    //Save Random Forest metadata
+    dpSet(g_currentRfModel + \".outOfBagError\", outOfBagError);
+    dpSet(g_currentRfModel + \".confusionMatrix.elements\", dfConfusionMatrix);
+    dpSet(g_currentRfModel + \".importanceMatrix.elements\", dfImportanceMatrix); 
+  }
+  else
+  {
+    DebugFN(SSC_DEBUG_FLAG, \"ERROR: length of labelvector unequal to length of dataset\");
+    setLabelWarning(\"cl00016\");    // \"Error saving Random Forest Model\");
+    notificationBar_newMsg(\"ssc_wizards\", \"cl00016\", NOTIFICATION_BAR_PRIO_WARNING, 3,
+                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+  
+  attention_calc.visible(false);
+  attention_calc.stop();
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"calculate\");
+  initDPEs();
+}" 0
+
+6 11
+"RECTANGLE3"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 1.033937216789507 0 1.208333333333333 -1.418866758840231e-14 7.105427357601002e-15 1 E 0 0 1237 24
+2 12
+"PRIMITIVE_TEXT10"
+""
+1 13.51492315445307 6.62042741353733 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 13.51492315445307 6.62042741353733 104 22
+0 2 2 "0s" 0 0 0 192 0 0  13.51492315445307 6.62042741353733 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Training Data 
+LANG:10004 12 训练数据
+LANG:10000 14 Trainingsdaten
+LANG:10027 14 Training Data 
+29 13
+"txt_infotraining"
+"WF_Transparent"
+1 1149.876003287389 39.5657890333016 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+17
+"readOnly" "bool TRUE"
+"frameShadow" "enum 48"
+"textFormat" "enum 2"
+"contextMenuPolicy" "enum 1"
+"verticalScrollBarPolicy" "enum 0"
+"autoFormatting" "enum 0"
+"inputMethodHints" "enum 1024"
+"textInteractionFlags" "enum 1"
+"frameShape" "enum 0"
+"layoutDirection" "enum 0"
+"horizontalScrollBarPolicy" "enum 0"
+"alignment" "enum 1"
+"wrapPolicy" "enum 0"
+"sizeAdjustPolicy" "enum 0"
+"wordWrap" "enum 1"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  1150 39.99999999999994 1270 444.9999999999999
+15 PVSS.TextEdit.1
+0
+E29 15
+"txt_status"
+""
+1 1150 455 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"frameShape" "enum 0"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,75,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1150 455 1270 550
+15 PVSS.TextEdit.1
+0
+E25 16
+"dataTable"
+"WF"
+1 19.39287280701755 50.55414012738854 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 28 1142 532
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column == \"labels\" )
+  {
+    string labelsetref;
+    dyn_int clusterVector;
+    dyn_string clusterLabels;
+    dpGet(g_currentKmModel+SSC_MDKM_LABELSET_REF, labelsetref,
+          g_currentKmModel+SSC_MDKM_CLUSTER_VECTOR, clusterVector);
+    dpGet(labelsetref+\".labels\", clusterLabels);
+
+    int i;    
+    for (i = 1; i <= dynlen(clusterLabels); i++)
+    {
+      if ( clusterLabels[i] == value )
+      {
+        break;
+      }
+    }
+    if ( i <= dynlen(clusterLabels) )    // Label found
+    {
+      dyn_int labelVec;
+      dpGet(g_currentRfModel + \".labelVector\", labelVec);
+      int index = dataTable.cellValueRC(row, \"id\");
+      labelVec[index] = i;
+      dpSet(g_currentRfModel + \".labelVector\", labelVec,
+            g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, labelVec);
+    }
+  }
+}
+
+" 0
+ 1 0 1 1 0 "#1" 4 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+60 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+29 17
+"attention_calc"
+""
+1 520.5 255.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"color1" "color WF_Text"
+"effectType" "enum 2"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  520.5 255.5 619.5 354.5
+19 AttentionEffect.ewo
+0
+E6 18
+"RECTANGLE5"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 2.97911227154047 0 0.8939710172138642 -69.51958224543058 81.82877041139633 1 E 23 503 406 536
+29 19
+"txt_modelLoaded"
+"WF_Transparent"
+1 -1860 -249 E E E 0 E 1 E N "White" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShape" "enum 0"
+"styleSheet" "string WF"
+"currentFont" "font Arial,-1,13,5,50,0,0,0,0,0"
+"textFormat" "enum 0"
+"alignment" "enum 2"
+"currentColor" "color White"
+"text" "string Model loaded: (updated in panel initialize)"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  121 3 1265 27
+15 PVSS.TextEdit.1
+0
+E4 20
+"LINE2"
+""
+1 1140 30.25385819617893 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  1140 30.00000000000004 1140 559.9973309608541
+2 22
+"PRIMITIVE_TEXT1"
+""
+1 780 530 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.8432203389830508 0 0.608695652173913 226.0004201150013 216.6380182018249 0 E 780 530 1016 553
+0 2 2 "0s" 0 0 0 66 0 0  780 530 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Calculate model
+LANG:10004 12 计算模型
+LANG:10000 16 Modell berechnen
+LANG:10027 15 Calculate model
+4 23
+"LINE3"
+""
+1 1140 30.00000000000004 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1140 30 1279 30
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

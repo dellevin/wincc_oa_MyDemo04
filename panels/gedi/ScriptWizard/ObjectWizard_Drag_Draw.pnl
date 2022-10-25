@@ -1,0 +1,969 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 261 740 N "_3DFace" 0
+" #uses \"objwObjectWizard.ctl\"
+main()
+{
+//   DRAGMODE.enabled=false;
+  dyn_string dsEngineer, dsTypeIcon, dsIcon, dsPlc,dsDpNames;
+// is not needed anymore cause this information is not availabe YET waiting for OBJW to be released
+//   dpGet( \"_objWizardInformation.DisplayTypes.TypesForEngineers\", dsEngineer,
+//          \"_objWizardInformation.Icons.TypeName\", dsTypeIcon,
+//          \"_objWizardInformation.Icons.Icon\", dsIcon,
+//          \"_objWizardInformation.PLC.Names\",dsPlc );
+//   DebugN(\"dsEngineer....\"+dsEngineer);
+  
+  TREE.addColumn(\"ITEM\");        // Add just one column
+  TREE.showHeader(false);         // and we need no header
+  TABLE.tableMode(TABLE_SELECT_BROWSE);
+  TABLE.selectByClick(TABLE_SELECT_LINE);
+  
+  dsDpNames=dpTypes(\"*\");
+  string sSystemName=getSystemName();
+//   DebugN(\"dsDpNames:\"+dsDpNames);
+  dynClear(dsEngineer);
+  
+  for (int i=dynlen(dsDpNames);i>0;i--)
+  {
+    strreplace(dsDpNames[i],sSystemName,\"\");
+    if (strpos(dsDpNames[i],\"_\")!=0)
+    {
+      dynAppend(dsEngineer,dsDpNames[i]);
+    }
+  }
+//   DebugN(\"dsEngineer....\"+dsEngineer);
+  
+  dynSort(dsEngineer);
+  
+  objwFillTree(dsEngineer,dsTypeIcon,dsIcon,dsPlc);
+  
+  anytype at;
+  getValue(\"Preview\",\"fill\",at);
+//   DebugN(\"Preview empty fill\"+at);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  10 12
+""0  1
+E "
+string obDpForSymbolsPerDpType;
+
+string obSelectedType;
+string objSelectedDp;
+string obSelectedElement;
+
+dyn_string typesWithIcons;           // The datapoint types that have an icon
+dyn_string icons;                    // The corresponding icon
+dyn_string typesForUsers;            // The objects that a user can drag onto screens
+
+dyn_string pathsInTree;
+dyn_string typeInTree;
+bool bUpdatePanelsTable=false;
+
+
+void objwUpdatePreview()
+{
+  if (bUpdatePanelsTable== true)
+  {
+    anytype aImage;
+    dyn_int diSelected=TABLE.getSelectedLines();
+    float fFactor = 1;
+    
+    if (dynlen(diSelected)>=1)
+    {
+      string sFile=TABLE.cellValueRC(diSelected[1],\"FILE\");
+
+      if(isfile(getPath(PANELS_REL_PATH, sFile)))
+      {
+        dyn_int di = getPanelSize(sFile);
+        float fTemp1 = 1, fTemp2 = 1;
+        
+        if(di[1] > 220)
+          fTemp1 = (float)220/(float)di[1];
+        
+        if(di[2] > 154)
+          fTemp2 = (float)154/(float)di[2];
+
+        if(fTemp1 < fTemp2)
+          fFactor = fTemp1;
+        else
+          fFactor = fTemp2;
+      
+        Preview.size((di[1] > 220)?220:di[1]*fFactor, (di[2] > 154)?154:di[2]*fFactor);
+        
+        getPanelPreview(aImage,sFile,fFactor);
+        imageToFile(aImage,\"SimpleSymbolsPreviewTemp\");
+      
+        Preview.fill(\"[pattern,[fit,png,SimpleSymbolsPreviewTemp.png]]\");
+        Preview.visible(true);
+      }
+      else
+      {
+        Preview.visible(false);
+      }
+    }
+  }
+}
+
+void objwDragStart(int keys, int row, string column)
+{
+  if (!globalExists (\"objwDraggingDollarValues\"))
+  {
+    addGlobal(\"objwDraggingDollarValues\",DYN_STRING_VAR);
+  }
+  dynClear(objwDraggingDollarValues);
+  if (!globalExists (\"objwDraggingDollars\"))
+  {
+    addGlobal(\"objwDraggingDollars\",DYN_STRING_VAR);
+  }
+  dynClear(objwDraggingDollars);
+  
+  
+  string fileName = TABLE.cellValueRC( row, \"FILE\" );
+  string dollars = TABLE.cellValueRC( row, \"DOLLARS\" );
+
+  int pos=strpos(TREE.selectedItem(),\"DP|\");
+  string sTypeSelected;
+  if (pos==0) // a DP is dragged
+  {
+    if (DRAGMODE.number==0) //absolute
+    {
+      // if its absolut the $DP will get the Value of the DP
+      sTypeSelected=strsplit(TREE.selectedItem(),\"|\")[2]+\":\"+strsplit(TREE.selectedItem(),\"|\")[6];
+//       strreplace(sTypeSelected,\"DP|\",\"\");
+      dynAppend(objwDraggingDollarValues,sTypeSelected); // Table ready for DP's to be dragged
+      dynAppend(objwDraggingDollars,\"$DP\");
+    }
+    else // RELATIVE
+    {
+      // for a relative Adress the $DP is $DP again so it can be used in as a reference again
+      dynAppend(objwDraggingDollarValues,\"$DP\");
+      dynAppend(objwDraggingDollars,\"$DP\");
+    }
+  }
+  else // Dragging Symbols of DPE's
+  {
+    // if a Symbol from a DPE is dragged the $DP needs to be filled with the DP
+    // ALL $DPE* needs to be filled with the relative adress of the dragged DPE like .vlaue.float
+    // ALL $DPE* cause we dont know which $DPE the user wants to have filled with the element
+    // if thh ScriptWizard is used the same DPE is used for different $DPE since a $DPE is used for the ._online and one is used for _bad,....
+    
+    sTypeSelected=objGetTreeDP(TREE.selectedItem());
+    sTypeSelected=strsplit(TREE.selectedItem(),\"|\")[2]+\":\"+strsplit(TREE.selectedItem(),\"|\")[6];
+//     strreplace(sTypeSelected,\"DP|\",\"\");  
+ 
+    dynAppend(objwDraggingDollars,\"$DP\");
+    
+    if (DRAGMODE.number == 0) //absolute
+    {
+      string sDpeAbsolutePath = strsplit(TREE.selectedItem(),\"|\")[2]+\":\"+strsplit(TREE.selectedItem(),\"|\")[6];
+      strreplace(sDpeAbsolutePath,\"DPE|\",\"\");
+      dyn_string dsDpeSplit=strsplit(sDpeAbsolutePath,\".\");
+      if (dynlen(dsDpeSplit)>=1)
+      {
+        dynAppend(objwDraggingDollarValues,dsDpeSplit[1]);  // the $DP should be the DP Name
+      }
+      else
+      {
+        dynAppend(objwDraggingDollarValues,\"$DP\"); // as Fallback if there was an error $DP is set again
+      }
+    }
+    else // RELATIVE
+    {
+      dynAppend(objwDraggingDollarValues,\"$DP\");   // if relative the $DP should be $DP again
+    }
+    
+    string sDpeRelativePath=strsplit(TREE.selectedItem(),\"|\")[2]+\":\"+strsplit(TREE.selectedItem(),\"|\")[6];
+    strreplace(sDpeRelativePath,\"DPE|\",\"\");
+    dyn_string dsDollarsDrag = strsplit(dollars,\"|\");
+
+    dyn_string sDpeDollarValueStringSplit = strsplit(sDpeRelativePath,\".\");
+    string sDpeDollarValueString;
+    
+    if ( dynlen(sDpeDollarValueStringSplit) < 2 ) //IM 111521 if dp is also dpe
+      sDpeDollarValueStringSplit[2] = \"\";
+    
+    for (int f=2;f<=dynlen(sDpeDollarValueStringSplit);f++)
+    {
+      sDpeDollarValueString=sDpeDollarValueString + \".\" + sDpeDollarValueStringSplit[f];
+    }    
+    
+    for (int x=1;x<=dynlen(dsDollarsDrag);x++)
+    {
+      dyn_string dsSplit = strsplit(dsDollarsDrag[x],\":\");
+      if (dynlen(dsSplit) == 2)
+      {
+        if (dsSplit[1] == dsSplit[2])
+        {
+          dynAppend(objwDraggingDollars,dsSplit[1]);
+          dynAppend(objwDraggingDollarValues,sDpeDollarValueString);
+        }
+      }
+    }
+  }
+//   DebugN(\"acbgus:\",objwDraggingDollars,objwDraggingDollarValues);
+//   DebugN(\"From Drag N DRAW\\nobjwDraggingDollars\"+objwDraggingDollars);
+//   DebugN(\"From Drag N DRAW\\nobjwDraggingDollarValues\"+objwDraggingDollarValues);
+  fileName = getPath( PANELS_REL_PATH, fileName ); 
+  dragStart( fileName,\"\",DRAG_COPY,\"text/x-panel\");
+}
+void objwFillTree(dyn_string dsEngineer,dyn_string dsTypeIcon,dyn_string dsIcon,dyn_string dsPlc)
+{
+  TREE.clear();
+  string iconS7 = getPath(PICTURES_REL_PATH, \"icons/s7plc.png\");  
+  dynSort(dsPlc);
+  for (int i =1; i<=dynlen(dsPlc);i++) 
+  {
+    TREE.appendItemNC(\"\",\"PLC|\"+dsPlc[i],dsPlc[i]);
+    TREE.setIcon(\"PLC|\"+dsPlc[i],0,iconS7);
+  }
+  
+  dyn_string dsSystems;
+  dyn_uint diSysId;
+  
+  getSystemNames(dsSystems, diSysId);
+  
+  dyn_string dsDPTs;
+  
+  for (int i =1; i<=dynlen(dsSystems);i++)
+  {
+    TREE.appendItemNC(\"\",\"SYSTEM|\"+dsSystems[i],dsSystems[i]);
+    TREE.setIcon(\"SYSTEM|\"+dsSystems[i],0,\"dptree/system.png\");
+    
+    dyn_string dsTemp = dpTypes(\"*\",diSysId[i]);
+    
+    for (int j =1; j<=dynlen(dsTemp);j++)
+      if(dsTemp[j][0] != \"_\")
+        dynAppend(dsDPTs,dsSystems[i]+\"|\"+dsTemp[j]);
+  }
+
+  for (int i =1; i<=dynlen(dsDPTs);i++)
+  {
+    string sTypeIcon;
+    string sType = strsplit(dsDPTs[i], \"|\")[2];
+    string sSystemName=strsplit(dsDPTs[i], \"|\")[1];
+    dyn_string dsNames=dpNames(sSystemName+\":*\", sType);
+//     DebugN(dsNames);
+    if (dynlen(dsNames)>0)
+    {
+      
+      strreplace(dsNames[1],sSystemName,\"\");
+      strreplace(sSystemName,\":\",\"\");
+      if (strpos(dsNames[1],\"_mp_\")==0) // don't add when only MP does exists
+      {        
+        if (dynlen(dsNames)>1)
+        {
+          TREE.appendItemNC(\"SYSTEM|\"+sSystemName,\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,sType);
+          TREE.setIcon(\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,0,\"dptree/dptype.png\");
+          TREE.setExpandable(\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,TRUE);
+        }
+      }
+      else
+      {
+        if (dynlen(dsNames)>0)
+        {
+          TREE.appendItemNC(\"SYSTEM|\"+sSystemName,\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,sType);
+          TREE.setIcon(\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,0,\"dptree/dptype.png\");
+          TREE.setExpandable(\"SYSTEM|\"+sSystemName+\"|TYPE|\"+sType,TRUE);
+        }
+      }
+    }
+  }
+}
+
+string objGetTreeType(string sId)
+{
+  string sParentId=TREE.parent(sId);
+  
+  if (sParentId==\"\"){return \"\";}
+    int pos=strpos(sParentId,\"TYPE|\");
+    if (pos==0)
+    {
+      return sParentId;
+    }
+  else
+  {
+    return objGetTreeType(sParentId);
+  }
+}
+
+string objGetTreeDP(string sId)
+{
+  string sParentId=TREE.parent(sId);
+  
+  if (sParentId==\"\"){return \"\";}
+    int pos=strpos(sParentId,\"DP|\");
+    if (pos==0)
+    {
+      return sParentId;
+    }
+  else
+  {
+    return objGetTreeType(sParentId);
+  }
+}
+
+string objwGetBaseType(int id)
+{
+  switch(id) 
+  { 
+    case DPEL_CHAR: //Ausdruck der zu einer Konstante 
+      return \"char\";
+    case DPEL_UINT: //Ausdruck der zu einer Konstante 
+      return \"uint\";
+    case DPEL_INT: //Ausdruck der zu einer Konstante 
+      return \"int\";
+    case DPEL_FLOAT: //Ausdruck der zu einer Konstante 
+      return \"float\";
+    case DPEL_BOOL: //Ausdruck der zu einer Konstante 
+      return \"bool\";
+    case DPEL_BIT32: //Ausdruck der zu einer Konstante 
+      return \"bit32\";  
+    case DPEL_STRING: //Ausdruck der zu einer Konstante 
+      return \"string\";
+    case DPEL_TIME: //Ausdruck der zu einer Konstante 
+      return \"time\";      
+    default: 
+      return \"\";
+   } 
+  return \"\";
+}
+
+string objwGetDollarString(dyn_string dsDollars,dyn_string dsDollarValues, string dsShortNames)
+{
+  string sDollarsParams;
+  for (int i=1;i<=dynlen(dsDollars);i++)
+  {
+    dyn_string dsSplit=strsplit(dsDollars[i],\"|\");
+    if (dynlen(dsSplit)>=2)
+    {
+      if (dsSplit[1]==dsShortNames)
+      {
+        sDollarsParams=sDollarsParams+\"|\"+dsSplit[2]+\":\"+dsDollarValues[i];
+      }
+    }
+  }
+  sDollarsParams=substr(sDollarsParams,1);
+  return sDollarsParams;
+}
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 9
+"TREE"
+""
+1 10 0 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+12
+"DragStart" "main(int keys, string id)
+{
+  objwDragStart(keys, TABLE.selectLineN(),\"SHORT\");
+}
+
+
+
+"
+"hScrollBarMode" "enum 0"
+"inputMethodHints" "enum 0"
+"contextMenuPolicy" "enum 1"
+"selectionMode" "enum 0"
+"resizeMode" "enum 0"
+"resizePolicy" "enum 1"
+"frameShadow" "enum 48"
+"layoutDirection" "enum 0"
+"defaultRenameAction" "enum 0"
+"frameShape" "enum 6"
+"vScrollBarMode" "enum 0"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  10 0 250 280
+10 TreeWidget
+2
+0 "selectionChanged" "(string id)"
+"
+  bUpdatePanelsTable=false;
+  TABLE.deleteAllLines();
+  string sType;
+  string sSystem;
+  string sId=id;
+  string sBaseTypeOriginal;
+  int pos=strpos(id,\"PLC|\");
+  if (dynlen(strsplit(id,\"|\")) == 4 || dynlen(strsplit(id,\"|\")) == 2)
+  {
+    Preview.fill(\"[solid]\");
+    return;
+  }
+  else
+  {
+    //sType=objGetTreeType(id);
+    sType = strsplit(id,\"|\")[4];
+    sSystem = strsplit(id,\"|\")[2];
+  }
+
+  strreplace(sType,\"TYPE|\",\"\");
+
+  if (dynlen(strsplit(id,\"|\")) == 6 && strpos(strsplit(id,\"|\")[6], \".\") == -1 )
+  {
+    string sDollars=id;
+    strreplace(sDollars,\"TYPE|\",\"\");
+    strreplace(sDollars,\"DP|\",\"\");
+    dyn_string dsShortNames,dsFileNames,dsDollars, // for normal Symbols on DP node
+               dsDollarValues,dsShortNamesB,dsFileNamesB,dsDollarsB,dsDollarValuesB, // for DP's where the first node is the element already
+               dsShortNamesT,dsFileNamesT,dsDollarsT,dsDollarValuesT; // to show the typ independend symbols as well
+    string sOriginalSType=sType;
+    string sBaseType = objwGetBaseType(dpElementType(sSystem+\":\"+strsplit(id,\"|\")[6]+\".\")+\".\");
+    
+    sType=sSystem+\":_objwSymbolsPerType_\"+sType;
+    if (sBaseType==\"\")
+    {
+      if (dpExists(sType))
+      {
+        dpGet(sType+\".ShortNames\",dsShortNames,
+              sType+\".FileNames\",dsFileNames,
+              sType+\".Dollars\",dsDollars,
+              sType+\".DollarValues\",dsDollarValues);
+      }
+    }
+    else
+    {
+      sBaseTypeOriginal=sBaseType; 
+      sBaseType=sSystem+\":_objwSymbolsPerType_\"+sBaseType;
+      if (dpExists(sType))
+      {
+        dpGet(sType+\".ShortNames\",dsShortNames,
+              sType+\".FileNames\",dsFileNames,
+              sType+\".Dollars\",dsDollars);
+      }
+      if (dpExists(sBaseType))
+      {
+        dpGet(sBaseType+\".ShortNames\",dsShortNamesB,
+              sBaseType+\".FileNames\",dsFileNamesB,
+              sBaseType+\".Dollars\",dsDollarsB,
+              sBaseType+\".DollarValues\",dsDollarValuesB);
+      }
+      if (dpExists(sSystem+\":_objwSymbolsPerType_TypeIndependent\"))
+      {
+        dpGet(sSystem+\":_objwSymbolsPerType_TypeIndependent.ShortNames\",dsShortNamesT,
+              sSystem+\":_objwSymbolsPerType_TypeIndependent.FileNames\",dsFileNamesT,
+              sSystem+\":_objwSymbolsPerType_TypeIndependent.Dollars\",dsDollarsT,
+              sSystem+\":_objwSymbolsPerType_TypeIndependent.DollarValues\",dsDollarValuesT);
+      }     
+    }
+      sDollars=\"$DP:\"+sDollars;
+      for (int i=1;i<=dynlen(dsShortNames);i++)
+      {
+        string sPanelFile=\"objects/SimpleSymbols/\"+sOriginalSType+\"/symbol/\"+dsShortNames[i]+\".xml\";
+        TABLE.appendLine(\"SHORT\",dsShortNames[i],\"FILE\",sPanelFile,\"DOLLARS\",sDollars);
+      }
+      for (int i=1;i<=dynlen(dsShortNamesB);i++)
+      {
+        if(dynlen(dsDollarValuesB) == 0)
+          continue;
+        string sDollars=objwGetDollarString(dsDollarsB,dsDollarValuesB,dsShortNamesB[i]);
+        string sPanelFile=\"objects/SimpleSymbols/\"+sBaseTypeOriginal+\"/symbol/\"+dsShortNamesB[i]+\".xml\";
+        TABLE.appendLine(\"SHORT\",dsShortNamesB[i],\"FILE\",sPanelFile,\"DOLLARS\",sDollars);
+      } 
+      for (int i=1;i<=dynlen(dsShortNamesT);i++)
+      {
+        if (dynContains(dsShortNamesB,dsShortNamesT[i])==0)
+        {
+          if(dynlen(dsDollarValuesT) == 0)
+            continue;
+          string sDollars=objwGetDollarString(dsDollarsT,dsDollarValuesT,dsShortNamesT[i]);
+          string sPanelFile=\"objects/SimpleSymbols/TypeIndependent/symbol/\"+dsShortNamesT[i]+\".xml\";
+          TABLE.appendLine(\"SHORT\",dsShortNamesT[i],\"FILE\",sPanelFile,\"DOLLARS\",sDollars);
+        }
+      }
+    }
+
+  if (dynlen(strsplit(id,\"|\")) == 6 && strpos(strsplit(id,\"|\")[6], \".\") != -1 )
+  {
+    strreplace(id,\"DPE|\",\"\");
+    id = sSystem+\":\"+strsplit(id,\"|\")[6];
+    if (dpExists(id))
+    {
+      string sBaseType=objwGetBaseType(dpElementType(id));
+      string sBaseTypeOriginal=sBaseType;   
+      if (sBaseType==\"\")
+      {
+        Preview.fill(\"[solid]\");
+        return;
+      } 
+      else
+      {
+        sBaseType=sSystem+\":_objwSymbolsPerType_\"+sBaseType;
+        dyn_string dsShortNamesB,dsFileNamesB,dsDollarsB,dsDollarValuesB,dsShortNamesT,dsFileNamesT,dsDollarsT,dsDollarValuesT;
+        if (dpExists(sBaseType) && dpExists(sSystem+\":_objwSymbolsPerType_TypeIndependent\"))
+        {
+          dpGet(sBaseType+\".ShortNames\",dsShortNamesB,
+                sBaseType+\".FileNames\",dsFileNamesB,
+                sBaseType+\".Dollars\",dsDollarsB,
+                sBaseType+\".DollarValues\",dsDollarValuesB,
+                sSystem+\":_objwSymbolsPerType_TypeIndependent.ShortNames\",dsShortNamesT,
+                sSystem+\":_objwSymbolsPerType_TypeIndependent.FileNames\",dsFileNamesT,
+                sSystem+\":_objwSymbolsPerType_TypeIndependent.Dollars\",dsDollarsT,
+                sSystem+\":_objwSymbolsPerType_TypeIndependent.DollarValues\",dsDollarValuesT);
+          
+          for (int i=1;i<=dynlen(dsShortNamesB);i++)
+          {
+            if(dynlen(dsDollarValuesB) == 0)
+              continue;
+            string sDollars=objwGetDollarString(dsDollarsB,dsDollarValuesB,dsShortNamesB[i]);
+            string sPanelFile=\"objects/SimpleSymbols/\"+sBaseTypeOriginal+\"/symbol/\"+dsShortNamesB[i]+\".xml\";
+            TABLE.appendLine(\"SHORT\",dsShortNamesB[i],\"FILE\",sPanelFile,\"DOLLARS\",sDollars);
+          }
+          for (int i=1;i<=dynlen(dsShortNamesT);i++)
+          {
+            if (dynContains(dsShortNamesB,dsShortNamesT[i])==0)
+            {
+              if(dynlen(dsDollarValuesT) == 0)
+                continue;
+              string sDollars=objwGetDollarString(dsDollarsT,dsDollarValuesT,dsShortNamesT[i]);
+              string sPanelFile=\"objects/SimpleSymbols/TypeIndependent/symbol/\"+dsShortNamesT[i]+\".xml\";
+              TABLE.appendLine(\"SHORT\",dsShortNamesT[i],\"FILE\",sPanelFile,\"DOLLARS\",sDollars);
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  if (TABLE.lineCount>0)
+  {
+    bUpdatePanelsTable=true;
+    objwUpdatePreview();
+    TREE.setDragEnabled(sId, TRUE);
+    TABLE.selectLineN(0); 
+  }
+  else
+  {
+    Preview.fill(\"[solid]\");
+  }
+"
+0 "expanded" "(string id)"
+"  dyn_string dsChilds=TREE.children(id);
+//   DebugN(\"Childs:\"+dsChilds); 
+  if (dynlen(dsChilds)==0)
+  {
+    string sWork=id;
+    if (dynlen(strsplit(id, \"|\")) == 4)
+    {
+     strreplace(sWork,\"TYPE|\",\"\"); // sWork is the DPT we want to add the DPS's
+      dyn_string dsNames=dpNames(strsplit(id, \"|\")[2]+\":*\",strsplit(id, \"|\")[4]);    // get the DPnames from the type we just added to the tree
+
+      for (int jj=1;jj<=dynlen(dsNames);jj++)
+      {
+        dyn_string dsSplit=strsplit(dsNames[jj],\":\"); // cut the System name from the DP name
+        if (strpos(dsSplit[2],\"_mp_\")==-1)            // cut the Master DP fromthe DP names
+        {
+          int iNodeType=dpElementType(strsplit(id, \"|\")[2]+\":\"+dsSplit[2]+\".\");
+          TREE.appendItemNC(id,id+\"|DP|\"+dsSplit[2],dsSplit[2]);
+          TREE.setIcon(id+\"|DP|\"+dsSplit[2],0,objwGetTreeIcon(iNodeType));  
+          if (iNodeType==DPEL_STRUCT)
+          {
+            TREE.setExpandable(id+\"|DP|\"+dsSplit[2],TRUE);
+          }
+        }
+      }
+      TREE.setOpen(id,true);
+    }
+    if (dynlen(strsplit(id, \"|\")) > 4)
+    {
+      sWork = strsplit(id, \"|\")[6];
+      //strreplace(sWork,\"DP|\",\"\"); // sWork is the DPT we want to add the DPS's
+      string sType=strsplit(id, \"|\")[4];
+      //strreplace(sType,\"TYPE|\",\"\"); // sWork is the DPT we want to add the DPS's      
+                //######################################################################################
+//       Add Structure of the DP
+      dyn_dyn_int ddiTypes;
+      dyn_dyn_string ddsElements;
+      dyn_dyn_anytype daType;
+      dpTypeGet(sType,ddsElements,ddiTypes, TRUE);
+      
+      ddsElements[1][1]=sWork; // Exchange the Typename with the DP NAme to get that into the Path
+      
+      dyn_string dsTemp = strsplit(id, \"|\");
+      string sNewName;
+      
+      for(int i = 1; i <= 5; i++)
+      {
+        if( i != 1 )
+          sNewName += \"|\"+dsTemp[i];
+        else
+          sNewName += dsTemp[i];
+      }
+
+      for (int k=2;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        if (ddiTypes[k][dynlen(ddiTypes[k])]==DPEL_TYPEREF)
+        {
+          dynRemove(ddsElements[k],dynlen(ddsElements[k])); // cut out the Typeref ref
+        }
+      }
+      for (int k=2;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        for (int j=1;j<=dynlen(ddsElements[k]);j++)// go through columns
+        {
+          if (ddsElements[k][j]==\"\"&&ddiTypes[k-1][j]!=DPEL_TYPEREF) // if it is a typeref than dont copy it down as a node
+          {
+            ddsElements[k][j]=ddsElements[k-1][j];
+          }
+        }
+      }   
+      dyn_int diFound;
+      for (int k=1;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        if (ddiTypes[k][dynlen(ddiTypes[k])]==DPEL_TYPEREF)
+        {
+          dynAppend(diFound,k);
+        }
+      }  
+      for (int j=dynlen(diFound);j>0;j--)
+      {
+        dynRemove(ddiTypes,diFound[j]);
+        dynRemove(ddsElements,diFound[j]);
+      }
+      for (int k=1;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        dynAppend(daType,makeDynAnytype(ddsElements[k][1],(int)0) );
+        daType[k]=ddsElements[k][1];
+        for (int j=2;j<=dynlen(ddsElements[k]);j++)// go through columns
+        {
+          daType[k][1]=daType[k][1]+\".\"+ddsElements[k][j];
+        }
+        daType[k][2]=(int)ddiTypes[k][dynlen(ddiTypes[k])];
+        dynAppend(daType[k],ddiTypes[k][dynlen(ddiTypes[k])]);
+      }      
+      for (int k=1;k<=dynlen(daType);k++)//if typerefs has been in there than \"..\" is a deliminater and we replace that with \".\"
+      {
+        strreplace(daType[k][1],\"..\",\".\");
+      }
+      for (int k=2;k<=dynlen(daType);k++)// now appedn to the tree
+      {
+        dyn_string dsSplit3=strsplit(daType[k][1],\".\");
+        if (dynlen(dsSplit3)==2)
+        {
+          TREE.appendItem(id,sNewName+\"|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          TREE.setIcon(sNewName+\"|\"+daType[k][1],0,objwGetTreeIcon(daType[k][2]));
+        }
+        if (dynlen(dsSplit3)>2)
+        {
+          string parent, sSearch;
+          parent=daType[k][1];
+          dyn_string dsSplit23=strsplit(parent,\".\");
+          sSearch=\".\"+dsSplit23[dynlen(dsSplit23)];
+          parent = dsSplit23[1];
+          for (int ii=2; ii< dynlen(dsSplit23);ii++)
+          {
+            parent=parent+\".\"+dsSplit23[ii];
+          }
+          TREE.appendItem(sNewName+\"|\"+parent,sNewName+\"|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          TREE.setIcon(sNewName+\"|\"+daType[k][1],0,objwGetTreeIcon(daType[k][2]));
+        }
+      }
+    }
+  }
+"
+"main()
+{
+  this.showHeader(false);
+}" 0
+25 11
+"TABLE"
+""
+1 10 385 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"draggable" ""
+"DragStart" "main(int keys, int row, string column)
+{
+  objwDragStart(keys, row , column);
+}
+
+
+
+
+
+
+
+"
+"selectionChangedCB" "synchronized main()
+{
+  objwUpdatePreview();
+}
+
+
+
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  8 383 252 537
+EE 0 0 1 3 0 "SHORT" 19 1 0 "s" 4
+LANG:10001 7 Symbols
+LANG:10004 6 符号
+LANG:10000 7 Symbole
+LANG:10027 14 Символы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+221 "FILE" 8 1 0 "s" 4
+LANG:10001 9 File name
+LANG:10004 9 文件名
+LANG:10000 9 File name
+LANG:10027 17 Имя файла
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "DOLLARS" 0 1 0 "s" 4
+LANG:10001 7 Dollars
+LANG:10004 7 $符号
+LANG:10000 7 Dollars
+LANG:10027 2 $$
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+18 18 10 10
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+30 23
+"FRAME5"
+""
+1 10 472 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+23 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1 0 2.647058823529412 0 -704.4117647058824 0 E 10 472 251 541
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Symbol preview
+LANG:10004 12 符号预览
+LANG:10000 15 Symbol Vorschau
+LANG:10027 47 Предварительный просмотр
+6 28
+"Preview"
+""
+1 130 638 E E E 1 E 1 E N "_Transparent" E N "_3DFace" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 3 0 1 E 1 0 1 -1 0 1 E 20 565 239 718
+19 29
+"DRAGMODE"
+""
+1 25 315 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 193 There are 2 posibilities regarding the Drag'NDrop Mode. <br>1) absolut: the $DP is linked to a Datapoint. <br>2) relative: the $DP is linked with $DP so the symbol can be used as a symbol again
+LANG:10004 154 Drag'N Drop Mode有两种可能性。 <br> 1)绝对：$ DP链接到数据点。 <br> 2)relative：$ DP链接到$ DP，因此符号可以再次用作符号
+LANG:10000 217 Es gibt 2 Möglichkeiten des Drag'NDrops. <br>1) Absolut: hier wird der $DP direkt mit dem Datenpunkt verknüpft. <br>2) Relativ: hier wird der $DP mit $DP verknüpft um das Symbol später weiter verwenden zu können.
+LANG:10027 330 Связать данные можно двумя способами:
+1) непосредственно - $DP привязывается к точке данных;
+2) По ссылке - $DP связывается с $DP, таким образом, что символ может быть использован повторно.
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  23 313 202 362
+2
+T 
+4
+LANG:10001 8 Absolute
+LANG:10004 6 绝对
+LANG:10000 7 Absolut
+LANG:10027 30 Непосредственно
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 7 Relativ
+LANG:10004 6 相对
+LANG:10000 7 Relativ
+LANG:10027 17 По ссылке
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+30 30
+"FRAME6"
+""
+1 10 287 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+30 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1 0 0.9431818181818182 5 19.30681818181816 0 E 10 287 241 376
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Drag'N Drop Mode
+LANG:10004 12 拖放模式
+LANG:10000 17 Drag'N Drop Modus
+LANG:10027 52 Режим связывания параметров
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

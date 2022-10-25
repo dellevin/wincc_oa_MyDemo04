@@ -1,0 +1,4336 @@
+V 13
+4
+LANG:10001 13 Free schedule
+LANG:10004 12 自由调度
+LANG:10000 15 Freies Programm
+LANG:10027 39 Свободное расписание
+PANEL,-1 -1 950 713 N "_3DFace" 1
+"$DP"
+"main()
+{
+  // Common visibility
+  buttonV.visible(TRUE);
+  
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+  sc_eventInitFree();
+  sc_loadTable(\"F\", \"tabSchedOverview\");
+
+/*  if (p_bVcActive == TRUE)
+    setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree.gif]]\");
+  else
+    setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree_p.gif]]\");*/
+    
+  if (p_bCancel == TRUE)
+  {
+    on.enabled(FALSE);
+    off.enabled(FALSE);
+    son.enabled(FALSE);
+  }   
+   
+  sc_getObjectContentFree(p_dsPDC, p_ddaPDC);
+  
+  // Common visibility
+  buttonV.visible(FALSE);    
+}
+" 0
+ E E E E 1 -1 -1 0  20 20
+""0  1
+E "// ============================================================================
+// Panel Global Variables
+// ============================================================================
+// Datapoint set
+  int              p_iSpecDayMode,        //...Plan.specDaysMode
+                   p_iVcRelOP,            //...Plan.time.vcRelOp
+                   p_iCondType,           //...Plan.time.conditionType
+                   p_iRelOp,              //...Plan.reaction.relOp
+                   p_iRelOpON,            //...Plan.reaction.relOpON
+                   p_iRelOpOFF,           //...Plan.reaction.relOpOFF
+                   p_iValTyp,             //...Plan.reaction.valTyp
+                   p_iSyncTime,           //...Plan.time.timedFunc.syncTime
+                   p_iSyncWeekDay,        //...Plan.time.timedFunc.syncWeekDay
+                   p_iSyncDay,            //...Plan.time.timedFunc.syncDay
+                   p_iSyncMonth,          //...Plan.time.timedFunc.syncMonth
+                   p_iDelay;              //...Plan.time.timedFunc.delay
+  unsigned         p_uInterval;           //...Plan.time.timedFunc.interval                   
+  bool             p_bSyncTimeActive,     //...Plan.time.timedFunc.syncTime - has it been chosen or not (-1)
+                   p_bDpeListActive,      //...Plan.actions.dpeList.active
+                   p_bRecipeActive,       //...Plan.actions.recipe.active
+                   p_bPopUpActive,        //...Plan.actions.popUp.active
+                   p_bRemAlarmActive,     //...Plan.actions.reminderAlarm.active
+                   p_bScriptActive,       //...Plan.actions.script.active
+                   p_bVcActive,           //...Tagesplan1.time.vcActive
+                   p_bMode,               //...Plan.mode
+                   p_bResult,             //...Plan.result
+                   p_bLogEntry;           //...Plan.logEntry
+  string           p_sRecipeType,         //...Plan.actions.recipe.recipeType
+                   p_sRecipeName,         //...Plan.actions.recipe.recipeName
+                   p_sRecipeTypeON,       //...Plan.actions.recipe.recipeTypeOn
+                   p_sRecipeNameON,       //...Plan.actions.recipe.recipeNameOn
+                   p_sRecipeTypeOFF,      //...Plan.actions.recipe.recipeTypeOff
+                   p_sRecipeNameOFF,      //...Plan.actions.recipe.recipeNameOff
+                   p_sScriptPath,         //...Plan.actions.script.path
+                   p_sScriptPathON,       //...Plan.actions.script.pathOn
+                   p_sScriptPathOFF,      //...Plan.actions.script.pathOff
+                   p_sVcDpe,              //...Plan.time.vcDpeString
+                   p_sVcValue,            //...Plan.time.vcValue
+                   p_sVcTyp,              //...Plan.time.vcValue:_common
+                   p_sType,               //...Plan.type
+                   p_sDpe,                //...Plan.reaction.dpe
+                   p_sDpe2,               //...Plan.reaction.dpe2
+                   p_sValue,              //...Plan.reaction.value
+                   p_sValueON,            //...Plan.reaction.valueON
+                   p_sValueOFF,           //...Plan.reaction.valueOFF
+                   p_sName;               //...Plan
+  langString       p_lsName,              //...Plan.name
+                   p_lsDescription,       //...Plan.name:_common  
+                   p_lsAlarmText,         //...Plan.actions.reminderAlarm.text
+                   p_lsPopUpText,         //...Plan.actions.popUp.text
+                   p_lsSpecDay;           //...Plan.specDayList
+  time             p_tValidFrom,          //...Plan.time.timedFunc.validFrom
+                   p_tValidUntil,         //...Plan.time.timedFunc.validUntil
+                   p_tOldVU,
+                   p_tOldVF;
+  dyn_string       p_dsDpeList,           //...Plan.actions.dpeList.dpes
+                   p_dsDpeValuesOn,       //...Plan.actions.dpeList.dpeValuesON
+                   p_dsDpeValuesOff,      //...Plan.actions.dpeList.dpeValuesOFF
+                   p_dsDpeValues,         //...Plan.actions.dpeList.dpeValues
+                   p_dsUsers,             //...Plan.actions.popUp.users
+                   p_dsUis,               //...Plan.actions.popUp.uiNums
+                   p_dsTimesWeekTable;    //...Plan.time.timesWeekTable
+  dyn_int          p_diTime,              //...Plan.time.timedFunc.time
+                   p_diWeekDay,           //...Plan.time.timedFunc.weekDay
+                   p_diMonthDay,          //...Plan.time.timedFunc.monthDay
+                   p_diMonth;             //...Plan.time.timedFunc.month
+  dyn_time         p_dtTimesFree;         //...Plan.time.timesFreeScheduler
+//============================================================================
+
+//============================================================================
+
+  const string ComDP = \"_ScCom\";          // Scheduler settings datapoint
+                                          // Don't need to be a constant and you can
+                                          // parametrize it in the config
+  // Miscellaneous
+  const int CT_SINGLE     = 0;
+  const int CT_PERIODIC   = 1;
+  const int CT_TIMELIST   = 2;
+  const int CT_ADVANCED   = 3;
+  const int CT_ONOFF_LIST = 4;            
+  
+//  int              p_iChanges,
+//  int              p_iDay,
+//                   p_iI,
+  int                p_iChange,
+                     p_iDpeType;
+//  bool             p_bManEn;
+  bool               p_bCancel = FALSE;
+  string             p_sNewDP = \"\";
+//  string           p_sSystemBez = getSystemName();
+  time               p_tTime;
+  dyn_string         p_dsSysNames;
+  dyn_langString     p_dlsSpecDayList;  
+  dyn_uint           p_duiSysIds;  
+  const bool         DEBUG = FALSE;
+  
+//Panel data check
+// ------------------------
+  dyn_string        p_dsPDC;
+  dyn_dyn_anytype   p_ddaPDC;
+    
+// ============================================================================
+// End variable definition
+// ============================================================================
+// ============================================================================
+// Function:   sc_checkValidFromUntilEntryF()
+// ============================================================================
+bool sc_checkValidFromUntilEntryF()
+{
+  // Check valid from and valid until
+  if (period (p_tValidFrom) > period (p_tValidUntil))
+  {
+    sc_illegalValidityPeriod();
+    txtFieldValidFrom.text(formatTime(getCatStr(KAT, \"m7\"), p_tOldVF));  
+    p_tValidFrom = p_tOldVF;
+    
+    if (period (p_tValidFrom) > period (p_tValidUntil))
+    {
+      txtFieldValidUntil.text(formatTime(getCatStr(KAT, \"m7\"), p_tOldVU));
+      p_tValidUntil = p_tOldVU;
+    }
+    return FALSE;
+  }
+  else
+    return TRUE;
+}
+  
+// ============================================================================
+// Function:   sc_getOpjectContentFree()
+// ============================================================================
+sc_getObjectContentFree(dyn_string &ds, dyn_dyn_anytype &dda)
+{
+  int i;
+  dyn_anytype da;
+  
+  ds[1] = buDelete.enabled();
+  ds[2] = buDeleteAll.enabled();
+  ds[3] = buInsert.enabled();
+  ds[4] = off.enabled();
+  ds[5] = on.enabled();
+  ds[6] = son.enabled();
+
+  ds[7] = cbDPE1.text();
+  ds[8] = cbRelOp.text();
+  ds[9] = cboConditionType.text();
+  ds[10] = cboSelectSpecDayList.text();
+
+  ds[11] = txtAddValue.text();
+  ds[12] = txtDpeAvc.text();
+  ds[13] = txtFieldDateTime.text();
+  ds[14] = txtFieldDateTimeSingle.text();
+  ds[15] = txtFieldDescrip.text();
+  ds[16] = txtFieldInterval.text();
+  ds[17] = txtFieldName.text();
+  ds[18] = txtFieldValidFrom.text();
+  ds[19] = txtFieldValidUntil.text();
+  ds[20] = txtVcValue.text();
+
+  getMultiValue(\"chk8\", \"state\", 0, ds[28],
+                \"chkAlarm\", \"state\", 0, ds[29],
+                \"chkLOG\", \"state\", 0, ds[30],
+                \"chkPopUp\", \"state\", 0, ds[31],
+                \"chkRecipe\", \"state\", 0, ds[32],
+                \"chkScript\", \"state\", 0, ds[33],
+                \"chkOnOff\", \"state\", 0, ds[34],
+                \"chkDpeList\", \"state\", 0, ds[35]);
+                
+  getValue (\"radCurrentState\", \"number\", ds[36]);
+  getValue (\"radSpecialDayMode\", \"number\", ds[37]);
+   
+  if (tbTimes.lineCount() > 0)
+  {
+    for (i = 0; i <= tbTimes.lineCount(); i++)
+    {
+      dynClear(da);
+      getValue (\"tbTimes\", \"getLineN\", i, da);
+      dda[i+1] = da;
+    }
+  }
+}
+
+// ============================================================================
+// Function:     sc_ckhDtList() 
+// ============================================================================
+sc_ckhDtList()
+{
+  int  iCondType;
+  bool x;
+  float r;
+  dyn_string ds;
+  dyn_float  df;
+  
+  //Only data pairs?
+  if (tbTimes.lineCount() == 0)
+  {
+    chkOnOff.state(0) = FALSE;
+  }  
+  
+  if (chkOnOff.state(0) == TRUE && tbTimes.lineCount() != 0)
+  {
+    r = tbTimes.lineCount()%2;
+    if (r != 0)
+    {
+      chkOnOff.state(0) = FALSE;
+    }
+  }
+    
+  iCondType = p_iCondType;
+
+  //Do settings as usual
+  p_iCondType = chkOnOff.state(0) ? CT_ONOFF_LIST : CT_TIMELIST; // x == TRUE > p_iCondType = CT_ONOFF_LIST
+  conditionType(p_iCondType);
+  sc_setCT(p_iCondType);
+  
+  // If there have been parametrized actions before setting on TRUE
+  x = p_bDpeListActive || p_bRecipeActive || p_bScriptActive;
+    
+  if (x == TRUE)
+  {
+    if (iCondType != p_iCondType)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"), 
+      makeDynString(\"$1:\" + getCatStr(KAT,\"sc_actionsLost\")));
+      
+      p_bDpeListActive      = FALSE;
+      p_bRecipeActive       = FALSE;
+      p_bScriptActive       = FALSE;
+  
+      chkDpeList.state(0)   = p_bDpeListActive;
+      chkRecipe.state(0)    = p_bRecipeActive;
+      chkScript.state(0)    = p_bScriptActive;
+  
+      dpSet(p_sName + \".actions.dpeList.active:_original.._value\",       FALSE,
+            p_sName + \".actions.recipe.active:_original.._value\",        FALSE,
+            p_sName + \".actions.script.active:_original.._value\",        FALSE);
+    }                                                     
+  }
+}
+       
+// ============================================================================
+// Function:     sc_eventInitFree() - Event Initialize for free schedule 
+// ============================================================================
+sc_eventInitFree(string sName = \":\")
+{
+  int     i, iSpecDay, iErr = 0;
+  bool    exist;
+  string  dpType;
+  time    t;
+
+  // Read the datapoint; create it first, if it doesnt exist
+  if (sName != \":\")                // Reload
+    p_sName = sName;
+  else
+  if (isDollarDefined(\"$DP\"))      // Edit or new
+    p_sName = $DP;
+  else                             // Error
+  {
+    //TODO: Message Panel
+    if (DEBUG) DebugN(getCatStr(KAT, \"m52\"));
+    PanelOff();
+  }
+
+  p_sType = \"F\";
+  if (p_sName != \"\")              // Not a new one --> edit
+    exist = dpExists(p_sName);
+  
+  if (exist && dpType != \"_Sc\")
+  {
+    //TODO: Message Panel
+    if (dpTypeName(p_sName) != \"_Sc\")
+    {
+      if (DEBUG) DebugN(\"Change the datapoint name. Invalid name\", p_sName);
+      PanelOff();
+    }
+  }
+  
+  if ((p_sName == \"\") || (!exist))
+  {
+    sc_createNewSchedulerName(p_sName, iErr);
+    if (DEBUG) DebugN(\"(sc_eventInitFree) DP, error\", p_sName, iErr);
+    if (iErr)
+    {
+      sc_errorHandling(iErr);
+      if (DEBUG) DebugN(\"Cannot create this datapoint\", p_sName);
+      PanelOff();
+    }
+    else
+      sc_setPlanDefaults(p_sName, p_sType);
+  }
+   if (dpExists(p_sName))
+   {
+    sc_readProgram(p_sName);
+    dpConnect(\"CBresult\", TRUE , p_sName + \".result\");  //OK
+   }
+
+  // Fill in the mask    
+  //-- Name and description  
+  txtFieldName.text     = p_lsName[getActiveLang()];            // Datapoint name
+  txtFieldDescrip.text   = p_lsDescription[getActiveLang()];     // Plan description
+
+  //-- Special days
+  dpGet(ComDP + \".specDays.configurations.ConfigNames:_original.._value\", p_dlsSpecDayList);
+  for (i = 1; i <= dynlen(p_dlsSpecDayList); i++)
+    cboSelectSpecDayList.appendItem(p_dlsSpecDayList[i][getActiveLang()]);
+  
+  iSpecDay = dynContains(p_dlsSpecDayList, p_lsSpecDay);
+  if (iSpecDay > 0)
+  {
+    cboSelectSpecDayList.selectedPos = iSpecDay + 1;
+    radSpecialDayMode.number = p_iSpecDayMode;                    
+    radSpecialDayMode.enabled = TRUE;
+  }  
+  else
+  {
+    cboSelectSpecDayList.selectedPos = 1;
+    radSpecialDayMode.enabled = FALSE;
+  }  
+  
+  radCurrentState.number = p_bMode ? 0 : 1;      // Plan state
+
+  //-- Valid from/until times
+  txtFieldValidFrom.text = formatTime(getCatStr(KAT, \"m7\"), p_tValidFrom);                
+  txtFieldValidUntil.text = formatTime(getCatStr(KAT, \"m7\"), p_tValidUntil);
+
+  //-- Condition type
+  cboConditionType.selectedPos = (p_iCondType == CT_ONOFF_LIST) ? CT_TIMELIST + 1 : p_iCondType + 1;
+  conditionType(p_iCondType);
+  sc_setCT(p_iCondType, TRUE);
+  
+  //-- Additional value condition
+  cbDPE1.text         = p_sVcDpe;
+  p_sVcValue = strltrim(p_sVcValue, \"\\\"\");  
+  p_sVcValue = strrtrim(p_sVcValue, \"\\\"\");  
+  txtAddValue.text     = p_sVcValue;  
+  cbRelOp.selectedPos = p_iVcRelOP;
+  sc_dpeAndValues(p_sVcDpe, \"cbDPE1\", \"txtAddValue\");
+  sc_FLOATorINT();
+  
+  //-- Activate/deactivate the additional value condition
+   pb_select.enabled   = p_bVcActive;
+   cbDPE1.enabled       = p_bVcActive;
+   txtAddValue.enabled = p_bVcActive;
+   cbRelOp.enabled     = p_bVcActive;
+   txtDataType.enabled = p_bVcActive;
+   sc_setCheckbox(8, p_bVcActive);
+  
+  //Initial checkbox status
+  chkLOG.state(0)     = p_bLogEntry;  
+  chkDpeList.state(0) = p_bDpeListActive;
+  chkRecipe.state(0)   = p_bRecipeActive;
+  chkPopUp.state(0)   = p_bPopUpActive; 
+  chkAlarm.state(0)   = p_bRemAlarmActive;
+  chkScript.state(0)   = p_bScriptActive;  
+  
+  // Plan activated/deactivated
+  radCurrentState.number = p_bMode ? 0 : 1;
+  
+  //AVC Enabled
+  sc_avcVis();
+}
+
+
+// ============================================================================
+// Function:  sc_setCT - Set Condition Type (set values into grafic objects)
+// ============================================================================
+sc_setCT(int iCT, bool init = FALSE)
+{
+  int i;
+  
+  //Set default interval
+  if (p_uInterval > 86400 || p_uInterval <= 59)
+    p_uInterval = 60;
+  
+  switch (iCT)
+  {
+    case CT_SINGLE:
+    if (init)
+      {
+        if (dynlen(p_dtTimesFree) > 0)
+          p_tTime = p_dtTimesFree[1];
+        else
+          p_tTime = 0;
+      }
+      txtFieldDateTimeSingle.text(formatTime(getCatStr(KAT, \"m7\"), p_tTime));
+      break;
+    case CT_PERIODIC:
+      if (init)
+      {
+        if (p_iSyncTime == -1) 
+        {
+          p_bSyncTimeActive = TRUE;
+          p_iSyncTime = 0;
+        }
+        p_tTime = makeTime(year(getCurrentTime()), p_iSyncMonth, p_iSyncDay, 0, 0, p_iSyncTime);
+      }
+      txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m6\"), p_tTime));
+      txtFieldInterval.text = p_uInterval;
+      break;
+    case CT_TIMELIST:
+    case CT_ONOFF_LIST:
+      if (init)
+      {
+        for (i = 1; i <= dynlen(p_dtTimesFree); i++)
+          tbTimes.appendLine(\"date\", formatTime(getCatStr(KAT, \"m8\"),p_dtTimesFree[i]), 
+                              \"time\", formatTime(\"%H:%M:%S\",p_dtTimesFree[i]), 
+                              \"DateTimeOrig\", p_dtTimesFree[i]);
+        sc_shadowTable(\"tbTimes\");                              
+      }
+      break;
+    case CT_ADVANCED:
+      if (init)
+      {
+        if (p_iSyncTime == -1) 
+        {
+          p_bSyncTimeActive = TRUE;
+          p_iSyncTime = 0;
+        }
+        p_tTime = makeTime(year(getCurrentTime()), p_iSyncMonth, p_iSyncDay, 0, 0, p_iSyncTime);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+// ============================================================================
+// Function:  conditionType()
+// ============================================================================
+void conditionType(int iConditionType)
+{
+  time ts;
+  
+  switch(iConditionType) 
+  {
+    // Single
+    case CT_SINGLE: 
+      txtFieldDateTimeSingle.visible(TRUE);
+      txtDateTime.visible(TRUE);
+      buDateTimeSingle.visible(TRUE);
+      txtValidUntil.visible(FALSE);
+      txtValidFrom.visible(FALSE);
+      txtFieldValidUntil.visible(FALSE);
+      txtFieldValidFrom.visible(FALSE);
+      buDateTimeVU.visible(FALSE);
+      buDateTimeVF.visible(FALSE);
+      txtSyncDateTime.visible(FALSE);
+      txtFieldDateTime.visible(FALSE);
+      buDateTime.visible(FALSE);
+      txtInterval.visible(FALSE);
+      txtFieldInterval.visible(FALSE);
+      tbTimes.visible(FALSE);
+      buInsert.visible(FALSE);
+      buDelete.visible(FALSE);
+      txtSecInt.visible(FALSE);
+      buDeleteAll.visible(FALSE);
+      cmdAdvanced.visible(FALSE);
+      break;
+    // Periodic            
+    case CT_PERIODIC:
+      if (p_iSyncTime == -1)
+      {
+        p_iSyncTime = 0;
+        p_bSyncTime = FALSE;
+      }
+      setPeriod(ts, p_iSyncTime);
+      txtFieldDateTime.text = formatTime(getCatStr(KAT, \"m7\"),ts);
+      txtFieldDateTime.position(620,139);
+      txtFieldDateTime.visible(TRUE);
+      txtSecInt.visible(TRUE);
+      txtInterval.visible(TRUE);
+      txtFieldInterval.visible(TRUE);
+      txtSyncDateTime.visible(TRUE);
+      buDateTime.position(885,139);
+      buDateTime.visible(TRUE);
+      txtValidUntil.visible(TRUE);
+      txtValidFrom.visible(TRUE);
+      txtFieldValidUntil.visible(TRUE);
+      txtFieldValidFrom.visible(TRUE);
+      buDateTimeVU.visible(TRUE);
+      buDateTimeVF.visible(TRUE);
+      txtFieldDateTimeSingle.visible(FALSE);
+      buDateTimeSingle.visible(FALSE);
+      txtDateTime.visible(FALSE);
+      tbTimes.visible(FALSE);
+      buInsert.visible(FALSE);
+      buDelete.visible(FALSE);
+      buDeleteAll.visible(FALSE);
+      cmdAdvanced.visible(FALSE);
+      break;
+    // Timelist            
+    case CT_ONOFF_LIST: 
+    case CT_TIMELIST: 
+      txtFieldDateTimeSingle.visible(FALSE);
+      buDateTimeSingle.visible(FALSE);
+      txtSyncDateTime.visible(FALSE);
+      txtDateTime.visible(TRUE);
+      txtFieldDateTime.visible(TRUE);
+      txtFieldDateTime.position(620,79);
+      buDateTime.visible(TRUE);                                       
+      buDateTime.position(885,79);
+      txtInterval.visible(FALSE);
+      txtFieldInterval.visible(FALSE);
+      tbTimes.visible(TRUE);
+      buInsert.visible(TRUE);
+      buDelete.visible(TRUE);
+      txtSecInt.visible(FALSE);
+      txtValidUntil.visible(FALSE);
+      txtValidFrom.visible(FALSE);
+      txtFieldValidUntil.visible(FALSE);
+      txtFieldValidFrom.visible(FALSE);
+      buDateTimeVU.visible(FALSE);
+      buDateTimeVF.visible(FALSE);
+      buDeleteAll.visible(TRUE);
+      cmdAdvanced.visible(FALSE);
+      txtFieldDateTime.text = \"\";
+      break;
+    // Advanced
+    case CT_ADVANCED:  
+      txtFieldDateTimeSingle.visible(FALSE);
+      buDateTimeSingle.visible(FALSE); 
+      txtSyncDateTime.visible(FALSE);
+      txtDateTime.visible(FALSE);
+      txtFieldDateTime.visible(FALSE);
+      buDateTime.visible(FALSE);
+      txtInterval.visible(FALSE);
+      txtFieldInterval.visible(FALSE);
+      tbTimes.visible(FALSE);
+      buInsert.visible(FALSE);
+      buDelete.visible(FALSE);
+      txtSecInt.visible(FALSE);
+      txtValidUntil.visible(TRUE);
+      txtValidFrom.visible(TRUE);
+      txtFieldValidUntil.visible(TRUE);
+      txtFieldValidFrom.visible(TRUE);
+      buDateTimeVU.visible(TRUE);
+      buDateTimeVF.visible(TRUE);
+      buDeleteAll.visible(FALSE);
+      cmdAdvanced.visible(TRUE);
+      break;
+  } // switch end   
+  
+  son.visible = (iConditionType != CT_ONOFF_LIST);
+  on.visible = (iConditionType == CT_ONOFF_LIST);
+  off.visible = (iConditionType == CT_ONOFF_LIST);
+  chkOnOff.visible = (iConditionType == CT_ONOFF_LIST) || (iConditionType == CT_TIMELIST);
+  chkOnOff.state(0) = (iConditionType == CT_ONOFF_LIST);
+}
+
+// ============================================================================
+// Function:  sc_saveFreePlan
+// ============================================================================
+sc_saveFreePlan(int &iErr)
+{
+  int    i, rc, iSpecDay;
+  time   tPeriodic, tSingle, t;
+
+  // Save into the global variables
+  //-- Additional value condition
+  p_sVcDpe    = dpSubStr(cbDPE1.text, DPSUB_SYS_DP_EL);   // Additional value condtition - DPE
+  
+  if (txtDataType.text() == \"STRING\")                       // Additional value condition - value
+    p_sVcValue = \"\\\"\"+txtAddValue.text+\"\\\"\";                        
+  else
+    p_sVcValue = txtAddValue.text;   
+  
+  p_iVcRelOP  = cbRelOp.selectedPos;     // Additional value condition - operator
+ 
+  p_bMode = (radCurrentState.number == 0); // Activated/Deactivated
+
+  //-- Special days list
+  p_iSpecDayMode = radSpecialDayMode.number;      
+  iSpecDay = cboSelectSpecDayList.selectedPos; 
+   
+  if (iSpecDay == 1)                // No special day selected
+  {
+    for (i = 0; i < getNoOfLangs(); i++)
+      setLangString(p_lsSpecDay, i, \"\");
+  }
+  else
+    p_lsSpecDay = p_dlsSpecDayList[iSpecDay - 1];
+
+  //TODO: Check which variables for each case to clear
+  // Clear variables
+  if (p_iCondType != CT_ADVANCED)
+  {
+    dynClear(p_diTime); dynClear(p_diMonthDay); dynClear(p_diMonth);
+    dynClear(p_dtTimesFree);
+  }
+  switch (p_iCondType)
+  {
+    case CT_SINGLE:
+      p_iSyncTime = 0; p_bSyncTimeActive = FALSE; p_iSyncDay = -1;  p_iSyncMonth = -1;  p_iSyncWeekDay = -1;
+      dynAppend(p_dtTimesFree, p_tTime);
+      
+      // Guarantee that VF and VU always on correct value
+      i = period(p_tTime);
+      
+      if (i >= 121)
+      {
+        setPeriod(p_tValidFrom, i - 120);
+        setPeriod(p_tValidUntil, i + 120);
+      }
+      else
+      {
+        setPeriod(p_tValidFrom, 0);
+        p_tValidUntil = 120; //setPeriod(p_tValidUntil, i + 120);
+      }
+    break;
+    case CT_PERIODIC:
+      //sc_p_tValidFrom_p_tValidUntil(iErr); 
+      p_iSyncTime = daySecond(p_tTime);
+      p_iSyncDay  = day(p_tTime);
+      p_iSyncMonth = month(p_tTime);
+      p_iSyncWeekDay = -1;
+      p_uInterval = txtFieldInterval.text;
+      
+      if (p_uInterval <= 59)
+      {
+        // Guarantee that VF and VU always on correct value
+        p_uInterval  = 60;
+        p_tValidFrom = getCurrentTime();
+        i = period(p_tValidFrom);
+      
+        if (i >= 121)
+        {
+          setPeriod(p_tValidFrom, i - 120);
+          setPeriod(p_tValidUntil, i + 120);
+        }
+        else
+        {
+          setPeriod(p_tValidFrom, 0);
+          p_tValidUntil = 120;  //setPeriod(p_tValidUntil, i + 120);
+        }
+      }
+      
+    break;
+    case CT_TIMELIST:
+    case CT_ONOFF_LIST:
+      //-- Time table
+      p_iSyncTime = 0;  p_iSyncDay = -1;  p_iSyncMonth = -1;  p_iSyncWeekDay = -1;
+      getColumn(\"tbTimes\", 1, p_dtTimesFree, rc);
+      if (rc < 0)
+        if (DEBUG) DebugTN(\"Invalid time list\");
+      dynSortAsc(p_dtTimesFree);
+      
+      //Valid from
+      if (dynlen(p_dtTimesFree) > 0)
+        i = period(p_dtTimesFree[1]);
+      else 
+        i = 0;
+        
+      if (i >= 121)
+        setPeriod(p_tValidFrom, i - 120);
+      else
+        setPeriod(p_tValidFrom, 0);
+        
+      //Valid until
+      if (dynlen(p_dtTimesFree) > 0)
+        i = period(p_dtTimesFree[dynlen(p_dtTimesFree)]);
+      else 
+        i = 0;
+        
+      setPeriod(p_tValidUntil, i + 120);
+
+    break;
+    case CT_ADVANCED:
+      // There are times defined, so ignore interval (syncDate)
+      if (dynlen(p_diTime) != 0)
+      {
+        p_iSyncTime = 0;  
+        p_iSyncDay = -1;  
+        p_iSyncMonth = -1;  
+        p_iSyncWeekDay = -1;
+      }
+      
+      // Set the sync data on the right default values
+      if (p_iSyncDay == 0) 
+        p_iSyncDay = -1;
+      if (p_iSyncMonth == 0) 
+        p_iSyncMonth = -1;  
+      if (p_iSyncWeekDay == 0) 
+        p_iSyncWeekDay = -1;
+      
+      // If ignore sync time is activated
+      if (p_bSyncTimeActive == TRUE)
+      {
+        p_iSyncTime = -1;
+      }
+       
+      // Guarantee min intervall of 60 seconds ... 
+      if (p_uInterval <= 59)
+      {
+        // ... guarantee that VF and VU always on correct value
+        p_uInterval  = 60;
+        p_tValidFrom = getCurrentTime();
+        i = period(p_tValidFrom);
+      
+        if (i >= 121)
+        {
+          setPeriod(p_tValidFrom, i - 120);
+          setPeriod(p_tValidUntil, i + 120);
+        }
+        else
+        {
+          setPeriod(p_tValidFrom, 0);
+          p_tValidUntil = 120;  //setPeriod(p_tValidUntil, i + 120);
+        }
+      }
+      
+//      if (p_iSyncTime >= 86400)
+//      {
+//        setPeriod(t, p_iSyncTime);
+//        p_iSyncTime = second(t);
+//      }      
+//      sc_p_tValidFrom_p_tValidUntil(iErr); 
+    break;
+    default:
+    break;
+  }
+  
+  p_tOldVF = p_tValidFrom;
+  p_tOldVU = p_tValidUntil;
+  
+  // write the values into the database
+  sc_writeProgram(p_sName);
+  
+  iErr = 0;
+}" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  
+  dynClear(ds);
+  dynAppend(ds, p_bCancel);  // TRUE means NEW schedule no APPLY
+  dynAppend(ds, p_sNewDP);
+
+  PanelOffReturn(df, ds);
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+1
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 290
+"fraFreeSchedule"
+""
+1 10 660 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.001076426264801 0 0.9938366718027735 -0.01076426264795671 0.06163328197226536 0 E 10 10 940 660
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Free schedule
+LANG:10004 12 自由调度
+LANG:10000 15 Freies Programm
+LANG:10027 39 Свободное расписание
+2 234
+"txtDateTime"
+""
+1 610 85 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 545 85 612 100
+0 2 2 "0s" 0 0 0 194 0 0  612 85 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Date/time:
+LANG:10004 13 日期/时间
+LANG:10000 11 Datum/Zeit:
+LANG:10027 20 Дата/время:
+30 225
+"fraTimeCondition"
+""
+1 470 226 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+2 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 470 30 925 230
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Time condition
+LANG:10004 12 时间条件
+LANG:10000 13 Zeitbedingung
+LANG:10027 34 Условие по времени
+2 231
+"txtConditionType"
+""
+1 610 52 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 522 52 612 67
+0 2 2 "0s" 0 0 0 194 0 0  612 52 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Condition type:
+LANG:10004 15 条件类型：
+LANG:10000 14 Bedingungstyp:
+LANG:10027 22 Тип условия:
+2 252
+"txtSyncDateTime"
+""
+1 610 145 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 507 145 612 160
+0 2 2 "0s" 0 0 0 194 0 0  612 145 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Sync date/time:
+LANG:10004 22 同步日期/时间：
+LANG:10000 17 Sync. Datum/Zeit:
+LANG:10027 30 Синх. дату/время:
+2 253
+"txtInterval"
+""
+1 610 175 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 565 175 612 190
+0 2 2 "0s" 0 0 0 194 0 0  612 175 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 Interval:
+LANG:10004 9 周期：
+LANG:10000 10 Intervall:
+LANG:10027 17 Интервал:
+2 274
+"txtValidFrom"
+""
+1 610 85 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 551 85 612 100
+0 2 2 "0s" 0 0 0 194 0 0  612 85 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 11 Valid from:
+LANG:10004 13 有效期自:
+LANG:10000 12 Gültig von:
+LANG:10027 32 Действительно от:
+2 339
+"txtSecInt"
+""
+1 770 170 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 772 172 788 188
+0 2 0 "0s" 0 0 0 64 0 0  772 172 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 [s]
+LANG:10004 3 [s]
+LANG:10000 3 [s]
+LANG:10027 4 [с]
+2 341
+"txtValidUntil"
+""
+1 610 115 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 553 115 612 130
+0 2 2 "0s" 0 0 0 194 0 0  612 115 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Valid until:
+LANG:10004 15 有效期至：
+LANG:10000 12 Gültig bis:
+LANG:10027 32 Действительно по:
+30 343
+"fraDetails"
+""
+1 20 228 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 30 465 230
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Details
+LANG:10004 6 详细
+LANG:10000 7 Details
+LANG:10027 12 Детали
+2 344
+"txtNameOfSchedule"
+""
+1 128 52 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 92 52 130 67
+0 2 2 "0s" 0 0 0 194 0 0  130 52 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 5 Name:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+2 345
+"txtDescripOfSchedule"
+""
+1 128 82 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 47 82 130 97
+0 2 2 "0s" 0 0 0 194 0 0  130 82 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 9 描述：
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+2 346
+"txtselectSpecDayList"
+""
+1 128 112 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 60 112 130 127
+0 2 2 "0s" 0 0 0 194 0 0  130 112 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 17 Special day list:
+LANG:10004 18 特殊日期列表
+LANG:10000 11 Sondertage:
+LANG:10027 26 Лист особ. дня:
+2 348
+"txtTimeCondiFulfilled"
+""
+1 368 192 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 286 192 370 207
+0 2 2 "0s" 0 0 0 194 0 0  370 192 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Time condition:
+LANG:10004 12 时间条件
+LANG:10000 14 Zeitbedingung:
+LANG:10027 28 Усл. по времени:
+30 349
+"fraOperatingMode"
+""
+1 20 320 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 235 220 320
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Current state
+LANG:10004 12 当前状态
+LANG:10000 16 Aktueller Status
+LANG:10027 33 Текущее состояние
+30 351
+"fraSpecialDayMode"
+""
+1 230 320 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 230 235 465 320
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Special day mode
+LANG:10004 18 特殊日期模式
+LANG:10000 15 Sondertagsmodus
+LANG:10027 32 Режим особого дня
+2 379
+"txtActions"
+""
+1 128 158 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 67 158 130 173
+0 2 2 "0s" 0 0 0 194 0 0  130 158 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Action(s):
+LANG:10004 9 动作：
+LANG:10000 11 Aktion(en):
+LANG:10027 21 Действие(-я)
+2 380
+"txtLOG"
+""
+1 129 139 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 129 140 157 155
+0 2 2 "0s" 0 0 0 193 0 0  143 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 LOG
+LANG:10004 3 LOG
+LANG:10000 3 LOG
+LANG:10027 12 Журнал
+2 381
+"txtRecipe"
+""
+1 228 139 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 228 140 270 155
+0 2 2 "0s" 0 0 0 193 0 0  249 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Recipe
+LANG:10004 6 配方
+LANG:10000 6 Rezept
+LANG:10027 12 Рецепт
+2 382
+"txtPopUp"
+""
+1 271 139 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 273 140 315 155
+0 2 2 "0s" 0 0 0 193 0 0  294 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Pop-up
+LANG:10004 6 弹窗
+LANG:10000 6 Pop-up
+LANG:10027 8 Окно
+2 383
+"txtAlarm"
+""
+1 326 139 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 327 140 361 155
+0 2 2 "0s" 0 0 0 193 0 0  344 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Alarm
+LANG:10004 6 报警
+LANG:10000 5 Alarm
+LANG:10027 10 Аларм
+2 384
+"txtScript"
+""
+1 377 139 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 377 140 411 155
+0 2 2 "0s" 0 0 0 193 0 0  394 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Script
+LANG:10004 6 脚本
+LANG:10000 6 Skript
+LANG:10027 12 Скрипт
+2 385
+"txtDpeList"
+""
+1 161 138 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 164 140 224 155
+0 2 2 "0s" 0 0 0 193 0 0  194 140 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 DPE list
+LANG:10004 8 DPE list
+LANG:10000 9 DPE Liste
+LANG:10027 3 DPE
+30 395
+"fraAddiValueCondi"
+""
+1 470 320 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 470 235 925 320
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 26 Additional value condition
+LANG:10004 18 添加数值条件
+LANG:10000 26 Zusätzliche Wertbedingung
+LANG:10027 63 Дополнительное условие по времени
+2 406
+"txtVcValue"
+""
+1 693 287 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 663 287 695 302
+0 2 2 "0s" 0 0 0 194 0 0  695 287 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Value:
+LANG:10004 9 数值：
+LANG:10000 5 Wert:
+LANG:10027 10 Знач.:
+2 407
+"txtRelOperator"
+""
+1 553 287 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 501 287 555 302
+0 2 2 "0s" 0 0 0 194 0 0  555 287 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 Operator:
+LANG:10004 9 操作员
+LANG:10000 9 Operator:
+LANG:10027 17 Оператор:
+6 416
+"Border2"
+""
+1 20 343 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+68 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 -10 1 E 20 340 930 343
+2 418
+"Text1"
+""
+1 18 350 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 340 206 356
+0 2 0 "0s" 0 0 0 64 0 0  20 340 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 18 Schedules overview
+LANG:10004 12 调度总览
+LANG:10000 18 Programmübersicht
+LANG:10027 31 Обзор расписаний
+2 419
+"Text8"
+""
+1 128 197 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 60 197 130 212
+0 2 2 "0s" 0 0 0 194 0 0  130 197 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Test action(s):
+LANG:10004 12 测试动作
+LANG:10000 12 Aktionstest:
+LANG:10027 26 Тест.действия:
+2 426
+"txtDataType"
+""
+1 868 287 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 870 289 920 303
+0 2 0 "0s" 0 0 0 64 0 0  870 289 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 432
+"txtDpeAvc"
+""
+1 498 260 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 500 260 541 275
+0 2 2 "0s" 0 0 0 192 0 0  500 260 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 DPE:  
+LANG:10004 6 DPE:  
+LANG:10000 6 DPE:  
+LANG:10027 4 DPE:
+13 282
+"buInsert"
+""
+1 885 110 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Insert line
+LANG:10004 9 插入行
+LANG:10000 15 Zeile einfügen
+LANG:10027 29 Вставить строку
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 108 911 136
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_time dt;
+  int      rc;
+  bool     bErr;
+  
+  if (txtFieldDateTime.text == \"\")
+    return;
+
+  getColumn(\"tbTimes\", 1, dt, rc);
+  
+  if (dynContains(dt, p_tTime))
+  {
+    ChildPanelOnCentralModal(\"vision/messageWarning\", \"Scheduler\", 
+                             makeDynString(\"$1:\" + getCatStr(KAT, \"m50\")));
+    return;                    
+  }
+    
+  tbTimes.appendLine(\"date\", formatTime(getCatStr(KAT, \"m8\"), p_tTime), 
+                     \"time\", formatTime(\"%H:%M:%S\", p_tTime), 
+                     \"DateTimeOrig\", p_tTime);
+
+  txtFieldDateTime.text=\"\";
+  tbTimes.sort(\"DateTimeOrig\");
+  sc_shadowTable(\"tbTimes\");
+  
+  sc_ckhDtList();
+}" 0
+ E E E
+13 377
+"buDateTimeSingle"
+""
+1 885 79 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Open date time picker
+LANG:10004 18 打开时间选择
+LANG:10000 24 Date Time Picker öffnen
+LANG:10027 46 Открыть селектор времени
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 78 911 106
+
+P 
+13421721
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"
+main()
+{
+  time tIn, tOut;
+
+  tIn = p_tTime;
+  dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE);
+  txtFieldDateTimeSingle.text(formatTime(getCatStr(KAT, \"m7\"), tOut));  
+  p_tTime = tOut;
+}" 0
+ E E E
+14 376
+"txtFieldDateTimeSingle"
+""
+1 620 79 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 78 877 105
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  time tIn, tOut;
+
+  tIn = p_tTime;
+  dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE);
+  this.text(formatTime(getCatStr(KAT, \"m7\"), tOut));  
+  p_tTime = tOut;
+  p_tValidFrom = p_tTime;
+  p_tValidUntil = p_tTime;
+}" 0
+ E E
+14 243
+"txtFieldDateTime"
+""
+1 620 79 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 78 877 104
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  time tCu, tIn, tOut;
+
+  tIn = p_tTime;
+
+  if(cboConditionType.selectedPos() == 2)
+  {
+    tCu = getCurrentTime();
+    tIn = makeTime(year(tCu), month(tIn), day(tIn), hour(tIn), minute(tIn), second(tIn));
+    dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE, \"\", \"\", TRUE, TRUE, FALSE);
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m6\"), tOut));  
+  }
+  else
+  {
+    dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE);
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m7\"), tOut)); 
+  }  
+  
+  p_tTime = tOut;
+}" 0
+ E E
+13 375
+"buDateTime"
+""
+1 885 79 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Open date time picker
+LANG:10004 18 打开时间选择
+LANG:10000 24 Date Time Picker öffnen
+LANG:10027 46 Открыть селектор времени
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 78 911 106
+
+P 
+13421721
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  time tCu, tIn, tOut;
+
+  tIn = p_tTime;
+
+  if(cboConditionType.selectedPos() == 2)
+  {
+    tCu = getCurrentTime();
+    tIn = makeTime(year(tCu), month(tIn), day(tIn), hour(tIn), minute(tIn), second(tIn));
+    dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE, \"\", \"\", TRUE, TRUE, FALSE);
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m6\"), tOut));
+  }
+  else
+  {
+    dateTimePicker(tIn, tOut, TRUE, TRUE, TRUE, FALSE);
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m7\"), tOut)); 
+  }  
+  
+  p_tTime = tOut;
+}" 0
+ E E E
+13 370
+"ok"
+""
+1 673 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 21 接受更改并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  673 678 761 706
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  int        iErr;
+  dyn_float  df;
+  dyn_string ds;
+  
+  bool b = sc_checkValidFromUntilEntryF();
+  if (b == FALSE)
+    return;
+  
+  // Check timelist length
+  if (p_iCondType == CT_ONOFF_LIST)
+  {
+    if (tbTimes.lineCount() % 2)
+    {
+      // WARNING: ON without OFF
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"), 
+                               makeDynString(\"$1:\" + getCatStr(KAT,\"m49\")));                                     
+      return;
+    }
+  }
+  sc_saveFreePlan(iErr);
+  if(iErr != 0)
+    return;
+  
+  p_bCancel = FALSE; //OK was done
+  
+  PanelOff();       
+}" 0
+ E E E
+13 374
+"buDateTimeVU"
+""
+1 885 109 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Open date time picker
+LANG:10004 18 打开时间选择
+LANG:10000 24 Date Time Picker öffnen
+LANG:10027 46 Открыть селектор времени
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 108 911 136
+
+P 
+13421721
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  p_tOldVU = p_tValidUntil;
+  
+  sc_validUntil(p_tValidUntil, p_tValidUntil);
+  txtFieldValidUntil.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidUntil)); 
+}" 0
+ E E E
+13 373
+"buDateTimeVF"
+""
+1 885 79 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Open date time picker
+LANG:10004 18 打开时间选择
+LANG:10000 24 Date Time Picker öffnen
+LANG:10027 46 Открыть селектор времени
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 78 911 106
+
+P 
+13421721
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  p_tOldVF = p_tValidFrom;
+  
+  sc_validFrom(p_tValidFrom, p_tValidFrom);
+  txtFieldValidFrom.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidFrom));  
+}" 0
+ E E E
+14 277
+"txtFieldValidFrom"
+""
+1 620 79 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 78 877 104
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  p_tOldVF = p_tValidFrom;
+  
+  sc_validFrom(p_tValidFrom, p_tValidFrom);
+  txtFieldValidFrom.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidFrom));  
+}" 0
+ E E
+25 281
+"tbTimes"
+""
+1 175 -663.8 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  618 108 877 218
+"main()
+{
+  this.sortOnClick = TRUE;
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+}" 0
+E 1 0 1 3 1 "DateTimeOrig" 11 0 1 "s" 4
+LANG:10001 12 DateTimeOrig
+LANG:10004 12 原始时间
+LANG:10000 12 DateTimeOrig
+LANG:10027 12 DateTimeOrig
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+130 "date" 11 1 0 "s" 4
+LANG:10001 4 Date
+LANG:10004 6 日期
+LANG:10000 5 Datum
+LANG:10027 8 Дата
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+130 "time" 11 1 0 "s" 4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Zeit
+LANG:10027 10 Время
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+133 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 1 0 4 7
+1 0
+13 227
+"cmdAdvanced"
+""
+1 760 49 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Advanced parameterization
+LANG:10004 18 高级参数配置
+LANG:10000 25 Erweiterte Parametrierung
+LANG:10027 51 Расширенная параметризация
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  758 47 786 75
+
+P 
+13421721
+"pictures/StandardIcons/open_details_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     sWeekDay, 
+             sMonthDay, 
+             sMonth, 
+             sTimes, 
+             sValidFrom, 
+             sValidUntil,
+             sSyncTime;
+  time       tSyncTime;
+  dyn_float  df;     
+  dyn_string ds,dsTimes;  
+  dyn_time   dtTimes;      
+  int        i;
+             
+  sValidFrom  = p_tValidFrom;
+  sValidUntil = p_tValidUntil;
+  
+//DebugTN(\"p_diTime\",p_diTime);  
+
+  dynClear(dtTimes);
+  if(dynlen(p_diTime) > 0)
+  {
+    for (i=1; i<=dynlen(p_diTime); i++)
+    {
+      daySecondToTime(p_diTime[i], dtTimes[i]);
+    }
+  }
+   
+  sTimes    = dtTimes;
+  
+  sWeekDay  = p_diWeekDay;
+  sMonthDay = p_diMonthDay;
+  sMonth    = p_diMonth;
+
+  if (p_iSyncTime == -1)
+  {
+    p_bSyncTimeActive = TRUE;
+    p_iSyncTime = 0;
+  }
+    
+  daySecondToTime(p_iSyncTime, tSyncTime);
+  sSyncTime = tSyncTime;
+  
+  ChildPanelOnCentralModalReturn(\"vision/scheduler/sc_advanced.pnl\", getCatStr(KAT, \"m48\"),
+                   makeDynString(\"$validFrom:\"+sValidFrom,
+                                 \"$validUntil:\"+sValidUntil,
+                                 \"$Times:\"+sTimes,
+                                 \"$WeekDay:\"+sWeekDay,
+                                 \"$MonthDay:\"+sMonthDay,
+                                 \"$Month:\"+sMonth,
+                                 \"$SyncTime:\"+sSyncTime,
+                                 \"$SyncWeekDay:\"+p_iSyncWeekDay,
+                                 \"$SyncDay:\"+p_iSyncDay,
+                                 \"$SyncMonth:\"+p_iSyncMonth,
+                                 \"$Interval:\"+p_uInterval,
+                                 \"$Delay:\"+p_iDelay,
+                                 \"$SyncTimeActive:\"+p_bSyncTimeActive), df, ds);
+//DebugTN(\"df, ds\", df, ds);                                 
+
+  if(dynlen(df) >= 1)
+  {
+    if(df[1] == 1)
+    {
+      p_tValidFrom   = ds[1];
+      txtFieldValidFrom.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidFrom));  
+      p_tValidUntil  = ds[2];
+      txtFieldValidUntil.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidUntil)); 
+      dynClear(dtTimes);
+      dynClear(dsTimes);
+      dsTimes = strsplit(ds[3], \"|\");
+      
+      for (i=1; i<=dynlen(dsTimes); i++)
+      {
+        dsTimes[i] = strltrim(dsTimes[i]);
+        dsTimes[i] = strrtrim(dsTimes[i]);
+      }
+              
+      dtTimes = dsTimes;
+      dynClear(p_diTime);
+      
+      if(dynlen(dtTimes) >= 1)
+      {
+        for (i=1; i<=dynlen(dtTimes); i++)
+          dynAppend(p_diTime, daySecond(dtTimes[i]));
+      }
+      dynSortAsc(p_diTime);
+      p_diWeekDay    = strsplit(ds[4], \"|\");
+      dynSortAsc(p_diWeekDay);
+      p_diMonthDay   = strsplit(ds[5], \"|\");
+      dynSortAsc(p_diMonthDay);
+      p_diMonth      = strsplit(ds[6], \"|\");
+      dynSortAsc(p_diMonth);
+      tSyncTime      = ds[7];
+      
+      p_bSyncTimeActive = ds[13];
+      if (p_bSyncTimeActive == FALSE)
+        p_iSyncTime = daySecond(tSyncTime);
+      else
+        p_iSyncTime =  -1;
+        
+      p_iSyncWeekDay = ds[8];
+      p_iSyncDay     = ds[9];
+      p_iSyncMonth   = ds[10];
+      p_uInterval    = ds[11];
+      p_iDelay       = ds[12];
+    }
+  }
+}" 0
+ E E E
+22 232
+"cboConditionType"
+""
+1 620 50 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 48 752 74
+4
+4
+LANG:10001 6 Single
+LANG:10004 6 单独
+LANG:10000 8 Einmalig
+LANG:10027 20 Однократно
+
+1
+4
+LANG:10001 8 Periodic
+LANG:10004 8 Periodic
+LANG:10000 10 Periodisch
+LANG:10027 24 Перидический
+
+0
+4
+LANG:10001 14 Date/time list
+LANG:10004 19 日期/时间列表
+LANG:10000 9 Zeitliste
+LANG:10027 32 Список дата/время
+
+0
+4
+LANG:10001 8 Advanced
+LANG:10004 6 高级
+LANG:10000 9 Erweitert
+LANG:10027 22 Расширенный
+
+0
+
+E
+"main()
+{
+  if(cboConditionType.selectedPos() == 2)
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m6\"), p_tTime));  
+  else
+    txtFieldDateTime.text(formatTime(getCatStr(KAT, \"m7\"), p_tTime));  
+    
+  p_iCondType = cboConditionType.selectedPos - 1;
+      
+  if (p_iCondType == CT_TIMELIST && chkOnOff.state(0))
+    p_iCondType = CT_ONOFF_LIST;
+    
+  // Set default values
+  p_tValidFrom = 0;
+  p_tValidUntil = 0;
+  
+  txtFieldValidFrom.text = formatTime(getCatStr(KAT, \"m7\"), p_tValidFrom);
+  txtFieldValidUntil.text = formatTime(getCatStr(KAT, \"m7\"), p_tValidUntil);
+    
+  conditionType(p_iCondType);
+  sc_setCT(p_iCondType);
+}
+
+" 0
+
+E
+ 0 0
+13 283
+"buDelete"
+""
+1 884 140 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Delete Line
+LANG:10004 9 删除行
+LANG:10000 14 Zeile löschen
+LANG:10027 27 Удалить строку
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 138 911 166
+
+P 
+10862530
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"
+main()
+{
+  int iDeletePos;
+
+  getValue(\"tbTimes\"  ,\"getSelectedLines\", iDeletePos);
+  tbTimes.deleteLineN(iDeletePos);
+  tbTimes.sort(\"DateTimeOrig\");
+  sc_shadowTable(\"tbTimes\");
+  
+  sc_ckhDtList();
+}" 0
+ E E E
+13 288
+"save"
+""
+1 763 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  763 678 851 706
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  int       iErr;
+  dyn_float df;
+  dyn_string ds;
+  
+  bool b = sc_checkValidFromUntilEntryF();
+  if (b == FALSE)
+    return;
+
+  // Check valid from and valid until
+  if (period (p_tValidFrom) > period (p_tValidUntil))
+  {
+    sc_illegalValidityPeriod();
+    txtFieldValidFrom.text(formatTime(getCatStr(KAT, \"m7\"), p_tOldVF));  
+    p_tValidFrom = p_tOldVF;
+    
+    if (period (p_tValidFrom) > period (p_tValidUntil))
+    {
+      txtFieldValidUntil.text(formatTime(getCatStr(KAT, \"m7\"), p_tOldVU));
+      p_tValidUntil = p_tOldVU;
+    }
+    return;
+  }
+  
+  // Check timelist length
+  if (p_iCondType == CT_ONOFF_LIST)
+  {
+    if (tbTimes.lineCount() % 2)
+    {
+      // WARNING: ON without OFF
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"), 
+                               makeDynString(\"$1:\" + getCatStr(KAT,\"m49\")));                                     
+      return;
+    }
+  }
+  sc_saveFreePlan(iErr);
+  if(iErr != 0)
+    return;
+    
+  // Update table
+  tabSchedOverview.deleteAllLines();
+  sc_loadTable(\"F\", \"tabSchedOverview\");
+  
+  p_bCancel = FALSE; //APPLY was done
+  on.enabled(TRUE);
+  off.enabled(TRUE);
+  son.enabled(TRUE);
+  
+  dynClear(p_dsPDC);
+  dynClear(p_ddaPDC);
+  sc_getObjectContentFree(p_dsPDC, p_ddaPDC);
+}" 0
+ E E E
+13 289
+"Button3"
+""
+1 8 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 29 Открыть справку
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 678 96 706
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"sc_freeSchedule\");
+}" 0
+ E E E
+13 311
+"buDeleteAll"
+""
+1 884 169 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Delete table
+LANG:10004 12 删除表格
+LANG:10000 16 Tabelle löschen
+LANG:10027 29 Удалить таблицу
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 167 911 195
+
+P 
+10862530
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+ tbTimes.deleteAllLines();
+ 
+ sc_ckhDtList();
+}" 0
+ E E E
+14 340
+"txtFieldInterval"
+""
+1 620 169 E E E 1 E 0 E N "_WindowText" E N "Weiss" E E
+ E E
+20 0 0 0 0 0
+E "main()
+{
+  p_uInterval = this.text;
+  
+  if (p_uInterval > 86400)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+    makeDynString(\"$1:\" + getCatStr(KAT, \"m54\")));
+    this.text   = \"60\";
+    p_uInterval = 60;
+    return;
+  }
+  
+  if (p_uInterval <= 59)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+    makeDynString(\"$1:\" + getCatStr(KAT, \"m55\")));
+    this.text   = \"60\";
+    p_uInterval = 60;    
+    return;
+  }
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 168 762 194
+3 "5d" 5 0 0 0 0 -1  E E "main()
+{
+  p_uInterval = this.text;
+  
+  if (p_uInterval > 86400)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+    makeDynString(\"$1:\" + getCatStr(KAT, \"m54\")));
+    this.text   = \"60\";
+    p_uInterval = 60;
+    return;
+  }
+  
+  if (p_uInterval <= 59)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+    makeDynString(\"$1:\" + getCatStr(KAT, \"m55\")));
+    this.text   = \"60\";
+    p_uInterval = 60;    
+    return;
+  }
+}" 0
+
+14 342
+"txtFieldValidUntil"
+""
+1 620 109 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  618 108 877 134
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  p_tOldVU = p_tValidUntil;
+  
+  sc_validUntil(p_tValidUntil, p_tValidUntil);
+  txtFieldValidUntil.text(formatTime(getCatStr(KAT, \"m7\"), p_tValidUntil));  
+}" 0
+ E E
+13 352
+"langEditName"
+""
+1 425 49 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Edit schedule name
+LANG:10004 18 编辑调度名称
+LANG:10000 23 Programmnamen editieren
+LANG:10027 44 Изменить имя расписания
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  423 47 451 75
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_name(\"txtFieldName\");
+}" 0
+ E E E
+14 353
+"txtFieldName"
+""
+1 140 50 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  138 48 417 74
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  sc_name(\"txtFieldName\");
+}" 0
+ E E
+13 354
+"langEditDesc"
+""
+1 425 79 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Edit schedule description
+LANG:10004 18 编辑调度描述
+LANG:10000 30 Programmbeschreibung editieren
+LANG:10027 54 Изменить описание расписания
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  423 77 451 105
+
+P 
+12303291
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langEditor(p_lsDescription);
+  txtFieldDescrip.text = p_lsDescription[getActiveLang()];
+}
+
+" 0
+ E E E
+14 355
+"txtFieldDescrip"
+""
+1 140 80 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  138 78 417 104
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  langEditor(p_lsDescription);
+  txtFieldDescrip.text = p_lsDescription[getActiveLang()];
+}" 0
+ E E
+14 358
+"txtFieldTimeCondiFulfilled"
+""
+1 378 189 E E E 0 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  378 188 452 214
+3 "0s" 0 0 0 0 0 -1  E E E
+13 369
+"cancel"
+""
+1 853 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 30 放弃修改的数值并关闭
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  853 678 941 706
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  
+  dynClear(ds);
+  dynAppend(ds, p_bCancel);  // TRUE means NEW schedule no APPLY
+  dynAppend(ds, p_sNewDP);
+
+  PanelOffReturn(df, ds);
+}" 0
+ E E E
+20 386
+"chkLOG"
+""
+1 138 154 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  136 152 162 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  p_bLogEntry = state;
+}" 0
+13 387
+"pb_selectActions"
+""
+1 424 155 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Open action details
+LANG:10004 18 打开动作详细
+LANG:10000 22 Aktionsdetails öffnen
+LANG:10027 48 Детали открытого действия
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  423 153 451 181
+
+P 
+13421721
+"pictures/StandardIcons/open_details_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  string     sDpeList, sDpeString, sPopupText, sAlarmText,
+             sValues, sDpeValueOn, sDpeValueOff,
+             sUsers, sUis, 
+             p_sPopUpMode, p_sPopUpDate, p_sGroup;
+  bool       bSingleOrOnOff;
+  langString p_lsPopUpName;
+    
+  bSingleOrOnOff = (p_iCondType == CT_ONOFF_LIST);
+
+  // Convert dynamic strings into strings
+  sDpeList = p_dsDpeList;
+  sDpeValueOn = p_dsDpeValuesOn;
+  sDpeValueOff = p_dsDpeValuesOff;
+  sValues = p_dsDpeValues;
+  sUsers = p_dsUsers;
+  sUis = p_dsUis;
+  // MS: the real dp-list will be saved into p_dsDpeString!!
+  sDpeString = p_dsDpeList;
+  // Convert language strings into strings
+  ls2s(p_lsPopUpText, sPopupText);
+  ls2s(p_lsAlarmText, sAlarmText);
+
+   ChildPanelOnCentralModalReturn( \"/vision/scheduler/sc_actions.pnl\",
+                                   getCatStr(KAT, \"m13\"),
+                                   makeDynString(\"$ScriptPath:\"     +  p_sScriptPath,
+                                                 \"$ScriptPathON:\"   +  p_sScriptPathON,
+                                                 \"$ScriptPathOFF:\"  +  p_sScriptPathOFF,
+                                                 \"$DpeString:\"      +  sDpeString,
+                                                 \"$DpeList:\"        +  sDpeList,
+                                                 \"$Values:\"         +  sValues,
+                                                 \"$DpeValueOn:\"     +  sDpeValueOn,
+                                                 \"$DpeValueOff:\"    +  sDpeValueOff,
+                                                 \"$RecipeType:\"     +  p_sRecipeType,
+                                                 \"$RecipeName:\"     +  p_sRecipeName,
+                                                 \"$RecipeTypeON:\"   +  p_sRecipeTypeON,
+                                                 \"$RecipeNameON:\"   +  p_sRecipeNameON,
+                                                 \"$RecipeTypeOFF:\"  + p_sRecipeTypeOFF,
+                                                 \"$RecipeNameOFF:\"  + p_sRecipeNameOFF,
+                                                 \"$AlarmText:\"      +  sAlarmText,
+                                                 \"$PopUpText:\"      +  sPopupText,
+                                                 \"$PopUpMode:\"      +  p_sPopUpMode,
+                                                 \"$PopUpDate:\"      +  p_sPopUpDate,
+                                                 \"$PopUpUsers:\"     +  sUsers,
+                                                 \"$PopUpUis:\"       +  sUis,
+                                                 \"$DpeListActive:\"  + p_bDpeListActive,
+                                                 \"$RecipeActive:\"   +  p_bRecipeActive,
+                                                 \"$PopUpActive:\"    +  p_bPopUpActive,
+                                                 \"$RemAlarmActive:\" + p_bRemAlarmActive,
+                                                 \"$ScriptActive:\"   + p_bScriptActive,
+                                                 \"$SingleOrOnOff:\"  + bSingleOrOnOff,
+                                                 \"$sName:\"          + p_sName), df, ds);
+
+  if(dynlen(df)>=1)
+  if(df[1] == 1)
+  {
+    p_sScriptPath = ds[1];       // Script path
+    s2ls(ds[2], p_lsAlarmText);  // Alarm text
+    s2ls(ds[3], p_lsPopUpText);  // PopUp text
+    
+//    p_dsDpeList       = strsplit(ds[4], \"|\");  //  DPE list, column 0
+    p_dsDpeValuesOn   = strsplit(ds[5], \"|\");    //  DPE list, column 1 = for ON/OFF event
+    p_dsDpeValuesOff  = strsplit(ds[6], \"|\");   //  DPE list, column 2 = for ON/OFF event
+    p_dsDpeList       = strsplit(ds[17], \"|\"); //  DPE list, column 3
+    p_dsDpeValues     = strsplit(ds[23], \"|\");   //  DPE list, column 4 = for single Event
+    
+    sc_dynTrim(p_dsDpeList);
+    sc_dynTrim(p_dsDpeValuesOn);
+    sc_dynTrim(p_dsDpeValuesOff);
+    sc_dynTrim(p_dsDpeValues);
+
+    p_sRecipeTypeON   = ds[8];      //  Recipe type ON for ON/OFF event
+    p_sRecipeNameON   = ds[9];      //  Recipe name ON for ON/OFF event
+    p_sRecipeTypeOFF  = ds[10];    //  Recipe type OFF for ON/OFF event
+    p_sRecipeNameOFF  = ds[11];    //  Recipe name OFF for ON/OFF event
+    p_bDpeListActive  = ds[12];    //  DPE list active
+    p_bRecipeActive   = ds[13];     //  Recipe active
+    p_bPopUpActive    = ds[14];    //  PopUp active
+    p_bRemAlarmActive = ds[15];   //  Reminder active
+    p_bScriptActive   = ds[16];     //  Script active
+    p_sPopUpMode      = ds[18];      //  PopUp parametrisation mode ON
+    p_sPopUpDate      = ds[19];      //  PopUp date = only used in fast para mode
+    
+    p_dsUsers       = strsplit(ds[21], \"|\");  // Selected users
+    p_dsUis         = strsplit(ds[22], \"|\");   // Selected UI´s
+    sc_dynTrim(p_dsUsers);
+    sc_dynTrim(p_dsUis);
+    p_sGroup            = ds[20];                 // Selected PopUp group 
+    
+    p_sRecipeType      = ds[24];  // Recipe type for single event
+    p_sRecipeName      = ds[25];  // Recipe name for single event
+    p_sScriptPathON    = ds[26];  // Script path
+    p_sScriptPathOFF   = ds[27];  // Script path
+  }
+  
+  //Set checkboxes  
+  chkDpeList.state(0)   = p_bDpeListActive;
+  chkRecipe.state(0)    = p_bRecipeActive;
+  chkPopUp.state(0)     = p_bPopUpActive;
+  chkAlarm.state(0)     = p_bRemAlarmActive;
+  chkScript.state(0)    = p_bScriptActive;
+}
+" 0
+ E E E
+20 388
+"chkRecipe"
+""
+1 238 154 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  236 152 262 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.state(0) = FALSE;
+}" 0
+E20 389
+"chkDpeList"
+""
+1 188 154 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  186 152 212 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.state(0) = FALSE;
+}" 0
+E20 390
+"chkScript"
+""
+1 388 154 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  386 152 412 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.state(0) = FALSE;
+}" 0
+E20 391
+"chkAlarm"
+""
+1 338 154 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  336 152 362 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.state(0) = FALSE;
+}" 0
+E20 392
+"chkPopUp"
+""
+1 288 154 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  286 152 312 181
+1
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.state(0) = FALSE;
+}" 0
+E19 393
+"radCurrentState"
+""
+1 30 255 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  28 253 148 314
+2
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 11 Freigegeben
+LANG:10027 14 Активно
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 Inactive
+LANG:10004 6 禁用
+LANG:10000 8 Gesperrt
+LANG:10027 18 Неактивно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  p_bMode = (button == 0);
+}" 0
+
+13 400
+"pb_select"
+""
+1 884 254 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Open datapoint selector
+LANG:10004 14 打开DP选择
+LANG:10000 25 Datenpunktauswahl öffnen
+LANG:10027 55 Открыть селектор точки данных
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  883 252 911 280
+
+P 
+10862530
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  p_iChange = 5;
+  sc_tree(p_sVcDpe); 
+  sc_FLOATorINT();
+}
+" 0
+ E E E
+19 404
+"radSpecialDayMode"
+""
+1 240 255 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  238 253 462 314
+2
+T 
+4
+LANG:10001 20 Exclude special days
+LANG:10004 18 不含特殊日期
+LANG:10000 31 An Sondertagen nicht ausführen
+LANG:10027 38 Исключить особые дни
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Only on special days
+LANG:10004 15 只特殊日期
+LANG:10000 29 Nur an Sondertagen ausführen
+LANG:10027 39 Только по особым дням
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  p_iSpecDayMode = button;
+}" 0
+
+22 405
+"cboSelectSpecDayList"
+""
+1 140 110 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  138 108 417 134
+1
+4
+LANG:10001 6 (None)
+LANG:10004 6 (None)
+LANG:10000 7 (Keine)
+LANG:10027 24 (Отсутствует)
+
+0
+
+E
+"main()
+{
+  p_iSpecDayMode = this.selectedPos;
+  radSpecialDayMode.enabled = (p_iSpecDayMode != 1);
+}" 0
+
+E
+ 0 0
+14 408
+"txtAddValue"
+""
+1 705 285 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+62 0 0 0 0 0
+E "main()
+{
+  bool    ok;
+  string x;
+
+  sc_bool();
+  
+  ok = sc_CheckValue(this.text(), p_iDpeType);
+
+  if (!ok)
+  {
+    dpGet(cbDPE1.text(), x);
+    this.text(x);
+  }       
+  else
+    sc_dpeAndValues(cbDPE1.text, \"cbDPE1\", \"txtAddValue\");
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  703 283 867 309
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  txtRelOperator.visible(FALSE);
+  cbRelOp.visible(FALSE);
+}" 0
+ "main()
+{
+  bool    ok;
+  string   x;
+
+  sc_bool();
+  
+  ok = sc_CheckValue(this.text, p_iDpeType);
+  if (!ok)
+  {
+    dpGet(cbDPE1.text, x);
+    this.text(x);
+  }       
+  else
+    sc_dpeAndValues(cbDPE1.text, \"cbDPE1\", \"txtAddValue\");
+}" 0
+
+22 409
+"cbDPE1"
+""
+1 565 255 E E E 1 E 1 E N "STD_inputfield_text" E N "STD_inputfield_back" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  563 253 867 279
+0
+
+"int        dpeValueType; 
+bool       boCurveVisible = 0;
+string     p_sSelectedDPE, p_old_dpe;
+dyn_string p_dsdpeRecent;
+
+main()
+{
+
+  if(!getUserPermission(3))
+    this.enabled=0;
+  
+  dpSet(myUiDpName()+\".DpeInfo.CurrentDpe.Name:_original.._value\", \"\");
+  dpGet(myUiDpName()+\".DpeInfo.RecentDpe.LastDpes:_online.._value\",p_dsdpeRecent);
+   
+  this.items = p_dsdpeRecent; //Contains the list with recent used DPE`s
+//  this.text =  \"\";
+
+  dpConnect(\"workCurrentDpeCB\",myUiDpName()+\".DpeInfo.CurrentDpe.Name:_online.._value\");
+}
+
+//********************************************
+workCurrentDpeCB(string dp1,string dpe_string)
+{
+  int imaxComboList = 20;
+  string dpe_string_formatted, dpe2, dpe3;
+  
+  //CB was initialized by change of cbDpe2
+  if(p_iChange != 5)
+    return;
+  p_iChange = 0;
+
+  //String is empty?
+  if(dpe_string==\"\")
+  {
+    this.text = last_dpe.text;
+    return; 
+  }
+    
+  //DPE string is existing?
+  if(!dpExists(dpe_string+\":_online.._value\"))
+  {
+    string sMessageText=getCatStr(\"misc\",\"DpeNotExisting\") + \"!\";
+    dpe_string_formatted  =  last_dpe.text();
+    sc_checkSys(dpe_string_formatted, dpe_string_formatted);  
+    this.text=dpe_string_formatted;
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+    return;    
+  }
+  
+  if (dpTypeName(dpe_string) == \"_Sc\")// _Sc type is only \"mode\" valid!
+  {
+    dpe_string = dpSubStr(dpe_string,DPSUB_SYS_DP_EL); 
+    dpe2 = dpSubStr(dpe_string,DPSUB_SYS_DP);
+    dpe3 = dpe_string;
+    strreplace(dpe3, dpe2, \"\");
+
+    if(dpe3 != \".mode\" || dpSubStr(dpe2,DPSUB_SYS_DP) == dpSubStr(p_sName,DPSUB_SYS_DP)) //if(dpe3 != \".mode\")
+    {
+      string sMessageText=getCatStr(\"scheduler\",\"invalidEntry\");
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+      cbDPE1.text = \"\";
+      txtAddValue.text = \"\";
+      sc_avcVis();
+      return;
+    }
+  }    
+    
+  if (dpTypeName(dpe_string) == \"_ScCom\")// _ScCom type is not allowed!
+  {
+    string sMessageText=getCatStr(\"ac\",\"invalidname\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+    cbDPE1.text = \"\";
+    txtAddValue.text = \"\";
+    sc_avcVis();
+    return;
+  }
+
+  //If OK
+  sc_checkSys(dpe_string,dpe_string_formatted);
+
+  //Value
+  sc_dpeAndValues(dpe_string, \"cbDPE1\", \"txtAddValue\", TRUE);
+  sc_FLOATorINT();
+
+  //this.text = dpe_string;
+  p_sSelectedDPE = this.text;
+  
+  // ComboxList not System*1:_mp_ANALOG1.value:_pv_range.._typelanger then imaxComboList // NoCheckWarning 
+  if(dynContains(p_dsdpeRecent,dpe_string_formatted)<=0)
+  {
+    dynInsertAt(p_dsdpeRecent,dpe_string_formatted,1);
+  }
+  else
+  {
+    dynRemove(p_dsdpeRecent,dynContains(p_dsdpeRecent,dpe_string_formatted));
+    dynInsertAt(p_dsdpeRecent,dpe_string_formatted,1);
+  }
+  if(dynlen(p_dsdpeRecent)>imaxComboList)
+    dynRemove(p_dsdpeRecent,imaxComboList+1);
+    
+  this.items = p_dsdpeRecent;  
+  dpSet(myUiDpName()+\".DpeInfo.RecentDpe.LastDpes:_original.._value\",p_dsdpeRecent);
+  
+  sc_checkSys(dpe_string,dpe_string_formatted);
+  
+  p_old_dpe=dpe_string;
+  last_dpe.text=p_old_dpe;
+  
+  sc_avcVis();
+}
+" 0
+
+"main()
+{
+  string     dpe_string_formatted, dpe,dpe_string = this.text;
+  dyn_string allSys;
+  dyn_uint   allSysIds;
+  bool       bOK = TRUE;
+  
+  //Change of cbDpe1 ??
+  p_iChange = 5;
+  
+  //If the string contains \"*;?\"
+  if(strtok(dpe_string,\"*;?\") > -1)
+  {
+    dyn_float  resultFloat; 
+    dyn_string resultString;
+    string     dpe, dp1;
+    
+    //If the postition ...
+    if(strpos(dpe_string,\"*.*\")>=0 && !getUserPermission(4))
+    {
+      int istrPos;
+      string dpWildcarts;
+      
+      istrPos=strpos(dpe_string,\":\");
+      dpWildcarts=dpe_string;
+      
+      if(istrPos>=0 && istrPos < strpos(dpWildcarts,\"*.*\"))
+        dpWildcarts=substr(dpWildcarts,istrPos+1);
+      istrPos=strpos(dpWildcarts,\":\");
+      
+      if(istrPos>=0 && istrPos > strpos(dpWildcarts,\"*.*\"))
+        dpWildcarts=substr(dpWildcarts,0,istrPos);
+        
+      strreplace(dpWildcarts,\"*\",\"\");
+      strreplace(dpWildcarts,\".\",\"\");
+      
+      if(strlen(dpWildcarts)==0)
+      {
+        string sMessageText=getCatStr(\"misc\",\"userNotAllowed\");    
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+        return;
+      }
+    }   
+    ChildPanelOnCentralModalReturn(\"vision/dpe_info_selection.pnl\",\"DPE\",
+                                   makeDynString(\"$s_wildcards:\"+dpe_string), resultFloat, resultString);
+    
+    dpe = resultString[1];
+    
+    //Value
+    sc_dpeAndValues(dpe_string,\"cbDPE1\",\"txtAddValue\");
+    sc_FLOATorINT();
+
+    dpe_string = dpe;
+  }
+  else
+    ;//DebugN(\"No Wildcards\");
+  
+  //If the string is not empty 
+  if(dpe_string!=\"\")
+  {
+    if(dpExists(dpe_string+\":_original.._value\") && dpElementType(dpe_string)!=1)
+    {
+      dynClear(allSys);
+      dynClear(allSysIds);
+      getSystemNames(allSys,allSysIds);
+      
+      if(dynlen(allSys) == 1)
+        p_sVcDpe = allSys[1]+\":\"+dpe_string;
+      else
+        p_sVcDpe = dpe_string;
+
+      dpSet(myUiDpName()+\".DpeInfo.CurrentDpe.Name:_original.._value\",dpe_string);
+    }
+    else
+    {
+      //DPE does not exist
+      string sMessageText=getCatStr(\"misc\",\"DpeNotExisting\") + \"!\";    
+      dpe_string_formatted  =  last_dpe.text();
+      sc_checkSys(dpe_string_formatted, dpe_string_formatted);  
+      this.text=dpe_string_formatted;
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+      return; 
+    } 
+  }
+  else
+  {
+    //DPE does not exist
+    string sMessageText=getCatStr(\"misc\",\"DpeNotExisting\") + \"!\";    
+    dpe_string_formatted  =  last_dpe.text();
+    sc_checkSys(dpe_string_formatted, dpe_string_formatted);  
+    this.text=dpe_string_formatted;
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"para\",\"warning\"),makeDynString(sMessageText));
+    return;    
+  } 
+}" 0
+
+E
+ 1 0
+13 410
+"last_dpe"
+""
+1 556 276 E E E 1 E 0 E N "_3DText" E N {255,0,0} E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  554 274 568 288
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+22 412
+"cbRelOp"
+""
+1 565 285 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  563 283 652 309
+5
+4
+LANG:10001 1 =
+LANG:10004 1 =
+LANG:10000 1 =
+LANG:10027 1 =
+
+1
+4
+LANG:10001 1 >
+LANG:10004 1 >
+LANG:10000 1 >
+LANG:10027 1 >
+
+0
+4
+LANG:10001 1 <
+LANG:10004 1 <
+LANG:10000 1 <
+LANG:10027 1 <
+
+0
+4
+LANG:10001 2 >=
+LANG:10004 2 >=
+LANG:10000 2 >=
+LANG:10027 2 >=
+
+0
+4
+LANG:10001 2 <=
+LANG:10004 2 <=
+LANG:10000 2 <=
+LANG:10027 2 <=
+
+0
+
+E
+E
+E
+ 0 0
+20 413
+"chk8"
+""
+1 479 261 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  477 259 493 275
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  // Activate/deaktivate the additional value condition
+  p_bVcActive = state;
+  pb_select.enabled = p_bVcActive;
+  
+  /*
+  if (p_bVcActive == TRUE)
+     setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree.gif]]\");
+   else
+     setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree_p.gif]]\");
+  */ 
+  
+  cbDPE1.enabled = p_bVcActive;
+  txtDpeAvc.enabled = p_bVcActive;
+  
+  if (cbDPE1.text() != \"\")
+  {
+    txtDataType.enabled = p_bVcActive;
+    txtAddValue.enabled = p_bVcActive;
+    txtVcValue.enabled = p_bVcActive;
+    cbRelOp.enabled = p_bVcActive;
+    txtRelOperator.enabled = p_bVcActive;
+  }
+  else
+  {
+    txtDataType.enabled = FALSE;
+    txtAddValue.enabled = FALSE;
+    txtVcValue.enabled = FALSE;
+    cbRelOp.enabled = FALSE;
+    txtRelOperator.enabled = FALSE;
+  }
+}
+" 0
+25 415
+"tabSchedOverview"
+""
+1 12.04395604395604 351.384615384616 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main()
+{
+  int             iErr;
+  dyn_int         lines;
+  dyn_anytype     line;
+  dyn_float       df;
+  dyn_string      ds, ods;
+  dyn_dyn_anytype odda;
+    
+  lines = tabSchedOverview.getSelectedLines();
+  line  = tabSchedOverview.getLineN(lines[1]);
+  sc_checkSys(line[2], line[2]);
+  sc_checkSys(p_sName, p_sName);
+  
+  if (p_sName == line[2])
+    return;
+  
+  //Get current objec data
+  sc_getObjectContentFree(ods, odda);
+
+  if (p_dsPDC != ods || p_ddaPDC != odda)
+  { 
+    //Question: Save NEW or changes on EXISTING before?
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", \"Scheduler\", 
+        makeDynString(\"$1:\" + getCatStr(KAT, \"m5\"), 
+                      \"$2:\" + getCatStr(\"general\", \"yes\"),
+                      \"$3:\" + getCatStr(\"general\", \"no\"),
+                      \"$4:\" + getCatStr(\"general\", \"cancel\")),
+                      df, ds);
+    if (dynlen(df) < 1)
+      return;
+    
+    //CANCEL -> return
+    //YES > Save > Load selected
+    if (df[1] == CANCEL)
+      return;
+
+    // Check timelist length
+    if (p_iCondType == CT_ONOFF_LIST)
+    {
+      if (tbTimes.lineCount() % 2)
+      {
+        // WARNING: ON without OFF
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"), 
+                               makeDynString(\"$1:\" + getCatStr(KAT,\"m49\")));                                     
+        return;
+      }
+    }
+    
+    if (df[1] == YES)
+    {
+      sc_saveFreePlan(iErr);
+      if(iErr != 0)
+        return;
+    }
+  }
+
+  // Common visibility
+  buttonV.visible(TRUE);
+
+  //Open chosen program
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  tbTimes.deleteAllLines();
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+  lines = tabSchedOverview.getSelectedLines();
+  line = tabSchedOverview.getLineN(lines[1]);
+  sc_checkSys(line[2], p_sName);
+  
+  sc_eventInitFree(p_sName);
+  
+  tabSchedOverview.deleteAllLines();
+  sc_loadTable(\"F\", \"tabSchedOverview\");
+
+  /*
+  if (p_bVcActive == TRUE)
+    setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree.gif]]\");
+  else
+    setValue(\"pb_select\",\"fill\",\"[pattern,[tile,gif,dpeMon_tree_p.gif]]\");
+  */
+    
+  if (p_bCancel == TRUE)
+  {
+    on.enabled(FALSE);
+    off.enabled(FALSE);
+    son.enabled(FALSE);
+  }    
+
+  dynClear(p_dsPDC);
+  dynClear(p_ddaPDC);
+  sc_getObjectContentFree(p_dsPDC, p_ddaPDC);
+        
+  // Common visibility
+  buttonV.visible(FALSE);   
+}
+" 0
+
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  18 358 927 642
+"main()
+{
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+}" 0
+E 1 0 1 5 1 "name" 31 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+350 "dpe" 17 0 0 "s" 4
+LANG:10001 3 dpe
+LANG:10004 3 dpe
+LANG:10000 3 dpe
+LANG:10027 3 dpe
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+198 "desc" 26 1 0 "s" 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 16 Описание
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "state" 9 1 0 "s" 4
+LANG:10001 15  Current state 
+LANG:10004 12 当前状态
+LANG:10000 16 Aktueller Status
+LANG:10027 33 Текущее состояние
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "specdays" 11 1 0 "s" 4
+LANG:10001 12 Special days
+LANG:10004 12 特殊日期
+LANG:10000 10 Sondertage
+LANG:10027 19 Особые дни
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+137 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 417
+"reload"
+""
+1 583 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  583 678 671 706
+
+T 
+4
+LANG:10001 6 Reload
+LANG:10004 9 相对的
+LANG:10000 9 Neu laden
+LANG:10027 16 Обновить
+"main()
+{
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  tbTimes.deleteAllLines();
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+  
+  sc_eventInitFree(p_sName);
+  
+  tabSchedOverview.deleteAllLines();
+  sc_loadTable(\"F\", \"tabSchedOverview\");
+  
+  dynClear(p_dsPDC);
+  dynClear(p_ddaPDC);
+  sc_getObjectContentFree(p_dsPDC, p_ddaPDC);
+}" 0
+ E E E
+13 422
+"son"
+""
+1 135 189 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Execute actions
+LANG:10004 12 执行动作
+LANG:10000 19 Aktionen ausführen
+LANG:10027 35 Выполнить действия
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  133 187 171 215
+
+T 
+4
+LANG:10001 2 ON
+LANG:10004 2 ON
+LANG:10000 3 EIN
+LANG:10027 6 ВКЛ
+"main()
+{
+  int iErr = 0;
+
+  iErr = dpSet(p_sName + \".command:_original.._value\", 3);
+  
+  if (iErr != 0)
+    sc_errorHandling();
+}
+" 0
+ E E E
+20 423
+"chkOnOff"
+""
+1 795 51 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  793 49 887 73
+1
+T 
+4
+LANG:10001 8 ON / OFF
+LANG:10004 8 ON / OFF
+LANG:10000 9 EIN / AUS
+LANG:10027 15 ВКЛ/ВЫКЛ
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  sc_ckhDtList();
+}" 0
+13 424
+"on"
+""
+1 140 187 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Execute ON actions
+LANG:10004 14 执行ON动作
+LANG:10000 23 EIN Aktionen ausführen
+LANG:10027 42 Выполнить действия ВКЛ
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  133 187 186 215
+
+T 
+4
+LANG:10001 2 ON
+LANG:10004 2 ON
+LANG:10000 3 EIN
+LANG:10027 6 ВКЛ
+"main()
+{
+  int iErr = 0;
+  
+  iErr = dpSet(p_sName + \".command:_original.._value\", 1);
+  
+  if (iErr != 0)
+    sc_errorHandling();
+}
+" 0
+ E E E
+13 425
+"off"
+""
+1 153 192 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Execute OFF actions
+LANG:10004 15 执行OFF动作
+LANG:10000 23 AUS Aktionen ausführen
+LANG:10027 44 Выполнить действия ВЫКЛ
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  193 187 246 215
+
+T 
+4
+LANG:10001 3 OFF
+LANG:10004 3 OFF
+LANG:10000 3 AUS
+LANG:10027 8 ВЫКЛ
+"main()
+{
+  int iErr = 0;
+
+  iErr = dpSet(p_sName + \".command:_original.._value\", 2);
+  
+  if (iErr != 0)
+    sc_errorHandling();
+}
+" 0
+ E E E
+13 427
+"Button5"
+""
+1 12 669 E E E 1 E 0 E N {204,0,0} E N {255,204,0} E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  10 667 44 701
+
+T 
+4
+LANG:10001 3 OBJ
+LANG:10004 3 OBJ
+LANG:10000 3 OBJ
+LANG:10027 3 OBJ
+"main()
+{
+  dyn_string objects;
+  
+  sc_getAllGraphObj(\"C:/pvss/PVSS_DemoApplication/panels/vision/scheduler/sc_freeSchedule.pnl\", objects);
+  //DebugTN(objects);
+}" 0
+ E E E
+13 431
+"buttonV"
+""
+1 -485 25 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+79 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  -492 23 461 739
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E "main()
+{
+
+}" 0
+
+1 433 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 130 655 T 81 1.923847695390782 0 1 -260.1002004008016 15
+0
+0

@@ -1,0 +1,1366 @@
+V 14
+4
+LANG:10001 12 address_sbus
+LANG:10004 12 address_sbus
+LANG:10000 12 address_sbus
+LANG:10027 12 address_sbus
+PANEL,-1 -1 620 480 N "_3DFace" 1
+"$1"
+"main()
+{
+  string dp;
+  dyn_string dsPlc, ds;
+  
+  if ($1==\"\")
+  {
+    RootPanelOn(
+      \"vision/MessageWarning\",
+      paGetCatStr(\"para\",\"warning\"),
+      makeDynString(paGetCatStr(\"para\",\"novision\")));
+  }
+  if (!paIsNative[paMyModuleId()])
+  {
+    dp = myUiDpName() + \".\";
+    dpSetWait(dp+\"PanelOff.ModuleName:_original.._value\",myModuleName(),
+              dp+\"PanelOff.PanelName:_original.._value\",\"address\");
+  }
+  paInitPanel($1,\":_address\");
+  
+  int i = einaus.number;
+  int j = modus.number;
+  setValue(\"lowlevel\",\"visible\",i!=0);
+  
+  setMultiValue(\"modus\",\"visible\",i!=0,
+                \"frmModus\",\"visible\",i!=0,
+                \"tm\",\"visible\",i!=0);
+  
+  setMultiValue(\"cmdPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"cmbPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"frmPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"txtPollGroup\",\"visible\",(i>=1)&&(j==0));
+  
+  int t = radType.number;
+  setValue(\"spnIdx2\", \"visible\", t==3);
+
+  dsPlc = dpNames(getSystemName()+\"*\",\"_SBusDevice\");     // get list of PLCs from IDP \"_SBusDevice\" - with redu dps
+  
+  // remove redu dps from list of PLCs
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    ds = strsplit(dsPlc[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsPlc,i);
+      continue;
+    }
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+        
+    if ( strpos(dsPlc[i], \"_\", 0) != -1 )
+      dsPlc[i] = strltrim(dsPlc[i], \"_\");
+  }
+  
+  for (int i = 1; i <= dynlen(dsPlc); i++)
+    dsPlc[i] = strltrim(dsPlc[i], \"_\");
+
+  cmbPlc.items(dsPlc);
+  
+  sbusReadRefStr();
+}
+
+
+" 0
+ "main()
+{
+  //IM 106997
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()) && (dpSubStr(gMpLastDpLocked[myModuleName()],DPSUB_SYS_DP_EL) == $1) && dpExists(dpSubStr($1,DPSUB_DP_EL)))
+    dpSet($1+\":_lock._address._locked\",FALSE);
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()))
+  {
+    gMpLastDpLocked[myModuleName()] = \"\";
+    mappingRemove(gMpLastDpLocked,myModuleName());
+  }
+}" 0
+ E E E 1 -1 -1 0  0 0
+""0  1
+E "// fill reference field
+sbusWriteRefStr()
+{
+  string sRef, sPlc, sType, sIdx1, sIdx2;
+  dyn_string dsPlc;
+  int iType;
+
+  // reference text
+  sRef = var_name.text;
+  
+  // get list of plcs, address type, index
+  dsPlc = cmbPlc.items;
+  sPlc = dsPlc[cmbPlc.selectedPos];
+  iType = radType.number;
+  sIdx1 = spnIdx1.text;
+  sIdx2 = spnIdx2.text;
+  
+  switch (iType)
+  {
+    case 0: sType=\"F\"+sIdx1; break;
+    case 1: sType=\"R\"+sIdx1; break;
+    case 2: sType=\"X\"+sIdx1; break;
+    case 3: sType=\"DB\"+sIdx1+\".\"+sIdx2; break;
+  }
+    
+  // write refernce string
+  sRef = sPlc+\".\"+sType;
+  var_name.text = sRef;
+}
+
+sbusReadRefStr()
+{
+  string sRef, sPlc, sTypeIdx, sIdx1, sIdx2;
+  dyn_string dsPlc, dsRef;
+  int iType;
+
+  // get reference text
+  sRef = var_name.text;
+  if (sRef == \"\") return;
+  dsRef = strsplit(sRef, \".\");
+  
+  // split into plc name, address type, index
+  if ( dynlen(dsRef) <= 2 )
+  {
+    sPlc = dsRef[1];
+    sTypeIdx = dsRef[2];
+  }
+  else
+  {
+    sPlc = dsRef[1];
+    sTypeIdx = dsRef[2];
+    sIdx2 = dsRef[3];
+  }
+  
+  // split type & index from array length
+  if (strpos(sTypeIdx, \":\", 0) != -1)
+    sTypeIdx = strsplit(sTypeIdx, \":\")[1];
+  
+  // set address type & index
+  if (strpos(sTypeIdx, \"F\", 0) != -1)
+  {
+    iType = 0;
+    sIdx1 = strltrim(sTypeIdx, \"F\");
+  }
+  else if (strpos(sTypeIdx, \"R\", 0) != -1)
+  {
+    iType = 1;
+    sIdx1 = strltrim(sTypeIdx, \"R\");
+  }
+  else if (strpos(sTypeIdx, \"X\", 0) != -1)
+  {
+    iType = 2;
+    sIdx1 = strltrim(sTypeIdx, \"X\");
+  }
+  else if (strpos(sTypeIdx, \"DB\", 0) != -1)
+  {
+    iType = 3;
+    sIdx1 = strltrim(sTypeIdx, \"DB\");
+  }
+  
+  // set shapes
+  cmbPlc.text    = sPlc;
+  spnIdx1.text   = sIdx1;
+  spnIdx2.text   = sIdx2;
+  radType.number = iType;
+  
+  // on init if address type was datacomponent also show index 2
+  if (iType == 3)
+    setValue(\"spnIdx2\", \"visible\", true);
+}
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 14
+"programname"
+""
+1 28 10 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 10 173 30
+0 2 0 "0s" 0 0 0 192 0 0  30 10 1
+4
+LANG:10001 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,18,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Periphery - SBus
+LANG:10004 19 物理地址 - SBus
+LANG:10000 17 Peripherie - SBus
+LANG:10027 23 Периферия SBus
+1 141 0 "" 0
+0
+1 143 1 "" 0
+0
+6 25
+"Border1"
+""
+1 10 60 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9916666666666667 0 1 0.08333333333333304 -5 0 E 10 60 610 110
+2 26
+"Text1"
+""
+1 20 45 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 45 77 59
+0 0 0 "0s" 0 0 0 192 0 0  20 45 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Reference
+LANG:10004 6 参考
+LANG:10000 8 Referenz
+LANG:10027 12 Ссылка
+2 27
+"Text2"
+""
+1 419.5 45 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 419.5 45 481 59
+0 0 0 "0s" 0 0 0 192 0 0  419.5 45 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Subindex
+LANG:10004 9 子索引
+LANG:10000 8 Subindex
+LANG:10027 18 Субиндекс
+6 28
+"Border2"
+""
+1 10 130 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5583333333333333 0 1 4.416666666666667 55 0 E 10 130 610 180
+2 30
+"Text4"
+""
+1 20 175 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 175 80 189
+0 0 0 "0s" 0 0 0 192 0 0  20 175 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 Type of transformation
+LANG:10004 12 类型变换
+LANG:10000 9 Trans.Art
+LANG:10027 35 Тип преобразования
+6 33
+"Border3"
+""
+1 240 200 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.8999999999999999 -230 75.00000000000004 0 E 240 200 400 300
+2 34
+"Text5"
+""
+1 20 245 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 245 79 259
+0 0 0 "0s" 0 0 0 192 0 0  20 245 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Direction
+LANG:10004 6 方向
+LANG:10000 8 Richtung
+LANG:10027 22 Направление
+2 36
+"Text6"
+""
+1 500 45 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 500 45 597 59
+0 0 0 "0s" 0 0 0 192 0 0  500 45 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Driver number
+LANG:10004 12 驱动num号
+LANG:10000 13 Treibernummer
+LANG:10027 20 № драйвера
+14 0
+"var_name"
+""
+1 16.69491525423729 63 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 63 412 89
+3 "120s" 120 0 0 0 0 -1  E E E
+14 1
+"subindex"
+""
+1 521.3751438434982 391 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  418 63 492 89
+3 "10d" 10 0 0 0 0 -1  E E E
+19 4
+"einaus"
+""
+1 17.66129032258065 192.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 263 147 337
+3
+T 
+4
+LANG:10001 6 Output
+LANG:10004 6 输出
+LANG:10000 7 Ausgang
+LANG:10027 10 Выход
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 5 Input
+LANG:10004 6 输入
+LANG:10000 7 Eingang
+LANG:10027 8 Вход
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 In/Out
+LANG:10004 13 输入/输出
+LANG:10000 7 Ein/Aus
+LANG:10027 13 Вх./Вых.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  int i;
+  getValue(\"\",\"number\",i);
+
+  int j = modus.number;
+  setValue(\"lowlevel\",\"visible\",i!=0);
+  
+  setMultiValue(\"modus\",\"visible\",i!=0,
+                \"frmModus\",\"visible\",i!=0,
+                \"tm\",\"visible\",i!=0);
+  
+  setMultiValue(\"cmdPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"cmbPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"frmPollGroup\",\"visible\",(i>=1)&&(j==0),
+                \"txtPollGroup\",\"visible\",(i>=1)&&(j==0));
+}
+
+
+
+
+
+
+" 0
+
+22 6
+"trans_art"
+""
+1 18.06410256410257 193 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 193 173 219
+6
+4
+LANG:10001 9 undefined
+LANG:10004 9 未定义
+LANG:10000 9 undefined
+LANG:10027 9 undefined
+
+1
+4
+LANG:10001 7 boolean
+LANG:10004 7 boolean
+LANG:10000 7 boolean
+LANG:10027 7 boolean
+
+0
+4
+LANG:10001 5 int32
+LANG:10004 5 int32
+LANG:10000 5 int32
+LANG:10027 5 int32
+
+0
+4
+LANG:10001 6 uint32
+LANG:10004 6 uint32
+LANG:10000 6 uint32
+LANG:10027 6 uint32
+
+0
+4
+LANG:10001 5 float
+LANG:10004 5 float
+LANG:10000 5 float
+LANG:10027 5 float
+
+0
+4
+LANG:10001 6 string
+LANG:10004 6 string
+LANG:10000 6 string
+LANG:10027 6 string
+
+0
+
+E
+E
+E
+ 0 1
+20 12
+"lowlevel"
+""
+1 193 193 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  193 193 336 221
+1
+T 
+4
+LANG:10001 18 Old/new comparison
+LANG:10004 12 逢变则报
+LANG:10000 17 Alt/Neu-Vergleich
+LANG:10027 29 Сравн. стар./нов.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE1 145 2 "0" 0
+0
+21 35
+"Treiber"
+""
+1 496.6071428571428 63 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  498 63 597 89
+0
+
+E
+E
+E
+
+N 1 256 1 1 1 1
+1 151 3 "" 0
+31 "transform" 0 0 1 0 1 -230 222
+0
+6 48
+"frmPollGroup"
+""
+1 300 250 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8461516136521942 0 1.285714285714286 106.1545159043418 -66.4285714285715 0 E 300 250 589 320
+2 49
+"txtPollGroup"
+""
+1 369.6160320408636 245 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 369.6160320408636 245 439 259
+0 0 0 "0s" 0 0 0 192 0 0  369.6160320408636 245 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Poll group
+LANG:10004 10 Poll group
+LANG:10000 10 Pollgruppe
+LANG:10027 25 Группа опроса
+22 50
+"cmbPollGroup"
+""
+1 367.949365374197 269 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  368 268 597 294
+0
+
+"main()
+{
+  int        i;
+//!!!pollgroup
+  dyn_string dsPlc = dpNames(dpSubStr($1, DPSUB_SYS)+\"*\",\"_PollGroup\"), ds;
+
+  for ( i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // don't display redundant datapoints
+    if ( i > 1 &&
+         strpos(dsPlc[i],\"_2\") == strlen(dsPlc[i]) - 2 &&
+         dsPlc[i] == dsPlc[i-1] + \"_2\"
+       )
+    {
+      dynRemove(dsPlc, i);
+    }
+
+    if ( i <= dynlen(dsPlc) )
+    {
+      dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+      if ( dsPlc[i][0] == \"_\" )
+        dsPlc[i] = substr(dsPlc[i], 1, strlen(dsPlc[i])-1);
+    }
+  }
+  
+  this.items = dsPlc;
+}
+
+" 0
+
+E
+E
+ 0 0
+13 51
+"cmdPollGroup"
+""
+1 509.6160320408636 305 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  508 303 596 331
+
+T 
+4
+LANG:10001 11 Poll groups
+LANG:10004 9 轮询组
+LANG:10000 11 Pollgruppen
+LANG:10027 12 Группы
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  
+//!!!pollgroup
+  ChildPanelOnCentralModalReturn(\"para/poll_groups.pnl\",
+    \"Poll groups\",
+    makeDynString( \"$fromPara:\"+ cmbPollGroup.text,
+                   \"$SYSTEM:\"  + dpSubStr( $1, DPSUB_SYS ) ), df, ds );
+
+  if ( dynlen(df) > 0 && df[1] )
+  {
+    int iPos = dynContains(cmbPollGroup.items, ds[1]);
+    
+    if ( iPos < 1 )
+      cmbPollGroup.appendItem(ds[1]);
+    cmbPollGroup.text = ds[1];
+  }
+}
+
+" 0
+ E E E
+6 66
+"RECTANGLE3"
+""
+1 300 250 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8461516136521942 0 1.642857142857142 106.1545159043418 -290.7142857142856 0 E 300 250 589 320
+2 67
+"PRIMITIVE_TEXT2"
+""
+1 369.6160320408636 110 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 369.6160320408636 110 435 124
+0 0 0 "0s" 0 0 0 192 0 0  369.6160320408636 110 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Address type
+LANG:10004 12 地址类型
+LANG:10000 9 Adresstyp
+LANG:10027 19 Тип адреса
+6 103
+"RECTANGLE4"
+""
+1 10 130 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5833333333333333 0 1 4.166666666666669 -10 0 E 10 130 610 180
+2 104
+"PRIMITIVE_TEXT3"
+""
+1 19.61603204086373 110 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 19.61603204086373 110 47 124
+0 0 0 "0s" 0 0 0 192 0 0  19.61603204086373 110 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 3 PLC
+LANG:10004 3 PLC
+LANG:10000 3 SPS
+LANG:10027 6 ПЛК
+22 106
+"cmbPlc"
+""
+1 15.83333333333337 128 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 128 347 154
+0
+
+E
+"main()
+{
+  sbusWriteRefStr();
+}
+" 0
+
+E
+ 0 1
+21 108
+"spnIdx2"
+""
+1 351.0000000000001 173 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  523 184 586 212
+0
+
+E
+"main()
+{
+  sbusWriteRefStr();
+}
+" 0
+
+E
+
+N 0 99999 1 0 1 1
+21 110
+"spnIdx1"
+""
+1 417.0000000000001 140 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  523 149 586 177
+0
+
+E
+"main()
+{
+  sbusWriteRefStr();
+}
+" 0
+
+E
+
+N 0 99999 1 0 1 1
+19 111
+"radType"
+""
+1 374.7096774193549 124.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  375 125 521 229
+4
+T 
+4
+LANG:10001 8 F (Flag)
+LANG:10004 7 F(Flag)
+LANG:10000 8 F (Flag)
+LANG:10027 12 F (Флаг)
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 R (Register)
+LANG:10004 11 R(Register)
+LANG:10000 12 R (Register)
+LANG:10027 18 R (регистр)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 X (Text)
+LANG:10004 8 X (Text)
+LANG:10000 8 X (Text)
+LANG:10027 14 X (текст)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 15 DB (Data block)
+LANG:10004 14 DB(Data Block)
+LANG:10000 18 DB (Datenbaustein)
+LANG:10027 26 DB (блок данных)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  int t;
+  getValue(\"\",\"number\",t);
+  setValue(\"spnIdx2\", \"visible\", t==3);
+  
+  sbusWriteRefStr();
+}
+
+" 0
+
+4 123
+"LINE2"
+""
+1 360 121 E E E 1 E 1 E N "_3DFace" E N {255,255,255} E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  360 121 360 170
+6 125
+"frmModus"
+""
+1 140 250 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.118881118881119 0 1 28.35664335664335 5.000000000000014 0 E 140 250 283 340
+2 126
+"tm"
+""
+1 194.9999999999999 245 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 194.9999999999999 245 302 259
+0 0 0 "0s" 0 0 0 192 0 0  194.9999999999999 245 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Receive mode
+LANG:10004 12 接收模式
+LANG:10000 13 Empfangsmodus
+LANG:10027 23 Режим приема
+19 127
+"modus"
+""
+1 150 260 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 263 322 337
+2
+T 
+4
+LANG:10001 7 Polling
+LANG:10004 6 轮询
+LANG:10000 7 Polling
+LANG:10027 10 Опрос
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Single query
+LANG:10004 12 单次查询
+LANG:10000 13 Einzelabfrage
+LANG:10027 26 Однокр. запрос
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  int j;
+  getValue(\"\",\"number\",j);
+  setMultiValue(\"cmdPollGroup\",\"visible\",j==0,
+                \"cmbPollGroup\",\"visible\",j==0,
+                \"frmPollGroup\",\"visible\",j==0,
+                \"txtPollGroup\",\"visible\",j==0);  
+}
+" 0
+
+6 140
+"RECTANGLE6"
+""
+1 361 180 E E E 1 E 1 E N "_3DFace" E N "_3DFace" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.01680672268907563 0 4.799999999999999 351.9327731092437 -694.9999999999999 1 E 361 170 599 180
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/dpe.ref" 308 10 T 0 1 0 1 2 0
+1
+"$DPE""$1"
+3 1 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/lock_unlock.ref" 6 12 T 0 1 0 1 0 -3
+1
+"$1""$1"
+3 2 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/buttons.ref" 220 440 T 0 1 0 1 -210 5
+0
+3 3 "Group5" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/refAddressActive.pnl" 10 450 T 36 1 0 1 330 -224
+0
+0

@@ -1,0 +1,1249 @@
+V 13
+4
+LANG:10001 10 Log-Viewer
+LANG:10004 15 日志查看器
+LANG:10000 10 Log-Viewer
+LANG:10027 50 Средство просмотра журнала
+PANEL,-1 -1 765 597 N "_3DFace" 1
+"$WHERE"
+"main()
+{
+  if ($WHERE != \"\" && $WHERE != \"0\")
+  {
+    chkManualInput.visible = true;
+    setModusOpen(false);
+    refresh();
+  }
+}" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "bool gModusOpen = true;
+const string MY_TIMEFORMAT = \"%Y.%m.%d %H:%M:%S\";
+const string DB_TIMEFORMAT = \"YYYY.MM.DD HH24:MI:SS\";
+
+time myStringToTime(string myTime)
+{
+  unsigned uYear = substr(myTime, 0, 4);
+  unsigned uMonth = substr(myTime, 5, 2);
+  unsigned uDay = substr(myTime, 8, 2);
+  unsigned uHour = substr(myTime, 11, 2);
+  unsigned uMinute = substr(myTime, 14, 2);
+  unsigned uSecond = substr(myTime, 17, 2);
+  return makeTime(uYear, uMonth, uDay, uHour, uMinute, uSecond);
+}
+
+void refresh()
+{
+  int iCol, iLine;
+  string currentLog;
+  getValue(\"tblLog\", \"currentCell\", iLine, iCol); //remember line
+  
+  if (iLine >= 0)
+    getValue(\"tblLog\", \"cellValueRC\", iLine, \"ARC_LOG_ID\", currentLog);
+  
+  int new_rows = fillTableLog();
+
+  if (iLine >= 0 && new_rows > 0)
+  {
+    dyn_anytype results = tblLog.getColumnN(0); // ARC_LOG_ID is column no 0
+    iLine = dynContains(results, currentLog)-1; //dyn starts with 1, line count with 0
+    tblLog.lineVisible(iLine); //scroll back to old line
+    if (iLine < new_rows && iLine >= 0)
+      tblLog.currentCell(iLine, iCol);
+    else
+      tblLog.currentCell(new_rows-1, iCol);
+  }
+}
+
+string getWhere()
+{
+  string whereClause;
+  bool bInfo, bWarning, bError, bJobs;
+  string typeC, timeC, timeFrom, timeTo, jobsC, programC, oraCodeC;
+  
+  if (!gModusOpen && $WHERE != \"\" && $WHERE != \"0\") 
+    whereClause = $WHERE;
+  else
+  {
+    // type part of clause
+    getValue(\"chkLogtype\", \"state\", 0, bInfo);
+    getValue(\"chkLogtype\", \"state\", 1, bWarning);
+    getValue(\"chkLogtype\", \"state\", 2, bError);
+    if (bInfo)
+      typeC = \"'I'\";
+    if (bWarning)
+    {
+      if (typeC == \"\")
+        typeC = \"'W'\";
+      else
+        typeC += \",'W'\";
+    }
+    if (bError)
+    {
+      if (typeC == \"\")
+        typeC = \"'E'\";
+      else
+        typeC += \",'E'\";
+    }
+    if (typeC != \"\")
+      typeC = \" type in (\"+typeC+\")\";
+    
+    // time part of clause
+    if (txtTimeFrom.text != \"\")
+    {
+      timeFrom = \"to_date('\"+txtTimeFrom.text+\"', '\"+DB_TIMEFORMAT+\"')\";
+      if (txtTimeTo.text == \"\")
+        timeC = \"ts > \"+timeFrom;
+    }
+    if (txtTimeTo.text != \"\")
+    {
+      timeTo = \"to_date('\"+txtTimeTo.text+\"', '\"+DB_TIMEFORMAT+\"')\";
+      if (txtTimeFrom.text == \"\")
+        timeC = \"ts < \"+timeTo;
+      else
+        timeC = \"ts between \"+timeFrom+\" and \"+timeTo;
+    }
+  
+    // job part of clause
+    getValue(\"chkJobs\", \"state\", 0, bJobs);
+    if (!bJobs)
+      jobsC = \"job_id is null \";
+  
+    // program part of clause
+    if (txtProgram.text != \"\")
+      programC = \"program like '%\"+txtProgram.text+\"%'\";
+  
+    if (txtOracode.text != \"\")
+      oraCodeC = \"ora_code like '%\"+txtOracode.text+\"%'\";
+  
+    if (typeC != \"\")
+    {
+      whereClause += typeC;
+    }
+    if (timeC != \"\")
+    {
+      if (whereClause == \"\")
+        whereClause += timeC;
+      else
+        whereClause += \" and \"+timeC;
+    }
+    if (jobsC)
+    {
+      if (whereClause == \"\")
+        whereClause += jobsC;
+      else
+        whereClause += \" and \"+jobsC;
+    }
+    if (programC)
+    {
+      if (whereClause == \"\")
+        whereClause += programC;
+      else
+        whereClause += \" and \"+programC;
+    }
+    if (oraCodeC)
+    {
+      if (whereClause == \"\")
+        whereClause += oraCodeC;
+      else
+        whereClause += \" and \"+oraCodeC;
+    }
+  }
+
+  // Abschluss
+  if (whereClause != \"\")
+    whereClause = \"where \"+whereClause;
+  
+  return whereClause;
+}
+
+void setModusOpen(bool open)
+{
+  chkLogtype.enabled = open;
+  txtTimeFrom.enabled = open;
+  txtTimeTo.enabled = open;
+  chkJobs.enabled = open;
+  txtProgram.enabled = open;
+  txtOracode.enabled = open;
+  gModusOpen = open;
+}
+
+int fillTableLog()
+{
+  tblLog.deleteAllLines();
+  string stmt = \"select arc_log_id, ts, program, type, ora_code, info, job_id from arc_log \";
+  dyn_dyn_anytype table;
+  int err = runRealSQLQuery(stmt+getWhere(), table);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"fillTableLog\",stmt+getWhere(),err,table);
+  int i, j, cntlines;
+  if (!err && dynlen(table) > 0)
+  {
+    cntlines = dynlen(table);    
+    if (cntlines > 7500)
+    {
+      dyn_float resultFloat;
+      dyn_string resultText;
+      ChildPanelOnCentralReturn(\"vision/MessageWarning\",
+                                 \"Warning\",
+                                 makeDynString(\"$1:\"+ getCatStr(\"RDBArchive\", \"RDBLogViewerMaxDisplay\"), 
+                                                                \"$2:OK\"), resultFloat, resultText);      
+      cntlines = 7500;
+    }  
+    for(i=1;i <= cntlines;i++)
+    {
+      string info = table[i][6]; // replace newline with space to be able to watch it in one line
+      int ret = strreplace(info,\"\\n$rdbCompr\",\"\"); // I do not need this part of info here
+      tblLog.appendLine(\"ARC_LOG_ID\", (int) table[i][1], 
+                        \"TS\", table[i][2],
+                        \"PROGRAM\", table[i][3],
+                        \"TYPE\", table[i][4],
+                        \"ORA_CODE\", table[i][5],
+                        \"INFO\", info,
+                        \"JOB_ID\", table[i][7]);
+    } 
+  }
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"line of tables\", dynlen(table), err);
+  //return dynlen(table);
+  return cntlines;
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  setUseOnlyThisDbName(\"\");  
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 29
+"btnSave"
+""
+1 592 568 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Save to log-file
+LANG:10004 21 保存到日志文件
+LANG:10000 22 Speichern in Log-Datei
+LANG:10027 42 Сохранить файл журнала
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  584 548 637 591
+
+P 
+4294967295
+"pictures/save_32.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+25 4
+"tblLog"
+""
+1 10 230.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main(int row, string column)
+{
+  dyn_anytype value;
+  getValue(\"\", \"getLineN\", row, value);
+  
+  dyn_string dvalue;
+  string svalue;
+  langString columnHeader;
+  string columnText; 
+  
+  //svalue = \"Fehler-Detail\\n\" ;
+  for (int i = 0; i < dynlen(value); i++)
+  {
+    getValue(\"\", \"namedColumnHeader\", tblLog.columnToName(i), columnHeader);
+    svalue += columnHeader + \": \";
+    svalue += value[i+1];
+    //svalue[i+1] = svalue;
+    svalue += \"\\n\";
+  }
+    
+  ChildPanelOnCentral(\"para/archive/RDB/RDBLogDetail\",
+                              \"\",                              
+                              makeDynString(\"$TEXT:\" + svalue));
+}
+" 0
+
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  8 226 754 538
+"main()
+{
+  //this.tableMode(TABLE_SELECT_BROWSE);
+  this.tableMode(TABLE_SELECT_MULTIPLE); 
+  this.selectByClick(TABLE_SELECT_LINE);
+}" 0
+E 1 0 1 7 0 "ARC_LOG_ID" 4 1 0 "[0d,False,False,ALIGNMENT_END,False]" 4
+LANG:10001 2 ID
+LANG:10004 2 ID
+LANG:10000 2 ID
+LANG:10027 2 ID
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+40 "TS" 18 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 9 Timestamp
+LANG:10004 6 时间
+LANG:10000 11 Zeitstempel
+LANG:10027 25 Метка времени
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+155 "PROGRAM" 20 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 15 Calling Program
+LANG:10004 12 调用程序
+LANG:10000 6 Aufruf
+LANG:10027 39 Вызывающая программа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+170 "TYPE" 2 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Art
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+30 "ORA_CODE" 15 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 12 Oracle Error
+LANG:10004 12 Oracle错误
+LANG:10000 13 Oracle-Fehler
+LANG:10027 19 Ошибка Oracle
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+130 "INFO" 24 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 11 Information
+LANG:10004 6 信息
+LANG:10000 10 Zusatzinfo
+LANG:10027 27 Доп.информация
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "JOB_ID" -1 0 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 3 Job
+LANG:10004 6 任务
+LANG:10000 3 Job
+LANG:10027 12 Работа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+16 16 10 10
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+13 6
+"btnRefresh"
+""
+1 638 467.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 9 Neu laden
+LANG:10027 26 Перезагрузить
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  642 548 695 591
+
+P 
+4294967295
+"pictures/refresh_32.png"
+4
+LANG:10001 4 Load
+LANG:10004 6 加载
+LANG:10000 5 Laden
+LANG:10027 18 Загрузить
+"main()
+{
+  refresh();
+}" 0
+ E E E
+13 7
+"btnClose"
+""
+1 590 491.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Close panel
+LANG:10004 12 选择面板
+LANG:10000 16 Panel schließen
+LANG:10027 31 Закрытие панелей
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  700 548 753 591
+
+P 
+4294967295
+"pictures/exit_32.png"
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  setUseOnlyThisDbName(\"\");  
+  PanelOff();
+}" 0
+ E E E
+13 8
+"btnDelete"
+""
+1 570 491.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Delete selected row
+LANG:10004 6 删除
+LANG:10000 27 Ausgewählte Zeile löschen
+LANG:10027 48 Удалить выбранный столбец
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  526 548 579 591
+
+P 
+4294967295
+"pictures/delete_32.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"main()
+{
+  int line, column;
+  dyn_int lines;
+  string ids;
+  string id;
+  bool bActive;
+  //getValue(\"tblLog\",\"currentCell\", line, column);
+  //getValue(\"tblLog\",\"cellValueRC\", line, \"ARC_LOG_ID\", id);
+  getValue (\"tblLog\", \"getSelectedLines\", lines);
+  if (dynlen(lines) > 0)
+  {
+    dyn_float df;
+    dyn_string ds;
+    int i;
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                                   getCatStr(\"para\",\"warning\"),
+                                   makeDynString(getCatStr(\"RDBArchive\",\"deletelines\"),
+                                                 getCatStr(\"para\",\"yes\"),
+                                                 getCatStr(\"para\",\"no\")),
+                                   df,ds);
+    if (ds[1] != \"true\")
+      return;
+    
+    ids = \"(\";    
+    for(i=1;i<=dynlen(lines);i++)
+    {
+      getValue(\"tblLog\",\"cellValueRC\", lines[i], \"ARC_LOG_ID\", id);
+      if (i==1)
+        ids = \"(\"+id;
+      else
+        ids += \",\"+id;
+    }
+    ids += \")\";
+    
+    string sql = \"DELETE FROM ARC_LOG WHERE ARC_LOG_ID in \"+ids;
+    int ret = runRealSQL(sql);
+    DebugTN(\"runRealSQL\",sql,ret,lines,ids);
+    for(i=dynlen(lines);i>0;i--)
+      tblLog.deleteLineN(lines[i]);
+  }
+}" 0
+ E E E
+20 9
+"chkJobs"
+""
+1 614 85.99999999999992 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  612 84 670 114
+1
+T 
+4
+LANG:10001 4 Jobs
+LANG:10004 6 任务
+LANG:10000 4 Jobs
+LANG:10027 14 Задания
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE29 13
+"txtWhere"
+""
+1 10 550 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E "main(int para, int pos)
+{
+  this.text=getWhere();
+}" 0
+
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+12
+"textFormat" "enum 2"
+"vScrollBarMode" "enum 0"
+"frameShape" "enum 6"
+"wrapPolicy" "enum 0"
+"autoFormatting" "enum -1"
+"wordWrap" "enum 1"
+"layoutDirection" "enum 0"
+"frameShadow" "enum 48"
+"resizePolicy" "enum 1"
+"alignment" "enum 1"
+"contextMenuPolicy" "enum 1"
+"hScrollBarMode" "enum 0"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 25 Arial,-1,9,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10 550 464 594
+15 PVSS.TextEdit.1
+0
+E20 14
+"chkLogtype"
+""
+1 56 100 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  54 98 190 160
+3
+T 
+4
+LANG:10001 11 Information
+LANG:10004 6 信息
+LANG:10000 13 Informationen
+LANG:10027 20 Информация
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 Warnings
+LANG:10004 6 警告
+LANG:10000 9 Warnungen
+LANG:10027 28 Предупреждения
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Errors
+LANG:10004 6 错误
+LANG:10000 6 Fehler
+LANG:10027 12 Ошибки
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE13 15
+"btnDetails"
+""
+1 476 568 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 Error stack of selected line
+LANG:10004 24 选定行的错误堆栈
+LANG:10000 35 Error-Stack der ausgewählten Zeile
+LANG:10027 53 Стек ошибки выбранной строки
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  468 548 521 591
+
+P 
+4294967295
+"pictures/detail_32.png"
+4
+LANG:10001 11 Error-Stack
+LANG:10004 11 Error-Stack
+LANG:10000 11 Error-Stack
+LANG:10027 21 Стек ошибки
+E E E E
+2 16
+"PRIMITIVE_TEXT1"
+""
+1 232 105.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 232 105.9999999999999 241 121
+0 2 2 "0s" 0 0 0 192 0 0  232 105.9999999999999 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 from
+LANG:10004 3 从
+LANG:10000 3 von
+LANG:10027 2 С
+14 17
+"txtTimeFrom"
+""
+1 290 101.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  288 100 544 127
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  // minus subtracts seconds from the time, \"12*60*60\" results in half a day earlier
+  this.text = formatTime(MY_TIMEFORMAT, getCurrentTime()-12*60*60);
+}" 0
+ E
+13 18
+"btnDatePickerFrom"
+""
+1 550 101.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  548 100 586 127
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"#uses \"sched.ctl\"
+main()
+{
+  time retTime;
+  txtTimeFrom.text = \"\";
+  dateTimePicker(myStringToTime(txtTimeFrom.text), retTime);
+  //DebugN(retTime);
+  txtTimeFrom.text = formatTime(MY_TIMEFORMAT, retTime);
+}" 0
+ E E E
+2 19
+"PRIMITIVE_TEXT2"
+""
+1 232 135.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 232 135.9999999999999 248 151
+0 2 2 "0s" 0 0 0 192 0 0  232 135.9999999999999 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 to
+LANG:10004 3 到
+LANG:10000 3 bis
+LANG:10027 4 По
+14 20
+"txtTimeTo"
+""
+1 290 131.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  288 130 544 157
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text = formatTime(MY_TIMEFORMAT, getCurrentTime());
+}" 0
+ E
+13 21
+"btnDatePickerTo"
+""
+1 550 131.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  548 130 586 157
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"#uses \"sched.ctl\"
+main()
+{
+  time retTime;
+  txtTimeTo.text = \"\";
+  dateTimePicker(myStringToTime(txtTimeTo.text), retTime);
+  //DebugN(retTime);
+  txtTimeTo.text = formatTime(MY_TIMEFORMAT, retTime);
+}" 0
+ E E E
+30 22
+"FRAME1"
+""
+1 24 388 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+22 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9393939393939395 0 1.069767441860465 197.4545454545454 -339.0697674418606 0 E 24 388 421 475
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Zeit
+LANG:10027 10 Время
+30 23
+"FRAME2"
+""
+1 44 396 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+23 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1 0 1.069767441860465 -6 -347.6279069767443 0 E 44 396 203 483
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Message type
+LANG:10004 12 消息类型
+LANG:10000 11 Meldungsart
+LANG:10027 25 Тип сообщений
+2 24
+"PRIMITIVE_TEXT3"
+""
+1 40 181.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 40 181.9999999999998 125 197
+0 2 2 "0s" 0 0 0 192 0 0  40 181.9999999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Calling function
+LANG:10004 12 调用函数
+LANG:10000 15 Funktionsaufruf
+LANG:10027 25 Вызыв.функция
+14 25
+"txtProgram"
+""
+1 140 177.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  138 176 412 203
+3 "0s" 0 0 0 0 0 -1  E E E
+30 26
+"FRAME3"
+""
+1 12 356 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.005405405405405 0 0.751937984496124 -2.064864864864843 -247.6899224806201 0 E 12 356 753 615
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Filter
+LANG:10004 6 过滤
+LANG:10000 6 Filter
+LANG:10027 12 Фильтр
+2 27
+"PRIMITIVE_TEXT4"
+""
+1 486 179.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 486 179.9999999999999 598 195
+0 2 2 "0s" 0 0 0 192 0 0  486 179.9999999999999 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Database error number
+LANG:10004 18 数据库错误号
+LANG:10000 20 Datenbank-Fehlercode
+LANG:10027 28 Номер ошибки БД
+14 28
+"txtOracode"
+""
+1 629 175.9999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  627 174 699 201
+3 "5d" 5 1 1 0 0 -1  E E E
+20 30
+"chkManualInput"
+""
+1 614 119.9999999999999 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  612 118 748 148
+1
+T 
+4
+LANG:10001 17 enable user input
+LANG:10004 18 激活用户输入
+LANG:10000 16 manuelle Eingabe
+LANG:10027 30 разреш.ручн.ввод
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  setModusOpen((bool) state);
+}" 0
+22 31
+"cmbDB"
+""
+1 124 40 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  122 38 246 64
+0
+
+"main()
+{
+  getDatabaseHosts();
+}
+
+void getDatabaseHosts()
+{
+  string dbHosts, dbHost1, dbHost2;
+  int pos;
+  dpGet(\"_RDBArchive.db.host:_original.._value\",dbHosts); 
+  
+  strreplace(dbHosts, \" \", \"\");
+  pos = strpos(dbHosts, \",\", 0);
+  if (pos > 0)
+  {
+    cmbDB.enabled(true);
+    dbHost1 = substr(dbHosts, 0, pos);
+    dbHost2 = substr(dbHosts, pos + 1, strlen(dbHosts)- (pos+1));
+    
+    cmbDB.appendItem(dbHost1);
+    setUseOnlyThisDbName(dbHost1);
+    cmbDB.appendItem(dbHost2);    
+    
+  }  
+  else
+  {
+    cmbDB.enabled(false);
+    cmbDB.appendItem(dbHosts);
+    setUseOnlyThisDbName(\"\");
+  }
+    
+      
+}" 0
+
+"main()
+{
+  setUseOnlyThisDbName(cmbDB.selectedText());
+}
+" 0
+
+E
+ 0 0
+2 32
+"txtDB"
+""
+1 42 44.99999999999989 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 42 44.99999999999989 112 58
+0 2 2 "0s" 0 0 0 192 0 0  42 44.99999999999989 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Database:
+LANG:10004 10 数据库:
+LANG:10000 10 Datenbank:
+LANG:10027 22 База данных:
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

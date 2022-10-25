@@ -1,0 +1,2876 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 6 maxLag
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+#uses \"SmartSCADA/util/util\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+    btnCalculation.enabled(false);
+    DataMiningTable.enabled(false);
+    DeleteAll.enabled(false);
+    DeleteOne.enabled(false);
+    btnDeleteSession.enabled(false);
+    NewSession.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  time t = getCurrentTime();  
+  dt_from.dateTime=t-3600*24;
+  dt_to.dateTime=t;
+  
+  setValue(\"dt_from_time\", \"time\", t);
+  setValue(\"dt_to_time\", \"time\", t);    
+  
+  chk_equi.state(0, false);
+  maxLagCheck.state(0, false);  
+  
+  //the delay guarantees that the values were loaded into the table
+  delay(0,10);
+  if(g_dataMiningSessionName != \"\")
+  {
+    for(int i = 0; i < DataMiningTable.lineCount(); i++)
+    {      
+      dyn_anytype dstring;
+      dstring = DataMiningTable.getLineN(i);
+           
+      if(g_dataMiningSessionName == dstring[1])
+      {
+        setValue (\"DataMiningTable\", \"selectLineN\", i);
+        LoadSession(i);
+        break;
+      }
+    }
+  }
+
+  panelChanged = false;
+  wf_bottomBar_reload();  
+}" 0
+ E E E E 1 -1 -1 0  -10.49999999999997 689.5
+""0  1
+E "/*
+Author: Paul Schneeweiß, paul.schneeweiss@siemens.com
+Data Exploration Main Panel
+
+Copyright (C) Siemens AG 2015. All Rights Reserved.
+*/
+
+#uses \"SmartSCADA/analytics/dataExp\"
+
+bool panelChanged = false;
+bool loseChanges = false;
+bool returnToSession = false;
+//CNS TREE related
+const string CNS_TREE_KEY = \"_CNS_TREE_MANAGEMENT\";
+/*sets the Filter in CNS Tree*/
+void setFilterCNS()
+{
+  int iCount;
+  //DebugN(cnsFilter.text);
+  iCount = cnsTree_setFilter(cnsTree_getTreeShape(CNS_TREE_KEY), \"\", cnsFilter.text);
+ // DebugN(iCount, cnsTree_getTreeShape(CNS_TREE_KEY));
+  btnDelete_CNS.visible = true;
+}
+/*Clears the Filter from CNS Tree*/
+void clearFilterCNS()
+{
+  cnsFilter.text = \"\";
+  cnsTree_deleteFilter(cnsTree_getTreeShape(CNS_TREE_KEY));
+  btnDelete_CNS.visible = true;
+}
+
+int cnsGetNodeLevel(string cnsPath)
+{
+  dyn_string dsLevels = strsplit(cnsPath, \".\");
+  return dynlen(dsLevels);
+}//End CNS Tree Related Functions
+
+int SaveSession()
+{
+  string session; 
+  
+  if(!getUserPermission(USER_PERMISSION))
+  {
+    session = SSC_TEMP_SESSION;
+  }
+  else
+  {
+    session = sessionName.text();
+  }
+  if (session == \"\")
+  {
+    dyn_int selLines;
+    getValue(\"DataMiningTable\", \"getSelectedLines\", selLines);
+    if (dynlen(selLines) > 0)
+    { 
+      dyn_anytype dpeName;
+      getValue(\"DataMiningTable\", \"getLineN\", selLines[1], dpeName);
+      if (dpeName[1] != \"\")
+      {
+        session = dpeName[1];
+      }
+    }
+  }
+  
+  if (session != \"\")
+  { 
+    string newSession = \"dm_\"+session;
+    
+    if(!dpNameCheck(newSession))
+    {
+      notificationBar_newMsg(\"ssc_errors\", \"00023\", NOTIFICATION_BAR_PRIO_WARNING, 23, 
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      return WF_PANEL_SAVE_NOTHING_SAVE;
+    }
+    
+    dyn_string dpes;    
+    getValue(\"tbl_dpe\", \"getColumnN\", 0, dpes);    
+    
+    if (!dpExists(newSession))
+    {
+      if (dpCreate(newSession, \"_SSC_METADATA_DM\") != 0)
+      {
+        dyn_errClass err = getLastError();
+        throwError(err);
+        return WF_PANEL_SAVE_NOTHING_SAVE;
+      }
+    }
+    
+    dpSet(newSession + \".inputDPs\", dpes);
+    time td = dt_from.dateTime; // + dt_from_time
+    time th = dt_from_time.dateTime;
+    time fromDateTime = makeTime(year(td), month(td), day(td), hour(th), minute(th), second(th));
+    dpSet(newSession + \".startTime\", fromDateTime);
+
+    td = dt_to.dateTime; // + dt_from_time
+    th = dt_to_time.dateTime;
+    time toDateTime = makeTime(year(td), month(td), day(td), hour(th), minute(th), second(th));
+    dpSet(newSession + \".endTime\", toDateTime);
+    dpSet(newSession + \".equiTimeInterval\", chk_equi.state(0) ? equiIntSpin.text() : 0);
+    dpSet(newSession + \".maxLagDetection\", maxLagCheck.state(0) ? maxLagSpin.text() : 0);
+    bool qualityState; 
+    getValue(\"chk_quality\", \"state\", 0, qualityState);
+    dpSet(newSession + \".quality\", qualityState); 
+    dpSet(newSession + \".lastSaved\", getCurrentTime());
+    
+    g_dataMiningSessionName = session;
+    
+  }
+  
+  DataMiningTable.deleteAllLines();
+  dyn_string dpes = dpNames(\"*\", \"_SSC_METADATA_DM\");
+
+  int actRow = 0;
+  //DebugN(dpes);
+  for (int i = 1; i <= dynlen(dpes); i++)
+  {
+    string name = dpes[i]; 
+    strreplace(name, \"dm_\", \"\");
+    strreplace(name, getSystemName(), \"\");
+    //DebugN(dpes);    
+    DataMiningTable.appendLine(\"Session\", name, \"SessionDpeName\", dpes[i]);
+    //DebugN(name, session);    
+    if (name == session)
+      actRow = i-1;
+  }
+  sessionName.text(\"\");
+  DataMiningTable.selectLineN(actRow);
+	panelChanged = false;
+	wf_bottomBar_reload();
+  return WF_PANEL_SAVE_SAVED;
+}
+
+int isPanelChanged()
+{
+  if(panelChanged)
+	{
+    return WF_PANEL_CHANGED;
+	}  
+	else
+	{
+		return WF_PANEL_NO_CHANGE;
+  }
+}
+
+void LoadSession(int row)
+{
+  dyn_anytype dstring;
+  dstring = DataMiningTable.getLineN(row);
+
+  //save session name to global variable
+  g_dataMiningSessionName = dstring[1];  
+  
+  //resetting global variables
+  g_dpe1 = \"\";
+  g_dpe2 = \"\";
+  g_tf_dpe1 = \"\";
+  g_tf_dpe2 = \"\";
+  
+  dyn_string ddpes;
+  time startTime, endTime;
+  int equiTime;
+  int maxLagDetection;
+  bool quality;
+  
+  if (dpGet(dstring[2]+\".inputDPs\", ddpes, 
+        dstring[2]+\".startTime\", startTime, 
+        dstring[2]+\".endTime\", endTime, 
+        dstring[2]+\".equiTimeInterval\", equiTime, 
+        dstring[2]+\".maxLagDetection\", maxLagDetection,
+        dstring[2]+\".quality\", quality) < 0)
+  {
+    dyn_errClass err = getLastError();
+    throwError(err);
+    
+    panelChanged = false;
+    wf_bottomBar_reload();
+  
+    return;
+  }
+  else
+  {
+    tbl_dpe.deleteAllLines();
+    for (int i = 1; i <= dynlen(ddpes); i++)
+    {
+      ssc_dataExp_tblAddDPE(ddpes[i]);
+    }
+    
+    g_dtFrom = startTime;
+    dt_from.dateTime = startTime;
+    dt_from_time.dateTime = startTime;
+    
+    g_dtTo = endTime;
+    dt_to.dateTime = endTime;
+    dt_to_time.dateTime = endTime;
+    
+    if (equiTime > 0)
+    {
+      chk_equi.enabled(true);
+      chk_equi.state(0, 1);
+      equiIntSpin.text(equiTime);
+      equiIntSpin.enabled(true);
+      g_equiTimeInterval = equiTime;
+      chk_quality.visible(!(cnsTreeObject.visible() || dpTreeNode.visible()));
+      chk_quality.enabled(true);
+      chk_quality.state(0, quality);
+      g_quality = quality;
+    }
+    else
+    {
+      chk_equi.state(0, 0);
+      equiIntSpin.text(1);
+      equiIntSpin.enabled(false);
+      chk_quality.state(0, false);
+      chk_quality.enabled(false);
+      chk_quality.visible(false);
+    }
+    
+    if (maxLagDetection > 0)
+    {
+      maxLagCheck.enabled(true);
+      maxLagCheck.state(0,1);
+      maxLagSpin.enabled(true);
+      maxLagSpin.text(maxLagDetection);
+      g_maxLag = maxLagDetection;  
+    }
+    else
+    {
+      maxLagCheck.state(0, 0);
+      maxLagSpin.text(1);
+      maxLagSpin.enabled(false);
+    }
+  }
+  //without the delay save button will be enabled on startup and loading a existing session
+  delay(0,50);
+  panelChanged = false;
+  wf_bottomBar_reload();
+}
+
+void DeleteSession()
+{
+  dyn_int selLines;
+  getValue(\"DataMiningTable\", \"getSelectedLines\", selLines);
+  //DebugN(selLines);
+  
+  for (int i = dynlen(selLines); dynlen(selLines) > 0; i--)
+  { 
+    dyn_anytype dpeName;
+    getValue(\"DataMiningTable\", \"getLineN\", selLines[i], dpeName);
+    if (dpeName[2] != \"\")
+    {
+      if(dpeName[1] == \"temp\")
+      {
+        dynRemove(selLines, i);
+        continue;
+      }
+      if (dpDelete(dpeName[2]) == 0)
+      {
+        DataMiningTable.deleteLineN(selLines[i]);
+        //DebugN(i, selLines[i], dpeName);
+        dynRemove(selLines, i);
+        g_dataMiningSessionName = \"\";
+      }
+    }
+  }
+}
+
+//--------------------------------------------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Resets the shapes displaying the session contents.
+  In particular, sets the timeframe from yesterday midnight to today midnight.
+*/
+void ssc_ResetSessionContentShapes()
+{
+  tbl_dpe.deleteAllLines();
+  dt_from.dateTime = getCurrentTime() - 86400;
+  dt_from_time.dateTime = 0;
+  dt_to.dateTime = getCurrentTime();
+  dt_to_time.dateTime = 0;
+  chk_equi.state(0, 0);
+  equiIntSpin.text(1);
+  equiIntSpin.enabled(false);
+  chk_quality.state(0, false);
+  chk_quality.enabled(false);
+  chk_quality.visible(false);
+  maxLagCheck.state(0, 0);
+  maxLagSpin.text(1);
+  maxLagSpin.enabled(false);
+}
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+29 81
+"cnsTreeObject"
+"WF"
+1 899.6109251802787 49.99999999999986 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"lineWidth" "int 1"
+"autoExpandDelay" "int -1"
+"midLineWidth" "int 1"
+"treeStepSize" "int 17"
+"acceptDrops" ""
+"DragStart" "main(int keys, string id)
+{
+  dragStart(id);
+}"
+"DragDrop" "main(string information, int dragType, string id, int column)
+{
+  //DebugN(\"dragDrop\", information, dragType, id, column);
+  //DebugN(\"-------------------------------------------------------------\");
+  
+  if(id == \"\")  //The tree was dropped in an empty area of the tree widget or the Drag&Drop was canceled
+  {
+    return;
+  }
+  
+  bool bRet;
+  int iNodeLevel;
+  string sDp, sNodeLast, sNodeRelative, sNewNodePath;
+  blob blUserData;
+  langString lsDisplayName;
+  
+  string sSrcID = information;
+  string sDstID = id;
+  
+  string sSrcSys = cnsSubStr(sSrcID, CNSSUB_SYS);
+  string sSrcView = cnsSubStr(sSrcID, CNSSUB_VIEW);
+  string sSrcParent = cnsSubStr(sSrcID, CNSSUB_SYS | CNSSUB_VIEW | CNSSUB_PARENT);
+  string sSrcPath = cnsSubStr(sSrcID, CNSSUB_PATH);
+  
+  string sDstSys = cnsSubStr(sDstID, CNSSUB_SYS);
+  string sDstView = cnsSubStr(sDstID, CNSSUB_VIEW);
+  
+  if(sSrcID == sSrcSys)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A system node can not be embeded into a tree.\"));
+    return;
+  }
+  
+  if(sSrcID == (sSrcSys+\".\"+sSrcView+\":\"))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A view can not be embeded into a tree.\"));
+    return;
+  }
+  
+  if(strpos(sDstID, sSrcID) == 0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A tree can not be embeded into itself.\"));
+    return;
+  }
+  
+  if(sSrcParent == sSrcID)  //Tree was dragged. In this case the parent has to be the view.
+  {
+    sSrcParent = sSrcSys+\".\"+sSrcView+\":\";
+  }
+  
+  dyn_string dsNodesRelative = makeDynString();
+  dyn_string dsNodesPath = makeDynString();
+  dyn_string dsNodesDp = makeDynString();
+  dyn_string dsNodesLast = makeDynString();
+  dyn_int diNodesLevel = makeDynInt();
+  dyn_blob dblNodesUserData;
+  dyn_langString dlsNodesDisplayName;
+  
+  bRet = cnsGetNodesByName(\"*\"+sSrcPath+\"*\", sSrcSys+\".\"+sSrcView+\":\", CNS_SEARCH_NAME, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_ALL_TYPES, dsNodesPath);
+  if(!bRet) SSCDebugN(\"ERROR: cnsGetNodesByName()\"+\",\"+\"*\"+sSrcPath+\"*\"+\",\"+sSrcSys+\".\"+sSrcView+\":\");
+  
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    bRet = cnsGetId(dsNodesPath[i], sDp);
+    bRet = cnsGetUserData(dsNodesPath[i], blUserData);
+    bRet = cnsGetDisplayNames(dsNodesPath[i], lsDisplayName);
+    sNodeLast = cnsSubStr(dsNodesPath[i], CNSSUB_NODE);
+        
+    sNodeRelative = dsNodesPath[i];
+    strreplace(sNodeRelative, sSrcParent, \"\");
+    sNodeRelative = strltrim(sNodeRelative, \".\");
+    
+    iNodeLevel = cnsGetNodeLevel(sNodeRelative);
+    
+    dynAppend(dsNodesDp, sDp);
+    dynAppend(dblNodesUserData, blUserData);
+    dynAppend(dlsNodesDisplayName, lsDisplayName);
+    dynAppend(dsNodesLast, sNodeLast);
+    dynAppend(diNodesLevel, iNodeLevel);
+    dynAppend(dsNodesRelative, sNodeRelative);
+  }
+  
+  dyn_dyn_langString ddlsTreeNames;
+  dyn_dyn_string ddsTreeIds, ddsTreeDps;
+  
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    sDp = dsNodesDp[i];
+    blUserData = dblNodesUserData[i];
+    lsDisplayName = dlsNodesDisplayName[i];
+    sNodeLast = dsNodesLast[i];
+    iNodeLevel = diNodesLevel[i];
+    
+    for(int k=1; k<iNodeLevel; k++)
+    {
+      ddsTreeIds[i][k] = \"\";
+      ddlsTreeNames[i][k] = \"\";
+      ddsTreeDps[i][k] = \"\";
+    }
+    
+    ddsTreeIds[i][iNodeLevel] = sNodeLast;
+    ddlsTreeNames[i][iNodeLevel] = lsDisplayName;
+    ddsTreeDps[i][iNodeLevel] = sDp;
+  }
+  
+  int iMenuAnswer, iPosX, iPosY;
+  dyn_string dsMenuStruct = makeDynString(\"PUSH_BUTTON, Copy Tree, 1, 1\",
+                                          \"PUSH_BUTTON, Move Tree, 2, 1\");
+  getCursorPosition(iPosX, iPosY, TRUE);
+  popupMenuXY(dsMenuStruct, iPosX, iPosY, iMenuAnswer);
+  
+  if(iMenuAnswer < 1)  //No entry was selected in the PopUpMenu or it was canceled
+    return;
+  
+  //At first copy the tree
+  bRet = cnsAddTree(sDstID, ddsTreeIds, ddlsTreeNames, ddsTreeDps);
+  
+  if(!bRet)
+  {
+    SSCDebugN(getLastError());
+    SSCDebugN(\"ERROR: cnsAddTree()\"+\",\"+sDstID+\",\"+dynlen(ddsTreeIds)+\",\"+dynlen(ddlsTreeNames)+\",\"+dynlen(ddsTreeDps));
+    return; //When copy failed do not continue
+  }
+  
+  //If the tree should be moved then now delete the original tree
+  if(iMenuAnswer == 2)
+  {
+    bRet = cnsDeleteTree(sSrcID);
+    if(!bRet) SSCDebugN(\"ERROR: cnsDeleteTree()\"+\",\"+sSrcID);
+  }
+  
+  //Now copy the UserData (Icon, OPC AccessRight) from the original nodes to the new ones
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    sNewNodePath = sDstID + (sDstID==(sDstSys+\".\"+sDstView+\":\")?\"\":\".\") + dsNodesRelative[i];  //Only add the dot if the tree is embeded to an existing one but not if it was embeded to a view
+    blUserData = dblNodesUserData[i];
+    
+    bRet = cnsSetUserData(sNewNodePath, blUserData);
+    if(!bRet) SSCDebugN(\"ERROR: cnsSetUserData()\"+\",\"+sNewNodePath+\",\"+(string)blUserData);
+  }
+}
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  900 49.99999999999996 1279.997368421053 530.0062262189185
+10 TreeWidget
+2
+0 "expanded" "(string id)"
+"  this.updatesEnabled = false;
+  cnsTree_expandedEvent(CNS_TREE_KEY, id);
+  this.updatesEnabled = true;"
+0 "rightClicked" "(string id, int column)"
+"  //DebugN(\"Tree Management -> RightClicked\", id, column);
+  
+  if(id == \"\")
+    return;
+  
+  bool bRet;
+  string sNodeID = id;
+  bool bEnabled = TRUE;
+  
+  string sNodeSys = cnsSubStr(sNodeID, CNSSUB_SYS);
+  string sNodeView = cnsSubStr(sNodeID, CNSSUB_VIEW);
+  
+  if(sNodeID == sNodeSys)
+    bEnabled = FALSE;
+  
+  if(sNodeID == (sNodeSys+\".\"+sNodeView+\":\"))
+    bEnabled = FALSE;
+  
+  int iMenuAnswer, iPosX, iPosY;
+  dyn_string dsMenuStruct = makeDynString(\"PUSH_BUTTON, Delete Node, 1, \" + (int)bEnabled);
+  
+  getCursorPosition(iPosX, iPosY, TRUE);
+  popupMenuXY(dsMenuStruct, iPosX, iPosY, iMenuAnswer);
+  
+  if(iMenuAnswer < 1)  //No entry was selected in the PopUpMenu or it was canceled
+    return;
+  
+  bRet = cnsDeleteTree(sNodeID);
+  if(!bRet) SSCDebugN(\"ERROR: cnsDeleteTree()\"+\",\"+sNodeID);"
+"main()
+{
+  cnsTree_regTreeObject(CNS_TREE_KEY, \"cnsTreeObject\");
+  shape sTree = cnsTree_getTreeShape(CNS_TREE_KEY);
+  cnsTree_showDps(CNS_TREE_KEY, TRUE); 
+  cnsTree_initTree(sTree);
+}" 0
+29 99
+"txt_status"
+""
+1 589 534.5895146520147 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShadow" "enum 16"
+"alignment" "enum 132"
+"bold" "bool TRUE"
+"frameShape" "enum 0"
+"midLineWidth" "int 1"
+"readOnly" "bool TRUE"
+"currentColor" "color {255,0,4}"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  592.8597883597879 535.0000000000001 719.8597883597879 556.3452380952382
+15 PVSS.TextEdit.1
+0
+E25 4
+"DataMiningTable"
+"WF"
+1 1.507936507936506 53.57790943524223 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "#uses \"SmartSCADA/util/util\"
+
+synchronized main()
+{
+  dyn_int row = this.getSelectedLines();
+  if(dynlen(row) > 0)
+  {
+    int changeStatus = changeStatus(this.cellValueRC(row[1], \"Session\"));
+    if(changeStatus > 0)
+    {
+      LoadSession(row[1]);
+    }
+  }
+  ssc_setIcon(\"btnCalculation\", \"calculate\");
+}
+
+/**
+  @author Joshua Hercher joshua.hercher@etm.at
+  This function handles the behavior of the panel when changing the selected Session
+  @param text the name of the selected session
+  @return if number is higher than 0 the session will be loaded
+ */
+int changeStatus(string text)
+{
+  if(text != g_dataMiningSessionName && panelChanged)
+  {
+    if(!loseChanges)
+    {     
+      notificationBar_newMsg(\"ssc_wizards\", \"dm0008\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      loseChanges = true;
+      for(int i = 0; i < DataMiningTable.lineCount(); i++)
+      {      
+        dyn_anytype dstring;
+        dstring = DataMiningTable.getLineN(i);
+           
+        if(g_dataMiningSessionName == dstring[1])
+        {
+          returnToSession = true;
+          setValue(\"DataMiningTable\", \"deleteSelection\");
+          setValue (\"DataMiningTable\", \"selectLineN\", i);
+          break;
+        }
+      }
+      return -1;
+    }
+    else
+    {
+      loseChanges = false;
+      return 1;
+    }
+  }
+  else if(!panelChanged)
+  {
+    return 1;
+  }
+  return -3;
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 22.99999999999999 252 477
+"main()
+{
+  dyn_string dpes = dpNames(\"*\", SSC_METADATA_DM_TYPE);
+  //DebugN(dpes);
+  for (int i = 1; i <= dynlen(dpes); i++)
+  {
+    string name = dpes[i]; 
+    strreplace(name, \"dm_\", \"\");
+    strreplace(name, getSystemName(), \"\");
+    //DebugN(dpes);    
+    DataMiningTable.appendLine(\"Session\", name, \"SessionDpeName\", dpes[i]);
+  }
+  
+  DataMiningTable.tableMode(TABLE_SELECT_MULTIPLE);
+  DataMiningTable.selectByClick(TABLE_SELECT_LINE);
+  dyn_string dsTableColors = makeDynString(\"WF_TableAlternatingRowColor_2\",\"WF_TableAlternatingRowColor_1\");
+  DataMiningTable.alternatingRowColors(dsTableColors);
+}
+" 0
+E 0 0 1 2 0 "Session" 20 1 0 "s" 4
+LANG:10001 7 Session
+LANG:10004 6 进程
+LANG:10000 7 Session
+LANG:10027 7 Session
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+234 "SessionDpeName" 22 0 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+255 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+6 5
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.339425587467363 0 0.7389583708652057 -76.80678851174935 -371.6960605451984 1 E 23 503 406 536
+6 6
+"RECTANGLE2"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.339419491856432 0 0.8929080314621235 -76.80694116402643 80.87348639347039 1 E 23 503 406 536
+2 9
+"Session_Header"
+"WF"
+1 14.99999999999999 9.267017480874983 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999994 0 1 7.21644966006351e-15 -4.440695621161552 0 E 14.99999999999999 9.267017480874983 65 24
+0 2 2 "0s" 0 0 0 192 0 0  14.99999999999999 9.267017480874983 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Session
+LANG:10004 6 进程
+LANG:10000 7 Session
+LANG:10027 7 Session
+25 10
+"tbl_dpe"
+"WF"
+1 250 24.58937193699733 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+5
+"draggable" ""
+"acceptDrops" ""
+"DragStart" "main(int keys, int row, string column)
+{
+  /*string dpe;
+  
+  getValue (\"tbl_dpe\", \"cellValueRC\", row, \"dpe\", dpe);    
+  ssc_dataExp_tblRemoveDPE(dpe);
+*/
+}
+
+"
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  if(g_dataMiningSessionName != \"\")
+  {
+    ssc_dataExp_tblAddDPE(information);
+    panelChanged = true;
+    wf_bottomBar_reload();
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"dm00010\", NOTIFICATION_BAR_PRIO_WARNING, 37, 
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+
+
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  248 23.00000000000001 902 532
+"main()
+{
+  tbl_dpe.tableMode(TABLE_SELECT_MULTIPLE);
+  tbl_dpe.selectByClick(TABLE_SELECT_LINE);
+  dyn_string dsTableColors = makeDynString(\"WF_TableAlternatingRowColor_2\",\"WF_TableAlternatingRowColor_1\");
+  tbl_dpe.alternatingRowColors(dsTableColors);
+}" 0
+E 1 0 1 10 0 "dpe" 28 0 0 "s" 4
+LANG:10001 3 DPE
+LANG:10004 3 DPE
+LANG:10000 3 DPE
+LANG:10027 3 DPE
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+320 "desc" 28 1 0 "s" 4
+LANG:10001 15 DPE Description
+LANG:10004 10 DPE 描述
+LANG:10000 16 DPE Beschreibung
+LANG:10027 15 DPE Description
+E
+4
+LANG:10001 15 Data point name
+LANG:10004 9 DP 名称
+LANG:10000 15 Datenpunkt Name
+LANG:10027 15 Data point name
+
+320 "count" 5 1 0 "s" 4
+LANG:10001 5 Count
+LANG:10004 6 计数
+LANG:10000 6 Anzahl
+LANG:10027 5 Count
+E
+4
+LANG:10001 16 Number of values
+LANG:10004 12 数据数量
+LANG:10000 27 Anzahl der gefundenen Werte
+LANG:10027 16 Number of values
+
+70 "min" 5 1 0 "s" 4
+LANG:10001 3 Min
+LANG:10004 6 最小
+LANG:10000 3 Min
+LANG:10027 3 Min
+E
+4
+LANG:10001 12 Lowest value
+LANG:10004 12 最低数值
+LANG:10000 16 Niedrigster Wert
+LANG:10027 12 Lowest value
+
+70 "mean" 5 1 0 "s" 4
+LANG:10001 4 Mean
+LANG:10004 6 平均
+LANG:10000 12 Durchschnitt
+LANG:10027 4 Mean
+E
+4
+LANG:10001 10 Mean value
+LANG:10004 9 平均值
+LANG:10000 23 Durchschnittlicher Wert
+LANG:10027 10 Mean value
+
+70 "max" 5 1 0 "s" 4
+LANG:10001 3 Max
+LANG:10004 6 最大
+LANG:10000 3 Max
+LANG:10027 3 Max
+E
+4
+LANG:10001 13 Highest Value
+LANG:10004 12 最大数值
+LANG:10000 14 Höchster Wert
+LANG:10027 13 Highest Value
+
+70 "avgvalint" 5 1 0 "s" 4
+LANG:10001 9 avgValInt
+LANG:10004 9 avgValInt
+LANG:10000 9 avgValInt
+LANG:10027 11 t_avgValInt
+E
+4
+LANG:10001 13 Mean interval
+LANG:10004 12 平均间隔
+LANG:10000 25 Mittelwert des Intervalls
+LANG:10027 13 Mean interval
+
+70 "mae" 5 1 0 "s" 4
+LANG:10001 3 MAE
+LANG:10004 3 MAE
+LANG:10000 3 MAE
+LANG:10027 3 MAE
+E
+4
+LANG:10001 18 Mean absolut Error
+LANG:10004 18 平均绝对误差
+LANG:10000 35 Durchschnittlicher absoluter Fehler
+LANG:10027 18 Mean absolut Error
+
+70 "nmae" 5 1 0 "s" 4
+LANG:10001 4 NMAE
+LANG:10004 6 名称
+LANG:10000 4 NMAE
+LANG:10027 4 NMAE
+E
+4
+LANG:10001 29 Normalized mean absolut error
+LANG:10004 27 归一化平均绝对误差
+LANG:10000 50 Durchschnittlicher normalisierter absoluter Fehler
+LANG:10027 29 Normalized mean absolut error
+
+70 "scale" 0 0 1 "s" 4
+LANG:10001 5 Scale
+LANG:10004 5 Scale
+LANG:10000 5 Scale
+LANG:10027 5 Scale
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+0 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 2 1 7
+1 0
+13 16
+"BtnDpSelector"
+"WF_Transparent"
+1 940.5120967741935 539.9898680248454 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 10 Datapoints
+LANG:10004 2 DP
+LANG:10000 11 Datenpunkte
+LANG:10027 28 Точки данных (DP)
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  938 530.2392087380435 967 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/dp_tree_node.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  cnsTreeObject.visible(false);  
+  cnsFilter.visible(false);
+  btnDelete_CNS.visible(false);
+  btnSearch_CNS.visible(false);
+  
+  dpTreeNode.visible(true);
+  tftFilter.visible(true);
+  btnDelFilter_DPTree.visible(true);
+  btnSearch_DPTree.visible(true);
+  chkBx_internalDPs.visible(true);
+  
+  txtTimeFrom.visible(false);
+  dt_from.visible(false);
+  dt_from_time.visible(false);
+  txtTimeTo.visible(false);
+  dt_to.visible(false);
+  dt_to_time.visible(false);
+  txtSecEqui.visible(false);
+  txtSecLag.visible(false);
+    
+  chk_quality.visible(false);
+  chk_equi.visible(false);
+  maxLagCheck.visible(false);
+  maxLagSpin.visible(false);
+  equiIntSpin.visible(false);
+  //txtSecLag.visible(false);
+  //txtEquiSec.visible(false);
+
+  cnsTreeObject.visible(false);
+
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"DPSelector\"));
+}
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"dp_tree_node\");
+}" 0
+
+13 44
+"BtnTimeSelector"
+"WF_Transparent"
+1 914 536.2392087380435 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Time range
+LANG:10004 12 时间范围
+LANG:10000 11 Zeitbereich
+LANG:10027 10 Time range
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  913 530.2392087380435 942 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/time.png"
+4
+LANG:10001 12 PUSH_BUTTON7
+LANG:10004 12 PUSH_BUTTON7
+LANG:10000 12 PUSH_BUTTON7
+LANG:10027 12 PUSH_BUTTON7
+"main()
+{
+  cnsTreeObject.visible(false);  
+  cnsFilter.visible(false);
+  btnDelete_CNS.visible(false);
+  btnSearch_CNS.visible(false);
+  
+  dpTreeNode.visible(false);
+  tftFilter.visible(false);
+  btnDelFilter_DPTree.visible(false);
+  btnSearch_DPTree.visible(false);
+  chkBx_internalDPs.visible(false);
+  
+  txtTimeFrom.visible(true);
+  dt_from.visible(true);
+  dt_from_time.visible(true);
+  txtTimeTo.visible(true);
+  dt_to.visible(true);
+  dt_to_time.visible(true);
+  txtSecEqui.visible(true);
+  txtSecLag.visible(true);
+  
+  chk_equi.visible(true);
+  maxLagCheck.visible(true);
+  maxLagSpin.visible(true);
+  equiIntSpin.visible(true);
+  //txtSecLag.visible(true);
+  //txtEquiSec.visible(true);
+
+  cnsTreeObject.visible(false);
+  
+  if(chk_equi.state(0) == true)
+  {
+    chk_quality.visible(true);
+  }
+  
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"TimeRange\"));
+}" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"time\");
+}" 0
+
+2 45
+"PRIMITIVE_TEXT3"
+"WF"
+1 265 4.826321859713261 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 265 4.826321859713261 393 20
+0 2 2 "0s" 0 0 0 192 0 0  265 4.826321859713261 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Selected datapoints
+LANG:10004 18 选定的数据点
+LANG:10000 24 Ausgewählte Datenpunkte
+LANG:10027 19 Selected datapoints
+14 53
+"sessionName"
+"WF"
+1 -0.9890158730158873 511 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+53 0 0 0 0 0
+E "main()
+{
+  //
+}" 0
+ E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 503 252 532
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  if(sessionName.text() != \"\")
+  {
+    ssc_ResetSessionContentShapes();
+    SaveSession();
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"dm00014\", NOTIFICATION_BAR_PRIO_WARNING, 14, 
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}" 0
+
+13 65
+"DeleteOne"
+"WF_Transparent"
+1 265 538.2392087380435 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Delete selected DPE from table
+LANG:10004 28 从表中删除选定的 DPE
+LANG:10000 49 Ausgewählte DP Elemente aus der Tabelle löschen
+LANG:10027 30 Delete selected DPE from table
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  289 530.2392087380435 318 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 12 PUSH_BUTTON2
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  dyn_int selLines;
+  int selLinesCount;
+	dyn_string deletedDpes;
+	dyn_string selectedDPs;
+  
+  getValue(\"tbl_dpe\", \"getSelectedLines\", selLines);
+  selLinesCount = dynlen(selLines);
+  
+  if (selLinesCount > 0)
+  {
+  	dpGet(\"dm_\" + g_dataMiningSessionName + \".selectedDPs\", selectedDPs);
+  
+  	//remove line from table
+    for (int i = selLinesCount; i > 0; i--)
+    {
+      string delDpe = tbl_dpe.cellValueRC(selLines[i], \"dpe\");
+      delDpe = dpSubStr(delDpe, DPSUB_DP_EL);
+  		dynAppend(deletedDpes, delDpe);
+      tbl_dpe.deleteLineN(selLines[i]);
+    }
+
+  	//removes dpes marked for handover if they are deleted from list
+  	for(int i = 1; i <= dynlen(deletedDpes); i++)
+  	{
+  		int index = dynContains(selectedDPs, deletedDpes[i]);
+  		if(index > 0)
+  		{
+  			dynRemove(selectedDPs, index);
+  		}
+  	}
+  
+  	dpSet(\"dm_\" + g_dataMiningSessionName + \".selectedDPs\", selectedDPs);
+	
+  	panelChanged = true;
+  	wf_bottomBar_reload();
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00074\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+13 66
+"DeleteAll"
+"WF_Transparent"
+1 265 536.6392087380436 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Delete all DPEs from table
+LANG:10004 25 从表中删除所有 DPE
+LANG:10000 41 Alle DP Elemente aus der Tabelle löschen
+LANG:10027 26 Delete all DPEs from table
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  263 530.2392087380435 292 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/delete_all.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 12 PUSH_BUTTON2
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  tbl_dpe.deleteAllLines();
+	//removes dpes marked for handover from list
+	dyn_string selectedDPs = makeDynString();
+	dpSet(\"dm_\" + g_dataMiningSessionName + \".selectedDPs\", selectedDPs);
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete_all\");
+}" 0
+
+13 67
+"btnDeleteSession"
+"WF_Transparent"
+1 -846 62.23920873804354 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Delete selected session(s)
+LANG:10004 21 删除选定的进程
+LANG:10000 32 Ausgewählte Session(s) löschen
+LANG:10027 26 Delete selected session(s)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  38 530.2392087380435 67 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 12 PUSH_BUTTON4
+LANG:10004 12 PUSH_BUTTON4
+LANG:10000 12 PUSH_BUTTON4
+LANG:10027 12 PUSH_BUTTON4
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultString;
+  dyn_int lines = DataMiningTable.getSelectedLines;
+  string sessionToDelete;
+  string session;
+  if(dynlen(lines) > 0)
+  {
+    for(int i = 1; i <= dynlen(lines); i++)
+    {
+      session = DataMiningTable.cellValueRC(lines[i], \"Session\");
+      
+      if(session == \"temp\")
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"cl00040\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+        continue;
+      }
+      
+      if(i == 1)
+      {
+        sessionToDelete += session;
+      }
+      else
+      {
+        sessionToDelete += \", \" + session;
+      }
+    }
+  
+    if(strlen(sessionToDelete) > 0)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"Delete Datamining Session\",
+                                       makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"dm00013\")+sessionToDelete,
+                                                     \"$2:\"+getCatStr(\"general\", \"yes\"), \"$3:\"+getCatStr(\"general\", \"no\")),
+                                       resultFloat,
+                                       resultString);
+      if(\"true\"==resultString[1])
+      {
+        DeleteSession();
+      }
+    }
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00037\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+13 68
+"NewSession"
+"WF_Transparent"
+1 -871.2230447252151 62.23920873804354 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Add new session
+LANG:10004 15 添加新进程
+LANG:10000 24 Neue Session hinzufügen
+LANG:10027 15 Add new session
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  13 530.2392087380435 42 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+4
+LANG:10001 12 PUSH_BUTTON4
+LANG:10004 12 PUSH_BUTTON4
+LANG:10000 12 PUSH_BUTTON4
+LANG:10027 12 PUSH_BUTTON4
+"main()
+{
+  if(sessionName.text() != \"\")
+  {
+    ssc_ResetSessionContentShapes();
+    SaveSession();
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"dm00014\", NOTIFICATION_BAR_PRIO_WARNING, 14, 
+                             makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"add\");
+}" 0
+
+13 82
+"CNSSelector"
+"WF_Transparent"
+1 965 542.6836155903767 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+82 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 11 Plant model
+LANG:10004 12 工厂模型
+LANG:10000 13 Anlagenmodell
+LANG:10027 11 Plant model
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  962.0245633187769 530.2392087380435 991.0245633187769 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/plant_model.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{ 
+  cnsTreeObject.visible(true);  
+  cnsFilter.visible(true);
+  btnDelete_CNS.visible(true);
+  btnSearch_CNS.visible(true);
+  
+  dpTreeNode.visible(false);
+  tftFilter.visible(false);
+  btnDelFilter_DPTree.visible(false);
+  btnSearch_DPTree.visible(false);
+  chkBx_internalDPs.visible(false);
+  
+  txtTimeFrom.visible(false);
+  dt_from.visible(false);
+  dt_from_time.visible(false);
+  txtTimeTo.visible(false);
+  dt_to.visible(false);
+  dt_to_time.visible(false);
+  txtSecEqui.visible(false);
+  txtSecLag.visible(false);
+    
+  chk_quality.visible(false);
+  chk_equi.visible(false);
+  maxLagCheck.visible(false);
+  maxLagSpin.visible(false);
+  equiIntSpin.visible(false);
+  //txtSecLag.visible(false);
+  //txtEquiSec.visible(false);
+  
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"CNSSelector\"));
+}
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"plant_model\");
+}" 0
+
+13 86
+"btnCalculation"
+"WF_Transparent"
+1 860 536.2392087380435 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 (Re-)Calculation
+LANG:10004 14 (重新)计算
+LANG:10000 15 (Neu-)Berechnen
+LANG:10027 16 (Re-)Calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  858 530.2392087380435 887 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 16 (Re-)Calculation
+LANG:10004 14 (重新)计算
+LANG:10000 16 (Neu-) Berechnen
+LANG:10027 16 (Re-)Calculation
+"#uses \"SmartSCADA/util/util\"
+
+main()
+{
+  dyn_string dpes;
+  time minTransformDate;
+  time firstValue, lastValue;
+  int error;
+  
+  dmSession_clearTable(\"tbl_dpe\");
+  btn_stopCalc.enabled(true);
+  this.enabled(false);
+  DataMiningTable.enabled(false);
+  DeleteAll.enabled(false);
+  DeleteOne.enabled(false);
+  btnDeleteSession.enabled(false);
+  NewSession.enabled(false);
+  
+  //Clear Cache
+  ssc_dataExp_clearCache();
+  
+  //get all DPEs from table
+  getValue(\"tbl_dpe\", \"getColumnN\", 0, dpes);
+
+  if(dynlen(dpes)>=1)
+  {
+    time td = dt_from.dateTime; // + dt_from_time
+    time th = dt_from_time.dateTime;
+    g_dtFrom = makeTime(year(td), month(td), day(td), hour(th), minute(th), second(th));
+      
+    td = dt_to.dateTime; // + dt_from_time
+    th = dt_to_time.dateTime;
+    g_dtTo = makeTime(year(td), month(td), day(td), hour(th), minute(th), second(th));
+
+    if (g_dtFrom > g_dtTo)
+    {
+      time aux = g_dtFrom;
+      g_dtFrom = g_dtTo;
+      g_dtTo = aux;
+    }
+
+    error = ssc_getEdgeTimes(dpes, g_dtFrom, g_dtTo, firstValue, lastValue);
+
+    if(error == -1)
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"cl00039\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                             makeDynString(g_noDataDPE), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      g_stopCalculationSessionPanel = true;
+    }
+    dt_from.dateTime(firstValue);
+    dt_from_time.dateTime(firstValue);
+    g_dtFrom = firstValue;
+    dt_to.dateTime(lastValue);
+    dt_to_time.dateTime(lastValue);
+    g_dtTo = lastValue;
+    
+    ssc_dataExp_refreshDescriptiveStatistics();
+  }
+  
+  int dpeCount;
+  getValue(\"tbl_dpe\", \"lineCount\", dpeCount);
+  if (dpeCount > 0)
+  {
+    ssc_setIcon(\"btnCalculation\", \"recalculate\");
+  }
+
+  this.enabled(true);
+  DataMiningTable.enabled(true);
+  DeleteAll.enabled(true);
+  DeleteOne.enabled(true);
+  btnDeleteSession.enabled(true);
+  NewSession.enabled(true);
+  btn_stopCalc.enabled(false);
+  g_stopCalculationSessionPanel = false;
+}
+
+void dmSession_clearTable(string table)
+{
+  int lines;
+  int columns;
+  string column;
+  
+  getValue(table, \"lineCount\", lines);
+  getValue(table, \"columnCount\", columns);
+  
+  for(int i = 0; i < lines; i++)
+  {
+    for(int j = 2; j < columns; j++)
+    {
+      getValue(table, \"columnName\", j, column);
+      setValue(table, \"cellValueRC\", i, column, \"\");
+    }
+  }
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"calculate\");
+}" 0
+
+4 88
+"LINE1"
+""
+1 250 -15 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  250 -15 250 561
+4 89
+"LINE2"
+""
+1 900 -5 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  900 -5 900 561
+4 91
+"LINE4"
+""
+1 0 530 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  0 530 1278.997372529685 530
+14 97
+"wf_txtF_answer"
+""
+1 426.3786433650328 539.1542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  425.5 528 577.5 562
+3 "0s" 0 0 0 0 0 -1  E E E
+14 98
+"wf_txtF_cmd"
+""
+1 426.3786433650328 492.1542293622422 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  425.5 481 577.5 515
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+29 100
+"att_Calculating"
+"WF"
+1 569.894841269841 256.672619047619 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color WF_Text"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  526 230.5 625 329.5
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+13 101
+"btn_stopCalc"
+"WF_Transparent"
+1 871 536.2392087380435 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Stops the calculation
+LANG:10004 15 停止该计算
+LANG:10000 21 Stoppt die Berechnung
+LANG:10027 21 Stops the calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  833 530.2392087380435 862 559.2392087380435
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 16 Stop Calculation
+LANG:10004 12 停止计算
+LANG:10000 18 Berechnung stoppen
+LANG:10027 16 Stop Calculation
+"main()
+{
+  g_stopCalculationSessionPanel = true;
+  this.enabled(false);
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"stop\");
+}" 0
+
+2 103
+"PRIMITIVE_TEXT23"
+"WF"
+1 10.23226726985745 418.0033783783786 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999559706275171 0 1 4.999956212439626 65 0 E 10.23226726985745 418.0033783783786 135 433
+0 2 2 "0s" 0 0 0 192 0 0  10.23226726985745 418.0033783783786 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Create new session
+LANG:10004 15 创建新会话
+LANG:10000 20 Neue Session anlegen
+LANG:10027 18 Create new session
+2 104
+"HeaderRight"
+""
+1 20781.38275412548 2549.597305750478 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999999 0 1 902.2340012206887 -31.30676068282188 0 E 12.5107616348717 35.99914760419564 87 51
+0 2 2 "0s" 0 0 0 192 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Time range
+LANG:10004 12 时间范围
+LANG:10000 11 Zeitbereich
+LANG:10027 10 Time range
+4 106
+"LINE5"
+""
+1 -9.094947017729282e-13 25.38562623855182 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  -9.094947017729282e-13 25.38562623855182 1279 25.38562623855182
+14 27
+"tftFilter"
+"WF"
+1 999 15 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E "main()
+{
+  ssc_setFilter();
+}
+" 0
+ E
+0
+4
+LANG:10001 19 Display name filter
+LANG:10004 21 显示名称过滤器
+LANG:10000 18 Displaynamenfilter
+LANG:10027 36 Фильтр имени экрана
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  898 23 1232 52
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  ssc_setFilter();
+}
+
+" 0
+
+13 28
+"btnDelFilter_DPTree"
+"WF"
+1 829.5010403322234 671.3761870324463 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 15 删除过滤器
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1228 23 1257 52
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dpTreeNode.SetDpFilter(\"\");
+  tftFilter.text = \"\";
+  btnDelFilter_DPTree.visible(true);
+}
+
+" 0
+ E E E
+13 29
+"btnSearch_DPTree"
+"WF"
+1 854.6055564073951 671.5720747996672 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1253 23 1282 52
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  ssc_setFilter();
+}
+" 0
+ E E E
+29 30
+"dpTreeNode"
+"WF"
+1 948.1245316357714 147.0120764592895 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+9
+"selectionMode" "enum 0"
+"dragDropOverwriteMode" "bool FALSE"
+"layoutDirection" "enum 0"
+"dragDropMode" "enum 1"
+"expandedStateName" "string CNS_EDITOR_VIEW"
+"verticalScrollBarPolicy" "enum 2"
+"sizeAdjustPolicy" "enum 2"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  900 49.99999999999999 1280 500.0000000000001
+29 DatapointTree.DatapointTree.1
+1
+0 "OnLButtonClk" "(string dp, int isType, int sysNum)"
+"//   dragStart(\"ms\");"
+"main()
+{
+  this.alternatingRowColors = TRUE;
+  this.lastNode(\"LAST_NODE_ELEMENT\");
+  this.showMasterDps(false);
+}
+" 0
+20 105
+"chkBx_internalDPs"
+"WF"
+1 915 507 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  913 505 1084 525
+1
+T 
+4
+LANG:10001 17 Show internal DPs
+LANG:10004 15 显示内部 DP
+LANG:10000 20 Interne DPs anzeigen
+LANG:10027 17 Show internal DPs
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  this.text(0, getCatStr(\"ssc_wizards\", \"kpi0008\"));
+}
+" 0
+"main(int button, int state)
+{
+  dpTreeNode.showInternalDpTypes(state);
+}" 0
+29 69
+"dt_from"
+"WF"
+1 1043.122119101487 45.01940892498207 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+11
+"contextMenuPolicy" "enum 1"
+"alignment" "enum 129"
+"layoutDirection" "enum 0"
+"inputMethodHints" "enum 8"
+"correctionMode" "enum 0"
+"timeSpec" "enum 0"
+"buttonSymbols" "enum 0"
+"displayFormat" "string dd. MMM yyyy"
+"calendarPopup" "bool TRUE"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  975 54.25 1105 79.25
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  //Set global variable for child panel access
+//   dtFrom=dt_from.dateTime;  
+ // time from = getTimeFrom();
+  //from=makeTime(year(t),month(t),day(t),hour(from),minute(from),second(from));
+  //setTimeFrom(from);
+	panelChanged = true;
+	wf_bottomBar_reload();"
+E29 70
+"dt_to"
+"WF"
+1 1043.489161925561 108.7187500000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+11
+"contextMenuPolicy" "enum 1"
+"alignment" "enum 129"
+"layoutDirection" "enum 0"
+"inputMethodHints" "enum 8"
+"correctionMode" "enum 0"
+"timeSpec" "enum 0"
+"buttonSymbols" "enum 0"
+"displayFormat" "string dd. MMM yyyy"
+"calendarPopup" "bool TRUE"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  975 94.5 1105 119.5
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  //Set global variable for child panel access
+  // dtTo=dt_to.dateTime;
+  //time to = getTimeTo();
+ // to=makeTime(year(t),month(t),day(t),hour(to),minute(to),second(to));
+  //setTimeTo(to);
+	panelChanged = true;
+	wf_bottomBar_reload();"
+E2 71
+"txtTimeFrom"
+""
+1 930 59.6600339249821 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  //DebugTN(\"FONT = \"+this.font);
+}
+" 0
+ E 0 1 1 2 1 E U  0 E 930 59.6600339249821 962 75
+0 2 2 "0s" 0 0 0 192 0 0  930 59.6600339249821 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 From
+LANG:10004 3 从
+LANG:10000 3 Von
+LANG:10027 4 From
+2 72
+"txtTimeTo"
+""
+1 133286 1879.694308919368 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9666666666666667 721 63.01666666666668 0 E 209 38 224 53
+0 2 2 "0s" 0 0 0 192 0 0  209 38 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 To
+LANG:10004 3 从
+LANG:10000 3 Bis
+LANG:10027 2 To
+20 73
+"chk_equi"
+"WF"
+1 929.3699913213673 138.8298611111111 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 51 Defines the interval for an equidistant time series
+LANG:10004 33 定义等距时间序列的间隔
+LANG:10000 56 Legt das Intervall für die äquidistante Zeitserie fest
+LANG:10027 51 Defines the interval for an equidistant time series
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  927.9075021696584 136.5 1098.907502169659 157.5
+1
+T 
+4
+LANG:10001 26 Equidistant time intervals
+LANG:10004 18 等距时间间隔
+LANG:10000 28 Äquidistante Zeitintervalle
+LANG:10027 26 Equidistant time intervals
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if (state == 0)
+  {
+    equiIntSpin.text = 1;
+    g_equiTimeInterval = 0; //TFS 12951: because spinbutton only recognizes changes after command key is pressed, we need to set the global variable here for it to be in the right state
+    chk_quality.visible(FALSE);
+    chk_quality.enabled(FALSE);
+  }
+  else {
+    g_equiTimeInterval = equiIntSpin.text;
+    chk_quality.visible(TRUE);
+    chk_quality.enabled(TRUE);
+  }
+  
+  equiIntSpin.enabled(state);
+  
+	panelChanged = true;
+	wf_bottomBar_reload();
+}
+
+
+
+
+" 0
+29 74
+"dt_from_time"
+"WF"
+1 1124.453727760936 50.0576871112422 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+12
+"frame" "bool TRUE"
+"buttonSymbols" "enum 0"
+"displayFormat" "string HH:mm:ss"
+"calendarPopup" "bool FALSE"
+"inputMethodHints" "enum 8"
+"timeSpec" "enum 0"
+"layoutDirection" "enum 0"
+"alignment" "enum 129"
+"contextMenuPolicy" "enum 1"
+"correctionMode" "enum 0"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1120.226405978793 54.5 1235 79.5
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  //time from = getTimeFrom();
+  //from=makeTime(year(from),month(from),day(from),hour(t),minute(t),second(t));
+  //setTimeFrom(from);
+	panelChanged = true;
+	wf_bottomBar_reload();"
+E29 75
+"dt_to_time"
+"WF"
+1 1119.066828880691 79.0576871112422 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"displayFormat" "string HH:mm:ss"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1120.226405978793 94.5 1235 119.5
+16 DateTimeEdit.ewo
+1
+0 "dateTimeChanged" "(time t)"
+"  //time to = getTimeTo();
+  //to=makeTime(year(to),month(to),day(to),hour(t),minute(t),second(t));
+  //setTimeTo(to);
+	panelChanged = true;
+	wf_bottomBar_reload();"
+E21 76
+"equiIntSpin"
+"WF"
+1 1143.955219538115 185.5 E E E 1 E 1 E N "_WindowText" E N {236,239,242} E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1118.226405978793 132.5 1192.226405978793 161.5
+0
+
+"main()
+{
+  this.enabled(false);
+  this.text(1);
+}" 0
+
+"main()
+{
+  g_equiTimeInterval=this.text;
+	panelChanged = true;
+	wf_bottomBar_reload();
+}
+
+
+
+
+
+
+" 0
+
+E
+
+N 1 10000 1 1 1 1
+20 78
+"maxLagCheck"
+"WF"
+1 929.3699913213673 178.8298611111111 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 95 Enable lag detection. Time span (seconds)  used for searching a higher correlation coefficient.
+LANG:10004 79 启用滞后检测。 用于搜索更高相关系数的时间跨度（秒）。
+LANG:10000 112 Lag Erkennung aktivieren. Zeitraum (Sekunden) in dem nach einem höheren Korrelationskoeffizienten gesucht wird.
+LANG:10027 95 Enable lag detection. Time span (seconds)  used for searching a higher correlation coefficient.
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  927.9075021696584 176.5 1098.907502169659 197.5
+1
+T 
+4
+LANG:10001 20 Enable lag detection
+LANG:10004 18 启用滞后探测
+LANG:10000 22 Lag Erkennung anwenden
+LANG:10027 20 Enable lag detection
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  maxLagSpin.enabled(false);
+}" 0
+"main(int button, int state)
+{
+  maxLagSpin.enabled(state);
+  
+  if(state == 0)
+  {
+    maxLagSpin.text = 1;
+    g_maxLag = 0;
+  }
+  else
+  {
+    g_maxLag = maxLagSpin.text;
+  }
+  
+	panelChanged = true;
+	wf_bottomBar_reload();
+}
+
+
+
+
+" 0
+21 79
+"maxLagSpin"
+"WF"
+1 1143.955219538115 226.5 E E E 1 E 1 E N "_WindowText" E N {236,239,242} E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1118.226405978793 172.5 1192.226405978793 201.5
+0
+
+"main()
+{
+  this.text(1);
+  this.enabled(false);
+}" 0
+
+"main()
+{
+  g_maxLag = this.text(); 
+	panelChanged = true;
+	wf_bottomBar_reload();
+}
+
+
+
+
+
+
+
+" 0
+
+E
+
+N 1 10000 1 1 1 1
+20 41
+"chk_quality"
+"WF"
+1 929.9432003383271 213.75 E E E 0 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  927.9537510848293 211.75 1192 232.75
+1
+T 
+4
+LANG:10001 27 Calculate quality metrices 
+LANG:10004 18 计算质量指标
+LANG:10000 30 Qualitätskennzahlen berechnen
+LANG:10027 26 Calculate quality metrices
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  //set global quality flag
+  g_quality=state;
+	panelChanged = true;
+	wf_bottomBar_reload();
+}
+
+
+
+
+
+" 0
+2 77
+"txtSecEqui"
+""
+1 1201.911401639476 139.7187500000001 E E E 1 E 1 E N "WF_Text" E N {236,239,242} E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 1201.911401639476 139.7187500000001 1210 155
+0 2 2 "0s" 0 0 0 192 0 0  1201.911401639476 139.7187500000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 s
+LANG:10004 1 s
+LANG:10000 1 s
+LANG:10027 1 s
+2 80
+"txtSecLag"
+""
+1 1201.911401639476 179.7187500000001 E E E 1 E 1 E N "WF_Text" E N {236,239,242} E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 1201.911401639476 179.7187500000001 1210 195
+0 2 2 "0s" 0 0 0 192 0 0  1201.911401639476 179.7187500000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 s
+LANG:10004 1 s
+LANG:10000 1 s
+LANG:10027 1 s
+14 83
+"cnsFilter"
+"WF"
+1 998.2340012206873 14.13836104513054 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+83 0 0 0 0 0
+E "main()
+{
+  ssc_setFilter();
+}
+" 0
+ E
+0
+4
+LANG:10001 19 Display name filter
+LANG:10004 21 显示名称过滤器
+LANG:10000 18 Displaynamenfilter
+LANG:10027 36 Фильтр имени экрана
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  898 23 1232 52
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  if(this.text != \"\")
+    setFilterCNS();
+  else
+    clearFilterCNS();
+}
+
+" 0
+
+13 84
+"btnDelete_CNS"
+"WF"
+1 829.8954839248288 672.8041122327791 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 15 删除过滤器
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1228 23 1257 52
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  clearFilterCNS();
+}
+
+" 0
+ E E E
+13 85
+"btnSearch_CNS"
+"WF"
+1 855 671 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1253 23 1282 52
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  setFilterCNS();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

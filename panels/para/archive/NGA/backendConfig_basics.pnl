@@ -1,0 +1,2943 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 927 436 N "_3DFace" 0
+"main()
+{
+  setInputFocus(myModuleName(), myPanelName(), \"BackendDisplayNameTextBox\");
+  NgaBackendConfigProvider::generalSettingsPanel = self;
+}
+" 0
+ E E E E 1 -1 -1 0  -5.885770628736736 -2.477124447779545
+""0  1
+E "#uses \"classes/nga/NgaBackendConfigProvider\"
+
+#event event_setPanelDirty(bool dirty, bool force = FALSE)
+
+#event event_activateBackend(bool activate)
+
+#event event_setBackendDisplayName()
+
+#event event_backendProcessControl()
+#event event_databaseProcessControl()
+
+#event event_passwordChanged(string newPassword)
+#event event_changeProfile(string newProfileName)
+
+string oldValue, oldAddress, backendSelected, mainBackendSelected;
+mapping allStates;  // holds all states values related to overview
+const dyn_string OVERVIEW_SHAPES = makeDynString(\"frontend_backend_con\", \"database_backend_con\", \"database_backend_val\", \"backend_ref\",
+                                                 \"frontend_backend_2_con\", \"database_backend_2_con\", \"database_backend_2_val\", \"backend_2_ref\",
+                                                 \"frontend_backend_R_con\", \"database_backend_R_con\", \"database_backend_R_val\", \"backend_R_ref\",
+                                                 \"frontend_backend_R_2_con\", \"database_backend_R_2_con\", \"database_backend_R_2_val\", \"backend_R_2_ref\");
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which checks if selected backend is redundant
+**/
+bool redundantBackend()
+{
+   string backendName = NgaBackendConfigProvider::selectedBackendName;
+   if ( backendName.endsWith(\"_2\") || backendName.endsWith(\"_R\") )
+     return TRUE;
+
+  return FALSE;
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which does a shapes buffer values cleanup
+**/
+public void cleanup()
+{
+  oldValue.clear();
+  oldAddress.clear();
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which updates states for the overview panel
+ * @param states the given states to be taken
+**/
+public void updateStates(const mapping states)
+{
+  allStates = states;
+  if ( !backendSelected.isEmpty() )
+    updateOverview(backendSelected, FALSE);
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which does an overview update for the given backend name
+**/
+public synchronized void updateOverview(const string backendName, bool refreshSelection = TRUE)
+{
+  // update selected backend
+  if ( refreshSelection )
+  {
+    backendSelected = backendName;
+
+    // update main backend
+    if ( !isRedundant() )
+    {
+      mainBackendSelected = backendSelected;
+    }
+    else
+    {
+      mainBackendSelected = backendSelected;
+      if ( mainBackendSelected.endsWith(\"_R\") ||  mainBackendSelected.endsWith(\"_R_2\") )
+        mainBackendSelected.remove(mainBackendSelected.lastIndexOf(\"_R\"), mainBackendSelected.length());
+      else if ( mainBackendSelected.endsWith(\"_2\") )
+        mainBackendSelected.remove(mainBackendSelected.lastIndexOf(\"_2\"), mainBackendSelected.length());
+    }
+  }
+
+  shape updateNotReady = getShapeStrict(NgaBackendConfigProvider::overviewPanel, \"updateNotReady\");
+  if ( allStates.isEmpty() || !mappingHasKey(allStates, mainBackendSelected) )
+  {
+    setValue(updateNotReady, \"visible\", TRUE);
+    return;
+  }
+  else
+  {
+    setValue(updateNotReady, \"visible\", FALSE);
+  }
+
+  defineDiagram();  // with regard to inProc/out-ofProc
+
+  bool frontendConnected = allStates[mainBackendSelected][\"frontend\"];
+  if ( isRedundant() )
+  {
+    dyn_string reduPrefixes = makeDynString(\"_2\", \"_R\", \"_R_2\");
+    for (int i = 1; i <= dynlen(reduPrefixes); ++i)
+    {
+      if ( frontendConnected && mappingHasKey(allStates, mainBackendSelected + reduPrefixes[i]) )
+        frontendConnected = allStates[mainBackendSelected + reduPrefixes[i]][\"frontend\"];
+    }
+
+    startThread(\"frontendConnection\", frontendConnected);  // separate thread to reduce time
+  }
+
+  for (int i = 1; i <= dynlen(OVERVIEW_SHAPES); ++i)
+  {
+    // skip shapes related to redundant projects
+    if ( !isRedundant() &&
+         (OVERVIEW_SHAPES[i].contains(\"backend_2_\") || OVERVIEW_SHAPES[i].contains(\"backend_R_\")) )
+    {
+      continue;
+    }
+
+    startThread(\"redrawStates\", OVERVIEW_SHAPES[i], refreshSelection);  // separate thread to reduce time
+  }
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which displays and hide the overview panel
+ * @param show when TRUE the overview panel will be shown, FALSE will be hidden
+**/
+public synchronized void showOverview(bool show = TRUE)
+{
+  overviewModule.visible(show);
+  if ( !show )
+    return;
+
+  int animGroup = createAnimation(\"parallel\");
+  mapping options;
+  options[\"duration\"] = 200;
+
+  int width, height;
+  int posX, posY;
+  getValue(\"StatusFrame\", \"position\", posX, posY);
+  getValue(\"StatusFrame\", \"size\", width, height);
+
+  // Set an animation for shapes
+  animate(animGroup, \"overviewModule\", \"sizeAsDyn\", makeDynInt(0, 0), makeDynInt(posX + width, posY + height), options);
+
+  // Start animation and wait until finished
+  startAnimationWait(animGroup);
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which defines the overview diagram view
+**/
+void defineDiagram()
+{
+  if ( !mappingHasKey(allStates, mainBackendSelected) )
+    return;
+
+  bool visible, inProc = allStates[mainBackendSelected][\"isInProc\"];
+  string affectedShapeName = \"frontend_backend_con\";
+  shape affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + affectedShapeName);
+  getValue(affectedShape, \"visible\", visible);
+
+  // update frontend icon
+  setValue(getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".frontend1_ref.icon\"),
+           \"fill\",
+           \"[pattern,[fit,any,NGA/frontend_\" + (allStates[mainBackendSelected][\"frontend\"] ? \"active\" : \"notActive\") + \".svg]]\");
+
+  // update frontend icon when redundant
+  if ( isRedundant() && mappingHasKey(allStates, mainBackendSelected + \"_2\") )
+    setValue(getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".frontend2_ref.icon\"),
+             \"fill\",
+             \"[pattern,[fit,any,NGA/frontend_\" + (allStates[mainBackendSelected + \"_2\"][\"frontend\"] ? \"active\" : \"notActive\") + \".svg]]\");
+
+  if ( inProc != visible )  // no changes needed
+    return;
+
+  setValue(affectedShape, \"visible\", !inProc);
+  if ( isRedundant() )
+  {
+    dyn_string reduPrefixes = makeDynString(\"_2\", \"_R\", \"_R_2\");
+    for (int i = 1; i <= dynlen(reduPrefixes); ++i)
+    {
+      affectedShapeName = \"frontend_backend_con\";
+      affectedShapeName.replace(\"backend_con\", \"backend\" + reduPrefixes[i] + \"_con\");
+      affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + affectedShapeName);
+      if ( hideMissingShape(affectedShape, mainBackendSelected + reduPrefixes[i]) )
+        continue;
+
+      inProc = allStates[mainBackendSelected + reduPrefixes[i]][\"isInProc\"];
+      setValue(affectedShape, \"visible\", !inProc);
+    }
+  }
+
+  startThread(\"moveDiagram\", inProc);  // separate thread to reduce time
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which updates the frontend connection state
+**/
+void frontendConnection(bool frontendConnected)
+{
+  string shapeFrontend = \"reduCon\";
+  for (int i = 1; i <= 5; ++i)
+  {
+    shape theShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeFrontend + i);
+    setValue(theShape, \"color\", frontendConnected ? \"STD_valve_open\" : \"\");
+  }
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which shift diagram depending if it is in-Proc and out-of-Proc
+**/
+void moveDiagram(bool inProc)
+{
+  string affectedShapeName = \"frontend_backend_con\";
+  shape affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + affectedShapeName);
+  int w, h;
+  getValue(affectedShape, \"size\", w, h);
+
+  dyn_string all_shapes = OVERVIEW_SHAPES;
+  dynAppend(all_shapes, makeDynString(\"database_ref\", \"database_2_ref\"));
+  for (int i = 1; i <= dynlen(all_shapes); ++i)
+  {
+    // skip shapes related to redundant projects
+    if ( !isRedundant() &&
+         (all_shapes[i].contains(\"backend_2_\") || all_shapes[i].contains(\"backend_R_\") || all_shapes[i].contains(\"database_2_\") ) )
+    {
+      continue;
+    }
+
+    moveShape(all_shapes[i], inProc, h);
+  }
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which shift individual shape to the given step
+**/
+void moveShape(const string shapeName, const bool inProc, const int step)
+{
+  shape affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeName);
+  int x, y;
+  getValue(affectedShape, \"position\", x, y);
+  if ( inProc )
+    y -= step;
+  else
+    y += step;
+
+  setValue(affectedShape, \"position\", x, y);
+  return;
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which redraws the given shape in the overview panel
+**/
+void redrawStates(const string &shapeName, bool refreshSelection = TRUE)
+{
+  shape affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeName);
+  string backendPrefix = shapeName;
+  string prefix = \"backend\";
+  backendPrefix.remove(backendPrefix.indexOf(prefix), prefix.length());
+  if ( shapeName.startsWith(prefix) && shapeName.endsWith(\"_ref\") )  // backend reference
+  {
+    backendPrefix.remove(backendPrefix.lastIndexOf(\"_ref\"), backendPrefix.length());
+
+    string selectedIcon, activeIcon;
+    if ( mainBackendSelected + backendPrefix == backendSelected )
+      selectedIcon = \"_selected\";
+
+    affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeName);
+    if ( hideMissingShape(affectedShape, mainBackendSelected + backendPrefix, FALSE, refreshSelection) )
+      return;
+
+    if ( allStates[mainBackendSelected + backendPrefix][\"active\"] )
+      activeIcon = \"_active\";
+    else
+      activeIcon = \"_notActive\";
+
+    // update backend icon
+    affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeName + \".icon\");
+    setValue(affectedShape, \"fill\", \"[pattern,[fit,any,NGA/backend\" + activeIcon + selectedIcon + \".svg]]\");
+
+    // update backend name
+    affectedShape = getShapeStrict(NgaBackendConfigProvider::overviewPanel, NgaBackendConfigProvider::OVERVIEW_REF + \".\" + shapeName + \".name\");
+    if ( backendPrefix.isEmpty() )
+      setValue(affectedShape, \"text\", mainBackendSelected);
+    else
+      setValue(affectedShape, \"text\", \"   ...\" + backendPrefix);
+
+    return;
+  }
+  else if ( shapeName.endsWith(\"_con\") )  // connection state
+  {
+    backendPrefix.remove(backendPrefix.lastIndexOf(\"_con\"), backendPrefix.length());
+
+    bool state;
+    if ( shapeName.startsWith(\"database_\") )
+    {
+      prefix = \"database_\";
+      backendPrefix.remove(backendPrefix.indexOf(prefix), prefix.length());  // remove database_
+      if ( hideMissingShape(affectedShape, mainBackendSelected + backendPrefix, FALSE, refreshSelection) )
+        return;
+
+      state = allStates[mainBackendSelected + backendPrefix][\"connectedToDatabase\"];
+    }
+    else if ( shapeName.startsWith(\"frontend_\") )
+    {
+      prefix = \"frontend_\";
+      backendPrefix.remove(backendPrefix.indexOf(prefix), prefix.length());  // remove frontend_
+      if(  hideMissingShape(affectedShape, mainBackendSelected + backendPrefix, TRUE, refreshSelection) )
+        return;
+
+      state = allStates[mainBackendSelected + backendPrefix][\"connectedToFrontend\"];
+    }
+
+    setValue(affectedShape, \"color\", state ? \"STD_valve_open\" : \"\");
+    return;
+  }
+  else if ( shapeName.endsWith(\"_val\") )  // buffer state
+  {
+    backendPrefix.remove(backendPrefix.lastIndexOf(\"_val\"), backendPrefix.length());
+
+    prefix = \"database_\";
+    backendPrefix.remove(backendPrefix.indexOf(prefix), prefix.length());  // remove database_
+
+    if ( hideMissingShape(affectedShape, mainBackendSelected + backendPrefix, FALSE, refreshSelection) )
+      return;
+
+    setValue(affectedShape, \"text\", allStates[mainBackendSelected + backendPrefix][\"buffer\"]);
+    return;
+  }
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief The function which hides non-existing shapes (related to backend with database handles redu)
+**/
+int hideMissingShape(const shape &affectedShape, const string &backendName, bool inProcRelated = FALSE)
+{
+  if ( !mappingHasKey(allStates, backendName) )
+  {
+    setValue(affectedShape, \"visible\", FALSE);
+    return -1;
+  }
+
+  if ( inProcRelated )
+    setValue(affectedShape, \"visible\", !allStates[backendName][\"isInProc\"]);
+  else
+    setValue(affectedShape, \"visible\", TRUE);
+
+  return 0;
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+1 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+19 12
+"ReadOnlyWriteOnlyRadioButton"
+""
+1 625.3611318947765 96.14185641377941 E E E 1 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 298 <u> Read & Write database:</u> Backend can perform read and write operations.<br>
+<br>
+<u>Read Only database:</u> Backend cannot perform write operations, it is a read-only backend.<br>
+<br>
+<u>Write Only database:</u> Backend cannot perform read operations, it is a write-only (streaming) backend.
+LANG:10004 258 <u> 读写数据库：</u> 后端可以进行读写操作。<br>
+<br>
+<u>只读数据库：</u> 后端不能进行写操作，它是 一个只读后端。<br>
+<br>
+<u>只写数据库：</u>后端不能执行读取操作，它是一个只写（流）后端。
+LANG:10000 378 <u>Read & Write Datenbank:</u> Das Backend kann Lese- und Schreibvorgänge ausführen. <br>
+<br>
+<u>Schreibgeschützte Datenbank:</u> Das Backend kann keine Schreibvorgänge ausführen, es ist ein schreibgeschütztes Backend.<br>
+<br>
+<u>Nur-Schreiben-Datenbank:</u> Das Backend kann keine Lesevorgänge ausführen. Es handelt sich um ein Nur-Schreib-Backend (Streaming-Backend)
+LANG:10027 603 <u>База данных для чтения и записи:</u> Бэкэнд может выполнять операции записи и чтения.<br>
+<br>
+<u>База данных только для чтения:</u> Бэкэнд не может выполнять операции записи, это бэкэнд только для чтения.<br>
+<br>
+<u>База данных только для записи:</u> Бэкэнд не может выполнять операции чтения, это бэкэнд только для записи (потоковая передача).
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 94.14185641377941 817.3611318947765 151.1418564137794
+3
+T 
+4
+LANG:10001 22 Read && Write Database
+LANG:10004 15 读写数据库
+LANG:10000 23 Read && Write Datenbank
+LANG:10027 41 Чтение и запись данных
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 18 Read-Only Database
+LANG:10004 15 只读数据库
+LANG:10000 19 Read-only Datenbank
+LANG:10027 38 Только чтение данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 19 Write-Only Database
+LANG:10004 15 只读数据库
+LANG:10000 20 Write-only Datenbank
+LANG:10027 38 Только запись данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  triggerEvent(\"event_setPanelDirty\", true);
+}" 0
+
+2 18
+"PRIMITIVE_TEXT2"
+"WF"
+1 42.89499996528109 31.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9503944446391668 0 0.9440993788819877 454.5939622249761 135.8778812584999 0 E 42.89499996528109 31.5 167.8949999652811 48.5
+0 2 2 "0s" 0 0 0 64 0 0  42.89499996528109 31.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 20 Database Connection:
+LANG:10004 18 数据库连接：
+LANG:10000 20 Datenbankverbindung:
+LANG:10027 31 Подключение к БД:
+2 19
+"PRIMITIVE_TEXT3"
+"WF"
+1 56 70.50000000000001 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9486894668406219 0 0.9047619047619048 442.2345217517017 203.3561421280651 0 E 56 70.50000000000001 181 87.5
+0 2 2 "0s" 0 0 0 64 0 0  56 70.50000000000001 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 18 Database Username:
+LANG:10004 21 数据库用户名：
+LANG:10000 23 Datenbank Benutzername:
+LANG:10027 37 Имя пользователя БД:
+14 20
+"DatabaseConnectionStringTextBox"
+"WF"
+1 387.7607846847242 -153.6795721576492 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+"main()
+{
+  oldValue = this.text;
+}" 0
+ "main()
+{
+  if ( oldValue != this.text )
+   triggerEvent(\"event_setPanelDirty\", TRUE, TRUE);
+}
+" 0
+ E
+0
+4
+LANG:10001 309 Identification how to connect to the database. For <b>InfluxDB®</b> this is the http ad-dress of the database process. Note:  If the system is using remote UIs (not  running on the server) the address “127.0.0.1” (localhost) for the Influx DB has to be changed to the “real” IP address of the server.
+LANG:10004 279 标识如何连接到数据库。 对于 <b>InfluxDB®</b>，这是数据库进程的 http 地址。 注意：如果系统使用远程用户界面（不在服务器上运行），Influx DB 的地址“127.0.0.1”（localhost）必须更改为服务器的“真实”IP 地址。
+LANG:10000 389 Identifizierung, wie eine Verbindung zur Datenbank hergestellt werden soll. Für <b>InfluxDB®</b> ist dies die http-Adresse des Datenbankprozesses. Hinweis: Wenn das System Remote-Benutzeroberflächen verwendet (die nicht auf dem Server ausgeführt werden), muss die Adresse „127.0.0.1“ (localhost) für die Influx-Datenbank in die „echte“ IP-Adresse des Servers geändert werden.
+LANG:10027 522 Определение того, как подключиться к базе данных. Для <b>InfluxDB®</b> это http-адрес процесса базы данных. Примечание. Если в системе используются удаленные пользовательские интерфейсы (не запущенные на сервере), адрес «127.0.0.1» (localhost) для Influx DB необходимо изменить на «реальный» IP-адрес сервера.
+
+4
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  oldAddress = newText;
+  connectAddress.text(NgaBackendConfigProvider::getConnectionAddress(newText));
+}"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 158.1418564137794 866.3611318947765 187.1418564137794
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  triggerEvent(\"event_setPanelDirty\", TRUE, TRUE);
+}" 0
+
+14 21
+"DatabaseUserNameTextBox"
+"WF"
+1 387.7607846847242 -37.91766739574449 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+40 0 0 0 0 0
+"main()
+{
+  oldValue = this.text;
+}" 0
+ "main()
+{
+  if ( oldValue != this.text )
+    triggerEvent(\"event_setPanelDirty\", true);
+}
+" 0
+ E
+0
+4
+LANG:10001 39 User name for logging into the database
+LANG:10004 27 登录数据库的用户名
+LANG:10000 49 Benutzername für die Anmeldung bei der Datenbank
+LANG:10027 74 Имя пользователя для входа в базу данных
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 260.3323326042556 866.3611318947765 289.3323326042556
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  triggerEvent(\"event_setPanelDirty\", true);
+}" 0
+
+14 22
+"DatabaseUserPasswordTextBox"
+"WF"
+1 387.7607846847242 -70.66766739574439 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+42 0 0 0 0 0
+"main()
+{
+  oldValue = this.text;
+}" 0
+ "main()
+{
+  if ( oldValue != this.text )
+    triggerEvent(\"event_setPanelDirty\", true);
+}
+" 0
+ E
+0
+4
+LANG:10001 256 Password for logging into the database (stored encrypted). Note that after installation of WinCC OA for <b>InfluxDB®</b> a default user <b>etm</b> and password <b>etm#123</b> are pre-installed.<b><br>
+<br>
+It is <u>highly</u> recommended to change it!</b>
+LANG:10004 219 登录数据库的密码（加密存储）。 请注意，在安装 WinCC OA for <b>InfluxDB®</b> 后，会预先安装默认用户 <b>etm</b> 和密码 <b>etm#123</b>。<b><br>
+<br>
+<u>强烈</u>建议更改它！</b>
+LANG:10000 304 Passwort für die Anmeldung in der Datenbank (verschlüsselt gespeichert). Beachten Sie, dass nach der Installation von WinCC OA für <b>InfluxDB®</b> ein Standardbenutzer <b>etm</b> und ein Kennwort <b>etm#123</b> vorinstalliert sind.<b><br>
+<br>
+Es wird <u>dringend</u> empfohlen, dies zu ändern!</b>
+LANG:10027 464 Пароль для входа в базу данных (хранится в зашифрованном виде). Обратите внимание, что после установки WinCC OA для <b>InfluxDB®</b> предварительно установлены пользователь по умолчанию <b>etm</b> и пароль <b>etm#123</b>.<b><br>
+<br>
+<u>Настоятельно</u> рекомендуется его изменить!</b>
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 290.3323326042556 866.3611318947765 319.3323326042556
+2 "0S" 0 0 0 0 0 -1  "main(mapping event)
+{
+  if ( redundantBackend() )
+  {
+    triggerEvent(\"event_setPanelDirty\", true);
+    return;
+  }
+
+  triggerEvent(\"event_passwordChanged\");
+}
+" 0
+ "main()
+{
+  this.backCol(\"white\");
+}" 0
+ E
+2 23
+"PRIMITIVE_TEXT4"
+"WF"
+1 56 70.50000000000001 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "190 -1"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.8357391189387678 0 0.9047619047619048 448.5597412342055 233.3561421280651 0 E 56 70.50000000000001 181 87.5
+0 2 2 "0s" 0 0 0 64 0 0  56 70.50000000000001 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 9 Password:
+LANG:10004 9 密码：
+LANG:10000 9 Passwort:
+LANG:10027 13 Пароль:
+20 33
+"IsBackendActiveCheckBox"
+""
+1 1546.2474012474 34.9054054054054 E E E 1 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 255 Activate/Deactivate the backend. When not active, the backend does not process any write or read requests and data for this backend will not be buffered. This setting can be used to switch off archiving for all datapoint elements assigned to this backend.
+LANG:10004 208 激活/停用backend。 不激活时，backend不会处理任何写入或读取请求，并且不会缓冲此backend的数据。 此设置可用于关闭分配给此backend的所有数据点元素的归档。
+LANG:10000 311 Aktivieren / Deaktivieren Sie das Backend. Wenn das Backend nicht aktiv ist, verarbeitet es keine Schreib- oder Leseanforderungen, und die Daten für dieses Backend werden nicht gepuffert. Mit dieser Einstellung können Sie die Archivierung für alle diesem Backend zugewiesenen Datenpunktelemente deaktivieren.
+LANG:10027 532 Активировать / деактивировать Бэкенд. В неактивном состоянии Бэкенд не обрабатывает никаких запросов на запись или чтение, и данные для этого Бэкенда не буферизуются. Этот параметр можно использовать для отключения архивирования для всех элементов датапоинтов, назначенных этому Бэкэнду.
+
+4
+"minimumSize" "170 21"
+"maximumSize" "170 21"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  46.37837837837844 35.4054054054054 219.7027027027028 59.4054054054054
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  triggerEvent(\"event_activateBackend\", state);
+}" 0
+14 41
+"BackendDisplayNameTextBox"
+"WF"
+1 625.3611318947765 32.14185641377941 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 255 Backend configurations are stored in internal datapoints of data point type _NGA_Backend. For each backend there exists one data point of this type.
+
+The _NGA_Backend data point is described inside of the chapter Internal Data Points in the documentation.
+LANG:10004 206 Backend配置存储在数据点类型 _NGA_Backend 的内部数据点中。 对于每个Backend，存在一个此类数据点。
+
+_NGA_Backend 数据点在文档的内部数据点一章中进行了描述。
+LANG:10000 255 Backend-Konfigurationen werden in internen Datenpunkten vom Datenpunkttyp _NGA_Backend gespeichert. Für jedes Backend existiert ein Datenpunkt dieses Typs.
+
+Der _NGA_Backend-Datenpunkt wird im Kapitel Interne Datenpunkte in der Dokumentation beschrieben.
+LANG:10027 363 Конфигурации Бэкэнда хранятся во внутренних датапоинтах типа _NGA_Backend. Для каждого Бэкэнда существует один датапоинт этого типа.
+
+Датапоинт _NGA_Backend описан в главе документации Внутренние Датапоинты.
+
+3
+"minimumSize" "240 26"
+"maximumSize" "240 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947766 27.14185641377941 842.3611318947766 56.14185641377941
+2 "0s" 0 0 0 0 0 -1  "main(mapping event)
+{
+  if ( redundantBackend() )
+  {
+    triggerEvent(\"event_setPanelDirty\", true);
+    return;
+  }
+
+  triggerEvent(\"event_setBackendDisplayName\");
+}" 0
+ E E
+22 43
+"ProfilesComboBox"
+"WF"
+1 625.3611318947763 56.05603631382598 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+"main()
+{
+  oldValue = this.text;
+}" 0
+ E E
+0
+4
+LANG:10001 673 <u>Profile defines:</u><br>
+<br>
+<b>Value parameters:</b><br>
+How DPEs can be processed by the backend (ID only, Name only, ID + Name) and if the backend can process aliases.<br>
+<br>
+<b>Time paramters:</b><br>
+A backend may provide different handling of time periods.<br>
+<br>
+<b>Database specific configs:</b><br>
+For each DB a list of DB specific configuration settings can be defined. In the backend configuration these parameters will get specific values assigned. The names of these configuration settings are predefined by the creator of the backend. The individual configurations can be added, changed, deleted and sorted using the toolbar to the right of the list.
+LANG:10004 567 <u>配置文件定义：</u><br>
+<br>
+<b>值参数：</b><br>
+backend如何处理 DPE（仅 ID、仅名称、ID + 名称）以及backend是否可以处理别名。<br>
+<br>
+<b>时间参数：</b><br>
+backend可能提供不同的时间段处理。<br>
+ <br>
+<b>数据库特定配置：</b><br>
+可以为每个 DB 定义一个 DB 特定配置设置列表。 在backend配置中，这些参数将获得分配的特定值。 这些配置设置的名称由backend的创建者预定义。 可以使用列表右侧的工具栏添加、更改、删除和排序各个配置。
+LANG:10000 677 <u>Profil definiert:</u><br>
+<br>
+<b>Werteparameter:</b><br>
+Wie DPEs vom Backend verarbeitet werden können (nur ID, nur Name, ID + Name) und ob das Backend Aliase verarbeiten kann.<br>
+<br>
+<b>Zeitparameter:</b><br>
+Ein Backend kann eine andere Behandlung von Zeiträumen ermöglichen.<br>
+
+Database specific configs:
+For each DB a list of DB specific configuration settings can be defined. In the backend configuration these parameters will get specific values assigned. The names of these configuration settings are predefined by the creator of the backend. The individual configurations can be added, changed, deleted and sorted using the toolbar to the right of the list.
+LANG:10027 526 <u>Профиль определяет:</u><br>
+<br>
+<b>Параметры значения:</b><br>
+Как DPE могут обрабатываться Бэкэндом (только идентификатор, только имя, идентификатор + имя) и может ли Бэкэнд обрабатывать псевдонимы.<br>
+<br>
+<b>Параметры времени:</b><br>
+Бэкэнд может обеспечивать различную обработку периодов времени.<br>
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  623.3611318947765 56.31887504731978 866.3611318947765 85.31887504731978
+0
+
+E
+"main()
+{
+  if ( oldValue.isEmpty() || (oldValue == this.selectedText) )
+    return;
+
+  oldValue = this.selectedText;
+  if ( redundantBackend() )
+  {
+    triggerEvent(\"event_setPanelDirty\", true);
+    return;
+  }
+
+  triggerEvent(\"event_changeProfile\", this.selectedText);
+}
+" 0
+
+E
+ 0 0
+14 56
+"RequestedZmqAddressTextBox"
+"WF"
+1 773.3611318947762 254.1418564137793 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+55 0 0 0 0 0
+"main()
+{
+  oldValue = this.text;
+}
+" 0
+ "main()
+{
+  if ( oldValue != this.text )
+   triggerEvent(\"event_setPanelDirty\", TRUE);
+}
+" 0
+ E
+0
+4
+LANG:10001 86 For communication between the front- and the backend (in case of out-of-proc backend).
+LANG:10004 73 用于frontend和backend之间的通信（如果是进程外backend）。
+LANG:10000 72 Zur Kommunikation zwischen Front- und Backend (bei Out-of-Proc-Backend).
+LANG:10027 147 Для связи между фронтальной частью и Бэкэндом (в случае внепроцессного Бэкэнда).
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 320.1418564137793 866.3611318947765 349.1418564137793
+2 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  triggerEvent(\"event_setPanelDirty\", TRUE);
+}" 0
+
+14 57
+"ActualZmqAddressTextBox"
+"WF"
+1 683.723097404918 258.5089010876256 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 141 For communication between the front- and the backend.
+Changing them is only possible when “Out-of-proc Custom configuration” is selected.
+LANG:10004 115 对于frontend和backend之间的通信。
+ 仅当更改选择“Out-of-proc Custom configuration”时才可用。
+LANG:10000 158 Zur Kommunikation zwischen Front- und Backend.
+Das Ändern ist nur möglich, wenn "Benutzerdefinierte Konfiguration außerhalb des Prozesses" ausgewählt ist.
+LANG:10027 225 Для связи между фронтендом и Бэкендом.
+Их изменение возможно только при выборе «Настраиваемая конфигурация вне процесса».
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 350.3749999999998 866.3611318947765 379.3749999999998
+2 "0s" 0 0 0 0 0 -1  E E E
+2 58
+"BackendAddressLabel"
+"WF"
+1 40 45.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.026281214065514 0 0.9047619047619048 454.1390459930035 285.7847135566365 0 E 40 45.5 165 62.5
+0 2 2 "0s" 0 0 0 64 0 0  40 45.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 26 Requested Backend Address:
+LANG:10004 25 请求的backend地址：
+LANG:10000 29 Angeforderte Backend Adresse:
+LANG:10027 49 Запрошенный адрес Бэкенда:
+2 59
+"ActiveConfigurationLabel"
+"WF"
+1 473 21 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.6898716740265445 0 0.5333202473255478 169.051830080221 345.9421312199429 0 E 473 21 647 50
+0 2 2 "0s" 0 0 0 64 0 0  473 21 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 23 Active Backend Address:
+LANG:10004 19 激活backend地址
+LANG:10000 23 Aktive Backend Adresse:
+LANG:10027 43 Активный адрес Бэкенда:
+2 60
+"ProfileLabel"
+"WF"
+1 42.89499996528109 31.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9503944446391668 0 0.9440993788819877 454.5939622249761 33.05489989204028 0 E 42.89499996528109 31.5 167.8949999652811 48.5
+0 2 2 "0s" 0 0 0 64 0 0  42.89499996528109 31.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 8 Profile:
+LANG:10004 8 Profile:
+LANG:10000 7 Profil:
+LANG:10027 15 Профиль:
+2 61
+"NameLabel"
+"WF"
+1 42.89499996528109 31.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9503944446391668 0 0.9440993788819877 454.5939622249761 3.877881258499897 0 E 42.89499996528109 31.5 167.8949999652811 48.5
+0 2 2 "0s" 0 0 0 64 0 0  42.89499996528109 31.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 5 Name:
+LANG:10004 5 Name:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+14 62
+"BUFFERS_IN_MEMORY_TEXT"
+"WF"
+1 211.9921827366393 310.5168918918918 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "180 26"
+"maximumSize" "180 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  209.9921827366393 305.5168918918918 438.9921827366392 334.5168918918918
+2 "0s" 0 0 0 0 0 -1  E E E
+30 63
+"FRAME3"
+""
+1 358 36 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+62 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.43046357615894 0 1.348887308063996 -493.9143140732542 234.0641576291205 0 E 358 36 661 171
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 7 Monitor
+LANG:10004 7 Monitor
+LANG:10000 12 Überwachung
+LANG:10027 20 Мониторинг
+14 68
+"BUFFERS_ON_DISK_TEXT"
+"WF"
+1 211.9921827366393 367.3749999999999 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "180 26"
+"maximumSize" "180 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  209.9921827366393 340.6249999999999 438.9921827366392 369.6249999999999
+3 "0s" 0 0 0 0 0 -1  E E E
+14 69
+"BUFFER_COUNT_TEXT"
+"WF"
+1 211.9921827366393 374.6249999999999 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "180 26"
+"maximumSize" "180 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  209.9921827366393 369.6249999999999 438.9921827366392 398.6249999999999
+3 "0s" 0 0 0 0 0 -1  E E E
+2 70
+"BUFFERS_IN_MEMORY_LABEL"
+"WF"
+1 350 311.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 23"
+"maximumSize" "150 23"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.121212121212118 0 1 -354.3001638001625 0.5371621621620193 0 E 350 311.5 461 327
+0 2 2 "0s" 0 0 0 192 0 0  350 311.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 18 Buffers in Memory:
+LANG:10004 15 缓存内存：
+LANG:10000 24 Puffer im Hauptspeicher:
+LANG:10027 31 Буферов в памяти:
+2 71
+"BUFFERS_ON_DISK_LABEL"
+"WF"
+1 350 311.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 23"
+"maximumSize" "150 23"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.121212121212118 0 1 -356.2325962325949 35.87499999999991 0 E 350 311.5 444 327
+0 2 2 "0s" 0 0 0 192 0 0  350 311.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 16 Buffers on Disk:
+LANG:10004 15 缓存硬盘：
+LANG:10000 18 Puffer auf Platte:
+LANG:10027 31 Буферов на диске:
+2 72
+"BUFFER_COUNT_LABEL"
+"WF"
+1 350 311.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 23"
+"maximumSize" "150 23"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.121212121212118 0 1 -354.2325962325949 65.87499999999991 0 E 350 311.5 427 327
+0 2 2 "0s" 0 0 0 192 0 0  350 311.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 13 Buffer Count:
+LANG:10004 12 缓存数量
+LANG:10000 13 Pufferanzahl:
+LANG:10027 36 Количество буферов:
+14 73
+"BLOCK_WRITE_DURATION_TEXT"
+"WF"
+1 212.2139356405467 405.3749999999999 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "180 26"
+"maximumSize" "180 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  209.9921827366393 400.6249999999999 438.9921827366392 429.6249999999999
+3 "0s" 0 0 0 0 0 -1  E E E
+2 74
+"BLOCK_WRITE_DURATION_LABEL"
+"WF"
+1 350 311.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 23"
+"maximumSize" "150 23"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.054910242872227 0 1 -331.0269388136331 95.87499999999991 0 E 350 311.5 476 327
+0 2 2 "0s" 0 0 0 192 0 0  350 311.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 21 Block Write Duration:
+LANG:10004 19 块写持续时间:
+LANG:10000 20 Schreibedauer Block:
+LANG:10027 35 Время записи блока:
+30 76
+"FRAME7"
+""
+1 358 36 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+75 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.354304635761589 0 3.186567164179106 0.5200722921276792 -110.5745614966684 0 E 358 36 661 171
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 19 Basic Configuration
+LANG:10004 12 备份配置
+LANG:10000 19 Basis-Konfiguration
+LANG:10027 33 Базовые настройки
+2 79
+"BLOCK_WRITE_DURATION_UNIT"
+"WF"
+1 350 311.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"minimumSize" "25 -1"
+"maximumSize" "25 -1"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.054910242872227 0 1 -43.224689891004 96.87499999999991 0 E 350 311.5 370 327
+0 2 2 "0s" 0 0 0 192 0 0  350 311.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 2 ms
+LANG:10004 2 ms
+LANG:10000 2 ms
+LANG:10027 4 мс
+30 80
+"FRAME8"
+""
+1 358 36 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+79 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"maximumSize" "-1 140"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.490066225165563 0 0.9925373134328359 -513.4437086092718 -23.73134328358208 0 E 358 36 661 171
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 11 Controlling
+LANG:10004 6 控制
+LANG:10000 9 Steuerung
+LANG:10027 20 Управление
+30 85
+"StatusFrame"
+""
+1 354.9648241206029 33.51851851851848 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+84 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"maximumSize" "-1 140"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.317880794701987 0 0.8059701492537314 -449.8013245033112 130.9850746268657 0 E 358 36 661 171
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 6 Status
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 12 Статус
+6 86
+"FrontendSymbol"
+""
+1 40 171 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 Frontend
+LANG:10004 8 Frontend
+LANG:10000 8 Frontend
+LANG:10027 33 Внешний интерфейс
+
+6
+"minimumSize" "40 40"
+"maximumSize" "40 40"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7352941176470589 0 0.36 128.5612082670906 167.44 2  1 3  "pictures/NGA/frontend_active.svg" 13434828 E 40 71 108 171
+6 87
+"BackendSymbol"
+""
+1 40 171 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 Database
+LANG:10004 9 数据库
+LANG:10000 9 Datenbank
+LANG:10027 21 База данных
+
+6
+"minimumSize" "40 40"
+"maximumSize" "40 40"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5882352941176471 0 0.43 316.470588235294 157.47 2  1 3  "pictures/NGA/database.svg" 13434828 E 40 71 108 171
+6 88
+"ConnectedToFrontendIndicator"
+""
+1 380 160 E E E 1 E 1 E N {0,0,0} E N "black" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "31 3"
+"maximumSize" "31 3"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.5 0 1 21.3513513513513 49.00000000000003 1 E 380 160 440 162
+2 89
+"BackendLabel"
+"WF"
+1 250 202 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"minimumSize" "60 -1"
+"maximumSize" "60 -1"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 250 202 303 217
+0 2 2 "0s" 0 0 0 192 0 0  250 202 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 7 Backend
+LANG:10004 7 Backend
+LANG:10000 7 Backend
+LANG:10027 12 Бэкенд
+6 90
+"ConnectedToBackendIndicator"
+""
+1 380 160 E E E 1 E 1 E N {0,0,0} E N "black" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "31 3"
+"maximumSize" "31 3"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.5 0 1 120 49.00000000000003 1 E 380 160 440 162
+13 91
+"StartOrStopBackendProcessControlButton"
+"WF"
+1 49.40540540540542 62 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 241 Using this button the backend can be stopped and started. Data to be written into this backend/database will be buffered until the backend/database is online again.<br>
+<br>
+<u>Note:</u> This is only possible for <b>out-of-proc</b> backends.
+LANG:10004 209 使用此按钮可以停止和启动backend。 要写入此backend/数据库的数据将被缓冲，直到backend/数据库再次联机。<br>
+<br>
+<u>注意：</u>这仅适用于<b>out- of-proc</b> backend。
+LANG:10000 296 Mit dieser Schaltfläche kann das Backend gestoppt und gestartet werden. Daten, die in dieses Backend / diese Datenbank geschrieben werden sollen, werden gepuffert, bis das Backend / die Datenbank wieder online ist.<br>
+<br>
+<u>Hinweis:</u> Dies ist nur für <b>Out-of-Proc-Backends</b> möglich.
+LANG:10027 518 С помощью этой кнопки можно остановить и запустить Бэкенд. Данные, которые будут записаны в этот Бэкэнд / базу данных, будут буферизироваться до тех пор, пока Бэкэнд / база данных снова не будет в сети.<br>
+<br>
+<u>Примечание.</u> Это возможно только для <b>находящихся вне процесса</b> Бэкендов.
+
+4
+"minimumSize" "170 24"
+"maximumSize" "170 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  47.40540540540542 56 220.4054054054055 83
+
+T 
+4
+LANG:10001 20 <Start|Stop> Backend
+LANG:10004 20 <Start|Stop> Backend
+LANG:10000 20 <Start|Stop> Backend
+LANG:10027 20 <Start|Stop> Backend
+"main(mapping event)
+{
+  triggerEvent(\"event_backendProcessControl\");
+}" 0
+ E E E
+13 92
+"StartOrStopDatabaseProcessControlButton"
+"WF"
+1 49.40540540540542 92 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 149 Using this button the database can be stopped or started.
+
+Data to be written into this database will be buffered until the database is online again.
+LANG:10004 125 使用此按钮可以停止或启动数据库。
+
+要写入此数据库的数据将被缓冲，直到数据库再次联机。
+LANG:10000 188 Mit dieser Schaltfläche kann die Datenbank gestoppt oder gestartet werden.
+
+Daten, die in diese Datenbank geschrieben werden sollen, werden gepuffert, bis die Datenbank wieder online ist.
+LANG:10027 346 С помощью этой кнопки можно остановить или запустить базу данных.
+
+Данные, которые будут записаны в эту базу данных, будут буферизироваться до тех пор, пока база данных снова не будет в сети.
+
+4
+"minimumSize" "170 24"
+"maximumSize" "170 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  47.40540540540542 86 220.4054054054055 113
+
+T 
+4
+LANG:10001 21 <Start|Stop> Database
+LANG:10004 21 <Start|Stop> Database
+LANG:10000 21 <Start|Stop> Database
+LANG:10027 21 <Start|Stop> Database
+"main(mapping event)
+{
+  triggerEvent(\"event_databaseProcessControl\");
+}" 0
+ E E E
+13 93
+"BackendNameLanguageButton"
+"WF"
+1 839.3611318947765 35.14185641377941 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 89 Opens the language editor where you can provide Names in all available project languages.
+LANG:10004 84 打开语言编辑器，您可以在其中提供所有可用项目语言的名称。
+LANG:10000 97 Öffnet den Spracheditor, in dem Sie Namen in allen verfügbaren Projektsprachen angeben können.
+LANG:10027 177 Открывает языковой редактор, в котором вы можете указать имена на всех доступных языках проекта.
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  837.3611318947765 27.14185641377941 866.3611318947765 56.14185641377941
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  triggerEvent(\"event_setBackendDisplayName\");
+}" 0
+ E E E
+32 95
+"SPACER2"
+""
+1 68.19164619164644 440.3749999999999 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 68.19164619164644 440.3749999999999 404.1916461916464 450.3749999999999 2
+32 96
+"SPACER3"
+""
+1 385.1916461916464 318.3479729729729 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 385.1916461916464 318.3479729729729 420.0565110565112 328.3479729729729 1
+32 97
+"SPACER4"
+""
+1 375.1916461916463 375.8749999999999 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 375.1916461916463 375.8749999999999 422.0835380835383 385.8749999999999 1
+32 98
+"SPACER5"
+""
+1 373.1916461916463 345.8749999999999 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 373.1916461916463 345.8749999999999 420.0835380835383 355.8749999999999 1
+32 99
+"SPACER6"
+""
+1 405.1916461916464 406.5506756756756 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 405.1916461916464 406.5506756756756 418.7051597051601 416.5506756756756 1
+32 100
+"SPACER7"
+""
+1 550.0908616245063 392.1418564137794 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 550.0908616245063 392.1418564137794 830.0908616245063 416.8715861435091 2
+32 101
+"SPACER8"
+""
+1 872.6584291920738 34.84455911648211 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 872.6584291920738 34.84455911648211 887.6584291920738 49.84455911648211 1
+32 102
+"SPACER9"
+""
+1 874.0097805434251 61.19591046783346 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 874.0097805434251 61.19591046783346 889.0097805434251 76.19591046783346 1
+32 103
+"SPACER10"
+""
+1 873.3341048677495 121.1688834408064 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 873.3341048677495 121.1688834408064 888.3341048677495 136.1688834408064 1
+32 104
+"SPACER11"
+""
+1 519.955726489371 117.0742888462118 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "190 -1"
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 519.955726489371 117.0742888462118 534.955726489371 132.0742888462118 1
+32 105
+"SPACER12"
+""
+1 874.6854562191008 164.5742888462118 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 874.6854562191008 164.5742888462118 889.6854562191008 179.5742888462118 1
+32 106
+"SPACER13"
+""
+1 875.3611318947765 269.1418564137794 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 875.3611318947765 269.1418564137794 890.3611318947765 284.1418564137794 1
+32 107
+"SPACER14"
+""
+1 873.3341048677495 296.0337483056713 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 873.3341048677495 296.0337483056713 888.3341048677495 311.0337483056713 1
+32 108
+"SPACER15"
+""
+1 873.3341048677495 328.8918564137795 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 873.3341048677495 328.8918564137795 888.3341048677495 343.8918564137795 1
+32 109
+"SPACER16"
+""
+1 874.0097805434251 358.8918564137794 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 874.0097805434251 358.8918564137794 889.0097805434251 373.8918564137794 1
+32 113
+"SPACER20"
+""
+1 220 189 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+ 220 189 240 199 2
+32 114
+"SPACER21"
+""
+1 217.972972972973 223.4594594594595 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+ 217.972972972973 223.4594594594595 237.972972972973 233.4594594594595 2
+32 115
+"SPACER22"
+""
+1 264.5945945945946 191 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 264.5945945945946 191 284.5945945945946 201 2
+32 116
+"SPACER23"
+""
+1 263.918918918919 226.1621621621622 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 263.918918918919 226.1621621621622 283.918918918919 236.1621621621622 2
+32 117
+"SPACER24"
+""
+1 316.6216216216217 189.6486486486487 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+ 316.6216216216217 189.6486486486487 336.6216216216217 199.6486486486487 2
+32 118
+"SPACER25"
+""
+1 315.945945945946 229 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+ 315.945945945946 229 335.945945945946 238.8378378378378 2
+32 119
+"SPACER26"
+""
+1 351.0810810810811 243.027027027027 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 351.0810810810811 243.027027027027 371.081081081081 253.027027027027 2
+32 120
+"SPACER27"
+""
+1 351.0810810810811 168.7027027027027 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 351.0810810810811 168.7027027027027 371.081081081081 178.7027027027027 2
+32 121
+"SPACER28"
+""
+1 172.027027027027 171.4054054054054 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+120 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 172.027027027027 171.4054054054054 192.027027027027 181.4054054054054 2
+32 122
+"SPACER29"
+""
+1 174.5491024287222 246.5 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 174.5491024287222 246.5 194.5491024287222 256.5 2
+32 125
+"SPACER31"
+""
+1 385.4054054054054 179.6756756756757 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+124 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "MinimumExpanding Ignored"
+"layoutAlignment" "AlignNone"
+ 385.4054054054054 179.6756756756757 395.4054054054054 249.6756756756757 1
+32 126
+"SPACER32"
+""
+1 146.2162162162162 176.972972972973 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+125 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"maximumSize" "30 -1"
+"sizePolicy" "MinimumExpanding Ignored"
+"layoutAlignment" "AlignNone"
+ 146.2162162162162 176.972972972973 156.2162162162162 246.972972972973 1
+2 127
+"PRIMITIVE_TEXT5"
+"WF"
+1 42.89499996528109 31.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+126 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9503944446391668 0 0.9440993788819877 454.5939622249761 165.8778812584999 0 E 42.89499996528109 31.5 167.8949999652811 48.5
+0 2 2 "0s" 0 0 0 64 0 0  42.89499996528109 31.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 17 Resolved Address:
+LANG:10004 15 解析地址：
+LANG:10000 17 Gelöste Adresse:
+LANG:10027 38 Установленный адрес:
+14 128
+"connectAddress"
+"WF"
+1 625.3611318947765 194.6418564137794 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+127 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  connectAddress2.text(NgaBackendConfigProvider::reduNetworkAddress(oldAddress));
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  623.3611318947765 189.6418564137794 852.3611318947763 218.6418564137794
+2 "0s" 0 0 0 0 0 -1  E E E
+32 129
+"SPACER33"
+""
+1 871.6854562191008 197.5742888462118 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+128 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 871.6854562191008 197.5742888462118 886.6854562191008 212.5742888462118 1
+2 130
+"label_connectAddress2"
+"WF"
+1 42.89499996528109 31.5 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "190 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.9503944446391668 0 0.9440993788819877 452.5939622249761 200.8778812584999 0 E 42.89499996528109 31.5 167.8949999652811 48.5
+0 2 2 "0s" 0 0 0 64 0 0  42.89499996528109 31.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 19 Resolved Address 2:
+LANG:10004 16 解析地址2：
+LANG:10000 19 Gelöste Adresse 2:
+LANG:10027 40 Установленный адрес 2:
+14 131
+"connectAddress2"
+"WF"
+1 623.3611318947765 229.6418564137794 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+130 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "266 26"
+"maximumSize" "266 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  621.3611318947765 224.6418564137794 850.3611318947763 253.6418564137794
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+  bool reduNetworkFound = NgaBackendConfigProvider::isReduNetwork();
+  setMultiValue(\"label_connectAddress2\", \"visible\", reduNetworkFound,
+                \"connectAddress2\", \"visible\", reduNetworkFound,
+                \"layout_connectAddress2\", \"visible\", reduNetworkFound,
+                \"layout_connectAddress2\", \"layoutBottomMargin\", 6 * (int)reduNetworkFound);
+}" 0
+ E
+32 132
+"spacer_connectAddress-2"
+""
+1 869.6854562191008 232.5742888462118 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+131 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 869.6854562191008 232.5742888462118 884.6854562191008 247.5742888462118 1
+32 135
+"SPACER36"
+""
+1 42 122 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+134 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Fixed Expanding"
+"layoutAlignment" "AlignNone"
+ 42 122 404.9999999999999 135.7297297297297 2
+32 136
+"SPACER37"
+""
+1 224 42 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+135 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 224 42 254 52 1
+32 137
+"SPACER38"
+""
+1 440 70 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+136 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 440 70 460 80 1
+32 138
+"SPACER39"
+""
+1 440 96 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+137 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 440 96 460 106 1
+29 139
+"reduBackendInfo"
+""
+1 230 60 E E E 1 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+138 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"wordWrap" "bool TRUE"
+"frameShape" "enum 0"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  230 60 426 106
+5 Label
+0
+E13 142
+"details"
+"WF"
+1 40 185 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+141 0 0 0 32 0
+E E E
+8
+3
+LANG:10000 12 Show details
+LANG:10001 12 Show details
+LANG:10027 33 Показать детально
+
+5
+"minimumSize" "100 24"
+"maximumSize" "100 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+"focusPolicy" "NoFocus"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  38 178 132 205
+
+T 
+3
+LANG:10000 12 Einzelheiten
+LANG:10001 7 Details
+LANG:10027 18 Подробнее
+"synchronized main(mapping event)
+{
+  if ( !overviewModule.visible )
+    showOverview();
+  else
+    showOverview(FALSE);
+}" 0
+ E E E
+32 143
+"SPACER40"
+""
+1 60 220 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+142 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 60 220 120 240 2
+29 144
+"overviewModule"
+"WF"
+1 6.250000000000005 5.000000000000016 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+143 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+14
+"newPanelAnimDuration" "int 0"
+"oldPanelAnimDuration" "int 0"
+"newPanelAnimateOpacity" "bool TRUE"
+"oldPanelAnimateOpacity" "bool TRUE"
+"newPanelAnimateSize" "bool TRUE"
+"oldPanelAnimateSize" "bool TRUE"
+"newPanelAnimType" "string TopLeft"
+"oldPanelAnimType" "string BottomRight"
+"horizontalScrollBarPolicy" "enum 1"
+"verticalScrollBarPolicy" "enum 1"
+"shadowOffset" "[8,8]"
+"shadowColor" "{63,63,63,131}"
+"shadowRadius" "18"
+"layoutAlignment" "AlignNone"
+3
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  6.250000000000005 5.000000000000016 18 31.00000000000001
+15 Canvas.Canvas.1
+0
+"main()
+{
+  RootPanelOnModule(\"para/archive/NGA/objects/overview.pnl\", \"Overview\", this.ModuleName, makeDynString());
+  this.visible(FALSE);
+}" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 10 "LAYOUT_GROUP12" 61
+3 0 
+104 12 103 
+
+"S 104" "0 0 1 1"
+"S 12" "1 0 1 1"
+"S 103" "2 0 1 1"
+"" ""
+0 1 1 0 0 0 6 1 7
+4 18 "LAYOUT_GROUP23" 66
+3 0 
+122 86 121 
+
+"S 122" "2 0 1 1"
+"S 86" "1 0 1 1"
+"S 121" "0 0 1 1"
+"" ""
+0 2 0 0
+4 19 "LAYOUT_GROUP25" 66
+3 0 
+88 114 113 
+
+"S 88" "1 0 1 1"
+"S 114" "2 0 1 1"
+"S 113" "0 0 1 1"
+"" ""
+0 2 0 0
+4 20 "LAYOUT_GROUP26" 66
+3 0 
+116 89 115 
+
+"S 116" "2 0 1 1"
+"S 89" "1 0 1 1"
+"S 115" "0 0 1 1"
+"" ""
+0 2 0 0
+4 21 "LAYOUT_GROUP27" 66
+3 0 
+90 118 117 
+
+"S 90" "1 0 1 1"
+"S 118" "2 0 1 1"
+"S 117" "0 0 1 1"
+"" ""
+0 2 0 0
+4 22 "LAYOUT_GROUP28" 66
+3 0 
+119 87 120 
+
+"S 119" "2 0 1 1"
+"S 87" "1 0 1 1"
+"S 120" "0 0 1 1"
+"" ""
+0 2 0 0
+4 26 "LAYOUT_GROUP33" 44
+1 0 
+61 
+
+"S 61" "0 0 1 1"
+"" ""
+0 1 1 0 6 3 0 0
+4 30 "LAYOUT_GROUP37" 35
+1 0 
+60 
+
+"S 60" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 33 "LAYOUT_GROUP40" 34
+1 0 
+18 
+
+"S 18" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 34 "LAYOUT_GROUP41" 61
+2 1 
+20 105 
+33 
+"S 20" "1 0 1 1"
+"S 105" "2 0 1 1"
+"G 33" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 35 "LAYOUT_GROUP42" 61
+2 1 
+43 102 
+30 
+"S 43" "1 0 1 1"
+"S 102" "2 0 1 1"
+"G 30" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 36 "LAYOUT_GROUP43" 37
+1 0 
+19 
+
+"S 19" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 37 "LAYOUT_GROUP44" 61
+2 1 
+21 106 
+36 
+"S 21" "1 0 1 1"
+"S 106" "2 0 1 1"
+"G 36" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 38 "LAYOUT_GROUP45" 39
+1 0 
+23 
+
+"S 23" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 39 "LAYOUT_GROUP46" 61
+2 1 
+22 107 
+38 
+"S 22" "1 0 1 1"
+"S 107" "2 0 1 1"
+"G 38" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 40 "LAYOUT_GROUP47" 41
+1 0 
+58 
+
+"S 58" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 41 "LAYOUT_GROUP48" 61
+2 1 
+56 108 
+40 
+"S 56" "1 0 1 1"
+"S 108" "2 0 1 1"
+"G 40" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 42 "LAYOUT_GROUP49" 43
+1 0 
+59 
+
+"S 59" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 43 "LAYOUT_GROUP50" 61
+2 1 
+57 109 
+42 
+"S 57" "1 0 1 1"
+"S 109" "2 0 1 1"
+"G 42" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 44 "LAYOUT_GROUP51" 61
+3 1 
+41 93 101 
+26 
+"S 41" "1 0 1 1"
+"S 93" "2 0 1 1"
+"S 101" "3 0 1 1"
+"G 26" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 1 0
+4 45 "LAYOUT_GROUP52" 46
+1 0 
+127 
+
+"S 127" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 46 "LAYOUT_GROUP53" 61
+2 1 
+128 129 
+45 
+"S 128" "1 0 1 1"
+"S 129" "2 0 1 1"
+"G 45" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 1 6
+4 48 "LAYOUT_GROUP55" 49
+1 0 
+70 
+
+"S 70" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 49 "LAYOUT_GROUP56" 57
+2 1 
+62 96 
+48 
+"S 62" "1 0 1 1"
+"S 96" "2 0 1 1"
+"G 48" "0 0 1 1"
+"" ""
+0 1 1 0 0 10 0 0
+4 50 "LAYOUT_GROUP57" 51
+1 0 
+71 
+
+"S 71" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 51 "LAYOUT_GROUP58" 57
+2 1 
+68 98 
+50 
+"S 68" "1 0 1 1"
+"S 98" "2 0 1 1"
+"G 50" "0 0 1 1"
+"" ""
+0 1 0 0
+4 52 "LAYOUT_GROUP59" 53
+1 0 
+72 
+
+"S 72" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 53 "LAYOUT_GROUP60" 57
+2 1 
+69 97 
+52 
+"S 69" "1 0 1 1"
+"S 97" "2 0 1 1"
+"G 52" "0 0 1 1"
+"" ""
+0 1 0 0
+4 54 "LAYOUT_GROUP61" 56
+1 0 
+74 
+
+"S 74" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 55 "LAYOUT_GROUP66" 56
+1 0 
+79 
+
+"S 79" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 56 "LAYOUT_GROUP67" 57
+2 2 
+73 99 
+55 54 
+"S 73" "1 0 1 1"
+"S 99" "3 0 1 1"
+"G 55" "2 0 1 1"
+"G 54" "0 0 1 1"
+"" ""
+0 1 0 0
+4 57 "LAYOUT_GROUP68" 67
+2 4 
+63 95 
+49 51 53 56 
+"S 95" "4 0 1 1"
+"G 49" "0 0 1 1"
+"G 51" "1 0 1 1"
+"G 53" "2 0 1 1"
+"G 56" "3 0 1 1"
+"" ""
+1 2 1 9 9 6 9 0
+4 59 "LAYOUT_GROUP70" 60
+1 0 
+130 
+
+"S 130" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 60 "layout_connectAddress2" 61
+2 1 
+131 132 
+59 
+"S 131" "1 0 1 1"
+"S 132" "2 0 1 1"
+"G 59" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 1 6
+4 61 "LAYOUT_GROUP72" 68
+2 10 
+76 100 
+10 34 35 37 39 41 43 44 46 60 
+"S 100" "10 0 1 1"
+"G 10" "2 0 1 1"
+"G 34" "3 0 1 1"
+"G 35" "1 0 1 1"
+"G 37" "6 0 1 1"
+"G 39" "7 0 1 1"
+"G 41" "8 0 1 1"
+"G 43" "9 0 1 1"
+"G 44" "0 0 1 1"
+"G 46" "4 0 1 1"
+"G 60" "5 0 1 1"
+"" ""
+1 2 0 1 0
+4 62 "LAYOUT_GROUP78" 64
+2 0 
+33 136 
+
+"S 33" "0 0 1 1"
+"S 136" "1 0 1 1"
+"" ""
+0 1 0 0
+4 63 "LAYOUT_GROUP79" 64
+5 0 
+91 139 137 92 138 
+
+"S 91" "0 0 1 1"
+"S 139" "0 1 2 1"
+"S 137" "0 2 1 1"
+"S 92" "1 0 1 1"
+"S 138" "2 2 1 1"
+"" ""
+0 3 0 0
+4 64 "LAYOUT_GROUP80" 67
+2 2 
+80 135 
+62 63 
+"S 135" "2 0 1 1"
+"G 62" "0 0 1 1"
+"G 63" "1 0 1 1"
+"" ""
+1 2 1 9 9 6 3 0
+4 65 "LAYOUT_GROUP81" 66
+2 0 
+142 143 
+
+"S 142" "0 0 1 1"
+"S 143" "1 0 1 1"
+"" ""
+0 2 0 0
+4 66 "LAYOUT_GROUP82" 67
+3 6 
+85 125 126 
+18 19 20 21 22 65 
+"S 125" "7 0 1 1"
+"S 126" "1 0 1 1"
+"G 18" "2 0 1 1"
+"G 19" "3 0 1 1"
+"G 20" "4 0 1 1"
+"G 21" "5 0 1 1"
+"G 22" "6 0 1 1"
+"G 65" "0 0 1 1"
+"" ""
+1 1 1 9 9 3 3 0
+4 67 "LAYOUT_GROUP83" 68
+0 3 
+
+66 64 57 
+"G 66" "1 0 1 1"
+"G 64" "0 0 1 1"
+"G 57" "2 0 1 1"
+"" ""
+0 2 0 0
+4 68 "LAYOUT_GROUP84" -1
+0 2 
+
+67 61 
+"G 67" "0 0 1 1"
+"G 61" "1 0 1 1"
+"" ""
+0 1 0 0
+0

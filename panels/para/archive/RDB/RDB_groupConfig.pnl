@@ -1,0 +1,1712 @@
+V 13
+4
+LANG:10001 27 Archive group configuration
+LANG:10004 15 归档组配置
+LANG:10000 27 Archivgruppen-Konfiguration
+LANG:10027 62 Конфигурирование архивной группы
+PANEL,-1 -1 509 478 N "_3DFace" 1
+"$1"
+"main()
+{
+  dyn_string dsGroups;
+  time       nextDate;
+  int        MaxSizeMb, IntervalYM, IntervalDS, MaxOnlineArchives, SwitchTolerance;
+  string     MaxSizeType, sDp = dpSubStr($1, DPSUB_DP), sName;
+  
+  dpGet($1 + \".groupName:_online.._value\", sName);
+  txtGroup.text = sName;
+
+  updateFields(sName);
+  cmdApply.enabled = getUserPermission(4);
+}" 0
+ E E E E 1 -1 -1 0  20 31
+""0  1
+E "bool isValidTime(time piVal)
+{	
+	dyn_string ds;
+	dyn_float df;
+	time null;
+	null += 32140800; //+ 1 year
+	
+	if ( piVal < null )
+	{
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(getCatStr(\"ImportExport\",\"NoValidTime\")),
+          df,ds);
+    return false;	
+  }
+  return true;
+}
+
+
+time readTimeBoxes()
+{
+	int iYear;
+	int iMonth;
+	int iDay;	
+	int iHour;
+	int iMinute;
+	int iSecond;
+	time temp;
+ dyn_string ds;
+	dyn_float df;
+
+ iYear = TextFieldYear.text;
+	iMonth = TextFieldMonth.text;
+  iDay = TextFieldDay.text;
+	iHour = TextFieldHour.text;
+	iMinute = TextFieldMin.text;
+	iSecond = TextFieldSec.text;	
+ 
+ if (iYear > 0 && iYear < 2000)
+	{
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(getCatStr(\"ImportExport\",\"NoValidTime\")),
+          df,ds);
+    return false;	
+  }		
+
+	
+	return temp = makeTime(iYear, iMonth, iDay, iHour, iMinute, iSecond);
+}
+
+void fillTimeBoxes(time piTime)
+{
+	time null;
+	null += 32140800; //+ 1 year	
+
+	int iYear = year(piTime);
+	int iMonth = month(piTime);
+	int iDay = day(piTime);	
+	int iHour = hour(piTime);
+	int iMinute = minute(piTime);
+	int iSecond = second(piTime);
+
+	if (piTime <= null)
+	{
+		TextFieldYear.text = \"\";
+		TextFieldMonth.text = \"\";
+		TextFieldDay.text = \"\";
+		TextFieldHour.text = \"\";
+		TextFieldMin.text = \"\";
+		TextFieldSec.text = \"\";	
+	}
+	else
+	{
+		TextFieldYear.text = iYear;
+		TextFieldMonth.text = iMonth;
+		TextFieldDay.text = iDay;
+		TextFieldHour.text = iHour;
+		TextFieldMin.text = iMinute;
+		TextFieldSec.text = iSecond;
+	}	
+}
+
+
+void updateFields(string sGroupName)
+{
+  int iYears, iMonths, iDays, iHours, iMinutes, iSeconds, iErr;
+  time nextDate;
+  int MaxSizeMb, IntervalYM, IntervalDS, MaxOnlineArchives, SwitchTolerance;
+  string MaxSizeType;
+  string sTime;
+  string dbPath;
+  dyn_float  dfReturn;
+  dyn_string dsReturn;
+  bool delGrp;
+  int bForwardFlag = 99;
+    
+  iErr = getImpExpGroup(sGroupName, nextDate, MaxSizeMb, MaxSizeType, 
+                        IntervalYM, IntervalDS, MaxOnlineArchives, SwitchTolerance, 
+                        dbPath, delGrp, bForwardFlag);
+						
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN(\"updateFields\",sGroupName, nextDate, MaxSizeMb, MaxSizeType, 
+                        IntervalYM, IntervalDS, MaxOnlineArchives, SwitchTolerance, 
+                        dbPath, delGrp);
+
+  if ( iErr < 0 )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"ErrorReadingDatabase\")), dfReturn, dsReturn);
+    PanelOff();
+    return;
+  }
+
+  fillTimeBoxes(nextDate); 
+  
+  CheckButtonDelOldGrps.state(0) = delGrp;
+  if (bForwardFlag == 99)
+   chbForward.enabled = false;
+  else
+  {
+   chbForward.enabled = true;
+   chbForward.state(0) = bForwardFlag;
+ }
+
+  if (MaxSizeMb == 0)
+  {
+    txtMaxSize.enabled = false;
+    txtSwitchTolerance.enabled = false;
+    chkMaxSize.state(0) = false;
+  }
+  else
+  {
+    txtMaxSize.enabled = true;
+    txtSwitchTolerance.enabled = true;
+    chkMaxSize.state(0) = true;
+  }  
+  txtMaxSize.text = MaxSizeMb;
+  txtSwitchTolerance.text = SwitchTolerance;
+  
+  if (IntervalYM == 0 && IntervalDS == 0)
+  {
+    txtYear.text = \"0\"; txtYear.enabled = false;
+    txtMonth.text = \"0\"; txtMonth.enabled = false;
+    txtDay.text = \"0\"; txtDay.enabled = false;
+    txtHour.text = \"0\"; txtHour.enabled = false;
+    txtMinute.text = \"0\"; txtMinute.enabled = false;
+    txtSecond.text = \"0\"; txtSecond.enabled = false;
+    chkIntervalActive.state(0) = false;
+  }
+  else
+  {
+    iMonths = IntervalYM;
+    iYears = iMonths / 12;
+    iMonths = iMonths - iYears*12;
+    iSeconds = IntervalDS;
+    iDays = iSeconds / 86400;
+    iSeconds = iSeconds - iDays*86400;
+    iHours = iSeconds / 3600;
+    iSeconds = iSeconds - iHours*3600;
+    iMinutes = iSeconds / 60;
+    iSeconds = iSeconds - iMinutes*60;
+    
+    txtYear.text = iYears; txtYear.enabled = true;
+    txtMonth.text = iMonths; txtMonth.enabled = true;
+    txtDay.text = iDays; txtDay.enabled = true;
+    txtHour.text = iHours; txtHour.enabled = true;
+    txtMinute.text = iMinutes; txtMinute.enabled = true;
+    txtSecond.text = iSeconds; txtSecond.enabled = true;
+    chkIntervalActive.state(0) = true;
+  }
+  
+  txtDbPath.text = dbPath;
+  txtMaxOnlineArchives.text = MaxOnlineArchives;
+}
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 98
+"staticDBPath"
+""
+1 24 68 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 26 70 141 85
+0 2 0 "0s" 0 0 0 192 0 0  26 70 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Path DB Server:
+LANG:10004 17 DB服务器路径
+LANG:10000 15 Pfad DB Server:
+LANG:10027 31 Путь к серверу БД
+2 0
+"Text1"
+""
+1 24 34 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 26 36 134 51
+0 2 0 "0s" 0 0 0 192 0 0  26 36 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Archive group:
+LANG:10004 10 归档组:
+LANG:10000 13 Archivgruppe:
+LANG:10027 30 Архивная группа:
+2 5
+"Text2"
+""
+1 24 322 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 26 324 143 355
+0 2 0 "0s" 0 0 0 192 0 0  26 324 2
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 Next archive 
+LANG:10004 6 下个
+LANG:10000 9 Nächster
+LANG:10027 29 Следующий архив
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 switch:   
+LANG:10004 12 切换时间
+LANG:10000 14 Archivwechsel:
+LANG:10027 25 переключение:
+2 10
+"Text3"
+""
+1 263 166 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 265 168 287 183
+0 2 0 "0s" 0 0 0 192 0 0  265 168 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 2 MB
+LANG:10004 2 MB
+LANG:10000 2 MB
+LANG:10027 2 MB
+30 11
+"frmArchiveSwitch"
+""
+1 10 310 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.680000000000001 0 -83.12000000000003 0 E 10 134 500 310
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Archive switch
+LANG:10004 12 归档切换
+LANG:10000 13 Archivwechsel
+LANG:10027 39 Переключение архивов
+2 14
+"Text4"
+""
+1 127 240 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 129 242 166 257
+0 2 0 "0s" 0 0 0 192 0 0  129 242 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 every
+LANG:10004 6 每隔
+LANG:10000 4 alle
+LANG:10027 9 кажд.
+2 16
+"Text5"
+""
+1 219 242 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 221 244 244 259
+0 2 0 "0s" 0 0 0 192 0 0  221 244 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 year
+LANG:10004 3 年
+LANG:10000 5 Jahre
+LANG:10027 6 Год
+2 17
+"Text6"
+""
+1 319 242 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 321 244 363 259
+0 2 0 "0s" 0 0 0 192 0 0  321 244 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 month
+LANG:10004 3 月
+LANG:10000 6 Monate
+LANG:10027 10 Месяц
+2 19
+"Text7"
+""
+1 419 242 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 421 244 446 259
+0 2 0 "0s" 0 0 0 192 0 0  421 244 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 day
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 6 Дни
+2 21
+"Text8"
+""
+1 219 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 221 274 255 289
+0 2 0 "0s" 0 0 0 192 0 0  221 274 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 hours
+LANG:10004 3 时
+LANG:10000 7 Stunden
+LANG:10027 8 Часы
+2 22
+"Text9"
+""
+1 319 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 321 274 369 289
+0 2 0 "0s" 0 0 0 192 0 0  321 274 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 minutes
+LANG:10004 6 分钟
+LANG:10000 7 Minuten
+LANG:10027 12 Минуты
+2 23
+"Text10"
+""
+1 419 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 421 274 477 289
+0 2 0 "0s" 0 0 0 192 0 0  421 274 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 seconds
+LANG:10004 3 秒
+LANG:10000 8 Sekunden
+LANG:10027 12 секунд
+30 27
+"Frame3"
+""
+1 10 430 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.016544702513522 0 -0.1654470251352233 0 E 10 10 500 430
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 24 Archive group management
+LANG:10004 15 归档组管理
+LANG:10000 23 Archivgruppenverwaltung
+LANG:10027 52 Управление архивной группой
+2 28
+"Text11"
+""
+1 24 400 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 26 402 251 417
+0 2 0 "0s" 0 0 0 192 0 0  26 402 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 34 Maximum number of online archives:
+LANG:10004 25 最大在线归档数量:
+LANG:10000 35 Maximale Anzahl von Onlinearchiven:
+LANG:10027 61 Макс. кол-во подключенных архивов
+2 30
+"Text12"
+""
+1 103 194 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 105 196 183 209
+0 2 0 "0s" 0 0 0 192 0 0  105 196 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Tolerance time:
+LANG:10004 13 容差时间:
+LANG:10000 13 Toleranzzeit:
+LANG:10027 22 Врем.допуск:
+2 32
+"Text13"
+""
+1 263 195 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 265 197 329 212
+0 2 0 "0s" 0 0 0 192 0 0  265 197 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 second(s)
+LANG:10004 6 秒(s)
+LANG:10000 10 Sekunde(n)
+LANG:10027 17 секунд (с)
+2 37
+"Text14"
+""
+1 221 322 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 223 324 246 339
+0 2 0 "0s" 0 0 0 192 0 0  223 324 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 year
+LANG:10004 3 年
+LANG:10000 4 Jahr
+LANG:10027 6 Год
+2 38
+"Text15"
+""
+1 321 322 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 323 324 365 339
+0 2 0 "0s" 0 0 0 192 0 0  323 324 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 month
+LANG:10004 3 月
+LANG:10000 5 Monat
+LANG:10027 10 Месяц
+2 39
+"Text16"
+""
+1 421 322 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 423 324 455 339
+0 2 0 "0s" 0 0 0 192 0 0  423 324 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 day
+LANG:10004 3 日
+LANG:10000 3 Tag
+LANG:10027 8 День
+2 40
+"Text17"
+""
+1 221 352 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 223 354 257 369
+0 2 0 "0s" 0 0 0 192 0 0  223 354 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 hour
+LANG:10004 6 小时
+LANG:10000 6 Stunde
+LANG:10027 6 Час
+2 41
+"Text18"
+""
+1 321 352 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 323 354 371 369
+0 2 0 "0s" 0 0 0 192 0 0  323 354 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 minute
+LANG:10004 3 分
+LANG:10000 6 Minute
+LANG:10027 12 Минута
+2 42
+"Text19"
+""
+1 421 352 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 423 354 479 369
+0 2 0 "0s" 0 0 0 192 0 0  423 354 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 second
+LANG:10004 3 秒
+LANG:10000 7 Sekunde
+LANG:10027 12 секунд
+4 87
+"Line1"
+""
+1 21 216 E E E 1 E 1 E N "grey" E N "_Transparent" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E  486 228 22 228
+4 88
+"Line2"
+""
+1 21 378 E E E 1 E 1 E N "_Window" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E  486 390 22 390
+14 99
+"txtDbPath"
+""
+1 160 68 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 74 Path on the DB server (place where Oracle stores the tablespace data file)
+LANG:10004 74 数据库服务器上的路径(Oracle存储表空间数据文件的位置)
+LANG:10000 65 Pfad am DB-Server (Ort wo Oracle seine Tablespace-Dateien ablegt)
+LANG:10027 103 Путь к серверу БД (место, где Oracle хранит файл базы данных)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  158 66 486 93
+3 "0s" 0 0 0 0 0 -1  E E E
+14 72
+"TextFieldYear"
+""
+1 166 322 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  164 320 218 347
+3 "10d" 10 0 0 0 0 -1  E E E
+14 73
+"TextFieldMonth"
+""
+1 276 322 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  274 320 318 347
+3 "10d" 10 0 0 0 0 -1  E E E
+14 74
+"TextFieldDay"
+""
+1 376 322 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  374 320 418 347
+3 "10d" 10 0 0 0 0 -1  E E E
+14 75
+"TextFieldHour"
+""
+1 166 352 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  164 350 218 377
+3 "10d" 10 0 0 0 0 -1  E E E
+14 76
+"TextFieldMin"
+""
+1 276 352 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  274 350 318 377
+3 "10d" 10 0 0 0 0 -1  E E E
+14 9
+"txtMaxSize"
+""
+1 191 166 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  189 164 263 191
+3 "10d" 10 0 0 0 0 -1  E E E
+20 13
+"chkIntervalActive"
+""
+1 26 240 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  24 238 108 260
+1
+T 
+4
+LANG:10001 6 cyclic
+LANG:10004 9 周期性
+LANG:10000 8 zyklisch
+LANG:10027 16 циклично
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+    txtYear.enabled	= state;
+    txtMonth.enabled = state;
+    txtDay.enabled = state;
+    txtHour.enabled = state;
+    txtMinute.enabled = state;
+    txtSecond.enabled = state;
+}" 0
+21 78
+"txtYear"
+""
+1 167 240 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  165 238 219 265
+0
+
+E
+E
+E
+
+N 0 100 1 0 1 1
+21 79
+"txtMonth"
+""
+1 277 240 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  275 238 319 265
+0
+
+E
+E
+E
+
+N 0 11 1 0 1 1
+21 80
+"txtDay"
+""
+1 377 240 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  375 238 419 265
+0
+
+E
+E
+E
+
+N 0 31 1 0 1 1
+21 81
+"txtHour"
+""
+1 167 272 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  165 270 219 297
+0
+
+E
+E
+E
+
+N 0 23 1 0 1 1
+21 82
+"txtMinute"
+""
+1 277 272 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  275 270 319 297
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+21 83
+"txtSecond"
+""
+1 377 272 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  375 270 419 297
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+14 29
+"txtMaxOnlineArchives"
+""
+1 276 400 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  274 398 338 425
+3 "10d" 10 0 0 0 0 -1  E E E
+14 31
+"txtSwitchTolerance"
+""
+1 191.0819672131148 194 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  189 192 263 219
+3 "10d" 10 0 0 0 0 -1  E E E
+13 34
+"cmdApply"
+""
+1 200 446 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 444 292 471
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  dyn_string dsTemp, dsDate, dsTime, ds;
+  dyn_float df;
+  time NextDate;
+  int iMaxSize, iYears, iMonths, iDays, iHours, iMinutes, iSeconds, iIntervalYM, iIntervalDS, iMaxOnlineArchives, iSwitchTolerance;
+  string MaxSizeType;
+  
+ 
+  NextDate = readTimeBoxes();
+
+  //03.02.2012 rheiss IM106750: check NextDate - must be in the future
+  if (NextDate == 0 && chkIntervalActive.state(0))
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"ImportExport\",\"PassedDate\")),
+        df,ds);
+    return;
+  }
+    
+  if (chkMaxSize.state(0))
+  {
+    iMaxSize = txtMaxSize.text;
+    if (iMaxSize<500)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"ImportExport\",\"LowSize\")),
+        df,ds);
+      return;
+    }
+    iSwitchTolerance = txtSwitchTolerance.text;
+  }
+  else
+  {
+    iMaxSize = 0;
+    iSwitchTolerance = 0;
+  }
+
+  if (chkIntervalActive.state(0))
+  {
+    iYears = txtYear.text;
+    iMonths = txtMonth.text;
+    iDays = txtDay.text;
+    iHours = txtHour.text;
+    iMinutes = txtMinute.text;
+    iSeconds = txtSecond.text;
+  
+    iIntervalYM = iYears*12 + iMonths;
+    iIntervalDS = iDays*86400 + iHours*3600 + iMinutes*60 + iSeconds;
+    
+	  if ( (iIntervalYM == 0) && (iIntervalDS == 0) )
+	  {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"ImportExport\",\"NoParam\")),
+        df,ds);
+      return;
+	  }
+	  if ( (iIntervalYM == 0) && (iIntervalDS < (60*60)) )  //01.02.2006 clicht: IM 71684 - kleiner 1 Stunde ist ungültig
+	  {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"ImportExport\",\"LowInterval\")),
+        df,ds);
+      return;
+	  }
+  }
+  else
+  {
+    iIntervalYM = 0;
+    iIntervalDS = 0;
+  }
+  
+  iMaxOnlineArchives = txtMaxOnlineArchives.text;
+  
+	if ( (iMaxOnlineArchives < 0 ) || (iSwitchTolerance < 0) )
+	{
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(getCatStr(\"ImportExport\",\"NoParam\")),
+          df,ds);
+    return;	
+  }  
+  
+  bool bForward = chbForward.state(0);
+
+  updateImpExpGroup(txtGroup.text, NextDate, iMaxSize, MaxSizeType, iIntervalYM, iIntervalDS, 
+                    iMaxOnlineArchives, iSwitchTolerance, txtDbPath.text, CheckButtonDelOldGrps.state(0),
+                    bForward);  
+
+  dpSet($1 + \".forwardFlag\", bForward);
+
+  PanelOff();
+}
+
+
+" 0
+ E E E
+13 33
+"cmdCancel"
+""
+1 302 446 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  300 444 394 471
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 90
+"Button1"
+""
+1 406 446 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  404 444 498 471
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"RDB_groupConfig\");
+}" 0
+ E E E
+14 64
+"txtGroup"
+""
+1 160 34 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  158 32 483 59
+2 "0s" 0 0 0 0 0 -1  E E E
+14 95
+"TextFieldSec"
+""
+1 376 352 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  374 350 418 377
+3 "10d" 10 0 0 0 0 -1  E E E
+20 96
+"CheckButtonDelOldGrps"
+""
+1 236 104 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  234 102 408 126
+1
+T 
+4
+LANG:10001 23 Delete old archive sets
+LANG:10004 21 删除旧的归档集
+LANG:10000 27 Löschen alter Archivsätze
+LANG:10027 42 Уд. стар. наборы арх-вов
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 102
+"chbForward"
+""
+1 26 102 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 57 Activate or deactivate forwarding to the central database
+LANG:10004 39 激活或停用转存到中央数据库
+LANG:10000 62 Weiterleiten an die Zentraldatenbank aktivieren / deaktivieren
+LANG:10027 77 Вкл/Выкл перенаправление в центральную БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  24 100 198 125
+1
+T 
+4
+LANG:10001 10 Forwarding
+LANG:10004 6 转发
+LANG:10000 25 Weiterleiten (Forwarding)
+LANG:10027 28 Перенаправлять
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE20 103
+"chkMaxSize"
+""
+1 26 168 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  24 166 188 188
+1
+T 
+4
+LANG:10001 17 when size exceeds
+LANG:10004 18 当超过大小时
+LANG:10000 23 bei Überschreitung von
+LANG:10027 37 когда размер превыш.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+    txtMaxSize.enabled = state;
+    txtSwitchTolerance.enabled = state;
+}" 0
+4 104
+"LINE1"
+""
+1 23 290 E E E 1 E 1 E N "grey" E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E  486 306 22 306
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

@@ -1,0 +1,717 @@
+V 14
+4
+LANG:10001 24 MindSphere Configuration
+LANG:10004 17 MindSphere 配置
+LANG:10000 24 MindSphere Konfiguration
+LANG:10027 24 MindSphere Configuration
+PANEL,-1 -1 1280 720 N "_3DFace" 0
+"main()
+{
+  m_msController.setTitleText(getCatStr(\"mindsphere\", \"mc_titleMainPanel\"));
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"classes/mindSphere/MindSphereController\"
+#uses \"classes/mindSphere/MindSphereAsset\"
+#uses \"panel\"
+shared_ptr<MindSphereController> m_msController = MindSphereController::getInstance();
+bool m_importStructures = false;
+
+void reloadTree()
+{
+  treeStructure.clear();
+
+  dyn_string assets = dpNames(\"*\", MC_ASSET_DPT);
+  dyn_string datasources = dpNames(\"*\", MC_DATASOURCE_DPT);
+  dyn_string datapoints = dpNames(\"*\", MC_DATAPOINT_DPT);
+
+  for(int i = 1; i <= dynlen(assets); i++)
+  {
+    string dsConfigId;
+    string dp = dpSubStr(assets[i], DPSUB_DP);
+
+    m_msController.insertAssetIntoTree(dp);
+  }
+
+  for(int i = 1; i <= dynlen(datasources); i++)
+  {
+    string asset;
+    string ds = dpSubStr(datasources[i], DPSUB_DP);
+    dpGet(ds + \".Asset\", asset);
+    m_msController.insertChildIntoTree(ds, asset);
+  }
+
+  for(int i = 1; i <= dynlen(datapoints); i++)
+  {
+    string datasource;
+    string datapoint = dpSubStr(datapoints[i], DPSUB_DP);
+    dpGet(datapoint + \".Datasource\", datasource);
+    m_msController.insertChildIntoTree(datapoint, datasource);
+  }
+}
+
+void expandToElement(string id)
+{
+  while(treeStructure.parent(id) != \"\")
+  {
+    treeStructure.setOpen(treeStructure.parent(id), true);
+    id = treeStructure.parent(id);
+  }
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"sizePolicy" "Fixed Fixed"
+0 0 0
+"MindsphereBackground.png" 0 0 1280 720
+-1
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 1
+"treeStructure"
+"WF"
+1 -1.000000000000009 118.9031198686371 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"alternatingRowColors" "bool FALSE"
+"allColumnsShowFocus" "bool TRUE"
+"horizontalScrollBarPolicy" "enum 0"
+"horizontalScrollMode" "enum 1"
+"headerHidden" "bool TRUE"
+"verticalScrollBarPolicy" "enum 0"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  -1.000000000000009 118.9031198686371 220 629.4150784592159
+10 TreeWidget
+3
+0 "rightClicked" "(string id, int column)"
+"  dyn_string contextMenu = m_msController.getContextMenu(id);
+  int answer;
+  string name;
+
+  popupMenu(contextMenu, answer);
+
+  //answer is of type int and cannot be compared to enum...
+  switch(answer)
+  {
+    case 11: //MindSphereFunctions::newAsset
+      m_msController.newElement();
+      break;
+    case 21: //MindSphereFunctions::newDatasource:
+      m_msController.newElement(id);
+      break;
+    case 31: //MindSphereFunctions::newDatapoint:
+      m_msController.newElement(id);
+      break;
+    case 12: //MindSphereFunctions::deleteAsset
+    case 22: //MindSphereFunctions::deleteDatasource:
+    case 32: //MindSphereFunctions::deleteDatapoint:
+      m_msController.deleteElement(id);
+      break;
+    case 13: //MindSphereFunctions::renameAsset
+    case 23: //MindSphereFunctions::renameDatasource
+    case 33: //MindSphereFunctions::renameDatapoint
+      name = m_msController.renameElement(id);
+      if(name != \"\")
+      {
+        reloadTree();
+        treeStructure.setSelectedItem(name);
+        expandToElement(name);
+      }
+      break;
+    default:
+      break;
+  }"
+0 "selectionChanged" "(string id)"
+"  if(id == \"\")
+  {
+    m_msController.removeChildPanel();
+    string titleText = getCatStr(\"mindsphere\", \"mc_titleMainPanel\");
+    m_msController.setTitleText(titleText);
+  }
+  else
+  {
+    m_msController.openElement(id);
+  }"
+0 "clicked" "(string id, int column)"
+"  if(id == \"\" && column != -1)
+  {
+    this.setSelectedItem(this.selectedItem(), false);
+  }"
+"main()
+{
+  m_msController.setTreeStructure(this);
+
+  treeStructure.addColumn(\"Name\");
+  treeStructure.addColumn(\"A\");
+
+  reloadTree();
+
+  sysConnect(\"dpCallback\", \"dpCreated\");
+  sysConnect(\"dpCallback\", \"dpDeleted\");
+}
+
+void dpCallback(string event, mapping data)
+{
+  dyn_string mindSphereTypeNames = makeDynString(MC_ASSET_DPT, MC_DATASOURCE_DPT, MC_DATAPOINT_DPT);
+
+  if(!m_importStructures)
+  {
+    if(mappingHasKey(data, \"dp\") && mappingHasKey(data, \"dpType\") && dynContains(mindSphereTypeNames, data[\"dpType\"]))
+    {
+      if(event == \"dpCreated\")
+      {
+        string dp = dpSubStr(data[\"dp\"], DPSUB_DP); //dpSubStr only works if the datapoint exists, which it doesn't if it has been deleted
+        addElement(dp, data[\"dpType\"]);
+      }
+      else
+      {
+        string dp = m_msController.getDpName(data[\"dp\"]);
+        removeElement(dp);
+      }
+    }
+  }
+}
+
+void addElement(const string& dp, const string& dpType)
+{
+  switch(dpType)
+  {
+    case MC_ASSET_DPT:
+      m_msController.insertAssetIntoTree(dp);
+      break;
+    case MC_DATASOURCE_DPT:
+      insertChild(dp, dpType, \".Asset\");
+      break;
+    case MC_DATAPOINT_DPT:
+      insertChild(dp, dpType, \".Datasource\");
+      break;
+    default:
+      break;
+  }
+
+  if(treeStructure.itemExists(dp))
+  {
+    treeStructure.setSelectedItem(dp);
+  }
+}
+
+void insertChild(const string& dp, const string& dpType, const string& dpe)
+{
+  string parent = getParent(dp, dpe);
+
+  if(parent != \"\")
+  {
+    m_msController.insertChildIntoTree(dp, parent);
+    treeStructure.setOpen(parent, true);
+  }
+}
+
+string getParent(const string& dp, const string& dpe)
+{
+  string parent = \"\";
+  int count = 0;
+
+  while(parent == \"\" && count < 100)
+  {
+    if(count > 0) //first time don't delay
+    {
+      delay(0, 10);
+    }
+    dpGet(dp + dpe, parent);
+    count ++;
+  }
+
+  return parent;
+}
+
+void removeElement(const string& dp)
+{
+  if(treeStructure.itemExists(dp))
+  {
+    treeStructure.removeItem(dp);
+  }
+}
+" 0
+6 2
+"rect_topbar"
+""
+1 0 90 E E E 1 E 1 E N {0,0,0} E N "WF_Frame" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.000780640124902 0 1 -1.000000000000009 -0.5968801313629086 1 E 0 90 1280 120
+6 3
+"rect_bottombar"
+""
+1 1281.579792004496 660.9031198686371 E E E 1 E 1 E N "STD_text" E N "WF_BtnBottomPanelBack" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.001560670851171 0 0.9833333333333332 -2.502341006276765 12.0150519978107 1 E 1281.579792004496 660.9031198686371 1.5 720
+13 4
+"btn_Close"
+"WF"
+1 1625.5 687.9515599343185 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1182.5 672.9515599343185 1265.5 707.9515599343185
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main(mapping event)
+{
+  PanelOff();
+}" 0
+ E E "main()
+{
+  this.text(getCatStr(\"general\", \"close\"));
+}" 0
+
+13 5
+"btn_Help"
+"WF"
+1 455 687.9273399014778 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  12 672.9273399014778 95 707.9273399014778
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main(mapping event)
+{
+  m_msController.openHelp();
+}" 0
+ E E "main()
+{
+  this.text(getCatStr(\"general\", \"help\"));
+}" 0
+
+6 6
+"rect_Information"
+""
+1 0 0 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.002344359875097 0 0.7563025210084033 -1.499218749999955 -1 1 E 0 0 1279 119
+6 7
+"recht_buttonBar"
+""
+1 23 503 E E E 1 E 1 E N "STD_text" E N "WF_Frame" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.5764942388059709 0 1 -14.25936749253732 125.9031198686371 1 E 23 503 406 536
+13 8
+"btnCreate"
+"WF_Transparent"
+1 10 640.9031198686371 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 18 Create new element
+LANG:10004 15 创建新元素
+LANG:10000 21 Neues Element anlegen
+LANG:10027 18 Create new element
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  8 630.9031198686371 37 659.9031198686371
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string parent = treeStructure.selectedItem();
+
+  m_msController.newElement(parent);
+}
+" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/add.png\";
+  this.buttonDownPixmap = \"wf/buttons/add_pressed.png\";
+}
+" 0
+
+13 9
+"btnDelete"
+"WF_Transparent"
+1 35 640.9031198686371 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 23 Delete selected element
+LANG:10004 21 删除选定的元素
+LANG:10000 29 Selektiertes Element löschen
+LANG:10027 31 MindSphere datastructure export
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  33 630.9031198686371 62 659.9031198686371
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string item = treeStructure.selectedItem();
+
+  m_msController.deleteElement(item);
+}
+
+" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/delete.png\";
+  this.buttonDownPixmap = \"wf/buttons/delete_pressed.png\";
+}
+" 0
+
+13 10
+"btnExport"
+"WF_Transparent"
+1 167 644.9031198686371 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 31 MindSphere datastructure export
+LANG:10004 25 MindShpere数据源导出
+LANG:10000 31 MindSphere Datenstruktur Export
+LANG:10027 31 MindSphere datastructure export
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  157 630.9031198686371 186 659.9031198686371
+
+P 
+4294967295
+"pictures/wf/buttons/export.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string filename;
+  fileSelector(filename, PROJ_PATH + \"/data\" , false, \"*.json\", false);
+
+  if(filename != \"\")
+  {
+    addFileExtension(filename);
+    m_msController.exportStructure(filename);
+  }
+}
+
+void addFileExtension(string& filename)
+{
+  string filePath = makeUnixPath(filename);
+  dyn_string pathToken = strsplit(filePath, \"/\");
+
+  if(dynlen(pathToken) > 0)
+  {
+    if(strpos(pathToken[dynlen(pathToken)], \".\") == -1)
+    {
+      filename += \".json\";
+    }
+  }
+}" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/export.png\";
+  this.buttonDownPixmap = \"wf/buttons/export_pressed.png\";
+}
+
+" 0
+
+13 11
+"btnImport"
+"WF_Transparent"
+1 188.6566 640.9031198686371 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 31 MindSphere datastructure import
+LANG:10004 28 MindShpere数据结构导入
+LANG:10000 31 MindSphere Datenstruktur Import
+LANG:10027 31 MindSphere datastructure import
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  182 630.9031198686371 211 659.9031198686371
+
+P 
+4294967295
+"pictures/wf/buttons/import.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  m_importStructures = true;
+
+  string filename;
+  fileSelector(filename, PROJ_PATH + \"/data\" , false, \"*.json\");
+
+  if(filename != \"\")
+  {
+    m_msController.importStructure(filename);
+  }
+
+  m_importStructures = false;
+}" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/import.png\";
+  this.buttonDownPixmap = \"wf/buttons/import_pressed.png\";
+}
+
+" 0
+
+2 14
+"PRIMITIVE_TEXT1"
+""
+1 15 10 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 15 10 295 40
+0 2 2 "0s" 0 0 0 64 0 0  15 10 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 34 MindSphere Connector Konfiguration
+LANG:10004 26 MindSphere 连接器配置
+LANG:10000 34 MindSphere Connector Konfiguration
+LANG:10027 60 Конфигурация соедининения MindSphere
+2 15
+"txt_titleText"
+""
+1 58 32 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.6507498536165401 0 5.02240783559793 7.452950524142671 -131.2293014384314 0 E 58 32 1953 43
+0 2 2 "0s" 0 0 0 64 0 0  58 32 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 1 -
+LANG:10004 1 -
+LANG:10000 1 -
+LANG:10027 1 -
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

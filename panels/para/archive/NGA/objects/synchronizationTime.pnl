@@ -1,0 +1,1629 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 428 290 N "_3DFace" 3
+"$factor"
+"$interval"
+"$time"
+"main()
+{
+  int x, y, w, h;
+  getValue(this, \"windowGeometry\", x, y, w, h);
+  load();
+  delay(0, 100);  // workaround -> TFS #110236
+  changed = FALSE;
+  this.windowGeometry(x, y, w, 100);
+}" 0
+ E E E E 1 -1 -1 0  14 -4.5
+""0  1
+E "#uses \"wizardFramework\"
+
+bool changed;
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which saves selected data and close tha panel.
+**/
+void save()
+{
+  time selected;
+  int yearValue = year(getCurrentTime()), monthValue, dayValue, hourValue, minuteValue;
+  int periodValue = 0;
+
+  getMultiValue(\"monthShape\", \"selectedPos\", monthValue,
+                \"dayShape\", \"selectedPos\", dayValue,
+                \"hourShape\", \"text\", hourValue,
+                \"minShape\", \"text\", minuteValue,
+                \"backupFactorShape\", \"text\", periodValue);
+
+  int intervalIndex = $interval;
+  groupBackupInterval interval = intervalIndex;
+  switch (interval)
+  {
+    case groupBackupInterval::annually:  // annually
+    {
+      if ( !validDate(yearValue, monthValue, dayValue) )
+      {
+        dyn_float resultFloat;
+        dyn_string resultString;
+        wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_OK, getCatStr(\"general\",\"information\"), getCatStr(\"NGA\", \"dateNotValid\"), resultString, resultFloat);
+        return;
+      }
+
+      time selected = makeTime(yearValue, monthValue, dayValue, hourValue, minuteValue);
+      if ( period(selected) < period(getCurrentTime()) )
+        ++yearValue;
+
+      yearValue += (periodValue - 1);  // periodValue starts from 1, but its ia an index
+      break;
+    }
+
+    case groupBackupInterval::montly:  // monthly
+    {
+      monthValue = (dayValue < day(getCurrentTime()) ? month(getCurrentTime()) + 1 : month(getCurrentTime())) + (periodValue - 1);
+      break;
+    }
+
+    case groupBackupInterval::weekly:  // weekly
+    {
+      monthValue = month(getCurrentTime());
+      dayValue = day(getCurrentTime()) + (dayValue - weekDay(getCurrentTime()) > 0 ? dayValue - weekDay(getCurrentTime()) :
+                                                                                     7 + dayValue - weekDay(getCurrentTime())) + (periodValue - 1) * 7;
+      break;
+    }
+
+    case groupBackupInterval::daily:  // daily
+    {
+      monthValue = month(getCurrentTime());
+      dayValue = ((hour(getCurrentTime()) * 60 + minute(getCurrentTime())) < (hourValue * 60 + minuteValue) ? day(getCurrentTime()) :
+                                                                                                              day(getCurrentTime()) + 1) + (periodValue - 1);
+      break;
+    }
+
+    case groupBackupInterval::lessDailly:  // <daily
+    {
+      int posIndex;
+      getValue(\"hoursBackupFactorShape\", \"currentIndex\", posIndex);
+      periodValue = posIndex * 3;
+      if ( !periodValue )
+        periodValue = 1;
+
+      monthValue = month(getCurrentTime());
+      dayValue = day(getCurrentTime());
+      hourValue = generateBackupHour(periodValue);
+      if ( hourValue < 0 )  // next day
+      {
+        ++dayValue;
+        hourValue = 0;
+      }
+
+      minuteValue = 0;
+      periodValue = periodValue * 60;  // in minutes
+      break;
+    }
+  }
+
+  selected = makeTime(yearValue, monthValue, dayValue, hourValue, minuteValue);
+  dyn_string ds = makeDynString(formatTime(\"%Y.%m.%d %H:%M\", selected));
+  dyn_float df = makeDynFloat(periodValue);
+  PanelOffReturn(df, ds);
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function loads a given data into the spin boxes.
+**/
+bool load()
+{
+  int intervalIndex = $interval;
+  groupBackupInterval interval = intervalIndex;
+  switch (interval)
+  {
+    default:
+    case groupBackupInterval::annually: //annualy
+    {
+      dyn_string monthNames = getCatStr(\"NGA\", \"months\");
+      monthShape.deleteAllItems();
+      monthShape.items = strsplit(monthNames, \"|\");
+      setValue(\"hoursBackupFactorShape\", \"visible\", FALSE);
+      break;
+    }
+
+    case groupBackupInterval::montly: // monthly
+    {
+      setMultiValue(\"monthShape\", \"visible\", FALSE,
+                    \"monthText\", \"visible\", FALSE,
+                    \"month_spacer\", \"visible\", FALSE,
+                    \"hoursBackupFactorShape\", \"visible\", FALSE);
+      break;
+    }
+
+    case groupBackupInterval::weekly: // weekly
+    {
+      setMultiValue(\"monthShape\", \"visible\", FALSE,
+                    \"monthText\", \"visible\", FALSE,
+                    \"month_spacer\", \"visible\", FALSE,
+                    \"hoursBackupFactorShape\", \"visible\", FALSE);
+
+      dyn_string dayNames;
+      for (int i = 1; i <= 7; ++i)  // 7 days in a week
+        dynAppend(dayNames, getCatStr(\"para\", \"weekday\" + i));
+
+      dayShape.deleteAllItems();
+      dayShape.items = dayNames;
+
+      int x, y;
+      getValue(\"monthShape\", \"size\", x, y);
+      setValue(\"dayShape\", \"maximumSize\", x, -1);
+      break;
+    }
+
+    case groupBackupInterval::daily:  // daily
+    {
+      setMultiValue(\"monthShape\", \"visible\", FALSE,
+                    \"monthText\", \"visible\", FALSE,
+                    \"dayShape\", \"visible\", FALSE,
+                    \"dayText\", \"visible\", FALSE,
+                    \"month_spacer\", \"visible\", FALSE,
+                    \"day_spacer\", \"visible\", FALSE,
+                    \"hoursBackupFactorShape\", \"visible\", FALSE);
+
+      break;
+    }
+
+    case groupBackupInterval::lessDailly: // <daily
+    {
+      setMultiValue(\"monthShape\", \"visible\", FALSE,
+                    \"monthText\", \"visible\", FALSE,
+                    \"dayShape\", \"visible\", FALSE,
+                    \"dayText\", \"visible\", FALSE,
+                    \"month_spacer\", \"visible\", FALSE,
+                    \"day_spacer\", \"visible\", FALSE,
+                    \"backupFactorShape\", \"visible\", FALSE,
+                    \"hourShape\", \"visible\", FALSE,
+                    \"hourText\", \"visible\", FALSE,
+                    \"hour_spacer\", \"visible\", FALSE,
+                    \"minShape\", \"visible\", FALSE,
+                    \"minText\", \"visible\", FALSE,
+                    \"min_spacer\", \"visible\", FALSE,
+                    \"syncFrame\", \"visible\", FALSE,
+                    \"sync_spacer\", \"visible\", FALSE);
+
+      setMultiValue(\"hourText\", \"text\", getCatStr(\"NGA\", \"interval_description_1\"),
+                    \"minText\", \"text\", getCatStr(\"NGA\", \"interval_description_0\"));
+      break;
+    }
+  }
+
+  int factor = $factor;
+  if ( interval == groupBackupInterval::lessDailly )
+  {
+    if ( factor < 60 )  // minimum backup interval is 60 minutes
+      factor = 60;
+
+    int hoursValue = factor / 60;
+    setValue(\"hoursBackupFactorShape\", \"selectedText\", hoursValue);
+
+    return TRUE;
+  }
+
+  string timeGiven = $time;
+  if ( timeGiven.isEmpty() )
+    return TRUE;
+
+  int yearValue, monthValue, dayValue, hourValue, minuteValue;
+  sscanf(timeGiven, \"%d.%d.%d %d:%d\", yearValue, monthValue, dayValue, hourValue, minuteValue);
+  if ( interval == groupBackupInterval::weekly )  // weekly -> define weekday from index
+  {
+    time theTime = makeTime(yearValue, monthValue, dayValue, hourValue, minuteValue);
+    dayValue = weekDay(theTime);
+  }
+
+  if ( factor <= 0 )
+    factor = 1;
+
+  setMultiValue(\"monthShape\", \"selectedPos\", monthValue,
+                \"dayShape\", \"selectedPos\", dayValue,
+                \"hourShape\", \"value\", hourValue,
+                \"minShape\", \"value\", minuteValue,
+                \"backupFactorShape\", \"value\", factor);
+
+  return TRUE;
+}
+
+string generateTooltip(bool getperiod = FALSE)
+{
+  int intervalIndex = $interval;
+  string msg = getCatStr(\"NGA\", \"backupFactorShape\");
+  string periodName;
+  groupBackupInterval interval = intervalIndex;
+  switch (interval)
+  {
+    case groupBackupInterval::daily:
+    {
+      periodName = getCatStr(\"NGA\", \"interval_description_2\");
+      break;
+    }
+
+    case groupBackupInterval::weekly:
+    {
+      periodName = getCatStr(\"NGA\", \"interval_description_3\");
+      break;
+    }
+
+    case groupBackupInterval::montly:
+    {
+      periodName = getCatStr(\"NGA\", \"interval_description_4\");
+      break;
+    }
+
+    case groupBackupInterval::annually:
+    {
+      periodName = getCatStr(\"NGA\", \"interval_description_5\");
+      break;
+    }
+
+    case groupBackupInterval::lessDailly:
+    {
+      periodName = getCatStr(\"NGA\", \"interval_description_1\");
+      break;
+    }
+
+    default:
+      break;
+  }
+
+  if ( getperiod )
+    return periodName;
+
+  if ( !periodName.isEmpty() )
+    msg.replace(\"$1\", periodName);
+  else
+    msg.clear();
+
+
+  return msg;
+}
+
+int generateBackupHour(const int periodValue)
+{
+  int yearValue = year(getCurrentTime()),
+      monthValue = month(getCurrentTime()),
+      dayValue = day(getCurrentTime()),
+      hourValue = periodValue;
+
+  time timeToCheck = makeTime(yearValue, monthValue, dayValue, hourValue);
+  while ( period(timeToCheck) < period(getCurrentTime()) )
+  {
+    hourValue += periodValue;
+    timeToCheck = makeTime(yearValue, monthValue, dayValue, hourValue);
+  }
+
+  return (dayValue < day(timeToCheck) ? -1 : hourValue);
+}
+
+bool validDate(int yearValue, int monthValue, int dayValue)
+{
+  time checkDate = makeTime(yearValue, monthValue, dayValue);
+  return ((year(checkDate) == yearValue) && (month(checkDate) == monthValue) && (day(checkDate) == dayValue));
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1 48 3 "" 1
+35 "verticalSizePolicy" 0 0 0
+0
+13 2
+"btn_BottomBar_close"
+"WF_BottomBar"
+1 622.5 262.5476190476192 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "80 32"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  541.5 261 624.5 296
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  if ( !changed )  // if no changes, just close
+  {
+     PanelOffReturn(makeDynString(), makeDynFloat());
+     return;
+  }
+
+  dyn_float resultFloat;
+  dyn_string resultString;
+  wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, getCatStr(\"general\",\"information\"), getCatStr(\"ScriptWizard\", \"changesNotStored\"), resultString, resultFloat);
+
+  if ( (dynlen(resultString) > 0) && resultString[1] )
+    save();
+
+  PanelOffReturn(makeDynString(), makeDynFloat());
+}
+" 0
+ E E E
+13 3
+"btn_BottomBar_save"
+"WF_BottomBar"
+1 536.5 262.5476190476193 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ E E
+2 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "80 32"
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  455.5 261 538.5 296
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  save();
+}
+" 0
+ E E E
+32 4
+"SPACER1"
+""
+1 80 251 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 80 251 450.0000000000004 304.9999999999979 1
+2 5
+"minText"
+""
+1 349.75 11.75 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.00000000000001 0 0.9836065573770424 100.2499999999965 148.4426229508198 0 E 347 13.75 387 29
+0 2 0 "0s" 0 0 0 193 0 0  366.75 13.75 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 6 Minute
+LANG:10004 6 分钟
+LANG:10000 6 Minute
+LANG:10027 10 Минут
+21 6
+"minShape"
+"WF"
+1 799.249999999982 259.8802565930129 E E E 1 E 1 E N "STD_text" E N "STD_inputfield_back" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "60 26"
+"maximumSize" "60 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  443.2500000000001 183.967213114754 506.2499999999973 212.9672131147533
+0
+
+E
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+
+N 0 59 1 0 1 1
+2 9
+"hourText"
+""
+1 265.5 10.5 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 0 1 E 0.9999999999999637 0 0.9677419354838747 106.2500000000098 149.8704389212055 0 E 269 12.5 297 28
+0 2 0 "0s" 0 0 0 193 0 0  282.5 12.5 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 4 Hour
+LANG:10004 6 小时
+LANG:10000 6 Stunde
+LANG:10027 6 Час
+2 11
+"monthText"
+""
+1 191.5 68 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.000000000000054 0 1 -5.750000000006253 147.967213114754 0 E 117 14 153 29
+0 2 0 "0s" 0 0 0 193 0 0  134.5 14 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 5 Month
+LANG:10004 3 月
+LANG:10000 5 Monat
+LANG:10027 10 Месяц
+2 12
+"dayText"
+""
+1 221.7319286535918 68 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 0 1 E 0.9999999999999721 0 1 52.25000000000534 147.967213114754 0 E 191 14 215 29
+0 2 0 "0s" 0 0 0 193 0 0  203 14 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 3 Day
+LANG:10004 3 日
+LANG:10000 3 Tag
+LANG:10027 8 День
+21 13
+"hourShape"
+"WF"
+1 727.249999999982 259.8802565930129 E E E 1 E 1 E N "STD_text" E N "STD_inputfield_back" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "60 26"
+"maximumSize" "60 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  371.2500000000001 183.967213114754 434.2499999999973 212.9672131147533
+0
+
+E
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+
+N 0 23 1 0 1 1
+22 19
+"monthShape"
+"WF"
+1 106.659090909091 184.1944858420268 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "120 26"
+"maximumSize" "120 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  107.7500000000001 184.467213114754 230.7499999999965 213.4672131147532
+12
+4
+LANG:10001 4 Jan.
+LANG:10004 6 一月
+LANG:10000 3 Jan
+LANG:10027 12 Январь
+
+1
+4
+LANG:10001 4 Feb.
+LANG:10004 6 二月
+LANG:10000 3 Feb
+LANG:10027 14 Февраль
+
+0
+4
+LANG:10001 4 Mar.
+LANG:10004 6 三月
+LANG:10000 3 Mar
+LANG:10027 8 Март
+
+0
+4
+LANG:10001 4 Apr.
+LANG:10004 6 四月
+LANG:10000 5 April
+LANG:10027 12 Апрель
+
+0
+4
+LANG:10001 4 May.
+LANG:10004 6 五月
+LANG:10000 3 Mai
+LANG:10027 6 Май
+
+0
+4
+LANG:10001 4 Jun.
+LANG:10004 6 六月
+LANG:10000 4 Juni
+LANG:10027 8 Июнь
+
+0
+4
+LANG:10001 4 Jul.
+LANG:10004 6 七月
+LANG:10000 4 Juli
+LANG:10027 8 Июль
+
+0
+4
+LANG:10001 3 Aug
+LANG:10004 6 八月
+LANG:10000 3 Aug
+LANG:10027 12 Август
+
+0
+4
+LANG:10001 4 Sep.
+LANG:10004 6 九月
+LANG:10000 4 Sept
+LANG:10027 16 Сентябрь
+
+0
+4
+LANG:10001 4 Oct.
+LANG:10004 6 十月
+LANG:10000 3 Okt
+LANG:10027 14 Октябрь
+
+0
+4
+LANG:10001 4 Nov.
+LANG:10004 9 十一月
+LANG:10000 3 Nov
+LANG:10027 12 Ноябрь
+
+0
+4
+LANG:10001 4 Dec.
+LANG:10004 9 十二月
+LANG:10000 3 Dez
+LANG:10027 14 Декабрь
+
+0
+
+E
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+ 0 0
+22 21
+"dayShape"
+"WF"
+1 237.9112903225807 184.1944858420268 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "120 26"
+"maximumSize" "120 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  239.7500000000001 184.467213114754 362.7500000000009 213.4672131147532
+31
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+1
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+
+0
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0
+4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+
+0
+4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+
+0
+4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+
+0
+4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+
+0
+4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+
+0
+4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+
+0
+4
+LANG:10001 2 10
+LANG:10004 2 10
+LANG:10000 2 10
+LANG:10027 2 10
+
+0
+4
+LANG:10001 2 11
+LANG:10004 2 11
+LANG:10000 2 11
+LANG:10027 2 11
+
+0
+4
+LANG:10001 2 12
+LANG:10004 2 12
+LANG:10000 2 12
+LANG:10027 2 12
+
+0
+4
+LANG:10001 2 13
+LANG:10004 2 13
+LANG:10000 2 13
+LANG:10027 2 13
+
+0
+4
+LANG:10001 2 14
+LANG:10004 2 14
+LANG:10000 2 14
+LANG:10027 2 14
+
+0
+4
+LANG:10001 2 15
+LANG:10004 2 15
+LANG:10000 2 15
+LANG:10027 2 15
+
+0
+4
+LANG:10001 2 16
+LANG:10004 2 16
+LANG:10000 2 16
+LANG:10027 2 16
+
+0
+4
+LANG:10001 2 17
+LANG:10004 2 17
+LANG:10000 2 17
+LANG:10027 2 17
+
+0
+4
+LANG:10001 2 18
+LANG:10004 2 18
+LANG:10000 2 18
+LANG:10027 2 18
+
+0
+4
+LANG:10001 2 19
+LANG:10004 2 19
+LANG:10000 2 19
+LANG:10027 2 19
+
+0
+4
+LANG:10001 2 20
+LANG:10004 2 20
+LANG:10000 2 20
+LANG:10027 2 20
+
+0
+4
+LANG:10001 2 21
+LANG:10004 2 21
+LANG:10000 2 21
+LANG:10027 2 21
+
+0
+4
+LANG:10001 2 22
+LANG:10004 2 22
+LANG:10000 2 22
+LANG:10027 2 22
+
+0
+4
+LANG:10001 2 23
+LANG:10004 2 23
+LANG:10000 2 23
+LANG:10027 2 23
+
+0
+4
+LANG:10001 2 24
+LANG:10004 2 24
+LANG:10000 2 24
+LANG:10027 2 24
+
+0
+4
+LANG:10001 2 25
+LANG:10004 2 25
+LANG:10000 2 25
+LANG:10027 2 25
+
+0
+4
+LANG:10001 2 26
+LANG:10004 2 26
+LANG:10000 2 26
+LANG:10027 2 26
+
+0
+4
+LANG:10001 2 27
+LANG:10004 2 27
+LANG:10000 2 27
+LANG:10027 2 27
+
+0
+4
+LANG:10001 2 28
+LANG:10004 2 28
+LANG:10000 2 28
+LANG:10027 2 28
+
+0
+4
+LANG:10001 2 29
+LANG:10004 2 29
+LANG:10000 2 29
+LANG:10027 2 29
+
+0
+4
+LANG:10001 2 30
+LANG:10004 2 30
+LANG:10000 2 30
+LANG:10027 2 30
+
+0
+4
+LANG:10001 2 31
+LANG:10004 2 31
+LANG:10000 2 31
+LANG:10027 2 31
+
+0
+
+E
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+ 0 0
+32 23
+"month_spacer"
+""
+1 172.2500000000001 159.967213114754 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 172.2500000000001 159.967213114754 228.2500000000011 178.967213114754 1
+32 24
+"day_spacer"
+""
+1 304.2500000000001 159.967213114754 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 304.2500000000001 159.967213114754 360.2499999999995 178.967213114754 1
+32 25
+"hour_spacer"
+""
+1 412.2500000000001 159.967213114754 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 412.2500000000001 159.967213114754 432.2500000000001 178.967213114754 1
+32 26
+"min_spacer"
+""
+1 496.2500000000001 159.967213114754 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 496.2500000000001 159.967213114754 504.2500000000001 178.967213114754 1
+21 29
+"backupFactorShape"
+"WF"
+1 850.9999999999987 147.9130434782587 E E E 1 E 1 E N "STD_text" E N "STD_inputfield_back" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "120 26"
+"maximumSize" "120 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  134.9999999999999 71.99999999999994 257.9999999999999 100.9999999999992
+0
+
+"main()
+{
+  string msg = generateTooltip();
+  if ( !msg.isEmpty() )
+    this.toolTipText(msg);
+}" 0
+
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+
+N 1 99 1 1 1 1
+30 32
+"syncFrame"
+""
+1 266 45 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.134146341463415 0 1 -200.6829268292683 81.99999999999994 0 E 266 45 677 139
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0 3
+LANG:10000 21 Backup-Sync-Zeitpunkt
+LANG:10001 30 Synchronization time of backup
+LANG:10027 54 Время резервного копирования
+2 33
+"units"
+""
+1 465.2 219.8 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "106 -1"
+"maximumSize" "106 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+"main()
+{
+  this.text = generateTooltip(TRUE);
+}" 0
+ E 0 1 3 2 1 E 1.05420054200542 0 1 -99.4140921409215 -142.8000000000001 0 E 465.2 219.8 501 235
+0 2 2 "0s" 0 0 0 192 0 0  465.2 219.8 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 5 Hours
+LANG:10004 0 
+LANG:10000 7 Stunden
+LANG:10027 10 Часов
+2 36
+"PRIMITIVE_TEXT2"
+""
+1 349.75 11.75 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.000000000000044 0 0.9836065573770424 -208.7500000000155 32.4426229508197 0 E 351 13.75 383 29
+0 2 0 "0s" 0 0 0 193 0 0  366.75 13.75 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 5 Every
+LANG:10004 12 每次间隔
+LANG:10000 4 Alle
+LANG:10027 12 Каждые
+32 38
+"SPACER9"
+""
+1 219.9999999999999 43.99999999999995 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 219.9999999999999 43.99999999999995 310.9999999999999 62.99999999999995 1
+30 40
+"FRAME3"
+""
+1 548 35 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+35 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.985576923076923 0 1.061728395061728 -967.096153846154 -14.16049382716055 0 E 548 35 757 117
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0 3
+LANG:10000 9 Intervall
+LANG:10001 8 Interval
+LANG:10027 16 Интервал
+32 42
+"SPACER10"
+""
+1 479 73 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 479 73 498 98.99999999999994 1
+32 43
+"sync_spacer"
+""
+1 534 169.9999999999999 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 534 169.9999999999999 556 203.9999999999999 1
+32 44
+"SPACER12"
+""
+1 68 229 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 68 229 594 241 2
+22 45
+"hoursBackupFactorShape"
+"WF"
+1 260 71 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "120 26"
+"maximumSize" "120 -1"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  261.8387096774194 71.2727272727272 384.8387096774202 100.2727272727264
+5
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+0
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0
+4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+
+1
+4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+
+0
+4
+LANG:10001 2 12
+LANG:10004 2 12
+LANG:10000 2 12
+LANG:10027 2 12
+
+0
+
+"main()
+{
+  string msg = generateTooltip();
+  if ( !msg.isEmpty() )
+    this.toolTipText(msg);
+}" 0
+
+"main()
+{
+  changed = TRUE;
+}" 0
+
+E
+ 0 0
+32 47
+"SPACER13"
+""
+1 81 3 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 81 3 607 15 2
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 2 "LAYOUT_GROUP10" 1
+3 0 
+4 3 2 
+
+"S 4" "0 0 1 1"
+"S 3" "1 0 1 1"
+"S 2" "2 0 1 1"
+"" ""
+0 1 1 15 15 0 0 0
+3 3 "PANEL_REF1" 1
+"minimumSize" "360 55"
+"maximumSize" "-1 55"
+"layoutAlignment" "AlignNone"
+"" ""
+"vision/hsp/objects/background.pnl" 13.35542922873429 103 T 0 0.8265536609434502 0 0.913753820505656 53.96102107751852 156.8833564879175
+0
+4 1 "LAYOUT_GROUP9" 42
+0 2 
+
+2 3 
+"G 2" "0 0 1 1"
+"G 3" "0 0 1 2"
+"" ""
+0 3 1 0 0 0 0 0
+4 8 "LAYOUT_GROUP17" 30
+2 0 
+11 23 
+
+"S 11" "0 0 1 1"
+"S 23" "1 0 1 1"
+"" ""
+0 1 0 0
+4 10 "LAYOUT_GROUP19" 31
+2 0 
+12 24 
+
+"S 12" "0 0 1 1"
+"S 24" "1 0 1 1"
+"" ""
+0 1 0 0
+4 12 "LAYOUT_GROUP21" 33
+2 0 
+25 9 
+
+"S 25" "1 0 1 1"
+"S 9" "0 0 1 1"
+"" ""
+0 1 0 0
+4 14 "LAYOUT_GROUP23" 35
+2 0 
+26 5 
+
+"S 26" "1 0 1 1"
+"S 5" "0 0 1 1"
+"" ""
+0 1 0 0
+4 18 "LAYOUT_GROUP27" 40
+2 0 
+36 38 
+
+"S 36" "0 0 1 1"
+"S 38" "1 0 1 1"
+"" ""
+0 1 0 0
+4 25 "LAYOUT_GROUP40" 39
+1 0 
+33 
+
+"S 33" "0 0 1 1"
+"" ""
+0 1 1 0 0 4 0 0
+4 28 "LAYOUT_GROUP44" 30
+1 0 
+19 
+
+"S 19" "0 0 1 1"
+"" ""
+0 2 0 0
+4 29 "LAYOUT_GROUP45" 31
+1 0 
+21 
+
+"S 21" "0 0 1 1"
+"" ""
+0 2 0 0
+4 30 "LAYOUT_GROUP46" 36
+0 2 
+
+8 28 
+"G 8" "0 0 1 1"
+"G 28" "1 0 1 1"
+"" ""
+0 2 0 0
+4 31 "LAYOUT_GROUP47" 36
+0 2 
+
+10 29 
+"G 10" "0 0 1 1"
+"G 29" "1 0 1 1"
+"" ""
+0 2 0 0
+4 32 "LAYOUT_GROUP48" 33
+1 0 
+13 
+
+"S 13" "0 0 1 1"
+"" ""
+0 2 1 0 0 4 0 0
+4 33 "LAYOUT_GROUP49" 36
+0 2 
+
+12 32 
+"G 12" "0 0 1 1"
+"G 32" "1 0 1 1"
+"" ""
+0 2 0 0
+4 34 "LAYOUT_GROUP50" 35
+1 0 
+6 
+
+"S 6" "0 0 1 1"
+"" ""
+0 2 1 0 0 4 0 0
+4 35 "LAYOUT_GROUP51" 36
+0 2 
+
+34 14 
+"G 34" "1 0 1 1"
+"G 14" "0 0 1 1"
+"" ""
+0 2 0 0
+4 36 "LAYOUT_GROUP52" 41
+2 4 
+32 43 
+30 31 33 35 
+"S 43" "4 0 1 1"
+"G 30" "0 0 1 1"
+"G 31" "1 0 1 1"
+"G 33" "2 0 1 1"
+"G 35" "3 0 1 1"
+"" ""
+1 1 0 0
+4 37 "LAYOUT_GROUP53" 39
+1 0 
+45 
+
+"S 45" "0 0 1 1"
+"" ""
+0 1 0 0
+4 38 "LAYOUT_GROUP54" 39
+1 0 
+29 
+
+"S 29" "0 0 1 1"
+"" ""
+0 1 0 0
+4 39 "LAYOUT_GROUP55" 40
+1 3 
+42 
+38 37 25 
+"S 42" "3 0 1 1"
+"G 38" "0 0 1 1"
+"G 37" "1 0 1 1"
+"G 25" "2 0 1 1"
+"" ""
+0 1 0 0
+4 40 "LAYOUT_GROUP56" 41
+1 2 
+40 
+18 39 
+"G 18" "0 0 1 1"
+"G 39" "1 0 1 1"
+"" ""
+1 2 0 0
+4 41 "LAYOUT_GROUP58" 42
+0 2 
+
+36 40 
+"G 36" "1 0 1 1"
+"G 40" "0 0 1 1"
+"" ""
+0 2 1 9 9 0 0 0
+4 42 "LAYOUT_GROUP59" -1
+2 2 
+44 47 
+41 1 
+"S 44" "2 0 1 1"
+"S 47" "0 0 1 1"
+"G 41" "1 0 1 1"
+"G 1" "3 0 1 1"
+"" ""
+0 2 0 0
+0

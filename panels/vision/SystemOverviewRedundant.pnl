@@ -1,0 +1,4809 @@
+V 14
+4
+LANG:10001 19 redundancy overview
+LANG:10004 12 冗余总览
+LANG:10000 0 
+LANG:10027 64 Состояние резервированной системы
+PANEL,-1 -1 981 568 N "_3DFace" 1
+"$System"
+"bool bLeadership;
+time tOld;
+int iThreadId;
+
+
+main()
+{
+ bool bHDB, bHDB2;
+ int error;
+ dyn_errClass err;
+ dyn_string dsSystemNames;
+ dyn_uint diSystemIds;
+ string RemoteSystem;
+ int p1, p2;
+
+ if ($System == \"\")
+   PanelOff();
+
+
+ if (isDistributed() && $System != getSystemName())
+ {
+    RemoteSystem = \" REMOTE '\"+$System+\"'\";
+    strreplace(RemoteSystem, \":\", \"\"); // remove :
+ }
+
+ initHosts();
+
+ systemoverviewConnectUi();  // sets the whole visibility !!
+
+ if (useNGA())
+ {
+   dpQueryConnectSingle(\"queryCBNGA\", 1,\"ident\",
+                        \"SELECT '.monitor.backendConnectedToDB:_online.._value', '.displayName:_online.._value', '.general.active:_online.._value' \"+
+                        \"FROM '_NGA_B_*'\"+RemoteSystem+\"  \"+
+                        \"WHERE (_DPT = \\\"_NGA_Backend\\\") \"+
+                        \"ORDER BY 2\");
+
+   dpConnect(\"connectionsCBNGA\", false, $System + \"_Connections.Data.ManNums:_online.._value\");
+   dpConnect(\"connectionsCBNGA\", false, $System + \"_Connections_2.Data.ManNums:_online.._value\");
+ }
+ else
+ {
+   dpGet($System+\"_DataManager.UseValueArchive:_online.._value\",bHDB,
+         $System+\"_DataManager_2.UseValueArchive:_online.._value\",bHDB2);  // Ist das neue Archiv aktiv?
+
+   if ( bHDB || bHDB2)
+     dpQueryConnectSingle(\"queryCBArchive\", 1,\"ident\",
+                          \"SELECT '.state:_online.._value, .general.arName:_online.._value' \"+
+                          \"FROM '_ValueArchive_*'\"+RemoteSystem+\" \"+
+                          \"WHERE ('.state:_online.._value' < 3 AND _DPT = \\\"_ValueArchive\\\")\");
+
+   if ( useRDBArchive() )
+   {
+     dpQueryConnectSingle(\"queryCBRDBArchive\", 1,\"ident\",
+                          \"SELECT '.dbConnection.connected:_online.._value, .arNr:_online.._value' \"+
+                          \"FROM '*'\"+RemoteSystem+\" \"+
+                          \"WHERE (_DPT = \\\"_RDBArchive\\\")\");
+   }
+ }
+
+
+
+ dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections.Ctrl.ManNums:_online.._value\",
+                                     $System + \"_MonitoredManagers.ImportanceManager.Ctrl:_online.._value\");
+ dpConnect(\"workCBManagerTableDriver\", $System+\"_Connections.Driver.ManNums:_online.._value\",
+                                       $System + \"_MonitoredManagers.ImportanceManager.Driver:_online.._value\");
+
+ if ( dpExists($System+\"_OneWayDist.distSystemIds\") )
+   dpConnect(\"workCBManagerDist\", $System+\"_Connections.Dist.ManNums:_online.._value\",
+                                  $System + \"_MonitoredManagers.ImportanceManager.Dist:_online.._value\",
+                                  $System+\"_DistConnections.Dist.ManNums:_online.._value\",
+                                  $System+\"_DistManager.State.SystemNums:_online.._value\",
+                                  $System+\"_OneWayDist.distSystemIds\");
+ else
+   dpConnect(\"workCBManagerDistExclOWD\", $System+\"_Connections.Dist.ManNums:_online.._value\",
+                                         $System + \"_MonitoredManagers.ImportanceManager.Dist:_online.._value\",
+                                         $System+\"_DistConnections.Dist.ManNums:_online.._value\",
+                                         $System+\"_DistManager.State.SystemNums:_online.._value\");
+
+ dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections.Api.ManNums:_online.._value\",
+                                     $System + \"_MonitoredManagers.ImportanceManager.Api:_online.._value\");
+ dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections.Device.ManNums:_online.._value\",
+                                     $System + \"_MonitoredManagers.ImportanceManager.Device:_online.._value\");
+
+
+  dpConnect(\"workCBState\", $System+\"_ReduManager.MyErrorStatus:_online.._value\",
+                           $System+\"_ReduManager.MaxMyErrorStatus:_online.._value\");
+
+
+// special for Redu:
+
+  dpConnect(\"workCBState\", $System+\"_ReduManager_2.MyErrorStatus:_online.._value\",
+                           $System+\"_ReduManager_2.MaxMyErrorStatus:_online.._value\");
+
+  dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections_2.Ctrl.ManNums:_online.._value\",
+                                      $System + \"_MonitoredManagers.ImportanceManager.Ctrl:_online.._value\");
+  dpConnect(\"workCBManagerTableDriver\", $System+\"_Connections_2.Driver.ManNums:_online.._value\",
+                                        $System + \"_MonitoredManagers.ImportanceManager.Driver:_online.._value\");
+
+  if ( dpExists($System+\"_OneWayDist.distSystemIds\") )
+    dpConnect(\"workCBManagerDist\", $System+\"_Connections_2.Dist.ManNums:_online.._value\",
+                                   $System + \"_MonitoredManagers.ImportanceManager.Dist:_online.._value\",
+                                   $System+\"_DistConnections_2.Dist.ManNums:_online.._value\",
+                                   $System+\"_DistManager_2.State.SystemNums:_online.._value\",
+                                   $System+\"_OneWayDist.distSystemIds\");
+  else
+    dpConnect(\"workCBManagerDistExclOWD\", $System+\"_Connections_2.Dist.ManNums:_online.._value\",
+                                          $System + \"_MonitoredManagers.ImportanceManager.Dist:_online.._value\",
+                                          $System+\"_DistConnections_2.Dist.ManNums:_online.._value\",
+                                          $System+\"_DistManager_2.State.SystemNums:_online.._value\");
+
+  dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections_2.Api.ManNums:_online.._value\",
+                                      $System + \"_MonitoredManagers.ImportanceManager.Api:_online.._value\");
+  dpConnect(\"workCBManagerTableCtrl\", $System+\"_Connections_2.Device.ManNums:_online.._value\",
+                                      $System + \"_MonitoredManagers.ImportanceManager.Device:_online.._value\");
+
+
+ dpConnect(\"workCBConnectionLink\", $System + \"_Conn_event_0_1_to_event_0_2.Link0:_online.._value\",
+                                   $System + \"_Conn_event_0_1_to_event_0_2.Link1:_online.._value\");
+ dpConnect(\"workCBConnectionLink\", $System + \"_Conn_event_0_2_to_event_0_1.Link0:_online.._value\",
+                                   $System + \"_Conn_event_0_2_to_event_0_1.Link1:_online.._value\");
+
+
+  dpConnect(\"workCBSplitMode\",  $System + \"_ReduManager.SplitMode:_online.._value\",
+                                $System + \"_ReduManager_2.SplitMode:_online.._value\",
+                                $System + \"_ReduManager.EvStatus:_online.._value\",
+                                $System + \"_ReduManager_2.EvStatus:_online.._value\",
+                                $System + \"_DistManager.Redundancy.Active:_online.._value\",
+                                $System + \"_DistManager_2.Redundancy.Active:_online.._value\");
+  dpConnect( \"workCBPreferredMode\", $System+\"_ReduManager.Status.Preferred:_online.._value\",
+                                    $System+\"_ReduManager_2.Status.Preferred:_online.._value\");
+  dpConnect( \"workCBLeadership\", $System+\"_ReduManager.Status.Active:_online.._value\",
+                                 $System+\"_ReduManager.Status.Manual:_online.._value\",
+                                 $System+\"_ReduManager_2.Status.Active:_online.._value\",
+                                 $System+\"_ReduManager_2.Status.Manual:_online.._value\");
+
+//  dpGet($System+\"_ReduManager.PeerErrorStatus:_online.._value\", p1,
+//        $System+\"_ReduManager_2.PeerErrorStatus:_online.._value\", p2);
+//  dpSet($System+\"_ReduManager.PeerErrorStatus:_original.._value\", p1,
+//        $System+\"_ReduManager_2.PeerErrorStatus:_original.._value\", p2);  // redraw visibility
+
+  dpConnect(\"workSetDriverState\", $System+\"_Driver1.DC:_online.._value\",
+                                  $System+\"_Driver1_2.DC:_online.._value\",
+                                  $System+\"_Connections.Event.HostNames:_online.._value\",
+                                  $System+\"_Connections_2.Event.HostNames:_online.._value\" );
+
+  dpConnect(\"workCBHostName\",  $System+\"_Connections_2.Data.HostNames:_online.._value\" );
+  dpConnect(\"workCBHostName\", $System+\"_Connections.Data.HostNames:_online.._value\" );
+
+   tOld = getCurrentTime();
+   dpConnect(\"disableTime\", FALSE, $System+\"_ReduManager.Command.PreferredSet:_online.._stime\");
+   dpConnect(\"disableTime\", FALSE, $System+\"_ReduManager_2.Command.PreferredSet:_online.._stime\");
+   dpConnect(\"disableTime\", FALSE, $System+\"_ReduManager.Command.ActiveSet:_online.._stime\");
+   dpConnect(\"disableTime\", FALSE, $System+\"_ReduManager_2.Command.ActiveSet:_online.._stime\");
+
+
+   startThread(\"watchDogDistThread\");
+
+  // IM 111221
+  if ( isRedundant() )
+    dpConnect(\"setButtonEnabled\", TRUE, \"_Connections.Ui.ManNums:_online.._value\", \"_Connections_2.Ui.ManNums:_online.._value\");
+
+
+  startThread(\"threadCheckHostConnection\", getSystemId($System));
+}
+
+threadCheckHostConnection(int iSystemNumber)
+{
+  bool isDistSystem = iSystemNumber != getSystemId();
+
+  int iEventManIdHost1 = convManIdToInt(EVENT_MAN, 0, iSystemNumber);
+  int iEventManIdHost2 = convManIdToInt(EVENT_MAN, 0, iSystemNumber, 2);
+
+  bool bVisibleHost1=TRUE, bVisibleHost2=TRUE;
+  bool bConnectionToHost1, bConnectionToHost2;
+
+  while(1)
+  {
+    getConnectionState(iSystemNumber, isDistSystem, bConnectionToHost1, bConnectionToHost2, iEventManIdHost1, iEventManIdHost2);
+
+    if ( bVisibleHost1 != bConnectionToHost1 )
+      setHostVisible(bConnectionToHost1, 1);
+
+    if ( bVisibleHost2 != bConnectionToHost2 )
+      setHostVisible(bConnectionToHost2, 2);
+
+    bVisibleHost1 = bConnectionToHost1;
+    bVisibleHost2 = bConnectionToHost2;
+
+    delay(0,200);
+  }
+}
+
+/**
+  @author jhercher
+
+  Function has been added to show state of redudist systems correctly in the system overview panel (TFS 4824)
+  in case of local system isConnOpen can still be used but in case of a dist system
+  the dp _DistConnections.Dist.ManNums is used, if it contains a number bigger than zero it has a connection to
+  the first redupartner of dist system if i contains a number smaller than zero it has a connection to
+  the second redupartner of dist system. it can also contain both if a connection with both is established.
+
+  @param distSysId ... int system id of dist system
+  @param isDistSystem ... bool TRUE if the systemoverview panel shows a dist system, FALSE if it shows local system
+  @param bConnectionToHost1 ... bool return parameter TRUE if connection to first redupartner ist established, FALSE if not
+  @param bConnectionToHost2 ... bool return parameter TRUE if connection to second redupartner ist established, FALSE if not
+  @param iEventManIdHost1 ... int with the EventmanagerId for Host1
+  @param iEventManIdHost2 ... int with the EventmanagerId for Host2
+
+  */
+void getConnectionState(int distSysId, bool isDistSystem, bool &bConnectionToHost1, bool &bConnectionToHost2,
+                        int iEventManIdHost1, int iEventManIdHost2)
+{
+  bConnectionToHost1 = FALSE;
+  bConnectionToHost2 = FALSE;
+  if(!isDistSystem)
+  {
+    bConnectionToHost1 = isConnOpen(iEventManIdHost1);
+    bConnectionToHost2 = isConnOpen(iEventManIdHost2);
+  }
+  else
+  {
+    dyn_int manNums, manNums2;
+    dpGet(\"_DistConnections.Dist.ManNums\", manNums,
+          \"_DistConnections_2.Dist.ManNums\", manNums2);
+
+    dynAppend(manNums, manNums2);
+    for(int i = 1; i <= dynlen(manNums); i++)
+    {
+      if(manNums[i] > 0 && distSysId == manNums[i])
+      {
+        bConnectionToHost1 = TRUE;
+      }
+      else if(manNums[i] < 0 && distSysId == abs(manNums[i]))
+      {
+        bConnectionToHost2 = TRUE;
+      }
+    }
+  }
+}
+
+setHostVisible(bool bVisible, int iHostNr)
+{
+  string sHostPostfix = iHostNr==1 ? \"L\" : \"R\";
+
+  setMultiValue(\"pbHide1_\"  + sHostPostfix, \"visible\", !bVisible,
+                \"pbHide2_\"  + sHostPostfix, \"visible\", !bVisible,
+                \"pbHide3_\"  + sHostPostfix, \"visible\", !bVisible,
+                \"cbActive_\" + sHostPostfix, \"enabled\", bVisible);
+}
+
+synchronized setButtonEnabled(string dp, dyn_int di, string dp_2, dyn_int di_2)//IM 111221
+{
+  bool isInSplitmode;
+  bool bSSS =false;
+
+  // IM 109425
+  // IM 98329 use $System for getting the SSS system name.
+  string sSys;
+  sSys = \"\";
+  if (isDollarDefined(\"$System\")) {
+    sSys = $System;
+  }
+
+  //IM 98056: Splitmode is not allowed on SSS in case of 2x2 Redundancy
+  string sSSS_SystemName;
+  if(dpExists(sSys + \"_2x2Redu.settings.SSS_System\") == TRUE)  // If 2x2 Redundand System
+  {
+    dpGet(sSys + \"_2x2Redu.settings.SSS_System\",sSSS_SystemName);  //get System Name of SSS System
+
+    if(strrtrim(sSSS_SystemName) != \"\" && isDollarDefined(\"$System\"))
+    {
+      if(sSSS_SystemName == $System)  //if the Systemoverviewpanel shows the SSS System, no Splitmode is allowed
+        bSSS = true;
+    }
+  }
+
+  // button to enter split mode is disabled if it is the SSS in 2x2 Redundancy
+  if ( bSSS )
+  {
+    setMultiValue(\"buSplitmode\",\"enabled\",false,
+                  \"buRedundancymode\",\"enabled\",true);
+    return;
+  }
+
+
+  isSplitModeActive(isInSplitmode,sSys);
+
+  // button to enter split mode is disabled if the system is already in split mode
+  if ( isInSplitmode )
+  {
+    setMultiValue(\"buSplitmode\",\"enabled\",false,
+                  \"buRedundancymode\",\"enabled\",true);
+  }
+  // button to enter redundancy mode is disabled if system is not in split mode
+  else
+  {
+    setMultiValue(\"buSplitmode\",\"enabled\",true,
+                  \"buRedundancymode\",\"enabled\",false);
+  }
+}
+
+workCBConnectionLink(string dp, bool L0,string dp1, bool L1 )
+{
+  if ( isReduDp( dp))
+  {
+    connection_EMEM_1_2.foreCol  = L1?\"STD_device_on\":\"STD_device_off\";
+    connection_EMEM_0_2.foreCol  = L0?\"STD_device_on\":\"STD_device_off\";
+  }
+  else
+  {
+     connection_EMEM_1.foreCol  = L1?\"STD_device_on\":\"STD_device_off\";
+     connection_EMEM_0.foreCol  = L0?\"STD_device_on\":\"STD_device_off\";
+  }
+}
+
+
+workCBSplitMode( string dp1, bool bSplitmodeActive,
+                  string dp2, bool bSplitmodeActive_2,
+                  string dp3, bool bActiveEvent,
+                  string dp4, bool bActiveEvent_2,
+                  string dp5, bool bIsServer1Active,
+                  string dp6, bool bIsServer2Active)
+ {
+
+  bool bModeActive = ((bSplitmodeActive && bActiveEvent) || (bSplitmodeActive_2 && bActiveEvent_2));
+
+  if ( bModeActive)
+  {
+     bool active, driverActive,driverActive_2, bEventActive;
+
+     dpGet($System+\"_DistManager.Redundancy.Active:_online.._value\", active,
+           $System+\"_ReduManager.SplitActive\",bEventActive); //get Active Event in Splitmode
+
+
+    showSplitModeButtons(TRUE);
+
+    reduButtonSelect(\"buSplitmode\", 1);
+
+    dyn_int di1,di2;
+    //IM 111221
+    dpGet($System+\"_Connections.Ui.ManNums:_online.._value\", di1,
+          $System+\"_Connections_2.Ui.ManNums:_online.._value\",di2); //get Active Event in Splitmode
+    setButtonEnabled(\"\",di1,\"\",di2);
+
+    reduButtonSelect(\"buRedundancymode\", 0);
+
+ //   bo_SplitSim.visible = (!bIsServer1Active);// && tab_DIST.visible);
+ //   bo_SplitSim_2.visible = (!bIsServer2Active);// && tab_DIST_2.visible);
+
+    setMultiValue(\"buPrefered_R\", \"enabled\", FALSE,
+                 \"buPrefered_L\", \"enabled\", FALSE,
+                 \"buActive_L\", \"enabled\", FALSE,
+                 \"buActive_R\", \"enabled\", FALSE);
+
+
+// IM 101759: Display status with checkboxes
+   reduCheckBoxSelect(\"cbActiveDist_L\",active);
+   reduCheckBoxSelect(\"cbActiveDist_R\",!active);
+
+   reduCheckBoxSelect(\"cbActiveEvent_L\", bEventActive);
+   reduCheckBoxSelect(\"cbActiveEvent_R\", !bEventActive);
+
+   bo_Splitwall.visible = true;
+   cbActive_L.visible = true;
+   cbActive_R.visible = true;
+   stateActiveDist_L.visible = true;
+   stateActiveDist_R.visible = true;
+   stateActiveDriver_L.visible = true;
+   stateActiveDriver_R.visible = true;
+   stateActiveEvent_L.visible = true;
+   stateActiveEvent_R.visible = true;
+   buPrefered_L.visible = false;
+   buPrefered_R.visible = false;
+   buActive_L.visible = false;
+   buActive_R.visible = false;
+   buActiveApply.visible = true;
+   buSplitmode.enabled = false;
+   buRedundancymode.enabled = true;
+  }
+  else
+  {
+    showSplitModeButtons(FALSE);
+
+    reduButtonSelect(\"buSplitmode\", 0);
+
+    dyn_int di1,di2;
+    //IM 111221
+    dpGet($System+\"_Connections.Ui.ManNums:_online.._value\", di1,
+          $System+\"_Connections_2.Ui.ManNums:_online.._value\",di2); //get Active Event in Splitmode
+    setButtonEnabled(\"\",di1,\"\",di2);
+
+    reduButtonSelect(\"buRedundancymode\", 1);
+//    bo_SplitSim_2.visible = FALSE;
+//    bo_SplitSim.visible = FALSE;
+
+   setMultiValue(\"buPrefered_R\", \"enabled\", !bLeadership,
+                 \"buPrefered_L\", \"enabled\", !bLeadership,
+                 \"buActive_L\", \"enabled\", TRUE,
+                 \"buActive_R\", \"enabled\", TRUE);
+
+    bo_Splitwall.visible = false;
+    cbActive_L.visible = false;
+    cbActive_R.visible = false;
+    stateActiveDist_L.visible = false;
+    stateActiveDist_R.visible = false;
+    stateActiveDriver_L.visible = false;
+    stateActiveDriver_R.visible = false;
+    stateActiveEvent_L.visible = false;
+    stateActiveEvent_R.visible = false;
+    buPrefered_L.visible = true;
+    buPrefered_R.visible = true;
+    buActive_L.visible = true;
+    buActive_R.visible = true;
+    buActiveApply.visible = false;
+    buSplitmode.enabled = true;
+    buRedundancymode.enabled = false;
+  }
+
+
+
+}
+workCBPreferredMode(string dp1, bool bPreferred,
+                    string dp2, bool bPreferred_2)
+{
+  reduButtonSelect(\"buPrefered_L\", bPreferred);
+  reduButtonSelect(\"buPrefered_R\", bPreferred_2);
+
+}
+
+workCBLeadership(string dp1, bool bActiveSet,
+                 string dp2, bool bManualSet,
+                 string dp3, bool bActiveSet_2,
+                 string dp4, bool bManualSet_2)
+{
+   reduButtonSelect(\"buActive_L\", bActiveSet   && bManualSet,   \"STD_value_default\");
+   reduButtonSelect(\"buActive_R\", bActiveSet_2 && bManualSet_2, \"STD_value_default\");
+
+   bLeadership = ((bActiveSet   && bManualSet) || (bActiveSet_2 && bManualSet_2));
+
+   setMultiValue(\"buPrefered_R\", \"enabled\", !bLeadership,
+                 \"buPrefered_L\", \"enabled\", !bLeadership  );
+
+}
+
+
+workSetDriverState(string dp1, bool driverActive, string dp2, bool driverActive_2,
+                   string dp3, dyn_string dsName, string dp4, dyn_string dsName_2) synchronized (bSynchronizeDriverTab)
+{
+    int maxPos;
+    int i;
+    dyn_string col;
+    bool evConnected;
+
+    //Ermitteln ob Events eine Verbindung haben
+    evConnected = (dynlen(dsName)>=1 && dynlen(dsName_2)>=1);
+
+    //Linker Redu-Host
+    //-----------------
+    maxPos = tab_DRIVER.lineCount;
+
+    //Verbindungsstatus auslesen
+    for ( i= 0; i< maxPos; i++)
+      getValue(\"tab_DRIVER\",\"cellBackColRC\", i, \"num\", col[i+1]);
+
+    //Hintergrundfarbe bei ganzen Tabelle ?ndern
+    tab_DRIVER.backCol = ((driverActive && !evConnected)?\"_3DFace\":\"\");
+
+    //Verbindungsstatus wieder setzten
+    for ( i= 0; i< maxPos; i++)
+      setValue(\"tab_DRIVER\",\"cellBackColRC\", i, \"num\", col[i+1]);
+
+    //Rechter Redu-Host
+    //-----------------
+    maxPos = tab_DRIVER_2.lineCount;
+
+    //Verbindungsstatus auslesen
+    for ( i= 0; i< maxPos; i++)
+      getValue(\"tab_DRIVER_2\",\"cellBackColRC\", i, \"num\", col[i+1]);
+
+    //Hintergrundfarbe bei ganzen Tabelle ?ndern
+    tab_DRIVER_2.backCol = ((driverActive_2 && !evConnected)?\"_3DFace\":\"\");
+
+    //Verbindungsstatus wieder setzten
+    for ( i= 0; i< maxPos; i++)
+      setValue(\"tab_DRIVER_2\",\"cellBackColRC\", i, \"num\", col[i+1]);
+
+// IM 101759: Display status with checkboxes
+   reduCheckBoxSelect(\"cbActiveDriver_L\",!driverActive);
+   reduCheckBoxSelect(\"cbActiveDriver_R\",!driverActive_2);
+}
+
+
+disableTime(string dp, time t)
+{
+  if (t - tOld < 10 && iThreadId != 0)
+    stopThread(iThreadId) ;
+  iThreadId = startThread(\"disableTimeDelay\");
+
+
+}
+
+disableTimeDelay()
+{
+  bool buSplitmodeEnabled = buSplitmode.enabled();
+  bool buRedumodeEnabled  = buRedundancymode.enabled();
+  bool bSSS = false;
+
+  // IM 109425
+  // IM 98329 use $System for getting the SSS system name.
+  string sSys;
+  sSys = \"\";
+  if (isDollarDefined(\"$System\")) {
+    sSys = $System;
+  }
+
+  //IM 98056: Splitmode is not allowed on SSS in case of 2x2 Redundancy
+  string sSSS_SystemName;
+  if(dpExists(sSys + \"_2x2Redu.settings.SSS_System\") == TRUE)  // If 2x2 Redundand System
+  {
+    dpGet(sSys + \"_2x2Redu.settings.SSS_System\",sSSS_SystemName);  //get System Name of SSS System
+
+    if(strrtrim(sSSS_SystemName) != \"\" && isDollarDefined(\"$System\"))
+    {
+      if(sSSS_SystemName == $System)  //if the Systemoverviewpanel shows the SSS System, no Splitmode is allowed
+        bSSS = true;
+    }
+  }
+
+
+  setMultiValue(\"buPrefered_L\",\"enabled\",FALSE,
+                \"buPrefered_R\",\"enabled\",FALSE,
+                \"buActive_L\",\"enabled\", FALSE,
+                \"buActive_R\",\"enabled\", FALSE,
+                \"buRedundancymode\",\"enabled\", FALSE,
+                \"buSplitmode\", \"enabled\", FALSE);
+  delay(10);
+  iThreadId = 0;
+  setMultiValue(\"buPrefered_L\",\"enabled\",TRUE,
+                \"buPrefered_R\",\"enabled\",TRUE,
+                \"buActive_L\",\"enabled\", TRUE,
+                \"buActive_R\",\"enabled\", TRUE,
+                \"buRedundancymode\",\"enabled\", buRedumodeEnabled,
+                \"buSplitmode\", \"enabled\", (buSplitmodeEnabled && !bSSS));
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E 1 -1 -1 0  0 0
+"refFileName"0  1
+E "#uses \"dist.ctl\"
+
+dyn_int diExistingUI;
+int iIsRedundant;
+bool pgbUseOfflineState = FALSE;
+int pgiLeftOfflineState = 0;
+int pgiRightOfflineState = 0;
+bool pgLink0=FALSE, pgLink1=FALSE, pgLink0_2=FALSE, pgLink1_2=FALSE;
+bool bSynchronizeDriverTab;
+
+void updateOfflineErrorStateLine(string sShape, int OfflineState)
+{
+  if (OfflineState>0)
+    setValue(sShape, \"updateLine\", 1, \"#1\", \"offlineErrorState\", \"#2\", makeDynString(OfflineState, \"STD_value_not_ok\",\"_3DText\"), \"#3\", \"offlineErrorState\");
+  else
+    setValue(sShape, \"deleteLine\", 1, \"#1\", \"offlineErrorState\");
+}
+
+void watchDogDistThread()
+{
+  while(true)
+  {
+    checkDistState(getShape(\"tab_DIST\"));
+    checkDistState(getShape(\"tab_DIST_2\"));
+    delay(20);
+  }
+}
+
+void checkDistState(shape tab)
+{  
+  anytype a;
+  dyn_anytype daSystemsIds = tab.getColumnN(0);
+  dyn_string dsColorDist;
+  bool bError = false;
+  
+  for(int i = 1; i <= dynlen(daSystemsIds); i++)
+  {
+    dsColorDist[i] = tab.cellBackColRC(i-1,tab.columnName(0));
+  }
+  
+  for(int i = 1; i <= dynlen(daSystemsIds); i++)
+  {
+    if ( dsColorDist[i] == \"STD_device_on\" )
+    {
+      if ( !dpExists(getSystemName(daSystemsIds[i])+\"_DistManager.State.SystemNums\") )
+      {
+        bError = true;
+        break;
+      }
+      
+      dpGet(getSystemName(daSystemsIds[i])+\"_DistManager.State.SystemNums\", a);
+    
+      if(dynlen(getLastError()) > 0)//check if the system is realy available
+      {
+        bError = true;
+        break;
+      }
+    }
+  }
+ 
+  if ( strpos(tab.name, \"_2\") != -1 && tab.visible )
+    setValue(\"distError_2\",\"visible\",bError);
+  else if ( tab.visible )
+    setValue(\"distError\",\"visible\",bError);
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4 573
+"connection_EMEM_0"
+""
+1 304 370 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+205 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  304 370 490 370
+4 574
+"connection_EMEM_1"
+""
+1 305 380 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+206 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  305 380 490 380
+4 581
+"connection_EMEM_1_2"
+""
+1 490 380 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+211 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  490 380 675 380
+4 582
+"connection_EMEM_0_2"
+""
+1 490 370 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+212 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  490 370 675 370
+30 577
+"fraErrorState"
+""
+1 150 335 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+208 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 150 70 361 335
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Error state
+LANG:10004 12 错误状态
+LANG:10000 15 Fehlerbewertung
+LANG:10027 34 Оценка веса ошибок
+4 567
+"connection_DMVALARCH_2"
+""
+1 906.0000000000001 433 E E E 1 E 0 E N {0,204,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+199 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  906 433 906 390
+4 556
+"connection_EMDIST_2"
+""
+1 550 378 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+188 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  547 424 680 380
+4 564
+"connection_EMDM_2"
+""
+1 888.9473684210526 376 E E E 1 E 0 E N "STD_device_on" E N {0,0,0} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+196 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  890 376 690 376
+4 565
+"connection_EMUI"
+""
+1 290 330 E E E 1 E 0 E N "STD_device_on" E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+197 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  491 330 290 366
+4 566
+"connection_EMUI_2"
+""
+1 490 330 E E E 1 E 0 E N "STD_device_on" E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+198 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  700 366 490 330
+4 557
+"connection_EMDRIVER_2"
+""
+1 660 380 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+189 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  660 420 680 380
+4 558
+"connection_EMCTRL_2"
+""
+1 690 380 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+190 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  760 430 690 380
+4 239
+"connectionUI2"
+""
+1 490 320 E E E 1 E 1 E N "STD_device_on" E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  490 329 490 62
+4 357
+"connectionUI1"
+""
+1 21 64 E E E 1 E 1 E N "STD_device_on" E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+142 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  962 64 21 64
+2 484
+"name_of_host_1"
+""
+1 80 174 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+146 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 44 172 86 195
+0 2 2 "0s" 0 0 0 193 0 0  65 172 1
+4
+LANG:10001 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 4 ntap
+LANG:10004 4 ntap
+LANG:10000 4 ntap
+LANG:10027 4 ntap
+1 2286 87 "" 8
+0
+1 2292 88 "" 8
+0
+6 495
+"SERVER_CLICK"
+""
+1 17 170 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main()
+{
+rightClickOnObject(makeDynString(this.name, $System, name_of_host_1.text));
+}" 0
+ E
+147 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 12 Hauptrechner
+LANG:10027 12 Сервер
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  this.fill=\"[solid]\";
+}" 0
+ "main()
+{
+rightClickOnObject(makeDynString(this.name, $System, name_of_host_1.text));
+}" 0
+ 0 1 1 0 1 E U  0 E 17 70 127 170
+2 497
+"name_of_host_2"
+""
+1 920 174 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+151 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 884 172 926 195
+0 2 2 "0s" 0 0 0 193 0 0  905 172 1
+4
+LANG:10001 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 4 ntap
+LANG:10004 4 ntap
+LANG:10000 4 ntap
+LANG:10027 4 ntap
+1 2298 89 "" 8
+0
+1 2304 90 "" 8
+0
+6 508
+"Border5"
+""
+1 848 170 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main()
+{
+rightClickOnObject(makeDynString(this.name, $System, name_of_host_1.text));
+}" 0
+ E
+152 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 12 Hauptrechner
+LANG:10027 12 Сервер
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  this.fill=\"[solid]\";
+}" 0
+ "main()
+{
+rightClickOnObject(makeDynString(this.name, $System, name_of_host_1.text));
+}" 0
+ 0 1 1 0 1 E U  0 E 848 70 958 170
+4 509
+"connection_EMDIST"
+""
+1 291 379 E E E 1 E 0 E N {0,0,255} E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+155 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  425 425 291 379
+4 511
+"connection_DMVALARCH"
+""
+1 79 422 E E E 1 E 1 E N {0,204,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+157 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  79 422 79 379
+4 512
+"connection_EMDRIVER"
+""
+1 280 420 E E E 1 E 1 E N {0,0,255} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+158 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Information about this driver
+LANG:10004 12 驱动信息
+LANG:10000 34 Informationen über diesen Treiber
+LANG:10027 51 Информация об этом драйвере
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  340 420 280 370
+4 513
+"connection_EMCTRL"
+""
+1 220 430 E E E 1 E 1 E N {0,0,255} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+159 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  220 430 280 380
+4 514
+"connection_EMDM"
+""
+1 281 376 E E E 1 E 1 E N "STD_device_on" E N {0,0,0} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+160 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 4 1 0 1 E  282 376 82 376
+1 2310 91 "" 3
+18 "font" 0 0 4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0 
+0
+1 2312 92 "" 3
+18 "font" 0 0 4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0 
+0
+2 521
+"txt_CTRL"
+""
+1 155 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+161 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 157 402 237 417
+0 2 0 "0s" 0 0 0 192 0 0  157 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 CTRL and other
+LANG:10004 14 CTRL 与其他
+LANG:10000 12 CTRL und Div
+LANG:10027 17 CTRL и проч.
+2 522
+"txt_VALARCH"
+""
+1 10 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+162 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 12 402 56 417
+0 2 0 "0s" 0 0 0 192 0 0  12 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 7 Archive
+LANG:10027 10 Архив
+2 523
+"txt_DRIVER"
+""
+1 261 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+163 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 263 402 304 417
+0 2 0 "0s" 0 0 0 192 0 0  263 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Driver
+LANG:10004 6 驱动
+LANG:10000 7 Treiber
+LANG:10027 14 Драйвер
+2 525
+"txt_DIST"
+""
+1 475 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+165 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 454 402 477 417
+0 2 0 "0s" 0 0 0 194 0 0  477 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Dist
+LANG:10004 9 分布式
+LANG:10000 4 Dist
+LANG:10027 4 DIST
+1 2314 93 "" 3
+18 "font" 0 0 4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0 
+0
+1 2316 94 "" 3
+18 "font" 0 0 4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0 
+0
+2 559
+"txt_DIST_2"
+""
+1 501 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+191 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 503 402 528 417
+0 2 0 "0s" 0 0 0 192 0 0  503 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Dist
+LANG:10004 9 分布式
+LANG:10000 4 Dist
+LANG:10027 4 DIST
+2 560
+"txt_DRIVER_2"
+""
+1 618 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+192 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 620 402 661 417
+0 2 0 "0s" 0 0 0 192 0 0  620 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Driver
+LANG:10004 6 驱动
+LANG:10000 7 Treiber
+LANG:10027 14 Драйвер
+2 561
+"txt_CTRL_2"
+""
+1 744 400 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+193 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 746 402 826 417
+0 2 0 "0s" 0 0 0 192 0 0  746 402 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 CTRL and other
+LANG:10004 14 CTRL 与其他
+LANG:10000 12 CTRL und Div
+LANG:10027 17 CTRL и проч.
+2 562
+"txt_VALARCH_2"
+""
+1 850 401 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+194 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 852 403 896 418
+0 2 0 "0s" 0 0 0 192 0 0  852 403 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 7 Archive
+LANG:10027 10 Архив
+30 596
+"fraErrorState_2"
+""
+1 620 335 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+224 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 620 70 831 335
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Error state
+LANG:10004 12 错误状态
+LANG:10000 15 Fehlerbewertung
+LANG:10027 34 Оценка веса ошибок
+1 2318 97 "" 0
+0
+1 2324 98 "" 0
+0
+1 2330 99 "" 0
+0
+1 2336 100 "" 0
+0
+1 2342 101 "" 0
+0
+1 2348 102 "" 0
+0
+1 2354 103 "" 0
+0
+1 2360 104 "" 0
+0
+1 2366 105 "" 0
+0
+1 2372 106 "" 0
+0
+1 2378 107 "" 0
+0
+1 2384 108 "" 0
+0
+1 2390 109 "" 0
+0
+1 2396 110 "" 0
+0
+1 2402 111 "" 0
+0
+1 2408 112 "" 0
+0
+1 2414 113 "" 0
+0
+1 2420 114 "" 0
+0
+1 2426 115 "" 0
+0
+10 943
+"polyEmergency"
+""
+1 78 325 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E "// SimpleCtrlScriptStart {valid}
+main(int iType)
+{
+  dyn_errClass err;
+
+  int          i, iReturnValue = 1, iDpCount = 1;
+  dyn_int      diType = makeDynInt();
+  dyn_string   dsDps;
+
+  dsDps[1] = $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\" + \":_alert_hdl.._ack\";
+
+  if ( isFunctionDefined(\"isAckable\") )
+  {
+    isAckable( iType, dsDps, iReturnValue );
+    if ( iReturnValue == 0 || dynlen (dsDps ) < 1 ) return;
+  }
+
+  for ( i = 1; i <= dynlen(dsDps); i++ )
+    diType[i] = iType;
+
+  dpSetWait( dsDps, diType );
+
+  err = getLastError();
+  if ( dynlen(err) > 0 )
+    DebugN(err);
+}
+// SimpleCtrlScript {EP_confirm}
+// dpCount {1}
+// dp1 {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// SimpleCtrlScriptEnd {EP_confirm}
+" 0
+
+ E E
+251 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Emergency mode!
+LANG:10004 12 紧急模式
+LANG:10000 15 Emergency Modus
+LANG:10027 30 Аварийный режим!
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+
+  EP_setForeColor();
+  EP_setVisible();
+}
+EP_setForeColor()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setForeColorCB\", 
+            $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+
+EP_setForeColorCB(string dpSource, string sNewColor)
+{
+  setValue(\"\", \"foreCol\", sNewColor);
+}
+
+EP_setVisible()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setVisibleCB\",
+            $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+EP_setVisibleCB(string dp, bool boNewValue)
+{
+    setValue(\"\", \"visible\", boNewValue);
+}
+
+// SimpleCtrlScript {EP_setForeColor}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_alert_hdl.._act_state_color}
+// DPType {string}
+// AlertHdl {TRUE}
+// DPEInvalid {}
+// DPEConfigInvalid {}
+// SimpleCtrlScriptEnd {EP_setForeColor}
+// SimpleCtrlScript {EP_setVisible}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_online.._value}
+// DPTyp {bool}
+// Active {1}
+// Operator {less}
+// Value {TRUE}
+// SimpleCtrlScriptEnd {EP_setVisible}
+" 0
+ E 0 2 1 0 1 E U  0 E 3 78 325
+68 345
+88 345
+ 1
+2 944
+"txtEmergency"
+""
+1 73 326 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E "// SimpleCtrlScriptStart {valid}
+main(int iType)
+{
+  dyn_errClass err;
+
+  int          i, iReturnValue = 1, iDpCount = 1;
+  dyn_int      diType = makeDynInt();
+  dyn_string   dsDps;
+
+  dsDps[1] = $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\" + \":_alert_hdl.._ack\";
+
+  if ( isFunctionDefined(\"isAckable\") )
+  {
+    isAckable( iType, dsDps, iReturnValue );
+    if ( iReturnValue == 0 || dynlen (dsDps ) < 1 ) return;
+  }
+
+  for ( i = 1; i <= dynlen(dsDps); i++ )
+    diType[i] = iType;
+
+  dpSetWait( dsDps, diType );
+
+  err = getLastError();
+  if ( dynlen(err) > 0 )
+    DebugN(err);
+}
+// SimpleCtrlScript {EP_confirm}
+// dpCount {1}
+// dp1 {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// SimpleCtrlScriptEnd {EP_confirm}
+" 0
+
+ E E
+252 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Emergency mode!
+LANG:10004 12 紧急模式
+LANG:10000 15 Emergency Modus
+LANG:10027 30 Аварийный режим!
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+
+  EP_setForeColor();
+  EP_setVisible();
+}
+EP_setForeColor()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setForeColorCB\", 
+            $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+
+EP_setForeColorCB(string dpSource, string sNewColor)
+{
+  setValue(\"\", \"foreCol\", sNewColor);
+}
+
+EP_setVisible()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setVisibleCB\",
+            $System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+EP_setVisibleCB(string dp, bool boNewValue)
+{
+    setValue(\"\", \"visible\", boNewValue);
+}
+
+// SimpleCtrlScript {EP_setForeColor}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_alert_hdl.._act_state_color}
+// DPType {string}
+// AlertHdl {TRUE}
+// DPEInvalid {}
+// DPEConfigInvalid {}
+// SimpleCtrlScriptEnd {EP_setForeColor}
+// SimpleCtrlScript {EP_setVisible}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_online.._value}
+// DPTyp {bool}
+// Active {1}
+// Operator {less}
+// Value {TRUE}
+// SimpleCtrlScriptEnd {EP_setVisible}
+" 0
+ E 0 1 1 0 1 E U  0 E 75 328 83 346
+0 2 0 "0s" 0 0 0 192 0 0  75 328 1
+4
+LANG:10001 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,69,0,0,0,0,0
+0 4
+LANG:10001 1 !
+LANG:10004 1 !
+LANG:10000 1 !
+LANG:10027 1 !
+10 945
+"Polyline1"
+""
+1 895 325 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E "// SimpleCtrlScriptStart {valid}
+main(int iType)
+{
+  dyn_errClass err;
+
+  int          i, iReturnValue = 1, iDpCount = 1;
+  dyn_int      diType = makeDynInt();
+  dyn_string   dsDps;
+
+  dsDps[1] = $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\" + \":_alert_hdl.._ack\";
+
+  if ( isFunctionDefined(\"isAckable\") )
+  {
+    isAckable( iType, dsDps, iReturnValue );
+    if ( iReturnValue == 0 || dynlen (dsDps ) < 1 ) return;
+  }
+
+  for ( i = 1; i <= dynlen(dsDps); i++ )
+    diType[i] = iType;
+
+  dpSetWait( dsDps, diType );
+
+  err = getLastError();
+  if ( dynlen(err) > 0 )
+    DebugN(err);
+}
+// SimpleCtrlScript {EP_confirm}
+// dpCount {1}
+// dp1 {$System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// SimpleCtrlScriptEnd {EP_confirm}
+" 0
+
+ E E
+253 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Emergency mode!
+LANG:10004 12 紧急模式
+LANG:10000 15 Emergency Modus
+LANG:10027 30 Аварийный режим!
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  EP_setForeColor();
+  EP_setVisible();
+}
+EP_setForeColor()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setForeColorCB\", 
+            $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+
+EP_setForeColorCB(string dpSource, string sNewColor)
+{
+  setValue(\"\", \"foreCol\", sNewColor);
+}
+
+EP_setVisible()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setVisibleCB\",
+            $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+EP_setVisibleCB(string dp, bool boNewValue)
+{
+    setValue(\"\", \"visible\", boNewValue);
+}
+
+// SimpleCtrlScript {EP_setForeColor}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_alert_hdl.._act_state_color}
+// DPType {string}
+// AlertHdl {TRUE}
+// DPEInvalid {}
+// DPEConfigInvalid {}
+// SimpleCtrlScriptEnd {EP_setForeColor}
+// SimpleCtrlScript {EP_setVisible}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_online.._value}
+// DPTyp {bool}
+// Active {1}
+// Operator {less}
+// Value {TRUE}
+// SimpleCtrlScriptEnd {EP_setVisible}
+" 0
+ E 0 2 1 0 1 E 1 0 1 10.00000000000011 0 0 E 3 895 325
+885 345
+905 345
+ 1
+2 946
+"Text1"
+""
+1 900.0000000000001 326 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E "// SimpleCtrlScriptStart {valid}
+main(int iType)
+{
+  dyn_errClass err;
+
+  int          i, iReturnValue = 1, iDpCount = 1;
+  dyn_int      diType = makeDynInt();
+  dyn_string   dsDps;
+
+  dsDps[1] = $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\" + \":_alert_hdl.._ack\";
+
+  if ( isFunctionDefined(\"isAckable\") )
+  {
+    isAckable( iType, dsDps, iReturnValue );
+    if ( iReturnValue == 0 || dynlen (dsDps ) < 1 ) return;
+  }
+
+  for ( i = 1; i <= dynlen(dsDps); i++ )
+    diType[i] = iType;
+
+  dpSetWait( dsDps, diType );
+
+  err = getLastError();
+  if ( dynlen(err) > 0 )
+    DebugN(err);
+}
+// SimpleCtrlScript {EP_confirm}
+// dpCount {1}
+// dp1 {$System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// SimpleCtrlScriptEnd {EP_confirm}
+" 0
+
+ E E
+254 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Emergency mode!
+LANG:10004 12 紧急模式
+LANG:10000 15 Emergency Modus
+LANG:10027 30 Аварийный режим!
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  EP_setForeColor();
+  EP_setVisible();
+}
+EP_setForeColor()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setForeColorCB\", 
+            $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_alert_hdl.._act_state_color\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+
+EP_setForeColorCB(string dpSource, string sNewColor)
+{
+  setValue(\"\", \"foreCol\", sNewColor);
+}
+
+EP_setVisible()
+{
+dyn_errClass err;
+
+  if( !dpExists( $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\"))
+  {
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+    return;
+  }
+
+  dpConnect(\"EP_setVisibleCB\",
+            $System+\"_DataManager_2.DiskSpaceCheck.EmergencyStopWrite.Status\"+\":_online.._value\");
+  err = getLastError();
+  if (dynlen(err) > 0)
+    setValue(\"\", \"color\", \"_dpdoesnotexist\");
+
+}
+
+EP_setVisibleCB(string dp, bool boNewValue)
+{
+    setValue(\"\", \"visible\", boNewValue);
+}
+
+// SimpleCtrlScript {EP_setForeColor}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_alert_hdl.._act_state_color}
+// DPType {string}
+// AlertHdl {TRUE}
+// DPEInvalid {}
+// DPEConfigInvalid {}
+// SimpleCtrlScriptEnd {EP_setForeColor}
+// SimpleCtrlScript {EP_setVisible}
+// DP {$System+\"_DataManager.DiskSpaceCheck.EmergencyStopWrite.Status\"}
+// DPConfig {:_online.._value}
+// DPTyp {bool}
+// Active {1}
+// Operator {less}
+// Value {TRUE}
+// SimpleCtrlScriptEnd {EP_setVisible}
+" 0
+ E 0 1 1 0 1 E U  0 E 902.0000000000001 328 910 346
+0 2 0 "0s" 0 0 0 192 0 0  902.0000000000001 328 1
+4
+LANG:10001 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,69,0,0,0,0,0
+0 4
+LANG:10001 1 !
+LANG:10004 1 !
+LANG:10000 1 !
+LANG:10027 1 !
+6 956
+"Border1"
+""
+1 40 172 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+262 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 12 Hauptrechner
+LANG:10027 12 Сервер
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  2  0 3  "pictures/systemUnit_basic.png" 13434828 E 40 71 108 172
+6 957
+"Border2"
+""
+1 870 172 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+263 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 12 Hauptrechner
+LANG:10027 12 Сервер
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  2  0 3  "pictures/systemUnit_basic.png" 13434828 E 870 71 938 172
+6 958
+"bo_Splitwall"
+""
+1 485 404 E E E 1 E 0 E N "_3DFace" E N {0,0,0} E E
+ E E
+263 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N {255,255,255}
+"antiAliased" "0"
+E E 0 1 1 0 0 E U  1 E 485 357 495 557
+25 527
+"tab_VALARCH"
+""
+1 -464 -203 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+167 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 418 132 561
+"main()
+{
+  this.sort(\"num\");
+
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 2 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 24 Archive number and state
+LANG:10004 18 归档号和状态
+LANG:10000 23 Archivnummer und Status
+LANG:10027 39 Номер архива и статус
+
+20 "name" 12 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 12 Archive name
+LANG:10004 12 归档名称
+LANG:10000 16 Archivbezeichung
+LANG:10027 19 Имя архива
+
+148 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 529
+"tab_DRIVER"
+""
+1 -529 -937 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  259 418 363 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 2 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 23 Driver number and state
+LANG:10004 18 驱动号和状态
+LANG:10000 24 Treibernummer und Status
+LANG:10027 49 Номер драйвера и состояние
+
+20 "name" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 14 Type of driver
+LANG:10004 12 驱动类型
+LANG:10000 10 Treibertyp
+LANG:10027 23 Тип драйвера
+
+178 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 530
+"tab_DIST"
+""
+1 -1418 -1370 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+170 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  360 418 488 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 3 8 "num" 2 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 47 Dist number and connection state to peer system
+LANG:10004 35 与各个分布式ID与连接状态
+LANG:10000 51 Distnummer und Verbindungsstatus zum Partner System
+LANG:10027 47 Dist number and connection state to peer system
+
+30 "name" 5 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 28 Name of the connected system
+LANG:10004 24 已连接的系统名称
+LANG:10000 28 Name des verbundenen Systems
+LANG:10027 28 Name of the connected system
+
+70 "oneWayDist" 1 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+22 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 537
+"tab_VALARCH_2"
+""
+1 360 -581 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+177 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  850 418 974 561
+"main()
+{
+  this.sort(\"num\");
+
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 2 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 24 Archive number and state
+LANG:10004 18 归档号和状态
+LANG:10000 23 Archivnummer und Status
+LANG:10027 39 Номер архива и статус
+
+20 "name" 12 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 12 Archive name
+LANG:10004 12 归档名称
+LANG:10000 16 Archivbezeichung
+LANG:10027 19 Имя архива
+
+148 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 539
+"tab_DRIVER_2"
+""
+1 -466 -1316 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+179 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  618 418 722 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 2 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 23 Driver number and state
+LANG:10004 18 驱动号和状态
+LANG:10000 24 Treibernummer und Status
+LANG:10027 49 Номер драйвера и состояние
+
+20 "name" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 14 Type of driver
+LANG:10004 12 驱动类型
+LANG:10000 10 Treibertyp
+LANG:10027 23 Тип драйвера
+
+178 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 542
+"tab_DIST_2"
+""
+1 -1859 -1809 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+
+  rightClickOnObject(makeDynString(\"tab_DIST\", $System, value));
+}
+" 0
+ E
+182 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  493 418 621 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+
+
+leftClickOnObject(makeDynString(\"tab_DIST\", $System, value));
+}" 0
+ 0 0 1 3 8 "num" 2 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 47 Dist number and connection state to peer system
+LANG:10004 35 与各个分布式ID与连接状态
+LANG:10000 51 Distnummer und Verbindungsstatus zum Partner System
+LANG:10027 47 Dist number and connection state to peer system
+
+30 "name" 5 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 28 Name of the connected system
+LANG:10004 24 已连接的系统名称
+LANG:10000 28 Name des verbundenen Systems
+LANG:10027 28 Name of the connected system
+
+70 "oneWayDist" 1 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+22 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+14 569
+"txt_State_2"
+""
+1 630 90 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+201 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  628 88 732 114
+2 "0s" 0 0 0 2 0 -1  E E E
+14 579
+"txt_State"
+""
+1 160 90 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+210 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 88 261 114
+2 "0s" 0 0 0 2 0 -1  E E E
+25 580
+"tab_CONTROL"
+""
+1 -1789 -1932 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+
+  value = this.cellValueRC(p1, \"#1\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value));
+}
+" 0
+ E
+211 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 113 352 324
+"main()
+{
+  string sOfflineErrorState;
+  paCfgReadValue(PROJ_PATH+\"config/config\", \"calcstate\", \"useOfflineErrorstateInfo\", sOfflineErrorState);  
+  if ( sOfflineErrorState != \"\" && (((int) sOfflineErrorState) > 0))
+  {
+    pgbUseOfflineState = TRUE;
+    dpGet($System+\"_Conn_event_0_1_to_event_0_2.Link0:_online.._value\", pgLink0, $System+\"_Conn_event_0_1_to_event_0_2.Link1:_online.._value\", pgLink1);
+    dpConnect(\"workCBRefreshLinks\", $System+\"_Conn_event_0_1_to_event_0_2.Link0:_online.._value\", $System+\"_Conn_event_0_1_to_event_0_2.Link1:_online.._value\");
+    dpConnect(\"workCBOfflineErrorState\", $System+\"_ReduHost.offlineErrorStatus:_original.._value\");
+  }
+  else
+    pgbUseOfflineState = FALSE;
+  
+  dpConnect(\"workCB\", $System+\"_ReduManager.MissingMonitoredManagers:_online.._value\");
+}
+
+workCB( string dp, dyn_string dList)
+{
+  int i, j;
+  dyn_string ds, ds1, ds3, ds4;
+  dyn_dyn_string ds2;
+
+  for ( i= 1; i<= dynlen( dList); i++)
+  {
+    strreplace( dList[i], \" | \", \"|\");
+    ds = strsplit( dList[i], \"|\");
+    dynAppend(ds1, ds[1]);
+    ds2[dynlen(ds2)+1] = makeDynString(ds[2],\"STD_value_not_ok\",\"_3DText\");
+    dynAppend(ds3, ds[3]);
+  }
+
+  this.deleteAllLines;
+  this.appendLines( dynlen( ds1), \"#1\", ds1, \"#2\", ds2, \"#3\", ds3); 
+  if (pgbUseOfflineState)
+  {
+    updateOfflineErrorStateLine(this.name(), pgiLeftOfflineState);
+  }
+}
+
+workCBOfflineErrorState (string dp, int OfflineState)
+{
+  pgiLeftOfflineState = OfflineState;
+  updateOfflineErrorStateLine(this.name(), pgiLeftOfflineState);
+}
+
+workCBRefreshLinks (string dp1, int L0, string dp2, int L1)
+{
+  pgLink0 = L0;
+  pgLink1 = L1;
+}
+
+" 0
+"main(int row, string column, string value)
+{
+
+ 
+  if ( column != \"#1\")
+    value = this.cellValueRC(row, \"#1\");
+
+
+
+leftClickOnObject(makeDynString(this.name, $System, value));
+}" 0
+ 0 0 1 3 12 "#1" 0 0 0 "s" 4
+LANG:10001 3 DPE
+LANG:10004 3 DPE
+LANG:10000 3 DPE
+LANG:10027 3 DPE
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "#2" 2 1 0 "s" 4
+LANG:10001 6 Weight
+LANG:10004 6 权重
+LANG:10000 10 Gewichtung
+LANG:10027 6 Вес
+E
+4
+LANG:10001 6 Weight
+LANG:10004 6 权重
+LANG:10000 10 Gewichtung
+LANG:10027 6 Вес
+
+30 "#3" 22 1 0 "s" 4
+LANG:10001 17 Monitored manager
+LANG:10004 21 受监控的管理器
+LANG:10000 16 Überwachungstyp
+LANG:10027 45 Контролируемый менеджер
+E
+4
+LANG:10001 17 Monitored manager
+LANG:10004 21 受监控的管理器
+LANG:10000 16 Überwachungstyp
+LANG:10027 45 Контролируемый менеджер
+
+250 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 2 1 7
+1 0
+25 585
+"tab_CONTROL_2"
+""
+1 -1619 -2095 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+
+  value = this.cellValueRC(p1, \"#1\");
+
+  rightClickOnObject(makeDynString(\"tab_CONTROL\", $System, value));
+}
+" 0
+ E
+215 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  628 113 822 324
+"main()
+{
+  string sOfflineErrorState;
+  paCfgReadValue(PROJ_PATH+\"config/config\", \"calcstate\", \"useOfflineErrorstateInfo\", sOfflineErrorState);  
+  if ( sOfflineErrorState != \"\" && (((int) sOfflineErrorState) > 0))
+  {
+    pgbUseOfflineState = TRUE;
+    dpGet($System+\"_Conn_event_0_2_to_event_0_1.Link0:_online.._value\", pgLink0_2, $System+\"_Conn_event_0_2_to_event_0_1.Link1:_online.._value\", pgLink1_2);
+    dpConnect(\"workCBRefreshLinks\", $System+\"_Conn_event_0_2_to_event_0_1.Link0:_online.._value\", $System+\"_Conn_event_0_2_to_event_0_1.Link1:_online.._value\");
+    dpConnect(\"workCBOfflineErrorState\", $System+\"_ReduHost_2.offlineErrorStatus:_original.._value\");
+  }
+  else
+    pgbUseOfflineState = FALSE;
+  
+  dpConnect(\"workCB\", $System+\"_ReduManager_2.MissingMonitoredManagers:_online.._value\");
+}
+
+workCB( string dp, dyn_string dList)
+{
+int i, j;
+dyn_string ds, ds1, ds3, ds4;
+dyn_dyn_string ds2;
+
+for ( i= 1; i<= dynlen( dList); i++)
+{
+  strreplace( dList[i], \" | \", \"|\");
+  ds = strsplit( dList[i], \"|\");
+  dynAppend(ds1, ds[1]);
+  ds2[dynlen(ds2)+1] = makeDynString(ds[2],\"STD_value_not_ok\",\"_3DText\");
+  dynAppend(ds3, ds[3]);
+}
+
+this.deleteAllLines;
+this.appendLines( dynlen( ds1), \"#1\", ds1, \"#2\", ds2, \"#3\", ds3); 
+
+  if (pgbUseOfflineState)
+  {
+    updateOfflineErrorStateLine(this.name(), pgiRightOfflineState);
+  }
+}
+
+workCBOfflineErrorState (string dp, int OfflineState)
+{
+  pgiRightOfflineState = OfflineState;
+  updateOfflineErrorStateLine(this.name(), pgiRightOfflineState);
+}
+
+workCBRefreshLinks (string dp1, int L0, string dp2, int L1)
+{
+  pgLink0_2 = L0;
+  pgLink1_2 = L1;
+}" 0
+"main(int row, string column, string value)
+{
+
+ 
+  if ( column != \"#1\")
+    value = this.cellValueRC(row, \"#1\");
+
+
+
+leftClickOnObject(makeDynString(\"tab_CONTROL\", $System, value));
+}" 0
+ 0 0 1 3 12 "#1" 0 0 0 "s" 4
+LANG:10001 3 DPE
+LANG:10004 3 DPE
+LANG:10000 3 DPE
+LANG:10027 3 DPE
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "#2" 2 1 0 "s" 4
+LANG:10001 6 Weight
+LANG:10004 6 权重
+LANG:10000 10 Gewichtung
+LANG:10027 6 Вес
+E
+4
+LANG:10001 6 Weight
+LANG:10004 6 权重
+LANG:10000 10 Gewichtung
+LANG:10027 6 Вес
+
+30 "#3" 22 1 0 "s" 4
+LANG:10001 17 Monitored manager
+LANG:10004 21 受监控的管理器
+LANG:10000 16 Überwachungstyp
+LANG:10027 45 Контролируемый менеджер
+E
+4
+LANG:10001 17 Monitored manager
+LANG:10004 21 受监控的管理器
+LANG:10000 16 Überwachungstyp
+LANG:10027 45 Контролируемый менеджер
+
+250 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 2 1 7
+1 0
+25 593
+"tab_CTRL"
+""
+1 -1021 -1164 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value, value2;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+  value2 = this.cellValueRC(p1, \"name\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value, value2));
+}
+" 0
+ E
+221 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  129 418 261 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  string  value2;
+  int p1, p2;
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+  value2 = this.cellValueRC(row, \"name\");
+
+  leftClickOnObject(makeDynString(this.name, $System, value, value2));
+
+}" 0
+ 0 0 1 3 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 24 Control number and state
+LANG:10004 21 控制数值和状态
+LANG:10000 24 Controlnummer und Status
+LANG:10027 51 Номер менеджера и состояние
+
+20 "name" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 15 Running scripts
+LANG:10004 12 运行脚本
+LANG:10000 16 Laufende Scripts
+LANG:10027 35 Выполняется скрипт
+
+178 "type" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+178 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+25 594
+"tab_CTRL_2"
+""
+1 -578 -1543 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main( )
+{
+  string value, value2;
+  int p1, p2;
+  getValue(\"\",\"currentCell\", p1, p2);
+  
+  if ( p1 < 0 )
+    return;
+
+  value = this.cellValueRC(p1, \"num\");
+  value2 = this.cellValueRC(p1, \"name\");
+
+  rightClickOnObject(makeDynString(this.name, $System, value, value2));
+}
+" 0
+ E
+222 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  720 418 853 561
+"main()
+{
+  this.sort(\"num\");
+}" 0
+"main(int row, string column, string value)
+{
+  string  value2;
+  int p1, p2;
+  if ( column != \"num\")
+    value = this.cellValueRC(row, \"num\");
+
+  value2 = this.cellValueRC(row, \"name\");
+
+  leftClickOnObject(makeDynString(this.name, $System, value, value2));
+
+}" 0
+ 0 0 1 3 8 "num" 1 1 0 "s" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+4
+LANG:10001 24 Control number and state
+LANG:10004 21 控制数值和状态
+LANG:10000 24 Controlnummer und Status
+LANG:10027 51 Номер менеджера и состояние
+
+20 "name" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 15 Running scripts
+LANG:10004 12 运行脚本
+LANG:10000 16 Laufende Scripts
+LANG:10027 35 Выполняется скрипт
+
+178 "type" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+178 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+14 1075
+"maxUI"
+""
+1 910 0 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+283 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  908 -2 972 25
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text	= 19;
+}" 0
+ E
+13 1077
+"Button1"
+""
+1 478 80 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+285 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Configure weight
+LANG:10004 12 配置宽度
+LANG:10000 25 Gewichtungsparametrierung
+LANG:10027 41 Параметрирование веса
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  476 78 504 106
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  leftClickOnObject(makeDynString(\"button\", $System));
+}" 0
+ E E E
+13 1225
+"buPrefered_L"
+""
+1 375 110 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  popUpOnObjectClick(\"\");
+}" 0
+ E
+287 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 At same errorstate this system is preferred
+LANG:10004 48 在相同的错误状态下，此系统是首选
+LANG:10000 67 Bei gleicher Fehlerbewertung wird das ausgewählte System bevorzugt
+LANG:10027 139 При одинаковой значимости ошибок данная система является предпочтительной
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373 108 476 136
+
+T 
+4
+LANG:10001 9 Preferred
+LANG:10004 6 首选
+LANG:10000 11 Vorzugslage
+LANG:10027 21 Предпочтит.
+"main()
+{
+  reduButtonKlick(\"buPrefered_L\");
+}" 0
+ E E E
+13 1372
+"buActive_L"
+""
+1 375 140 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+288 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Switch to this System without checking errorstate
+LANG:10004 54 在不检查错误状态的情况下切换到此系统
+LANG:10000 72 Umschaltung auf dieses System ohne Berücksichtigung der Fehlerbewertung
+LANG:10027 111 Переключиться на данную систему без учета значимости ошибок
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373 138 476 166
+
+T 
+4
+LANG:10001 12 Force active
+LANG:10004 12 强制激活
+LANG:10000 15 Aktiv erzwingen
+LANG:10027 16 Активный
+"main()
+{
+  reduButtonKlick(\"buActive_L\");
+}" 0
+ E E E
+13 1373
+"buRedundancymode"
+""
+1 440 170 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  popUpOnObjectClick(\"\");
+}" 0
+ E
+289 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 168 541 196
+
+T 
+4
+LANG:10001 10 Redundancy
+LANG:10004 6 冗余
+LANG:10000 9 Redundanz
+LANG:10027 23 Резерв.режим
+"main()
+{
+  reduButtonKlick(\"buRedundancymode\");
+}" 0
+ E E E
+13 1374
+"buSplitmode"
+""
+1 440 200 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  popUpOnObjectClick(\"\");
+}" 0
+ E
+291 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 198 541 226
+
+T 
+4
+LANG:10001 10 Split mode
+LANG:10004 12 分离模式
+LANG:10000 13 Split-Betrieb
+LANG:10027 19 Разд.режим
+"main()
+{
+  reduButtonKlick(\"buSplitmode\");
+}" 0
+ E E E
+13 1379
+"buPrefered_R"
+""
+1 505 110 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  popUpOnObjectClick(\"\");
+}" 0
+ E
+300 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 At same errorstate this system is preferred
+LANG:10004 48 在相同的错误状态下，此系统是首选
+LANG:10000 67 Bei gleicher Fehlerbewertung wird das ausgewählte System bevorzugt
+LANG:10027 139 При одинаковой значимости ошибок данная система является предпочтительной
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  503 108 606 136
+
+T 
+4
+LANG:10001 9 Preferred
+LANG:10004 6 首选
+LANG:10000 11 Vorzugslage
+LANG:10027 21 Предпочтит.
+"main()
+{
+  reduButtonKlick(\"buPrefered_R\");
+}" 0
+ E E E
+13 1380
+"buActive_R"
+""
+1 505 140 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+popUpOnObjectClick(\"\");
+}" 0
+ E
+302 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Switch to this System without checking errorstate
+LANG:10004 54 在不检查错误状态的情况下切换到此系统
+LANG:10000 72 Umschaltung auf dieses System ohne Berücksichtigung der Fehlerbewertung
+LANG:10027 111 Переключиться на данную систему без учета значимости ошибок
+
+2
+"layoutAlignment" "AlignCenter"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  503 138 606 166
+
+T 
+4
+LANG:10001 12 Force active
+LANG:10004 12 强制激活
+LANG:10000 15 Aktiv erzwingen
+LANG:10027 16 Активный
+"main()
+{
+  reduButtonKlick(\"buActive_R\");
+}" 0
+ E E E
+13 1527
+"buFileSync_L"
+""
+1 375 200 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+303 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373 198 436 226
+
+T 
+4
+LANG:10001 8 FileSync
+LANG:10004 12 文件同步
+LANG:10000 8 FileSync
+LANG:10027 11 Синхр.
+"main()
+{
+  reduButtonKlick(\"buFileSync_L\");  
+}" 0
+ E E E
+13 1528
+"buFileSync_R"
+""
+1 545 200 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+304 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  543 198 606 226
+
+T 
+4
+LANG:10001 8 FileSync
+LANG:10004 12 文件同步
+LANG:10000 8 FileSync
+LANG:10027 11 Синхр.
+"main()
+{
+  reduButtonKlick(\"buFileSync_R\");  
+}" 0
+ E E E
+20 1676
+"cbActive_L"
+""
+1 431.9999999999999 229 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+306 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 active host in splitmode
+LANG:10004 26 Split模式下激活主机
+LANG:10000 29 Aktiver Rechner im Splitmodus
+LANG:10027 62 Активный хост в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  430 227 537 294
+3
+T 
+4
+LANG:10001 13 Active Driver
+LANG:10004 12 激活驱动
+LANG:10000 15 Aktiver Treiber
+LANG:10027 21 Акт.драйвер
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 11 Active Dist
+LANG:10004 15 激活分布式
+LANG:10000 12 Aktiver Dist
+LANG:10027 11 Акт.DIST
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Active Event
+LANG:10004 11 激活Event
+LANG:10000 13 Aktiver Event
+LANG:10027 12 Акт.EVENT
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if(state == false)
+    this.state(button,true);
+  else
+    setValue(\"cbActive_R\",\"state\",button,false); //active Driver on host 1
+}" 0
+13 1677
+"buActiveApply"
+""
+1 440 297 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  popUpOnObjectClick(\"\");
+}" 0
+ E
+307 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 apply changes
+LANG:10004 12 应用改变
+LANG:10000 20 Änderungen anwenden
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 295 541 323
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  bool bActiveDriver_L;
+  bool bActiveDist_L;
+  bool bActiveEvent_L;
+  
+
+  //Get Parameterized state of Check boxes
+  getMultiValue(\"cbActive_L\",\"state\",0,bActiveDriver_L,
+                \"cbActive_L\",\"state\",1,bActiveDist_L,
+                \"cbActive_L\",\"state\",2,bActiveEvent_L); 
+  
+  //Set Active / Passive State in Splitmode
+  if(bActiveDist_L)
+    reduButtonKlick(\"buActiveDist_L\");
+  else
+    reduButtonKlick(\"buActiveDist_R\");   
+ 
+  if(bActiveEvent_L)
+    reduButtonKlick(\"buActiveEvent_L\");
+  else
+    reduButtonKlick(\"buActiveEvent_R\");  
+
+  if(bActiveDriver_L)
+    reduButtonKlick(\"buActiveDriver_L\");
+  else
+    reduButtonKlick(\"buActiveDriver_R\");   
+      
+}" 0
+ E E E
+20 1678
+"cbActive_R"
+""
+1 535 229 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+308 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 active host in splitmode
+LANG:10004 26 Split模式下激活主机
+LANG:10000 29 Aktiver Rechner im Splitmodus
+LANG:10027 62 Активный хост в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 227 557 294
+3
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if(state == false)
+    this.state(button,true);
+  else
+    setValue(\"cbActive_L\",\"state\",button,false); //active Driver on host 1
+}" 0
+14 1679
+"stateActiveDriver_L"
+""
+1 414 233 E E E 1 E 1 E N "_WindowText" E N "STD_device_on" E E
+ E E
+309 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 Aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  412 231 428 247
+2 "0s" 0 0 0 0 0 -1  E E E
+14 1680
+"stateActiveDist_L"
+""
+1 414 255 E E E 1 E 1 E N "_WindowText" E N "STD_led_On" E E
+ E E
+310 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 Aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  412 253 428 269
+2 "0s" 0 0 0 0 0 -1  E E E
+14 1681
+"stateActiveEvent_L"
+""
+1 414 276 E E E 1 E 1 E N "_WindowText" E N "STD_led_On" E E
+ E E
+311 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 Aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  412 274 428 290
+2 "0s" 0 0 0 0 0 -1  E E E
+14 1682
+"stateActiveDriver_R"
+""
+1 553 233 E E E 1 E 1 E N "_WindowText" E N "STD_led_Off" E E
+ E E
+312 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  551 231 567 247
+2 "0s" 0 0 0 0 0 -1  E E E
+14 1683
+"stateActiveDist_R"
+""
+1 553 255 E E E 1 E 1 E N "_WindowText" E N "STD_led_Off" E E
+ E E
+313 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  551 253 567 269
+2 "0s" 0 0 0 0 0 -1  E E E
+14 1675
+"stateActiveEvent_R"
+""
+1 553 276 E E E 1 E 1 E N "_WindowText" E N "STD_led_Off" E E
+ E E
+305 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 current active / passive state in split mode
+LANG:10004 43 拆分模式下的当前主动/被动状态
+LANG:10000 47 aktueller aktiv / passiv Status im Splitbetrieb
+LANG:10027 100 Текущий активный/пассивный статус в раздельном режиме
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  551 274 567 290
+2 "0s" 0 0 0 0 0 -1  E E E
+10 1830
+"POLYGON1"
+""
+1 80 325 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E E
+ E E
+314 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Dist Error
+LANG:10004 15 分布式错误
+LANG:10000 10 Dist Error
+LANG:10027 17 Ошибка DIST
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 2 1 0 1 E 1 0 1 354 67 0 E 3 80 325
+70 345
+90 345
+ 1
+2 1831
+"PRIMITIVE_TEXT1"
+""
+1 429 393 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E E
+ E E
+315 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Dist Error
+LANG:10004 15 分布式错误
+LANG:10000 10 Dist Error
+LANG:10027 17 Ошибка DIST
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 431 395 439 413
+0 2 0 "0s" 0 0 0 192 0 0  431 395 1
+4
+LANG:10001 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,69,0,0,0,0,0
+0 4
+LANG:10001 1 !
+LANG:10004 1 !
+LANG:10000 1 !
+LANG:10027 1 !
+10 1832
+"POLYGON2"
+""
+1 80 325 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E E
+ E E
+316 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Dist Error
+LANG:10004 15 分布式错误
+LANG:10000 10 Dist Error
+LANG:10027 17 Ошибка DIST
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 2 1 0 1 E 1 0 1 466 67 0 E 3 80 325
+70 345
+90 345
+ 1
+2 1833
+"PRIMITIVE_TEXT2"
+""
+1 541 393 E E E 1 E 0 E N "alarmKamUnq" E N "_Transparent" E E
+ E E
+317 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Dist Error
+LANG:10004 15 分布式错误
+LANG:10000 10 Dist Error
+LANG:10027 17 Ошибка DIST
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 543 395 551 413
+0 2 0 "0s" 0 0 0 192 0 0  543 395 1
+4
+LANG:10001 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,69,0,0,0,0,0
+0 4
+LANG:10001 1 !
+LANG:10004 1 !
+LANG:10000 1 !
+LANG:10027 1 !
+29 2280
+"pbHide1_R"
+""
+1 492 328 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+326 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  492 328 982 566
+19 BackgroundCover.ewo
+0
+E29 2281
+"pbHide2_R"
+""
+1 610 199 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+327 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  610 199 980 337
+19 BackgroundCover.ewo
+0
+E29 2282
+"pbHide3_R"
+""
+1 617.9999999999999 70 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+328 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  618 70 831 208
+19 BackgroundCover.ewo
+0
+E29 2283
+"pbHide3_L"
+""
+1 148 70 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+329 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  148 70 361 208
+19 BackgroundCover.ewo
+0
+E29 2284
+"pbHide2_L"
+""
+1 2 199 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+330 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  2 199 372 337
+19 BackgroundCover.ewo
+0
+E29 2285
+"pbHide1_L"
+""
+1 621 70 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+331 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  -3 328 487 565
+19 BackgroundCover.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 87 "Gruppe82" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemRam.pnl" 46 201 T 143 1 0 1 -6 29
+2
+"$System""$System"
+"$dpe""_MemoryCheck"
+3 88 "Gruppe83" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemHD.pnl" 117 203 T 144 1 0 1 -6 27
+2
+"$System""$System"
+"$dpe""_ArchivDisk"
+3 89 "Gruppe86" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemRam.pnl" 46 201 T 148 1 0 1 824 29
+2
+"$System""$System"
+"$dpe""_MemoryCheck_2"
+3 90 "Gruppe87" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemHD.pnl" 117 203 T 149 1 0 1 824 27
+2
+"$System""$System"
+"$dpe""_ArchivDisk_2"
+3 91 "Gruppe90" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/redundanz_manager.pnl" 457 331 T 153 1 0 1 -175 42
+4
+"$Manager_Name""EV"
+"$Manager_Nummer""1"
+"$Redundanz_Nummer""1"
+"$System""$System"
+3 92 "Gruppe91" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/redundanz_manager.pnl" 96 330 T 154 1 0 1 -19 43
+4
+"$Manager_Name""DM"
+"$Manager_Nummer""1"
+"$Redundanz_Nummer""1"
+"$System""$System"
+3 93 "Gruppe93" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/redundanz_manager.pnl" 47 335 T 183 1 0 1 858.0000000000001 38
+4
+"$Manager_Name""DM"
+"$Manager_Nummer""1"
+"$Redundanz_Nummer""2"
+"$System""$System"
+3 94 "Gruppe95" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/redundanz_manager.pnl" 262 335 T 185 1 0 1 420 38
+4
+"$Manager_Name""EV"
+"$Manager_Nummer""1"
+"$Redundanz_Nummer""2"
+"$System""$System"
+3 97 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 40 20 T 231 1 0 1 216 269
+2
+"$Manager_Nummer""2"
+"$System""$System"
+3 98 "Gruppe38" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 232 1 0 1 286 279
+2
+"$Manager_Nummer""3"
+"$System""$System"
+3 99 "Gruppe40" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 233 1 0 1 336 279
+2
+"$Manager_Nummer""4"
+"$System""$System"
+3 100 "Gruppe42" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 234 1 0 1 386 279
+2
+"$Manager_Nummer""5"
+"$System""$System"
+3 101 "Gruppe44" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 235 1 0 1 436 279
+2
+"$Manager_Nummer""6"
+"$System""$System"
+3 102 "Gruppe46" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 236 1 0 1 486 279
+2
+"$Manager_Nummer""7"
+"$System""$System"
+3 103 "Gruppe48" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 237 1 0 1 536 279
+2
+"$Manager_Nummer""8"
+"$System""$System"
+3 104 "Gruppe50" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 238 1 0 1 586 279
+2
+"$Manager_Nummer""9"
+"$System""$System"
+3 105 "Gruppe52" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 239 1 0 1 636 279
+2
+"$Manager_Nummer""10"
+"$System""$System"
+3 106 "Gruppe54" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 240 1 0 1 686 279
+2
+"$Manager_Nummer""11"
+"$System""$System"
+3 107 "Gruppe56" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 241 1 0 1 736 279
+2
+"$Manager_Nummer""12"
+"$System""$System"
+3 108 "Gruppe58" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 242 1 0 1 786 279
+2
+"$Manager_Nummer""13"
+"$System""$System"
+3 109 "Gruppe60" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 243 1 0 1 836 279
+2
+"$Manager_Nummer""14"
+"$System""$System"
+3 110 "Gruppe62" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 244 1 0 1 886 279
+2
+"$Manager_Nummer""15"
+"$System""$System"
+3 111 "Gruppe64" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 245 1 0 1 936 279
+2
+"$Manager_Nummer""16"
+"$System""$System"
+3 112 "Gruppe66" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 246 1 0 1 986 279
+2
+"$Manager_Nummer""17"
+"$System""$System"
+3 113 "Gruppe68" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 247 1 0 1 1036 279
+2
+"$Manager_Nummer""18"
+"$System""$System"
+3 114 "Gruppe70" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 248 1 0 1 1086 279
+2
+"$Manager_Nummer""19"
+"$System""$System"
+3 115 "Gruppe72" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/SystemOverview_Ui.pnl" 20 10 T 249 1 0 1 186 279
+2
+"$Manager_Nummer""1"
+"$System""$System"
+1 116 "distError" -1
+2 0 
+1830 1831 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+1 117 "distError_2" -1
+2 0 
+1832 1833 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+0

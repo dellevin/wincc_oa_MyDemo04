@@ -1,0 +1,515 @@
+V 14
+4
+LANG:10001 18 Trend Ruler Values
+LANG:10004 20 趋势 标尺 数值
+LANG:10000 17 Trend Linealwerte
+LANG:10027 51 Значения на реперных линиях
+PANEL,-1 -1 256 192 N "_ToolTip" 1
+"$floating"
+E E E E E 1 -1 -1 0  0 10
+""0  1
+E "shape table = getShape(\"TABLE1\");
+shape trend;
+bool isFloating = (bool)$floating; // store as bool for performance reasons
+bool initDone = false;
+dyn_string prevCurveNames;
+dyn_string prevCurveNamesAndLegendText;
+
+public rulerChanged(shape theTrend, int area) synchronized(table)
+{
+  if ( !initDone )
+  {
+    if ( !isFloating )
+      self.windowFlags = \"FramelessWindowHint\";
+
+    table.deleteAllLines();
+    initDone = true;
+  }
+
+  trend = theTrend;
+
+  if ( !trend.timeTrend )
+  {
+    handleXYTrend(area);
+    return;
+  }
+
+  table.updatesEnabled(false);
+
+  if ( table.lineCount == 0 )
+  {
+    table.appendLine(\"0\", getCatStr(\"misc\",\"trendTableRuler\"));
+    table.appendLine(\"0\", getCatStr(\"misc\",\"trendTableDate\"));
+    table.appendLine(\"0\", getCatStr(\"misc\",\"trendTableTime\"));
+  }
+
+  dyn_time times;
+  dyn_int areas;
+  getValue(trend, \"rulerTimes\", area, times,
+                  \"linkedAreas\", area, areas);
+
+  dynAppend(areas, area);
+
+  // Apply sorting for linked areas
+  dynSort(areas);
+
+  dyn_string curveNames;
+  dyn_string curveNamesAndLegendText;
+
+  for (int i = 1; i <= dynlen(areas); i++)
+  {
+    dyn_string names;
+    getValue(trend, \"curveNames\", areas[i], names);
+
+    string legendText;
+    // only show visible curves
+    for (int j = 1; j <= dynlen(names); j++)
+    {
+      if ( trend.curveVisible(names[j]) )
+      {
+        dynAppend(curveNames, names[j]);
+        getValue(trend, \"curveLegendText\", names[j], legendText);
+        dynAppend(curveNamesAndLegendText, names[j] + \"/\" + legendText);
+      }
+    }
+  }
+
+  if ( dynlen(curveNames) > (table.lineCount - 3) )
+    table.appendLines(dynlen(curveNames) - (table.lineCount - 3));
+  else
+    table.deleteLinesN(3, (table.lineCount - 3) - dynlen(curveNames));
+
+  // max columns: curveName + maxRulerCount + 2_diff_ruler
+  for (int i = table.columnCount; i < (1 + trend.maxRulerCount(area) + 2); i++)
+  {
+    table.insertColumn(i);
+    table.columnName(i, (string)i);
+    table.columnFormat(i, \"[0s,,,ALIGNMENT_END]\");
+    table.cellFormatRC(0, (string)i, \"[0s,,,ALIGNMENT_CENTER]\");
+  }
+
+  int sumWidth;
+  int visibleColumns = 1 + dynlen(times);
+  time diffRulerTime = trend.diffRulerTime(area);
+  if ( diffRulerTime )
+    visibleColumns += 2;
+
+  // fill curve name cells
+  bool curvesChanged = prevCurveNamesAndLegendText != curveNamesAndLegendText;
+  prevCurveNamesAndLegendText = curveNamesAndLegendText;
+
+  if ( curvesChanged )
+  {
+    for (int c = 1; c <= dynlen(curveNames); c++)
+    {
+      string legendText, color;
+      getValue(trend, \"curveLegendText\", curveNames[c], legendText,
+                      \"curveColor\", curveNames[c], color);
+
+      table.cellForeColRC(2 + c, \"0\", color);
+      table.cellValueRC(2 + c, \"0\", legendText);
+    }
+    table.adjustColumn(0);
+  }
+
+  for (int i = 1; i <= dynlen(times); i++)
+  {
+    int colNum = i;
+    if ( diffRulerTime && (i > 1) )
+      colNum = (string)(i + 2);
+    string column = colNum;
+
+    table.cellValueRC(0, column, i);  // ruler num
+
+    string str = trend.timeInUTC ? formatTimeUTC(\"%x\", times[i]) : formatTime(\"%x\", times[i]);
+    table.cellValueRC(1, column, str);
+
+    str = trend.timeInUTC ? formatTimeUTC(\"%X\", times[i], \" (%03d)\") : formatTime(\"%X\", times[i], \" (%03d)\");
+    table.cellValueRC(2, column, str);
+
+    for (int c = 1; c <= dynlen(curveNames); c++)
+    {
+      mapping data;
+      getValue(trend, \"curveDataAt\", curveNames[c], timeOrFreezeTime(area, times[i]), data);
+
+      string valStr;
+      if ( mappinglen(data) )
+      {
+        valStr = data[\"formattedValue\"];
+
+        if ( dpGetStatusBit(data[\"status\"], \":_original.._invalid\") )
+          table.cellFontRC(2 + c, column, \"Noto Sans,-1,13,5,50,1,0,0,0,0,Italic\");
+        else
+          table.cellFontRC(2 + c, column, \"Noto Sans,-1,13,5,50,0,0,0,0,0,Regular\");
+
+        if ( mappingHasKey(data, \"msgCatKey\") )
+          valStr += \" (\" + getCatStr(\"quality\", data[\"msgCatKey\"]) + ')';
+      }
+      else
+        valStr = \"-\";
+
+      table.cellValueRC(2 + c, column, valStr);
+    }
+
+    int w = table.columnWidth(colNum);
+    table.adjustColumn(colNum);
+    if ( w > table.columnWidth(colNum) )
+      table.columnWidth(colNum, w);
+
+    sumWidth += table.columnWidth(colNum);
+  }
+
+  // fill differential ruler values
+  if ( diffRulerTime )
+  {
+    setValue(table, \"cellValueRC\", 0, \"2\", getCatStr(\"misc\", \"trendTableDiffRuler\"),
+                    \"cellValueRC\", 0, \"3\", getCatStr(\"misc\", \"trendTableDifference\"));
+
+    string str = trend.timeInUTC ? formatTimeUTC(\"%x\", diffRulerTime) : formatTime(\"%x\", diffRulerTime);
+    table.cellValueRC(1, \"2\", str);
+
+    str = trend.timeInUTC ? formatTimeUTC(\"%X\", diffRulerTime, \" (%03d)\") : formatTime(\"%X\", diffRulerTime, \" (%03d)\");
+    table.cellValueRC(2, \"2\", str);
+
+    string diffStr;
+    float diff = (diffRulerTime > times[1]) ? (diffRulerTime - times[1]) : (times[1] - diffRulerTime);
+    if ( diff >= 86400 ) // 1 day
+    {
+      int days = diff / 86400;
+      diff -= days * 86400;
+      diffStr += \" \" + (string)days + getCatStr(\"misc\", \"trendTableDaysUnit\");
+    }
+    if ( diff >= 3600 ) // hours
+    {
+      int hours = diff / 3600;
+      diff -= hours * 3600;
+      diffStr += \" \" + (string)hours + getCatStr(\"misc\", \"trendTableHoursUnit\");
+    }
+
+    if ( diff >= 60 ) // minutes
+    {
+      int minutes = diff / 60;
+      diff -= minutes * 60;
+      diffStr += \" \" + (string)minutes + getCatStr(\"misc\", \"trendTableMinutesUnit\");
+    }
+
+    if ( diff >= 0 )
+    {
+      string str;
+      sprintf(str, \" %.2f\", diff);
+      diffStr += str + getCatStr(\"pmon\", \"second\");
+    }
+
+    table.cellValueRC(2, \"3\", diffStr);
+
+    for (int c = 1; c <= dynlen(curveNames); c++)
+    {
+      mapping data1, data;
+      getValue(trend, \"curveDataAt\", curveNames[c], timeOrFreezeTime(area, times[1]), data1,
+                      \"curveDataAt\", curveNames[c], timeOrFreezeTime(area, diffRulerTime), data);
+
+      string valStr;
+      if ( mappinglen(data) && mappinglen(data1) )
+      {
+        float diffValue = data[\"value\"] - data1[\"value\"];
+        valStr = trend.curveFormattedValue(curveNames[c], diffValue);
+      }
+      else
+        valStr = \"-\";
+
+      setValue(table, \"cellValueRC\", 2 + c, \"2\", mappinglen(data) ? data[\"formattedValue\"] : \"-\",
+                      \"cellValueRC\", 2 + c, \"3\", valStr);
+    }
+
+    int w = table.columnWidth(2);
+    table.adjustColumn(2);
+    if ( w > table.columnWidth(2) )
+      table.columnWidth(2, w);
+
+    sumWidth += table.columnWidth(2);
+
+    w = table.columnWidth(3);
+    table.adjustColumn(3);
+    if ( w > table.columnWidth(3) )
+      table.columnWidth(3, w);
+
+    sumWidth += table.columnWidth(3);
+  }
+
+  sumWidth += table.columnWidth(0);
+
+  int sumHeight = (3 + dynlen(curveNames)) * table.rowHeight;
+
+  setValue(table, \"minimumSize\", sumWidth + 2, sumHeight + 2,
+                  \"maximumSize\", sumWidth + 2, sumHeight + 2);
+
+  table.updatesEnabled(true);
+  setPosition(area);
+}
+
+//--------------------------------------------------------------------
+
+time timeOrFreezeTime(int area, time t)
+{
+  time ft = trend.areaFreezeTime(area);
+  return ( ft && (t > ft) ) ? ft : t;
+}
+
+//--------------------------------------------------------------------
+
+void handleXYTrend(int area)
+{
+  table.updatesEnabled(false);
+
+  if ( table.lineCount == 0 )
+    table.appendLine(\"0\", getCatStr(\"misc\",\"trendTableRuler\"));
+
+  dyn_string curveNames;
+  dyn_string names;
+  getValue(trend, \"curveNames\", area, names);
+
+  // only show visible curves
+  for (int j = 1; j <= dynlen(names); j++)
+    if ( trend.curveVisible(names[j]) )
+      dynAppend(curveNames, names[j]);
+
+  table.appendLines(dynlen(curveNames) * 2 - (table.lineCount - 1));
+
+  // max columns: curveName + maxRulerCount
+  for (int i = table.columnCount; i < (1 + trend.maxRulerCount(area)); i++)
+  {
+    table.insertColumn(i);
+    table.columnName(i, (string)i);
+    table.columnFormat(i, \"[0s,,,ALIGNMENT_END]\");
+    table.cellFormatRC(0, (string)i, \"[0s,,,ALIGNMENT_CENTER]\");
+  }
+
+  dyn_time times;
+  getValue(trend, \"rulerTimes\", area, times);  // just the count is needed
+
+  // fill curve name cells
+  bool curvesChanged = prevCurveNames != curveNames;
+  prevCurveNames = curveNames;
+  if ( curvesChanged )
+  {
+    for (int c = 1; c <= dynlen(curveNames); c++)
+    {
+      string legendText, legendTextX, color;
+      getValue(trend, \"curveLegendText\", curveNames[c], legendText,
+                      \"curveLegendTextX\", curveNames[c], legendTextX,
+                      \"curveColor\", curveNames[c], color);
+
+      setValue(table, \"cellForeColRC\", c * 2 - 1, \"0\", color,
+                      \"cellForeColRC\", c * 2    , \"0\", color,
+                      \"cellValueRC\",   c * 2 - 1, \"0\", legendText,
+                      \"cellValueRC\",   c * 2    , \"0\", legendTextX);
+    }
+    table.adjustColumn(0);
+  }
+
+  int sumWidth;
+
+  for (int i = 1; i <= dynlen(times); i++)
+  {
+    string column = (string)i;
+
+    table.cellValueRC(0, column, i);  // ruler num
+
+    for (int c = 1; c <= dynlen(curveNames); c++)
+    {
+      mapping dataX, dataY;
+      getValue(trend, \"curveDataAtRuler\",  curveNames[c], i - 1, dataY,
+                      \"curveDataAtRulerX\", curveNames[c], i - 1, dataX);
+
+      if ( mappinglen(dataX) && mappinglen(dataY) )
+      {
+        setValue(table, \"cellValueRC\", c * 2 - 1, column, dataY[\"formattedValue\"],
+                        \"cellValueRC\", c * 2    , column, dataX[\"formattedValue\"]);
+      }
+    }
+
+    int w = table.columnWidth(i);
+    table.adjustColumn(i);
+    if ( w > table.columnWidth(i) )
+      table.columnWidth(i, w);
+
+    sumWidth += table.columnWidth(i);
+  }
+
+  sumWidth += table.columnWidth(0);
+
+  int sumHeight = (1 + dynlen(curveNames) * 2) * table.rowHeight;
+
+  setValue(table, \"minimumSize\", sumWidth + 2, sumHeight + 2,
+                  \"maximumSize\", sumWidth + 2, sumHeight + 2);
+
+  table.updatesEnabled(true);
+  setPosition(area);
+}
+
+//--------------------------------------------------------------------
+
+setPosition(int area)
+{
+  if ( isFloating )
+    return;
+
+  float f;
+  getZoomFactor(f, myModuleName());
+
+  int x, y, w, h;
+  // since the windowGeometry is sometimes not correct yet
+  // (the layout did not resize the panel yet), use the calculated
+  // size of the table, which is the only shape in the panel
+  getValue(table, \"minimumSize\", w, h);
+
+  // calc is done in original panel size (unzoomed)
+  // but ruler panel will not be zoomed
+  w /= f;
+  h /= f;
+
+  int cx, cy;
+  getCursorPosition(cx, cy, true);
+
+  int ax, ay, aw, ah, tx, ty;
+  getValue(trend, \"areaPlotGeometry\", area, ax, ay, aw, ah);
+
+  int right = ax + aw;
+
+  if ( !trend.vertical )
+  {
+    getValue(self.rootPanel, \"mapFromGlobal\", cx + 10, cy, tx, y);
+
+    if ( (tx + w) > right )
+    {
+      tx = tx - 10 - w - 10;  // left of cursor
+      if ( (tx + w) > (right - 10) )
+        tx = right - w - 10;
+    }
+    if ( tx < (ax + 10) )
+      tx = ax + 10;
+
+    setValue(self, \"windowGeometry\", tx, ay + 10, w * f, h * f);
+  }
+  else  // vertical trend
+  {
+    getValue(self.rootPanel, \"mapFromGlobal\", cx, cy + 10, x, ty);
+    int bottom = ay + ah;
+
+    if ( (ty + h) > bottom )
+    {
+      ty = ty - 10 - h - 10;  // top of cursor
+      if ( (ty + h) > (bottom - 10) )
+        ty = bottom - h - 10;
+    }
+    if ( ty < (ay + 10) )
+      ty = ay + 10;
+
+    setValue(self, \"windowGeometry\", right - 10 - w, ty, w * f, h * f);
+  }
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "121.381"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"TABLE1"
+""
+1 0 0 E E E 1 E 1 E N "_ToolTipText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignNone"
+3
+LANG:10000 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10001 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+0  -2 -2 257.0000000000024 192.999999999999
+EE 0 0 1 1 0 "0" 4 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 0 
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+22 22 10 0
+3
+LANG:10000 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10001 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 38 Noto Sans,-1,13,5,50,0,0,0,0,0,Regular
+0 0 0 0 1 7
+1 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 0 "LAYOUT_GROUP0" -1
+1 0 
+0 
+
+"S 0" "0 0 1 1"
+"" ""
+0 2 0 0
+0

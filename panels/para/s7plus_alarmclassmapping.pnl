@@ -1,0 +1,718 @@
+V 14
+4
+LANG:10001 23 S7+ alarm class mapping
+LANG:10004 30 S7+ 报警类型映射WinCC OA
+LANG:10000 23 S7+ Alarmklassenmapping
+LANG:10027 23 S7+ alarm class mapping
+PANEL,-1 -1 500 400 N "_3DFace" 0
+"main()
+{
+  g_dsAC = initAC();
+  g_dsConns = getConns();
+  getMapping();
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// s7+ driver - alarm class mapping
+
+string sCFG = \".Config.\";
+string sBRO = \".Browse.\";
+
+string g_sStation;
+
+dyn_string g_dsConns;
+dyn_string g_dsAC;
+dyn_string g_dsACM;
+dyn_string g_dsS7AC;
+dyn_string g_dsOAAC;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void apply()
+{
+  dyn_string dsACM = makeDynString();
+
+  for ( int i = 0; i < tabMapping.lineCount; i++ )
+  {
+    dyn_anytype da;
+    getValue(\"tabMapping\", \"getLineN\", i, da);
+
+    if ( da[2] != \"\" )
+      dynAppend(dsACM, mergeS7Alert((string)da[1], (string)da[2]));
+  }
+
+  dpSet(getSystemName() + S7PLUS_DPT_CFG + \".AlarmClassMapping\", dsACM);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void close()
+{
+  PanelOff();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getMapping()
+{
+  dpGet(getSystemName() + S7PLUS_DPT_CFG + \".AlarmClassMapping\", g_dsACM);
+
+  if ( dynlen(g_dsACM) )
+  {
+    for ( int i = 1; i <= dynlen(g_dsACM); i++ )
+    {
+      if ( dynlen(splitS7Alert(g_dsACM[i])) > 1 )
+      {
+        dynAppend(g_dsS7AC, splitS7Alert(g_dsACM[i])[1]);
+        dynAppend(g_dsOAAC, splitS7Alert(g_dsACM[i])[2]);
+      }
+    }
+
+    setValue(\"tabMapping\", \"deleteAllLines\");
+    setValue(\"tabMapping\", \"appendLines\", dynlen(g_dsS7AC), \"#1\", g_dsS7AC,
+                                                            \"#2\", makeDynString());
+
+    dyn_string dsComboBoxAC = g_dsAC;
+    dynInsertAt(dsComboBoxAC, \"false\", 1);
+
+    for ( int i = 1; i <= dynlen(g_dsS7AC); i++ )
+      setMultiValue(\"tabMapping\", \"cellWidgetRC\", i-1, \"#2\", \"ComboBox\", dsComboBoxAC,
+                    \"tabMapping\", \"cellValueRC\",  i-1, \"#2\", g_dsOAAC[i]);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string mergeS7Alert(string sS7Alert, string sOAAlert)
+{
+  return sS7Alert + \"|\" + sOAAlert;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string splitS7Alert(string &sAlert)
+{
+  return strsplit(sAlert, \"|\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string getConns()
+{
+  dyn_string dsPlc = dpNames(getSystemName() + \"*\", S7PLUS_DPT_CONN);
+
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // do not display redundant datapoints
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    dsPlc[i] = dpSubStr(dsPlc[i], DPSUB_DP);
+  }
+
+  return dsPlc;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string initAC()
+{
+  mapping mAC;
+  getAC(getSystemName(), mAC);
+
+  dyn_string dsInitAC = mappingKeys(mAC);
+  dynSort(dsInitAC);
+
+  return dsInitAC;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int getAC(string sSourceSystem, mapping &mParameters)
+{
+  mappingClear(mParameters);
+
+  dyn_string dsSysNames;
+  dyn_uint duiSysIds;
+  getSystemNamesConnected(dsSysNames, duiSysIds);
+
+  dyn_string dsACConfigs = makeDynString(\"_alert_class.._type\");
+
+  if ( !dynContains(dsSysNames, sSourceSystem) && sSourceSystem != getSystemName() )
+    return -1;
+
+  int i, j, iRet;
+  dyn_dyn_anytype ddaResult;
+
+  mapping mTemp;
+  dyn_errClass err;
+
+  string sDP;
+  string sSystem = (sSourceSystem != getSystemName() ? \"REMOTE '\" + sSourceSystem + \"' \" : \"\");
+  string sQuery = \"SELECT \";
+
+  for ( i = 1; i <= dynlen(dsACConfigs); i++ )
+    sQuery += \"'\" + dsACConfigs[i] + \"',\";
+
+  sQuery = strrtrim(sQuery, \",\") + \" FROM '*.**' \" + sSystem + \" WHERE '\" + dsACConfigs[1] + \"' > 0\";
+  iRet = dpQuery(sQuery, ddaResult);
+  err = getLastError();
+
+  if ( iRet < 0 || dynlen(err) )
+    return -2;
+
+  dynRemove(ddaResult, 1);
+
+  for(i = 1; i <= dynlen(ddaResult); i++)
+  {
+    for(j = 2; j <= dynlen(ddaResult[i]); j++)
+    {
+      mTemp[dsACConfigs[j - 1]] = ddaResult[i][j];
+    }
+
+    sDP = dpSubStr(ddaResult[i][1], DPSUB_DP);
+    mParameters[sDP] = mTemp;
+  }
+
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  if ( !bVisible )
+    delay(0, 500);
+
+  setMultiValue(\"cmdLoadAlarmClasses\", \"enabled\", !bVisible,
+                \"tabMapping\",          \"enabled\", !bVisible,
+                \"cmdDelete\",           \"enabled\", !bVisible,
+                \"cmdDeleteAll\",        \"enabled\", !bVisible,
+                \"cmdOk\",               \"enabled\", !bVisible);
+
+  wait_modul_config.visible = bVisible;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 0
+"cmdCancel"
+""
+1 403.950495049505 364 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  403 363 491 391
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  close();
+}
+" 0
+ E E E
+13 1
+"cmdOk"
+""
+1 312.9999999999999 365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  313 363 401 391
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  apply();
+  close();
+}
+" 0
+ E E E
+13 2
+"cmdHelp"
+""
+1 8.95049504950487 364 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 363 96 391
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7plus_alarmclassmapping\");
+}
+" 0
+ E E E
+1 34 0 "" 0
+0
+25 9
+"tabMapping"
+""
+1 20 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 63 441 331
+"main()
+{
+  setValue(\"\", \"selectByClick\",        TABLE_SELECT_LINE ,
+  	           \"tableMode\",            TABLE_SELECT_BROWSE,
+               \"sortOnClick\",          true,
+               \"columnEditable\",       1, 1,
+               \"alternatingRowColors\", makeDynString(\"_AlternatingRowColorLight\", \"_AlternatingRowColorDark\"));
+}
+
+
+" 0
+E 1 0 1 2 0 "#1" 17 1 0 "s" 4
+LANG:10001 15 S7+ alarm class
+LANG:10004 13 S7+ 报警类
+LANG:10000 15 S7+ Alarmklasse
+LANG:10027 25 Аларм-класс S7+
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+201 "#2" 17 1 0 "s" 4
+LANG:10001 20 WinCC OA alarm class
+LANG:10004 18 WinCC OA 报警类
+LANG:10000 20 WinCC OA Alarmklasse
+LANG:10027 30 Аларм-класс WinCC OA
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+201 
+20 20 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+30 13
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7738287560581585 0 3.373737373737375 2.261712439418415 -158.6868686868688 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Alarm class mapping
+LANG:10004 15 报警类映射
+LANG:10000 21 Alarmklassenabbildung
+LANG:10027 52 Сопоставление аларм-классов
+13 20
+"cmdDelete"
+""
+1 448 273 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Delete selected assignment
+LANG:10004 15 删除所选的
+LANG:10000 26 Delete selected assignment
+LANG:10027 26 Delete selected assignment
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 273 476 301
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines;
+  getValue(\"tabMapping\", \"getSelectedLines\", lines);
+
+  if ( dynlen(lines) < 1 )
+    return;
+
+  tabMapping.cellValueRC(lines[1], \"#2\", \"\");
+}
+
+
+
+
+
+" 0
+ E E E
+13 26
+"cmdDeleteAll"
+""
+1 448 303 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 Delete all alert assignments
+LANG:10004 28 Delete all alert assignments
+LANG:10000 28 Delete all alert assignments
+LANG:10027 28 Delete all alert assignments
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 303 476 331
+
+P 
+13434828
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  for ( int i = 1; i <= tabMapping.lineCount; i++ )
+    tabMapping.cellValueRC(i-1, \"#2\", \"\");
+}
+
+
+
+
+
+" 0
+ E E E
+2 29
+"ptLoadAlarmClasses"
+""
+1 24.5 40.375 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 24.5 40.375 171 55
+0 2 2 "0s" 0 0 0 192 0 0  24.5 40.375 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 Load S7+ alarm classes:
+LANG:10004 21 加载S7+报警类：
+LANG:10000 23 S7+ Alarmklassen laden:
+LANG:10027 23 Load S7+ alarm classes:
+13 32
+"cmdLoadAlarmClasses"
+""
+1 163 281.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 42 Load S7+ alarm classes from TIA project(s)
+LANG:10004 42 Load S7+ alarm classes from TIA project(s)
+LANG:10000 42 S7+ Alarmklassen aus TIA Projekt(en) laden
+LANG:10027 42 Load S7+ alarm classes from TIA project(s)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  183 33 211 61
+
+P 
+4294967295
+"pictures/StandardIcons/load_config_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string dsAllAlarmClasses;
+  showWaitModule(1);
+
+  for ( int i = 1; i <= dynlen(g_dsConns); i++ )
+  {
+    string sConn = g_dsConns[i];
+    string sReqId = \"RequestAlarmClasses\" + sConn;
+
+    dpGet(sConn + sCFG + \"StationName\", g_sStation);
+
+    if ( g_sStation != \"\" )
+    {
+      g_sStation = strsplit(g_sStation, \"|\")[1];
+      g_sStation += \"|AlarmClasses\";
+    }
+    else
+      continue;
+
+    if ( g_sStation != \"\" )
+      dpSet(sConn + sBRO + \"GetBranch\", makeDynString(sReqId, g_sStation, 1));
+
+    string sReqIdGet;
+
+    while ( sReqIdGet != sReqId )
+    {
+      dpGet(sConn + sBRO + \"RequestId\", sReqIdGet);
+      delay(0, 100);
+    }
+
+    if ( sReqIdGet == sReqId )
+    {
+      dyn_string dsNP;
+      dpGet(sConn + sBRO + \"NodePaths\", dsNP);
+      dynAppend(dsAllAlarmClasses, dsNP);
+    }
+  }
+
+  dynUnique(dsAllAlarmClasses);
+  setValue(\"tabMapping\", \"deleteAllLines\");
+  setValue(\"tabMapping\", \"appendLines\", dynlen(dsAllAlarmClasses), \"#1\", dsAllAlarmClasses,
+                                                                   \"#2\", makeDynString());
+
+  dyn_string dsComboBoxAC = g_dsAC;
+  dynInsertAt(dsComboBoxAC, \"false\", 1);
+
+  for ( int i = 1; i <= dynlen(dsAllAlarmClasses); i++ )
+  {
+    setValue(\"tabMapping\", \"cellWidgetRC\", i-1, \"#2\", \"ComboBox\", dsComboBoxAC);
+
+    if ( dynContains(g_dsS7AC, dsAllAlarmClasses[i]) > 0 )
+      setValue(\"tabMapping\", \"cellValueRC\", i-1, \"#2\", g_dsOAAC[dynContains(g_dsS7AC, dsAllAlarmClasses[i])]);
+  }
+
+  showWaitModule(0);
+}
+
+" 0
+ E E E
+29 33
+"wait_modul_config"
+""
+1 21 89 E E E 1 E 0 E N "_WindowText" E N {63,63,63,131} E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"frameShape" "enum 0"
+"frameShadow" "enum 48"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  21 89 120 188
+15 Canvas.Canvas.1
+0
+"main()
+{
+  this.backCol(\"_3DFace\");
+  this.ModuleName = \"wait_modul_config\";
+
+  dyn_int diSize = makeDynInt(418, 240);
+  wait_modul_config.size(diSize[1], diSize[2]);
+
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\",
+                    \"wait_modul_config\",
+                    \"wait_modul_config\",
+                    makeDynString(\"$1:\"+diSize[1],
+                                  \"$2:\"+diSize[2]));
+}
+
+" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 515 T 0 1 0 1 -15 -160
+0
+0

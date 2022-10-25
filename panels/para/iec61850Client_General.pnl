@@ -1,0 +1,1558 @@
+V 14
+4
+LANG:10001 23 IEC 61850/61400 general
+LANG:10004 28 IEC 61850/61400 常规设置
+LANG:10000 23 IEC 61850/61400 general
+LANG:10027 45 Общие настройки IEC 61850/61400
+PANEL,-1 -1 810 580 N "_3DFace" 0
+"main()
+{
+  initializePanel();
+}
+" 0
+ E E E E 1 -1 -1 0  22 31
+""0  1
+E "#uses \"dist\"
+#uses \"hosts\"
+#uses \"iec61850_plugin.ctl\"
+
+string prevDeviceName, filterHotLinkDev;
+
+
+dyn_string dsRcbAll, dsRcbBuf, dsRcbUnb, dsRcbRsv, dsRcbUnr, dsRcbEna, dsRcbUne;
+dyn_bool dbBuf, dbRsv, dbEna, dbAsg;
+
+dyn_string dsRcbRsvDpe, dsRcbUnrDpe, dsRcbEnaDpe, dsRcbUneDpe;
+dyn_bool dbRcbRsvVal, dbRcbUnrVal, dbRcbEnaVal, dbRcbUneVal;
+
+dyn_string dsRcbList;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initializePanel()
+{
+  cbIEDType.deleteAllItems();
+  cbLocation.deleteAllItems();
+  cbVoltageLevel.deleteAllItems();
+
+  cbIEDType.enabled = 0;
+  cbLocation.enabled = 0;
+  cbVoltageLevel.enabled = 0;
+
+  //SCL_PATH.editable = 0;
+  //SCL_PATH.enabled = 0;
+  //SCL_BROWSE.enabled = 0;
+
+  ptxt_SCLSel.enabled = 0;
+  btnSave.enabled = 0;
+  //cmb_ModeSel.selectedPos = 1;
+  //cmb_ModeSel.enabled = 0;
+  txtModelName.text = \"\";
+  txtRevision.text = \"\";
+  txtVendorName.text = \"\";
+  txtBrowseTimeout.text = 0;
+  txtBrowseTimeout.enabled = 0;
+
+  cmdEnable.enabled = 0;
+  cmdRelease.enabled = 0;
+
+  // tfs 27082
+  cbReadCompleteBuffer.enabled = 0;
+  cbRcbCfg.enabled = 0;
+
+  pbAdvanced.enabled = 0;
+  pbBrowseDevice.enabled = 0;
+  pbBrowseFile.enabled = 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void ConnectGeneralInfo(string dp1,  string sValue1,
+                        string dp2,  string sValue2,
+                        string dp3,  string sValue3,
+                        string dp4,  uint uiValue1,
+                        string dp5,  uint uiValue2,
+                        string dp6,  dyn_string dsRcbs,
+                        string dp7,  uint activeDevice,
+                        string dp8,  string secondaryModel,
+                        string dp9,  string secondaryRevision,
+                        string dp10, string secondaryVendor,
+                        string dp11, int iDeviceState)
+{
+  int iState = iec61850_get_DeviceState(dpSubStr(dp1, DPSUB_DP));
+  pbBrowseDevice.enabled = (iState > 0);
+  txtBrowseTimeout.enabled = (iState > 0);
+
+  string sSys = getSystemName();
+  int iAnswer;
+  reduActive(iAnswer, sSys);
+
+  bool reduDpCB = isReduDp(dpSubStr(dp1, DPSUB_DP));
+  if (((iAnswer == 0 || iAnswer == 1) && reduDpCB) || //not redundant or Host1 active and the hotlink is from the redu DP
+      iAnswer == 2 && !reduDpCB)                      //Host2 active and the hotlink is not from the redu DP
+    return;
+
+  if ((activeDevice & 0x02) != 0) //bit for secondary device is set
+  {
+    txtModelName.text   = secondaryModel;    // model name
+    txtRevision.text    = secondaryRevision; // device revision
+    txtVendorName.text  = secondaryVendor;   // vendor name
+  }
+  else //bit for primary device is set
+  {
+    txtModelName.text   = sValue1;           // model name
+    txtRevision.text    = sValue2;           // device revision
+    txtVendorName.text  = sValue3;           // vendor name
+  }
+
+  txtBrowseTimeout.text = uiValue1;          // browse timeout
+
+
+  if ( dsRcbList != dsRcbs )
+    getRcbList();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void saveGeneralSettings()
+{
+  // save general settings information
+  if ( !dpExists(iec61850_getIedDpName(txtGenDeviceName.text)) )
+    return;
+
+  string sNewIedtype = cbIEDType.text;
+  string sNewLoc     = cbLocation.text;
+  string sNewVoltage = cbVoltageLevel.text;
+
+  //save general settings panel information to the selected device
+  iec61850_ETool_saveGeneralSettingsPanel(txtGenDeviceName.text,
+                                          sNewIedtype,
+                                          sNewLoc,
+                                          sNewVoltage,
+                                          txtBrowseTimeout.text,
+                                          cbReadCompleteBuffer.state(0),
+                                          cbRcbCfg.state(0));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getRcbList()
+{
+  if ( txtGenDeviceName.text == \"\" )
+    return;
+
+  string sIed = txtGenDeviceName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  dynClear(dsRcbAll);
+  dsRcbAll = dpNames(sIedDp + \"*\", IEC61850_DPT_RCB);
+
+  setMultiValue(\"cmdEnable\",  \"enabled\", dynlen(dsRcbAll),
+                \"cmdRelease\", \"enabled\", dynlen(dsRcbAll));
+
+  if ( dynlen(dsRcbAll) )
+  {
+    dyn_string dsRcbAllCfgList, dsRcbAllCfgListDps;
+    dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES, dsRcbAllCfgList);
+    dsRcbList = dsRcbAllCfgList;
+
+    for ( int i = 1; i <= dynlen(dsRcbAllCfgList); i++ )
+      dsRcbAllCfgListDps[i] = iec61850_getRcbDpName(sIedDp, dsRcbAllCfgList[i]);
+
+    if ( dsRcbAll != dsRcbAllCfgListDps )
+      dsRcbAll = dsRcbAllCfgListDps;
+
+    // ETM: get information about buffered and indexed
+    for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+    {
+      dsRcbAll[i] = dpSubStr(dsRcbAll[i], DPSUB_DP);
+
+      if ( dpExists(dsRcbAll[i]) )
+      {
+        dpGet(dsRcbAll[i] + IEC61850_DPE_RCB_RESV  ,   dbRsv[i],
+              dsRcbAll[i] + IEC61850_DPE_RCB_RPTENA,   dbEna[i],
+              dsRcbAll[i] + IEC61850_DPE_RCB_ASSIGNED, dbAsg[i]);
+      }
+    }
+
+    dynClear(dsRcbRsv);
+    dynClear(dsRcbUnr);
+    dynClear(dsRcbEna);
+    dynClear(dsRcbUne);
+
+    // ETM: separated lists for created rcbs: buffered, indexed, reserved, enabled
+    for ( int i = 1; i <= dynlen(dsRcbAll); i++ )
+    {
+      if ( dbRsv[i] && !dbAsg[i] )
+        dynAppend(dsRcbRsv, dsRcbAll[i]);
+
+      if ( !dbRsv[i] )
+        dynAppend(dsRcbUnr, dsRcbAll[i]);
+
+      if ( dbEna[i] )
+        dynAppend(dsRcbEna, dsRcbAll[i]);
+      else
+        dynAppend(dsRcbUne, dsRcbAll[i]);
+    }
+
+    // reserve dpes/vals
+    for ( int i = 1; i <= dynlen(dsRcbRsv); i++ )
+    {
+      dsRcbRsvDpe[i] = dsRcbRsv[i] + IEC61850_DPE_RCB_RESV;
+      dbRcbUnrVal[i] = false;
+    }
+    for ( int i = 1; i <= dynlen(dsRcbUnr); i++ )
+    {
+      dsRcbUnrDpe[i] = dsRcbUnr[i] + IEC61850_DPE_RCB_RESV;
+      dbRcbRsvVal[i] = true;
+    }
+
+    // enabled dpes/vals
+    for ( int i = 1; i <= dynlen(dsRcbEna); i++ )
+    {
+      dsRcbEnaDpe[i] = dsRcbEna[i] + IEC61850_DPE_RCB_RPTENA;
+      dbRcbUneVal[i] = false;
+    }
+    for ( int i = 1; i <= dynlen(dsRcbUne); i++ )
+    {
+      dsRcbUneDpe[i] = dsRcbUne[i] + IEC61850_DPE_RCB_RPTENA;
+      dbRcbEnaVal[i] = true;
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool clearRcbList(dyn_string dsClearRcbList)
+{
+  for ( int i = dynlen(dsClearRcbList); i >= 1; i-- )
+    if ( !dpExists(dsClearRcbList[i]) )
+      dynRemove(dsClearRcbList, i);
+
+  if ( dynlen(dsClearRcbList) )
+    return 1;
+  else
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void browseIed(int iType)
+{
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+
+  string sIed = txtGenDeviceName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  int iRet;
+  uint uiBrowseSource, uiBrowseError;
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource,
+        sIedDp + IEC61850_DPE_IDP_BROWSE_ERROR , uiBrowseError);
+
+  string sMsg = sIed + \": \" + getCatStr(\"iec61850\", \"DeviceAlreadyBrowsed\");
+
+  if ( uiBrowseSource > 0 && !iec61850_ChildPanelOn_getUserInput(sMsg) )
+  {
+    setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+    return;
+  }
+
+  bool bBrowseFile = (iType == 1);
+
+  if ( bBrowseFile )
+    iRet = iec61850_browse_file(sIed);
+  else
+    iRet = iec61850_browse_device(sIed);
+
+  checkBrowseReturn(sIed, iRet, bBrowseFile);
+
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkBrowseReturn(string sIed, int iRet, bool bBrowseFile)
+{
+  string sMsg;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  // check for return value of browsing device or file
+  switch ( iRet )
+  {
+    case -2: // device does not exist
+      sMsg = getCatStr(\"iec61850\", \"DeviceNotExist\");
+    break;
+
+    case -1: // failed to browse device
+      sMsg = getCatStr(\"iec61850\", \"OnlineFailed\") + sIed;
+    break;
+
+    case 0:  // file / device successfully browsed
+      sMsg = getCatStr(\"iec61850\", \"DeviceBrowsed\");
+    break;
+
+    case 3: // SCL file not found
+      sMsg = getCatStr(\"iec61850\", \"SCLNotFound\") + sIed;
+    break;
+
+    case 4: // failed to open SCL file
+      sMsg = sIed + \"\\n\" + getCatStr(\"iec61850\", \"WrongICDFile\");
+    break;
+
+    case 5: // wrong SCL file
+      sMsg = sIed + \"\\n\" + getCatStr(\"iec61850\", \"WrongSCDFile\");
+    break;
+
+    case 6: // wrong file extension
+      sMsg = getCatStr(\"iec61850\", \"WrongFileExtension\");
+    break;
+
+    case 7: // configured IED name does not match with the IED name in the browsed file
+      sMsg = sIed + \": \" + getCatStr(\"iec61850\", \"WrongIEDName\");
+    break;
+
+    case 12:
+    case 13:
+    case 14:
+      sMsg = getCatStr(\"iec61850\", \"DeviceBrowseError\" + iRet);
+    break;
+  }
+
+  if ( iRet == 0 )
+    iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+  else
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+
+    if ( bBrowseFile )
+      dpSet(sIedDp + IEC61850_DPE_IDP_BROWSE_ERROR, IEC61850_BROWSE_ERROR_FILE);
+  }
+}
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 80
+"ptVendorName"
+""
+1 30 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 30 112 45
+0 2 2 "0s" 0 0 0 192 0 0  30 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Vendor name:
+LANG:10004 18 供应商名称：
+LANG:10000 11 Hersteller:
+LANG:10027 27 Производитель:
+2 81
+"ptModelName"
+""
+1 30 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 65 107 80
+0 2 2 "0s" 0 0 0 192 0 0  30 65 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Model name:
+LANG:10004 13 模型名称:
+LANG:10000 7 Modell:
+LANG:10027 13 Модель:
+2 82
+"ptRevision"
+""
+1 440 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 440 30 494 45
+0 2 2 "0s" 0 0 0 192 0 0  440 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Revision:
+LANG:10004 9 版本：
+LANG:10000 9 Revision:
+LANG:10027 15 Ревизия:
+30 84
+"frmDevice"
+""
+1 341 263 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+84 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.833316844970869 0 0.3774725847926684 -956.1610441350664 -94.27528980047177 0 E 341 263 617 499
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Device information
+LANG:10004 12 设备信息
+LANG:10000 18 Geräteinformation
+LANG:10027 46 Информация об устройстве
+30 87
+"frmBrowse"
+""
+1 337 256 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+87 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.129319820172402 0 0.8527025221274551 -1044.5807793981 -118.4842088371007 0 E 337 256 587 362
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Device configuration
+LANG:10004 12 设备配置
+LANG:10000 21 Geräte-Konfiguration
+LANG:10027 45 Конфигурация устройства
+2 89
+"ptLocation"
+""
+1 30 315 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 315 85 330
+0 2 2 "0s" 0 0 0 192 0 0  30 315 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Location:
+LANG:10004 9 位置：
+LANG:10000 9 Standort:
+LANG:10027 29 Местоположения:
+2 90
+"ptVoltageLevel"
+""
+1 30 350 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 350 108 365
+0 2 2 "0s" 0 0 0 192 0 0  30 350 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Voltage level:
+LANG:10004 15 电压等级：
+LANG:10000 15 Spannungsebene:
+LANG:10027 21 Напряжение:
+2 92
+"ptIedType"
+""
+1 30 385 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 385 86 400
+0 2 2 "0s" 0 0 0 192 0 0  30 385 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 IED type:
+LANG:10004 12 IED类型：
+LANG:10000 8 IED-Typ:
+LANG:10027 11 Тип IED:
+14 94
+"txtVendorName"
+""
+1 251.7867647058819 22.19086826347299 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Vendor name of the device
+LANG:10004 21 设备供应商名称
+LANG:10000 27 Name des Geräteherstellers
+LANG:10027 47 Производитель устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 23 411 49
+3 "0s" 0 0 0 0 0 -1  E E E
+14 95
+"txtModelName"
+""
+1 251.7867647058819 53.19086826347299 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 Model name of the device
+LANG:10004 18 设备模型名称
+LANG:10000 23 Name des Gerätemodells
+LANG:10027 33 Модель устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 58 411 84
+3 "0s" 0 0 0 0 0 -1  E E E
+14 96
+"txtRevision"
+""
+1 124 160 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Revision number
+LANG:10004 9 版本号
+LANG:10000 15 Revisionsnummer
+LANG:10027 46 Номер ревизии устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 23 626 49
+3 "0s" 0 0 0 0 0 -1  E E E
+30 98
+"frmFilter"
+""
+1 369 268 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+98 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 5.607315677432645 0 0.8696757507039838 -2059.099484972646 56.5632664606626 0 E 369 268 509 412
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Filter selection
+LANG:10004 15 选择过滤器
+LANG:10000 13 Filterauswahl
+LANG:10027 46 Настройки для фильтрации
+2 99
+"ptxt_SCLSel"
+""
+1 30 159.7265625 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 159.7265625 81 175
+0 2 2 "0s" 0 0 0 192 0 0  30 159.7265625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 SCL file:
+LANG:10004 12 SCL文件：
+LANG:10000 10 SCL-Datei:
+LANG:10027 13 Файл SCL:
+14 102
+"SCL_PATH"
+""
+1 143.5281548516836 180.08984375 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 SCL path of the selected file
+LANG:10004 24 选定文件的SCL路径
+LANG:10000 29 SCL-Pfad der gewählten Datei
+LANG:10027 44 Путь SCL выбранного файла
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  478 153.36328125 506 181.36328125
+2 "0s" 0 0 0 0 0 -1  E E E
+13 103
+"btnSave"
+""
+1 675 425 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Save settings
+LANG:10004 12 保存设置
+LANG:10000 23 Einstellungen speichern
+LANG:10027 37 Сохранить настройки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  673 423 791 451
+
+T 
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 9 Speichern
+LANG:10027 18 Сохранить
+"main()
+{
+  saveGeneralSettings();
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+22 106
+"cbLocation"
+""
+1 145.2867647058821 320 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Locations for filter settings
+LANG:10004 21 过滤器设置位置
+LANG:10000 38 Standorte für die Filtereinstellungen
+LANG:10027 28 Местоположения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 308 411 334
+0
+
+E
+E
+E
+ 1 0
+22 107
+"cbVoltageLevel"
+""
+1 149.2867647058821 357 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Voltage level for filter settings
+LANG:10004 30 过滤器设置的电压等级
+LANG:10000 44 Spannungsebenen für die Filtereinstellungen
+LANG:10027 20 Напряжение
+
+2
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 343 411 369
+0
+
+E
+E
+E
+ 1 0
+22 108
+"cbIEDType"
+""
+1 152.5367647058822 400 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 IED type for filter settings
+LANG:10004 24 过滤器设置IED类型
+LANG:10000 38 IED-Typen für die Filtereinstellungen
+LANG:10027 10 Тип IED
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 378 411 404
+0
+
+E
+E
+E
+ 1 0
+14 109
+"txtGenDeviceName"
+""
+1 874 431.8333333333333 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  string sModel, sVendor, sRevision, sDeviceName, sSys = getSystemName();
+  getRcbList();
+
+  if ( newText == \"\" && (!dpExists(sSys + iec61850_getIedDpName(prevDeviceName))) )
+    prevDeviceName = \"\";
+
+  if((prevDeviceName == \"\") || (prevDeviceName != newText))
+  {
+    if((prevDeviceName != \"\") && (prevDeviceName == filterHotLinkDev) && (dpExists(sSys + iec61850_getIedDpName(prevDeviceName))))
+    {
+      sDeviceName = prevDeviceName;
+
+      string sTempDeviceDp = sSys + iec61850_getIedDpName(sDeviceName);
+
+      dpDisconnect(\"ConnectGeneralInfo\", sTempDeviceDp + IEC61850_DPE_IDP_MODEL                        ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_REVISION                     ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_VENDOR                       ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_BROWSETIMEOUT         ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_DEFAULTRESVTMS        ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES             ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_MODEL              ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_REVISION           ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_VENDOR             ,
+                                         sTempDeviceDp + IEC61850_DPE_IDP_DEVICE_STATE                 );
+      if ( isRedundant() )
+      {
+        dpDisconnect(\"ConnectGeneralInfo\", sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_MODEL                        ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_REVISION                     ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_VENDOR                       ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_BROWSETIMEOUT         ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_DEFAULTRESVTMS        ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_RCB_NAMES             ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_MODEL              ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_REVISION           ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_VENDOR             ,
+                                           sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICE_STATE                 );
+      }
+      prevDeviceName = \"\";
+    }
+
+    sDeviceName = newText;
+
+    if ( sDeviceName != \"\" )
+    {
+      string sTempDeviceDp = sSys + iec61850_getIedDpName(sDeviceName);
+
+      dpConnect(\"ConnectGeneralInfo\", TRUE, sTempDeviceDp + IEC61850_DPE_IDP_MODEL                        ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_REVISION                     ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_VENDOR                       ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_BROWSETIMEOUT         ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_DEFAULTRESVTMS        ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_CONFIG_RCB_NAMES             ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_MODEL              ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_REVISION           ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_SECONDARY_VENDOR             ,
+                                            sTempDeviceDp + IEC61850_DPE_IDP_DEVICE_STATE                 );
+
+      if(isRedundant())
+      {
+        dpConnect(\"ConnectGeneralInfo\", FALSE, sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_MODEL                        ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_REVISION                     ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_VENDOR                       ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_BROWSETIMEOUT         ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_DEFAULTRESVTMS        ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_RCB_NAMES             ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_MODEL              ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_REVISION           ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_VENDOR             ,
+                                               sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICE_STATE                 );
+
+        if ( txtModelName.text == \"\" && txtRevision.text == \"\" && txtVendorName.text == \"\" )
+        {
+          dpGet(sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_MODEL   , sModel,
+                sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_VENDOR  , sVendor,
+                sTempDeviceDp + IEC61850_2 + IEC61850_DPE_IDP_REVISION, sRevision);
+
+          txtModelName.text = sModel;     // model name
+          txtRevision.text = sRevision;   // device revision
+          txtVendorName.text = sVendor;   // vendor name
+        }
+      }
+
+      prevDeviceName = sDeviceName;
+      filterHotLinkDev = sDeviceName;
+    }
+  }
+
+  iec61850_ETool_updateGeneralSettingsTab(newText);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  643 423.1666666666667 671 451.1666666666667
+3 "0s" 0 0 0 0 0 -1  E E E
+2 113
+"ptTimeout"
+""
+1 30 125.025390625 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 125.025390625 82 140
+0 2 2 "0s" 0 0 0 192 0 0  30 125.025390625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Timeout:
+LANG:10004 9 超时：
+LANG:10000 8 Timeout:
+LANG:10027 8 Timeout:
+14 114
+"txtBrowseTimeout"
+""
+1 140.2132352941176 138.341796875 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Browse timeout in seconds
+LANG:10004 18 浏览超时秒数
+LANG:10000 26 Browse-Timeout in Sekunden
+LANG:10027 17 Просмотр 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 119.615234375 256 145.615234375
+3 "0d" 0 0 0 0 0 -1  E E E
+2 115
+"ptTimeoutSec"
+""
+1 260 124.978515625 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 260 124.978515625 291 140
+0 2 2 "0s" 0 0 0 192 0 0  260 124.978515625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 [sec]
+LANG:10004 5 [sec]
+LANG:10000 5 [Sek]
+LANG:10027 4 [с]
+30 116
+"frmRcb"
+""
+1 337 256 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+116 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.129530652968632 0 0.8411912422282316 -1044.651830050429 -20.01722838164243 0 E 337 256 587 362
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 RCB settings
+LANG:10004 10 RCB 设置
+LANG:10000 17 RCB-Einstellungen
+LANG:10027 22 Настройки RCB
+20 121
+"cbRcbCfg"
+""
+1 235 210.0000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 Enable RCB configuration
+LANG:10004 15 激活RCB配置
+LANG:10000 28 RCB-Konfiguration aktivieren
+LANG:10027 24 Enable RCB configuration
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  228 215.0000000000001 267 240.0000000000001
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE2 122
+"ptRcbCfg"
+""
+1 30 220.0000000000001 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+122 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 220.0000000000001 184 235
+0 2 2 "0s" 0 0 0 192 0 0  30 220.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 25 Enable RCB configuration:
+LANG:10004 18 激活RCB配置：
+LANG:10000 29 RCB-Konfiguration aktivieren:
+LANG:10027 46 Включить конфигурацию RCB:
+2 123
+"ptReadCompleteBuffer"
+""
+1 29.99999999999997 250 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+123 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 0.9999999999999999 1.13686837721616e-13 5.00000000000005 0 E 29.99999999999997 250 157 265
+0 2 2 "0s" 0 0 0 192 0 0  29.99999999999997 250 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Read complete buffer:
+LANG:10004 24 全部读的缓冲区：
+LANG:10000 26 Buffer vollständig lesen:
+LANG:10027 41 Считать буфер целиком:
+20 124
+"cbReadCompleteBuffer"
+""
+1 234.6344178082193 245 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+124 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Read complete buffer
+LANG:10004 18 读全部缓冲区
+LANG:10000 25 Buffer vollständig lesen
+LANG:10027 20 Read complete buffer
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  227.6344178082193 250 266.6344178082193 275
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE30 125
+"frmCmd"
+""
+1 135 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+125 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.202491214214315 0 1.343300651613821 -152.3363139189325 -206.7555544779187 0 E 135 493 784 545
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+13 126
+"cmdEnable"
+""
+1 220 555 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+126 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 reserve all released RCBs / enable all disabled RCBs
+LANG:10004 52 reserve all released RCBs / enable all disabled RCBs
+LANG:10000 68 alle freigegebenen RCBs reservieren / alle inaktiven RCBs aktivieren
+LANG:10027 52 reserve all released RCBs / enable all disabled RCBs
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  198 478 351 506
+
+T 
+4
+LANG:10001 15 Enable all RCBs
+LANG:10004 16 激活全部RCBs
+LANG:10000 19 Alle RCBs aktiveren
+LANG:10027 27 Включить все RCB
+"main()
+{
+  dyn_string dsRet = iec61850_ChildPanelOnAskPopUpMessage(getCatStr(\"iec61850\", \"RCBReserveEnableAll\"));
+
+  if ( dynlen(dsRet) )
+  {
+    getRcbList();
+    int iRetRsv, iRetEna;
+
+    // list of unreserved/released rcbs --> set all rcbs reserved
+    if ( dynlen(dsRcbUnrDpe) && clearRcbList(dsRcbUnrDpe) )
+      iRetRsv = dpSetWait(dsRcbUnrDpe, dbRcbRsvVal);
+
+    // list of unenabled/disabled rcbs  --> set all rcbs enabled
+    if ( dynlen(dsRcbUneDpe) && clearRcbList(dsRcbUneDpe) )
+      iRetEna = dpSetWait(dsRcbUneDpe, dbRcbEnaVal);
+
+    // rcbs were reserved & enabled --> update list of rcbs
+    if ( iRetRsv == 0 && iRetEna == 0 )
+      getRcbList();
+  }
+}
+
+" 0
+ E E E
+13 129
+"cmdRelease"
+""
+1 107 495 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 disable all enabled RCBs / release all reserved RCBs
+LANG:10004 52 disable all enabled RCBs / release all reserved RCBs
+LANG:10000 65 alle aktiven RCBs deaktivieren / alle reservierten RCBs freigeben
+LANG:10027 52 disable all enabled RCBs / release all reserved RCBs
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 478 181 506
+
+T 
+4
+LANG:10001 16 Release all RCBs
+LANG:10004 16 释放所有RCBs
+LANG:10000 19 Alle RCBs freigeben
+LANG:10027 29 Отключить все RCB
+"main()
+{
+  dyn_string dsRet = iec61850_ChildPanelOnAskPopUpMessage(getCatStr(\"iec61850\", \"RCBDisableReleaseAll\"));
+
+  if ( dynlen(dsRet) )
+  {
+    getRcbList();
+    int iRetUne, iRetUnr;
+
+    // list of enabled rcbs  --> set all rcbs unenabled/disabled
+    if ( dynlen(dsRcbEnaDpe) && clearRcbList(dsRcbEnaDpe) )
+      iRetUne = dpSetWait(dsRcbEnaDpe, dbRcbUneVal);
+
+    // list of reserved rcbs --> set all rcbs unreserved/released (list without pre-assigned RCBs)
+    if ( dynlen(dsRcbRsvDpe) && clearRcbList(dsRcbRsvDpe) )
+      iRetUnr = dpSetWait(dsRcbRsvDpe, dbRcbUnrVal);
+
+    // rcbs were disabled & released --> update list of rcbs
+    if ( iRetUne == 0 && iRetUnr == 0 )
+      getRcbList();
+  }
+}
+
+" 0
+ E E E
+13 132
+"pbAdvanced"
+""
+1 493 215.0000000000002 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+132 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Advanced RCB settings
+LANG:10004 15 高级RCB设置
+LANG:10000 28 Erweiterte RCB-Einstellungen
+LANG:10027 21 Advanced RCB settings
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 213.5000000000001 626 241.5000000000001
+
+T 
+4
+LANG:10001 8 Advanced
+LANG:10004 6 高级
+LANG:10000 9 Erweitert
+LANG:10027 26 Дополнительно
+"main()
+{
+  string sIed = txtGenDeviceName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(\"para/iec61850Client_RCB_Settings.pnl\",
+                                 \"advanced settings\",
+                                 makeDynString(\"$ied:\" + sIedDp),
+                                 df, ds);
+
+
+}
+
+" 0
+ E E E
+13 133
+"pbBrowseDevice"
+""
+1 528 217.1152343750001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+133 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Get data from device
+LANG:10004 21 从设备获得数据
+LANG:10000 25 Daten von Gerät auslesen
+LANG:10027 20 Get data from device
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 118 666 146
+
+T 
+4
+LANG:10001 14 Explore device
+LANG:10004 12 浏览设备
+LANG:10000 22 Daten von Gerät lesen
+LANG:10027 14 Explore device
+"main()
+{
+  browseIed(2);
+}
+
+" 0
+ E E E
+13 134
+"pbBrowseFile"
+""
+1 528 252.8632812500001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+134 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Get data from SCL file
+LANG:10004 24 从SCL文件获取数据
+LANG:10000 28 Daten von SCL-Datei auslesen
+LANG:10027 22 Get data from SCL file
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  508 153 666 181
+
+T 
+4
+LANG:10001 18 Get data from file
+LANG:10004 24 从文件中获取数据
+LANG:10000 21 Daten von Datei lesen
+LANG:10027 28 Данные из файла
+"main()
+{
+  browseIed(1);
+}
+
+" 0
+ E E E
+14 135
+"tfSclFile"
+""
+1 151.5281548516836 183.08984375 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+135 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 154.36328125 411 180.36328125
+2 "0s" 0 0 0 0 0 -1  E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

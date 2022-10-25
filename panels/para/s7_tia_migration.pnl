@@ -1,0 +1,1645 @@
+V 13
+4
+LANG:10001 13 TIA migration
+LANG:10004 13 TIA migration
+LANG:10000 13 TIA Migration
+LANG:10027 13 TIA migration
+PANEL,-1 -1 515 330 N "_3DFace" 0
+"main()
+{
+  g_bExtend = TRUE;
+  sSys = getSystemName();
+  dsCols = makeDynString(IEC61850_COL_LIGHT, IEC61850_COL_DARK);
+  
+  tabS7c.sortOnClick(FALSE);
+  tabS7c.tableMode(TABLE_SELECT_NOTHING);
+  tabS7c.selectByClick(TABLE_SELECT_NOTHING);
+  tabS7c.enableColumnResize(FALSE);
+  tabS7c.alternatingRowColors(dsCols);
+  tabS7c.columnEditable(0, 0);
+  tabS7c.columnEditable(1, 0);
+
+  tabS7p.sortOnClick(FALSE);
+  //tabS7p.tableMode(TABLE_SELECT_MULTIPLE);
+  //tabS7p.selectByClick(TABLE_SELECT_MULTIPLE);
+  tabS7p.enableColumnResize(FALSE);  
+  tabS7p.alternatingRowColors(dsCols);
+  tabS7p.columnEditable(0, 0);
+  tabS7p.columnEditable(1, 1);
+  
+  checkDrvNums();
+  
+  cmdStart.enabled = 0;
+  
+  initDataBGCheck();
+  
+  int iCheck = checkS7TiaSymbolic();
+  ptType.text = (string)iCheck;
+  
+  ptTypeDesc.text = setS7TiaDescription(iCheck);
+  
+  if ( iCheck >= 2 )
+  {
+    g_bExtend = !g_bExtend;
+    extendPanel(g_bExtend);
+  }
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  70 40
+""0  1
+E "
+//==================================================================================================
+//==================================================================================================
+
+#uses \"CtrlPv2Admin\"
+#uses \"mp.ctl\"
+
+//==================================================================================================
+//==================================================================================================
+
+string sORI = \":_original.._value\";
+string sONL = \":_online.._value\";
+string sOST = \":_online.._stime\";
+
+string sCFG = \".Config.\";
+string sCMD = \".Command.\";
+string sSTA = \".State.\";
+
+string sCFGREDU = \".Config.ReduConnection.\";
+
+string sSys;
+
+dyn_int diDrvNumsS7c;
+dyn_int diDrvNumsS7p;
+dyn_int diCheckedDrvNums;
+
+dyn_string dsResS7c;
+dyn_string dsResS7p;
+
+dyn_string dsCols;
+bool g_bExtend;
+
+
+//==================================================================================================
+//==================================================================================================
+
+bool bDataBGisRunning1 = FALSE;
+bool bDataBGisRunning2 = FALSE;
+bool bActiveHost1 = FALSE;
+bool bActiveHost2 = FALSE;
+
+//==================================================================================================
+//==================================================================================================
+
+initDataBGCheck()
+{
+  if ( isRedundant() )
+    dpConnect(\"workDataBG\", TRUE, \"_DataManager_2.MultiUserMode.Status:_original.._value\",
+                                  \"_ReduManager_2.Status.Active:_original.._value\");
+  
+  dpConnect(\"workDataBG\", TRUE, \"_DataManager.MultiUserMode.Status:_original.._value\",
+                                \"_ReduManager.Status.Active:_original.._value\");
+}
+
+//==================================================================================================
+//==================================================================================================
+
+workDataBG(string dp1, bool bConnDataBG,
+           string dp2, bool bActive)
+{
+  if(isReduDp(dp2))
+  {
+    bActiveHost2 = bActive;
+    bDataBGisRunning2 = bConnDataBG;
+  }
+  else if(isRedundant())
+  {
+    bActiveHost1 = bActive;
+    bDataBGisRunning1 = bConnDataBG;
+  }
+  else
+  {
+    bActiveHost1 = TRUE;//nur einer da, also aktiv
+    bDataBGisRunning1 = bConnDataBG;
+  }
+}
+
+//==================================================================================================
+//==================================================================================================
+
+bool checkDataBG()
+{
+  //Linux does not need this
+  if(!_WIN32)
+    return TRUE;
+	
+  if(isRedundant())
+    return bActiveHost2?bDataBGisRunning2:bDataBGisRunning1;// keine Berücksichtigung des Splitmodes
+  else
+    return bDataBGisRunning1;
+}
+
+//==================================================================================================
+//==================================================================================================
+
+void extendPanel(bool bDown = TRUE)
+{
+  int i, x, y;
+  dyn_string dsShapesSI = makeDynString(\"frmMigration\", \"tabS7c\", \"tabS7p\", \"recArrowRight\");
+  dyn_string dsShapes = makeDynString(\"cmdClose\", \"cmdStart\", \"cmdHelp\", \"barBack\");
+  
+  for(i = 1; i <= dynlen(dsShapesSI); i++)
+  {
+    getValue(dsShapesSI[i], \"position\", x, y);
+    setValue(dsShapesSI[i], \"position\", x, (bDown ? y + 60 : y - 60));
+  }
+  
+  for(i = 1; i <= dynlen(dsShapes); i++)
+  {
+    getValue(dsShapes[i], \"position\", x, y);
+    setValue(dsShapes[i], \"position\", x, (bDown ? y - 350 : y + 350));
+  }
+  
+  panelSize(\"\", x, y);
+  setPanelSize(myModuleName(), myPanelName(), FALSE, x, (bDown ? 300 : 680));
+}
+
+//==================================================================================================
+//==================================================================================================
+
+string setS7TiaDescription(int iMigrationType)
+{
+  if      ( iMigrationType == 1 ) return getCatStr(\"s7plus\",\"tiaMigrateTypeDesc1\");
+  else if ( iMigrationType == 2 ) return getCatStr(\"s7plus\",\"tiaMigrateTypeDesc2\");
+  else if ( iMigrationType == 3 ) return getCatStr(\"s7plus\",\"tiaMigrateTypeDesc3\");
+  else                            return \"\";
+}
+  
+//==================================================================================================
+//==================================================================================================
+
+int checkS7TiaSymbolic()
+{
+  int iMigrationType = 0;
+  string sS7_Config_Dp = \"_S7_Config\";
+  
+  dyn_string dsS7_Conn_Dp, dsS7_Conn_Dp_All, dsIps, dsTiaIps, dsTiaDps; 
+  dyn_uint duiConnTypes, duiTiaDevNrs, duiTiaDpInfos;
+  dyn_int diTiaDevs;
+  
+  // get _S7_Conn DPs and DP Elements
+  dsS7_Conn_Dp = dpNames(\"*\", \"_S7_Conn\");
+  for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+    dsS7_Conn_Dp[i] = strsplit(dsS7_Conn_Dp[i], \":\")[2];
+  
+  dpGet(sS7_Config_Dp + \".IPAddress\"      + sONL, dsIps,
+        sS7_Config_Dp + \".ConnectionType\" + sONL, duiConnTypes);
+
+  for ( int i = 1; i <= dynlen(duiConnTypes); i++ )
+  {
+    if ( duiConnTypes[i] >= 1024 )
+    {
+      dynAppend(dsTiaIps, dsIps[i]);
+      dynAppend(diTiaDevs, i);
+    }
+  }
+  
+  for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+  {
+    dyn_uint duiDevNrs = makeDynUInt(0, 0, 0, 0);
+    dpGet(dsS7_Conn_Dp[i] + \".DevNr\"                  + sONL, duiDevNrs[1],
+          dsS7_Conn_Dp[i] + \".ReduConn.DevNr\"         + sONL, duiDevNrs[2], 
+          dsS7_Conn_Dp[i] + \".ReduCP.DevNr\"           + sONL, duiDevNrs[3], 
+          dsS7_Conn_Dp[i] + \".ReduCP.ReduConn.DevNr\"  + sONL, duiDevNrs[4]);
+    
+    for ( int j = 1; j <= dynlen(duiDevNrs); j++ )
+    {
+      if ( duiDevNrs[j] > 0 && dynContains(diTiaDevs, duiDevNrs[j]) )
+      {
+        dynAppend(duiTiaDevNrs, duiDevNrs[j]);
+        dynAppend(dsTiaDps, dsS7_Conn_Dp[i]);
+        dynAppend(duiTiaDpInfos, j);
+      }
+    }
+  }
+  
+  dsS7_Conn_Dp_All = dsS7_Conn_Dp;
+  
+  dynClear(dsS7_Conn_Dp);
+  dsS7_Conn_Dp = dsTiaDps;
+  dynUnique(dsS7_Conn_Dp);
+  
+  dynSort(dsS7_Conn_Dp);
+  dynSort(dsS7_Conn_Dp_All);  
+  
+  if ( dynlen(dsS7_Conn_Dp) == 0 )
+    iMigrationType = 1; // no TIA symbolic configured
+  else if ( dynlen(dsS7_Conn_Dp) > 0 && dsS7_Conn_Dp == dsS7_Conn_Dp_All )
+    iMigrationType = 2; // all s7 connections are TIA symbolic
+  else if ( dynlen(dsS7_Conn_Dp) > 0 && dsS7_Conn_Dp != dsS7_Conn_Dp_All )
+    iMigrationType = 3; // s7 connections & TIA symbolic configured
+  
+  return iMigrationType;
+}
+
+//==================================================================================================
+//==================================================================================================
+
+void migrateS7TiaSymbolic()
+{
+  //==================================================================================================
+  //==================================================================================================
+  
+  throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"Migration of S7 TIA Symbolic started by \"+getUserName()));
+      
+  //==================================================================================================
+  //==================================================================================================
+  // variables for changing S7 DPs to S7PLUS DPs
+  
+  string sS7_Config_Dp;
+  
+  int    iCpErr,
+         iMigrationType = 0;
+  
+  dyn_string dsS7_Conn_Dp,
+             dsS7PlusConnection_Dp,             
+             dsDp_Old;
+  
+  dyn_bool dbValues_InvalidBit;
+  dyn_int  diValues_DrvNumber;
+  
+  
+  //==================================================================================================
+  // variables for ascii export and import
+ 
+
+  string asciiTool = getComponentName(ASCII_COMPONENT);
+  
+  if ( _WIN32 )
+    asciiTool += \".exe\";
+    
+  string infoFile, logFile, answer,
+         sDynDpCommandLine, sUser, sPassword,
+         sAsciiPath  = getPath(BIN_REL_PATH, asciiTool),
+         sDplistPath = getPath(DPLIST_REL_PATH),
+         refconnFile = sDplistPath + \"upgrade_address_reference_connection.ascii\",
+         dyndpFile   = sDplistPath + \"upgrade_dynamic_dps.ascii\",
+         sDynDpResult, sDynDpOut;
+
+  int iHostNum = myReduHostNum(), iAsciiAccess, iDynDpAccess;
+  file fDynDp;
+  bool bDynDpFileToString;
+  
+  unsigned   uEventPort   = eventPort(), uDataPort   = dataPort();
+  
+  dyn_string dsEventHosts = eventHost(), dsDataHosts = dataHost(),
+             dsAnswer, dsKey = makeDynString(\"userName\", \"password\"),
+             dsDynDpSplit, dsConnections;
+
+  dyn_dyn_string ddsDynDpRow; 
+
+  //==================================================================================================
+  // old DPs  
+
+  // get _S7_Config DP and DP Elements
+  sS7_Config_Dp = \"_S7_Config\";
+  dyn_string dsS7_Conn_Dp_All;
+  
+  // get _S7_Conn DPs and DP Elements
+  dsS7_Conn_Dp = dpNames(\"*\", \"_S7_Conn\");
+  for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+  {
+    dsS7_Conn_Dp[i] = strsplit(dsS7_Conn_Dp[i], \":\")[2];
+    
+    if ( dpExists(dsS7_Conn_Dp[i]+\"_2\") )
+      dpDelete(dsS7_Conn_Dp[i]+\"_2\");
+  }
+
+  dyn_string dsIps;  
+  dyn_uint duiConnTypes;
+  
+  dpGet(sS7_Config_Dp + \".IPAddress\"      + sONL, dsIps,
+        sS7_Config_Dp + \".ConnectionType\" + sONL, duiConnTypes);
+  
+  dyn_string dsClearedIps = dsIps;
+  dyn_uint duiClearedConnTypes = duiConnTypes;
+  
+  dyn_int diTiaDevs;
+  dyn_string dsTiaIps;
+  
+  for ( int i = 1; i <= dynlen(duiConnTypes); i++ )
+  {
+    if ( duiConnTypes[i] >= 1024 )
+    {
+      dynAppend(dsTiaIps, dsIps[i]);
+      dynAppend(diTiaDevs, i);
+      
+      dsClearedIps[i] = \"\";
+      duiClearedConnTypes[i] = 0;
+    }
+  }
+  
+  dpSet(sS7_Config_Dp + \".IPAddress\"      + sORI, dsClearedIps,
+        sS7_Config_Dp + \".ConnectionType\" + sORI, duiClearedConnTypes);
+  
+  dyn_uint duiTiaDevNrs;
+  dyn_string dsTiaDps;
+  dyn_uint duiTiaDpInfos;
+  
+  for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+  {
+    dyn_uint duiDevNrs = makeDynUInt(0, 0, 0, 0);
+    dpGet(dsS7_Conn_Dp[i] + \".DevNr\"                  + sONL, duiDevNrs[1],
+          dsS7_Conn_Dp[i] + \".ReduConn.DevNr\"         + sONL, duiDevNrs[2], 
+          dsS7_Conn_Dp[i] + \".ReduCP.DevNr\"           + sONL, duiDevNrs[3], 
+          dsS7_Conn_Dp[i] + \".ReduCP.ReduConn.DevNr\"  + sONL, duiDevNrs[4]);
+    
+    for ( int j = 1; j <= dynlen(duiDevNrs); j++ )
+    {
+      if ( duiDevNrs[j] > 0 && dynContains(diTiaDevs, duiDevNrs[j]) )
+      {
+        dynAppend(duiTiaDevNrs, duiDevNrs[j]);
+        dynAppend(dsTiaDps, dsS7_Conn_Dp[i]);
+        dynAppend(duiTiaDpInfos, j);
+      }
+    }
+  }
+  
+  dsS7_Conn_Dp_All = dsS7_Conn_Dp;
+  
+  dynClear(dsS7_Conn_Dp);
+  dsS7_Conn_Dp = dsTiaDps;
+  dynUnique(dsS7_Conn_Dp);
+  
+  
+  dynSort(dsS7_Conn_Dp);
+  dynSort(dsS7_Conn_Dp_All);
+  
+  if ( dynlen(dsS7_Conn_Dp) == 0 )
+    iMigrationType = 1; // no TIA symbolic configured
+  else if ( dynlen(dsS7_Conn_Dp) > 0 && dsS7_Conn_Dp == dsS7_Conn_Dp_All )
+    iMigrationType = 2; // all s7 connections are TIA symbolic
+  else if ( dynlen(dsS7_Conn_Dp) > 0 && dsS7_Conn_Dp != dsS7_Conn_Dp_All )
+    iMigrationType = 3; // s7 connections & TIA symbolic configured
+
+  //==================================================================================================
+  //==================================================================================================
+  
+  if ( iMigrationType <= 1 )
+  {
+    //==================================================================================================
+    throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"No S7 TIA Symbolic configured - migration skipped!\"));
+    return;
+    //==================================================================================================
+  }
+  else
+  {
+    if ( iMigrationType == 2 )
+      changeProgsFile();
+
+    //==================================================================================================     
+    //==================================================================================================
+    // get values from old DPEs and save them into dyn_* variables
+    // set all connections to active = FALSE
+      
+    // _S7_Conn DPEs --> _S7PlusConnection DPEs
+    for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+    {
+      dpGet(dsS7_Conn_Dp[i]+\".SetInvalidBit\" + sONL, dbValues_InvalidBit[i],
+            dsS7_Conn_Dp[i]+\".DrvNumber\"     + sONL, diValues_DrvNumber[i]);
+      
+      dpSetWait(dsS7_Conn_Dp[i] + \".Active\"                  + sORI, 0,
+                dsS7_Conn_Dp[i] + \".ReduConn.Active\"         + sORI, 0, 
+                dsS7_Conn_Dp[i] + \".ReduCP.Active\"           + sORI, 0, 
+                dsS7_Conn_Dp[i] + \".ReduCP.ReduConn.Active\"  + sORI, 0);
+    }
+        
+        
+    //==================================================================================================
+    // build ASCII file
+    
+  	paCfgReadValue(PROJ_PATH + CONFIG_REL_PATH + \"config\", \"general\", dsKey, dsAnswer);
+        
+    if ( getKerberosSecurity() >= 1 )
+    {
+      sUser     = \"$USER\";
+      sPassword = \"\";
+    }
+    else
+    {
+      sUser     = dsAnswer[1];
+      sPassword = dsAnswer[2];
+    }
+    
+    answer = \" -data \"+dsDataHosts[iHostNum]+\":\"+uDataPort+\" -event \"+dsEventHosts[iHostNum]+\":\"+uEventPort;
+    
+    infoFile = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_info.log\";
+    logFile  = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_log.log\";
+    
+    if(_WIN32)
+    {
+      strreplace(infoFile, \"/\", \"\\\\\");
+      strreplace(logFile, \"/\", \"\\\\\");
+    }
+        
+    //==================================================================================================
+    // ASCII OUT - get DynamicDatapoints
+        
+    sDynDpCommandLine  = sAsciiPath;
+    sDynDpCommandLine += \" -user \"+sUser+\":\"+sPassword+(sPassword!=\"\"?\" \":\"\");
+    sDynDpCommandLine += \" -out \" + \"\\\"\" + dyndpFile + \"\\\"\";
+    sDynDpCommandLine += \" -filter DO -filterDpType _DynamicDatapoints -filterDpType _DynamicDptSettings\";
+    sDynDpCommandLine += \" -outputVersion 1\";
+    sDynDpCommandLine += answer;
+    sDynDpCommandLine += \" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;   
+      
+    if (dyndpFile==\"\")
+      return;
+    else
+    {
+      if (_WIN32)
+        system(\"cmd /c \" + sDynDpCommandLine);
+      else
+        system(sDynDpCommandLine);
+    }
+      
+    //==================================================================================================
+    // change powerconfig type in DynamicDatapoints 
+
+    bDynDpFileToString = fileToString(dyndpFile, sDynDpResult);
+    dsDynDpSplit = strsplit(sDynDpResult, \"\\n\");
+  
+    for ( int j = 1; j <= dynlen(dsDynDpSplit); j++ )
+      dynAppend(ddsDynDpRow, strsplit(dsDynDpSplit[j], \"\\t\"));
+  
+    for ( int i = 1; i <= dynlen(ddsDynDpRow); i++ )
+    {    
+      for ( int j = 1; j <= dynlen(ddsDynDpRow[i]); j++ )
+      {
+        strreplace(ddsDynDpRow[i][j], \"\\\"_da_address_S7_in\\\"\", \"\\\"_da_address_S7PLUS_in\\\"\");
+        strreplace(ddsDynDpRow[i][j], \"\\\"_da_address_S7_in_simple\\\"\", \"\\\"_da_address_S7PLUS_in_simple\\\"\");
+        strreplace(ddsDynDpRow[i][j], \"\\\"_da_address_S7_out\\\"\", \"\\\"_da_address_S7PLUS_out\\\"\");
+        strreplace(ddsDynDpRow[i][j], \"\\\"_da_address_S7_out_simple\\\"\", \"\\\"_da_address_S7PLUS_out_simple\\\"\");
+        strreplace(ddsDynDpRow[i][j], \"\\\"_da_address_S7_no_conv\\\"\", \"\\\"_da_address_S7PLUS_no_conv\\\"\");
+      }
+    }
+  
+    for ( int k = 1; k <= dynlen(ddsDynDpRow); k++ )
+    {
+      for (int l = 1; l <= dynlen(ddsDynDpRow[k]); l++)
+        sDynDpOut += ddsDynDpRow[k][l] + \"\\t\";
+      
+      sDynDpOut += \"\\n\";
+    }
+
+    // write DynDp file
+    iDynDpAccess = access(dyndpFile, W_OK);
+  
+    if ( iDynDpAccess == 0 ) // if file is writable
+    {
+      fDynDp = fopen(dyndpFile, \"w\");
+  
+      fputs(sDynDpOut, fDynDp);
+      fflush(fDynDp);
+      fclose(fDynDp);
+    }
+        
+      
+    //==================================================================================================
+    // delete old DPs
+        
+    dsDp_Old = dsS7_Conn_Dp;
+        
+    for ( int i = 1; i <= dynlen(dsDp_Old); i++ )
+      if ( dpExists(dsDp_Old[i]) )
+        dpDelete(dsDp_Old[i]);
+  
+  
+    //==================================================================================================
+    // create new DPs - use same DP names
+    
+    // _S7_Conn DPs --> _S7PlusConnection DPs
+    for ( int i = 1; i <= dynlen(dsS7_Conn_Dp); i++ )
+      if ( !dpExists(dsS7_Conn_Dp[i]) )
+        dpCreate(dsS7_Conn_Dp[i], \"_S7PlusConnection\");
+        
+    dsS7PlusConnection_Dp = dsS7_Conn_Dp;    
+    
+    //==================================================================================================
+    // set values to new DPEs
+  
+    // DATAPOINT ELEMENTS
+        
+    for ( int i = 1; i <= dynlen(dsS7PlusConnection_Dp); i++ )
+    {
+      for ( int j = 1; j <= dynlen(duiTiaDpInfos); j++ )
+      {
+        if ( duiTiaDpInfos[j] == 1 ) // single connection
+          dpSetWait(dsTiaDps[j]+sCFG+\"Address\"  + sORI, dsTiaIps[j],
+                    dsTiaDps[j]+sCFG+\"ConnType\" + sORI, 0);
+        if ( duiTiaDpInfos[j] == 2 ) // redu connection
+          dpSetWait(dsTiaDps[j]+sCFGREDU+\"Address\" + sORI, dsTiaIps[j],
+                    dsTiaDps[j]+sCFG+\"ConnType\"    + sORI, 1);
+        
+        //==================================================================================================
+        // redu device is not supported for s7 1200 + 1500 devices
+        //if ( duiTiaDpInfos[j] == 3 ) // redu device
+        //  dpSetWait(dsTiaDps[j]+sCFG+\"Address\"  + sORI, dsTiaIps[j],
+        //            dsTiaDps[j]+sCFG+\"ConnType\" + sORI, 2);
+        //if ( duiTiaDpInfos[j] == 4 ) // redu device + redu connection
+        //  dpSetWait(dsTiaDps[j]+sCFGREDU+\"Address\" + sORI, dsTiaIps[j],
+        //            dsTiaDps[j]+sCFG+\"ConnType\"    + sORI, 3);
+        //==================================================================================================
+      }
+      
+      
+      //==================================================================================================
+      // current selected driver numbers in tables (left s7, right s7plus)
+      dyn_string dsS7cNums = getDrvNumsFromTable(\"tabS7c\");
+      dyn_string dsS7pNums = getDrvNumsFromTable(\"tabS7p\");
+      //==================================================================================================
+          
+      if ( iMigrationType == 3 )
+        if ( dynContains(dsS7cNums, diValues_DrvNumber[i]) )
+          diValues_DrvNumber[i] = dsS7pNums[dynContains(dsS7cNums, diValues_DrvNumber[i])]; 
+          
+      dpSetWait(dsS7PlusConnection_Dp[i]+sCFG+\"SetInvalidBit\"     + sORI, dbValues_InvalidBit[i],
+                dsS7PlusConnection_Dp[i]+sCFG+\"DrvNumber\"         + sORI, diValues_DrvNumber[i],
+                dsS7PlusConnection_Dp[i]+sCFG+\"KeepAliveTimeout\"  + sORI, 20,
+                dsS7PlusConnection_Dp[i]+sCFG+\"ReconnectTimeout\"  + sORI, 20,
+                dsS7PlusConnection_Dp[i]+sCFG+\"LegitimationLevel\" + sORI, -1);
+    }
+    
+    //==================================================================================================
+    // ASCII IN - set DynamicDatapoints for powerconfig
+        
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        
+    sDynDpCommandLine  = sAsciiPath;
+    sDynDpCommandLine += \" -user \"+sUser+\":\"+sPassword+(sPassword!=\"\"?\" \":\"\");
+    sDynDpCommandLine += \" -in \" + \"\\\"\" + dyndpFile + \"\\\"\";
+    sDynDpCommandLine += \" -yes -inactivateAlert\";
+    sDynDpCommandLine += answer;
+    sDynDpCommandLine += \" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;
+        
+    if (dyndpFile==\"\")
+      return;
+    else
+    {
+      if (_WIN32)
+        system(\"cmd /c \" + sDynDpCommandLine);
+      else
+        system(sDynDpCommandLine);
+    }
+      
+    //==================================================================================================
+    // remove DynamicDatapoints file   
+    
+    remove(dyndpFile); 
+        
+        
+    //==================================================================================================
+    // variables for ascii export and import
+     
+    string sRefConnLine, sRefConnResult, sRefConnOut;
+
+    int iRefConnAccess;
+    file fRefConn;
+    bool bRefConnFileToString;
+    dyn_string dsRefConnSplit, dsSplitConnDps;
+
+    dyn_dyn_string ddsRefConnRow;
+  
+  
+    //==================================================================================================
+    // ASCII OUT - change _reference, add _connection
+    
+    sRefConnLine = sAsciiPath;
+    sRefConnLine += \" -user \"+sUser+\":\"+sPassword+(sPassword!=\"\"?\" \":\"\");
+    sRefConnLine += \" -out \" + \"\\\"\" + refconnFile + \"\\\"\";
+    sRefConnLine += \" -filter P:_address,_distrib -outputVersion 1\";
+    sRefConnLine += answer;
+    sRefConnLine += \" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;   
+      
+    if (refconnFile==\"\")
+      return;
+    else
+    {
+      if (_WIN32)
+        system(\"cmd /c \" + sRefConnLine);
+      else
+        system(sRefConnLine);
+    }
+        
+    
+    //==================================================================================================
+    // change _refernce, add _connection
+      
+    dsConnections = dsS7PlusConnection_Dp;
+          
+    for ( int i = 1; i <= dynlen(dsConnections); i++ )
+    {
+      dsSplitConnDps = strsplit(dsConnections[i], \":\");
+      if ( dynlen(dsSplitConnDps) > 1 )
+        dsConnections[i] = dsSplitConnDps[2];
+      if ( strpos(dsConnections[i], \"_\", 0) != -1 )
+        dsConnections[i] = strltrim(dsConnections[i], \"_\");
+    }
+  
+    bRefConnFileToString = fileToString(refconnFile, sRefConnResult);
+    dsRefConnSplit = strsplit(sRefConnResult, \"\\n\"); 
+        
+    dyn_string dsLineSplit, dsDistribData;
+    string sAddressRef, sAddressDataType;
+        
+    for ( int j = 1; j <= dynlen(dsRefConnSplit); j++ )
+    {
+      for ( int k = 1; k <= dynlen(dsConnections); k++ )
+      {
+        if ( patternMatch(\"*\\\"\" + dsConnections[k] + \".*\", dsRefConnSplit[j]) )
+        {
+          dsLineSplit = strsplit(dsRefConnSplit[j], \"\\t\");
+              
+          if ( iMigrationType == 3 )
+            if ( dynlen(dsLineSplit) )
+              dynAppend(dsDistribData, dsLineSplit[2]+\"\\t\"+dsLineSplit[3]+\"\\t\"+DPCONFIG_DISTRIBUTION_INFO+\"\\t\");
+              
+          // set _address.._connection
+          dsLineSplit[7] = \"_\" + dsConnections[k];
+          
+      
+          // 23.09.2016 gstrauhs: TFS 12398
+          // set always default transformation to avoid errors with 64bit types
+          dsLineSplit[17] = \"1001\";
+          
+          // ToDo remove these lines and the function
+          // called here if setting default works correctly all the time.
+          // sAddressDataType = dsLineSplit[17];
+          // dsLineSplit[17] = convertDataTypes(sAddressDataType);
+              
+          // change \"S7\" to \"S7PLUS\"
+          strreplace(dsLineSplit[18], \"\\\"S7\\\"\", \"\\\"S7PLUS\\\"\");            
+
+          // 21.09.2016 gstrauhs: TFS 12402
+          // Change refeence strings for arrays .<name>[num] => .<name>.<name>[num]
+          if (strpos(dsLineSplit[5], \"[\") > 0 )
+          {
+            
+            dyn_string dsReferenceSplit = strsplit(dsLineSplit[5], \".\");
+            int iPos = 0; // position in reference string
+            
+            // start at 2 because the first dot found in the reference string
+            // marks the start position of the second element of the dyn array
+            for( int l = 2; l <= dynlen(dsReferenceSplit); l++ )
+            {
+              iPos = strpos(dsLineSplit[5], \".\", iPos);
+              
+              if (strpos(dsReferenceSplit[l], \"[\") > 0 )
+              {          
+                string arrayElement = dsReferenceSplit[l];
+                string dotArrayName = \".\" + strsplit(arrayElement, \"[\")[1];
+                
+                strchange(dsLineSplit[5], iPos, 0, dotArrayName);      
+                iPos += strlen(dotArrayName);      
+              }
+              iPos++;
+            }
+          }
+          
+          dsRefConnSplit[j] = dsLineSplit;
+          strreplace(dsRefConnSplit[j], \" | \", \"\\t\");    
+        }
+        
+        if      ( strpos(dsRefConnSplit[j], \"\\\"\"+dsConnections[k]+\".$Blocks.\") > 0 )
+          strreplace(dsRefConnSplit[j], \"\\\"\"+dsConnections[k]+\".$Blocks.\", \"\\\"\");        
+        else if ( strpos(dsRefConnSplit[j], \"\\\"\"+dsConnections[k]+\".$Tags.\") > 0 )
+          strreplace(dsRefConnSplit[j], \"\\\"\"+dsConnections[k]+\".$Tags.\", \"\\\"\");    
+        else
+          strreplace(dsRefConnSplit[j], \"\\\"\"+dsConnections[k]+\".$\", \"\\\"\");
+      }
+    }
+
+    if ( iMigrationType == 3 )
+    {        
+      for ( int l = 1; l <= dynlen(dsRefConnSplit); l++ )
+      {
+        for ( int m = 1; m <= dynlen(dsDistribData); m++ )
+        {
+          if ( patternMatch(\"*\" + dsDistribData[m] + \"*\", dsRefConnSplit[l]) )
+          {
+            dsLineSplit = strsplit(dsRefConnSplit[l], \"\\t\");
+              
+            if ( dynContains(dsResS7c, substr(dsLineSplit[5], 1)) )
+              strreplace(dsLineSplit[5], substr(dsLineSplit[5], 1), dsResS7p[dynContains(dsResS7c, substr(dsLineSplit[5], 1))]); 
+              
+            dsRefConnSplit[l] = dsLineSplit;
+              
+            strreplace(dsRefConnSplit[l], \" | \", \"\\t\");
+          }
+        }
+      }
+    } 
+    
+    for ( int j = 1; j <= dynlen(dsRefConnSplit); j++ )
+      sRefConnOut += dsRefConnSplit[j] + \"\\n\";
+   
+    // write RefConn file
+    iRefConnAccess = access(refconnFile, W_OK);
+  
+    if ( iRefConnAccess == 0 ) // if file is writable
+    {
+      fRefConn = fopen(refconnFile, \"w\");
+  
+      fputs(sRefConnOut, fRefConn);
+      fflush(fRefConn);
+      fclose(fRefConn);
+    }
+      
+    //==================================================================================================
+    // ASCII IN - set DPs to S7PLUS driver address configs - _drv_ident \"S7PLUS\"
+    
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        
+    sRefConnLine  = sAsciiPath;
+    sRefConnLine += \" -user \"+sUser+\":\"+sPassword+(sPassword!=\"\"?\" \":\"\");
+    sRefConnLine += \" -in \" + \"\\\"\" + refconnFile + \"\\\"\";
+    sRefConnLine += \" -yes -inactivateAlert\";
+    sRefConnLine += answer;
+    sRefConnLine += \" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;
+      
+    if (refconnFile==\"\")
+      return;
+    else
+    {
+      if (_WIN32)
+        system(\"cmd /c \" + sRefConnLine);
+      else
+        system(sRefConnLine);
+    }
+        
+    
+    //==================================================================================================
+    // remove ascii file   
+    
+    remove(refconnFile);
+        
+
+    //==================================================================================================
+    // create redundant datapoints
+    for ( int i = 1; i <= dynlen(dsS7PlusConnection_Dp); i++ )
+    {
+      setCheckConnAddress(dsS7PlusConnection_Dp[i], dsS7PlusConnection_Dp[i], \"__check__\");
+      
+      if ( isRedundant() && !dpExists(dsS7PlusConnection_Dp[i]+\"_2\") )
+      {
+        dpCopy(dsS7PlusConnection_Dp[i], dsS7PlusConnection_Dp[i]+\"_2\", iCpErr);        
+        
+        if ( dpExists(dsS7PlusConnection_Dp[i]+\"_2\") )
+          setCheckConnAddress(dsS7PlusConnection_Dp[i]+\"_2\", dsS7PlusConnection_Dp[i], \"__checkredu__\");
+      }
+    }
+  }
+
+  // END
+  //==================================================================================================
+  
+  throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"Migration of S7 TIA Symbolic finished successfully!\"));
+  cmdStart.enabled = 0;
+  tabS7p.enabled = 0;
+}
+
+//==================================================================================================
+//==================================================================================================
+
+
+string convertDataTypes(string sDataType)
+{
+  if      ( sDataType == \"700\" ) return \"1001\";
+  else if ( sDataType == \"701\" ) return \"1012\";
+  else if ( sDataType == \"702\" ) return \"1013\";
+  else if ( sDataType == \"703\" ) return \"1008\";
+  else if ( sDataType == \"704\" ) return \"1003\";
+  else if ( sDataType == \"705\" ) return \"1015\";
+  else if ( sDataType == \"706\" ) return \"1002\";
+  else if ( sDataType == \"707\" ) return \"1026\";
+  else if ( sDataType == \"708\" ) return \"1009\";
+  else if ( sDataType == \"709\" ) return \"1018\";
+  else if ( sDataType == \"710\" ) return \"1003\"; // blob == byte ??? --> ETM: TODO
+  else if ( sDataType == \"711\" ) return \"1004\";
+  else if ( sDataType == \"718\" ) return \"1024\";
+  else                           return \"1001\";
+}
+
+//==================================================================================================
+//==================================================================================================
+
+void checkDrvNums()
+{
+  dpConnect(\"workDrvNumsCB\",
+            sSys + \"_Connections.Driver.ManNums\" + sONL);
+}
+
+workDrvNumsCB(string sDp, dyn_int diCDMN)
+{
+  dynClear(diDrvNumsS7c);
+  
+  for ( int i = 1; i <= dynlen(diCDMN); i++ )
+  {
+    string sDrv;
+    
+    if ( dpExists(sSys + \"_Driver\" + diCDMN[i]) )
+      dpGet(sSys + \"_Driver\" + diCDMN[i] + \".DT\" + sONL, sDrv);
+    
+    if ( sDrv == \"S7\" )
+    {
+      dynAppend(diDrvNumsS7c, diCDMN[i]);
+      dynUnique(diDrvNumsS7c);
+    }
+    
+    if ( sDrv == \"S7Plus\" || sDrv == \"SIM\" )
+    {
+      dynAppend(diDrvNumsS7p, diCDMN[i]);
+      dynUnique(diDrvNumsS7p);
+    }
+    
+    dyn_string dsDrvNamesS7c;
+    dyn_string dsDrvNamesS7p;
+    
+    int iCheck = checkS7TiaSymbolic();
+    
+    for ( int i = 1; i <= dynlen(diDrvNumsS7c); i++ )
+    {
+      dsDrvNamesS7c[i] = \" S7 driver\";
+      dsDrvNamesS7p[i] = ( iCheck == 3 ) ? \" S7+ / Simulation driver\" : \" S7+ driver\";
+    }
+    
+    tabS7c.deleteAllLines();    
+    tabS7c.appendLines(dynlen(diDrvNumsS7c), \"#Drv\", dsDrvNamesS7c, \"#Num\", diDrvNumsS7c);
+    
+    
+    
+    if ( iCheck == 2 )
+    {
+      tabS7p.deleteAllLines();
+      tabS7p.appendLines(dynlen(diDrvNumsS7c), \"#Drv\", dsDrvNamesS7p, \"#Num\", diDrvNumsS7c);
+      tabS7p.columnEditable(1, 0);
+      cmdStart.enabled = 1;
+    }
+    
+    if ( iCheck == 3 )
+    {
+      tabS7p.deleteAllLines();
+      tabS7p.appendLines(dynlen(diDrvNumsS7c));
+    
+      dyn_string dsDrvNumsS7p = diDrvNumsS7p;
+      dynInsertAt(dsDrvNumsS7p, \"\", 1);
+  
+      for ( int i = 1; i <= dynlen(diDrvNumsS7c); i++ )
+      {
+        tabS7p.cellValueRC(i-1, \"#Drv\", dsDrvNamesS7p[i]);
+        tabS7p.cellWidgetRC(i-1, \"#Num\", \"ComboBox\", dsDrvNumsS7p);
+      }
+    }
+  }
+}
+
+//==================================================================================================
+//==================================================================================================
+
+void changeProgsFile()
+{
+  // change s7 manager name in progs file on upgrading (WCCOAs7 --> WCCOAs7plus)
+
+  throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"Changing S7 driver to S7+ driver in progs file\"));
+  int error;
+  bool bError = false;
+  
+  string sProgs = PROJ_PATH + CONFIG_REL_PATH + \"progs\", sResult, sOut;
+  bool bFileToString, bCopy = false;
+
+  // backup old progs file
+  bCopy = copyFile(sProgs, sProgs+\".bak\"); 
+  if ( !bCopy )
+    throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"Backup failed - old progs file has not been saved!\"));
+  else
+    throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 0, \"Backup was successful - saved old progs file into progs.bak\"));
+
+  bFileToString = fileToString(sProgs, sResult);  
+  strreplace(sResult, \"WCCOAs7    \", \"WCCOAs7plus\");
+  sOut = sResult;
+  
+  // write progs file
+  file fProgs;
+  int iAcc;
+  iAcc = access(sProgs, W_OK);
+  
+  if ( iAcc == 0 ) // if file is writable
+  {
+    fProgs = fopen(sProgs, \"w\");
+  
+    fputs(sOut, fProgs);
+    fclose(fProgs);
+  }
+}
+
+//==================================================================================================
+//==================================================================================================
+
+dyn_string getDrvNumsFromTable(string sShape)
+{
+  int iCount;
+  getValue(sShape, \"lineCount\", iCount);
+  
+  dyn_string dsResult;  
+  for ( int i = 1; i <= iCount; i++ )
+    getValue(sShape, \"getLineN\", i-1, dsResult[i]);
+  
+  dyn_string dsDrvNums;
+  for ( int i = 1; i <= dynlen(dsResult); i++ )
+    if ( dynlen(strsplit(dsResult, \"|\")) > 1 )
+      dsDrvNums[i] = substr(dsResult[i], strlen(dsResult[i])-1);
+
+  return dsDrvNums;
+}
+
+//==================================================================================================
+//==================================================================================================
+
+setCheckConnAddress(string sDp, string sConn, string sRef)
+{
+  string sDistribCfg = \":_distrib..\";
+  string sAddressCfg = \":_address..\";
+  string sCFG        = \".Config.\";
+  
+  uint uiDrvNum;
+  dpGet(sDp + sCFG + \"DrvNumber\" + sONL, uiDrvNum); 
+  
+  dpSetWait(sDp + sCFG + \"CheckConn\" + sDistribCfg + \"_type\",   DPCONFIG_DISTRIBUTION_INFO,
+            sDp + sCFG + \"CheckConn\" + sDistribCfg + \"_driver\", uiDrvNum);
+  
+  dpSetWait(sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_type\",       DPCONFIG_PERIPH_ADDR_MAIN,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_drv_ident\",  \"S7PLUS\",
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_connection\", sConn,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_reference\",  sRef,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_active\",     TRUE);
+}
+
+//==================================================================================================
+//==================================================================================================
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"tabS7c"
+""
+1 -99.75544199514673 326.3087248322148 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 378 241 651
+EE 1 0 1 2 1 "#Drv" 13 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 2 S7
+LANG:10004 2 S7
+LANG:10000 2 S7
+LANG:10027 2 S7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+155 "#Num" 2 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+36 
+22 22 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+10 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 0 7
+1 0
+25 2
+"tabS7p"
+""
+1 330 370 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  273 378 486 651
+E"main(int row, string column, string value)
+{
+  bool bStart = FALSE;
+  dyn_bool dbStart;
+  
+  dyn_string dsS7cNums = getDrvNumsFromTable(\"tabS7c\");
+  dyn_string dsS7pNums = getDrvNumsFromTable(\"tabS7p\");
+  
+  if ( dynlen(dsS7cNums) > 0 && dynlen(dsS7pNums) > 0 && ( dynlen(dsS7cNums) == dynlen(dsS7pNums) ) )
+    for ( int i = 1; i <= dynlen(dsS7pNums); i++ )
+      dynAppend(dbStart, (dsS7pNums[i]==\" \"?0:1));
+
+  dynUnique(dbStart);
+  dynSort(dbStart);
+  
+  if ( dynlen(dbStart) == 1 && dbStart[dynlen(dbStart)] == 1 )
+    cmdStart.enabled = 1;
+}
+
+
+
+
+
+
+
+
+" 0
+ 1 0 1 2 1 "#Drv" 13 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 16 S7+ / Simulation
+LANG:10004 12 S7+ / 仿真
+LANG:10000 16 S7+ / Simulation
+LANG:10027 16 S7+ / Simulation
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+155 "#Num" 2 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 3 Num
+LANG:10004 3 Num
+LANG:10000 3 Num
+LANG:10027 3 Num
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+36 
+22 22 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+10 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 0 7
+1 0
+13 3
+"cmdClose"
+""
+1 403 293 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  403 293 501 321
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 4
+"cmdStart"
+""
+1 298 293 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 16777221 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  298 293 396 321
+
+T 
+4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 5 Start
+LANG:10027 12 Начать
+"main()
+{
+  
+  if ( !checkDataBG() )
+  {
+    dyn_float df;
+    dyn_string ds;
+    
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                   getCatStr(\"para\", \"warning\"),
+                                   makeDynString(getCatStr(\"_errors\", \"00083\")),
+                                   df, ds);
+    return;
+  }
+  
+  //if ( hostname != host1 && hostname != host2 )   // export only allowed on server
+  //{
+  //  ChildPanelOnCentralModal(\"vision/MessageWarning\",
+  //                           getCatStr(\"para\", \"warning\"),
+  //                           makeDynString(getCatStr(\"general\", \"asciiExportServer\")));
+  //  return;
+  //}
+  
+  openProgressBar(\"Migration of S7 TIA Symbolic\", \"export.gif\", \"Migration in progress\", \"\", \"\", 1);
+  
+  migrateS7TiaSymbolic();
+  
+  if ( isProgressBarOpen() )
+    closeProgressBar();
+  
+  ChildPanelOnCentralModal(\"vision/MessageInfo1\",
+                           getCatStr(\"para\", \"information\"),
+                           makeDynString(\"Migration of S7 TIA Symbolic finished successfully!\\nFor next steps go to Online Help.\"));
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+30 7
+"frmMigration"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+6 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7980613893376414 0 3.323232323232324 2.019386106623585 178.8383838383838 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Driver instances
+LANG:10004 16 Driver instances
+LANG:10000 16 Treiberinstanzen
+LANG:10027 16 Driver instances
+6 8
+"recArrowRight"
+""
+1 240 120 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E 0.975 0 0.39 3.973684210526415 443.005 2  1 0  "pictures/StandardIcons/arrow_right_40.png" 4294967295 E 240 120 280 220
+6 18
+"recTitle"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.5878385657948612 0 0.8683894230769226 -1.648968949738787 42.97415865384616 1 E 0 80 880 -50
+2 19
+"ptTitle"
+""
+1 31.74455800485328 23.99999999999983 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 31.74455800485328 23.99999999999983 426.7445580048533 53.99999999999997
+0 2 2 "0s" 0 0 0 64 0 0  31.74455800485328 23.99999999999983 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 S7 TIA Symbolic
+LANG:10004 13 S7 TIA 符号
+LANG:10000 15 S7 TIA Symbolic
+LANG:10027 63 Миграция символьной адресации S7 TIA
+2 20
+"ptShortDesc"
+""
+1 47 32.18701929100259 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 1.034883720930233 14.74455800485329 6.918604651162674 0 E 47 31.99999999999997 424 149
+0 1 1 "0s" 0 0 0 192 0 0  47 31.99999999999997 7
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 49 This panel facilitates migrating TIA connections.
+LANG:10004 49 This panel facilitates migrating TIA connections.
+LANG:10000 69 Dieses Panel unterstützt Sie bei der Migration von TIA-Verbindungen.
+LANG:10027 100 Данная панель предназначена для миграции TIA-коннекций.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 53 TIA connections are supported by the S7+ driver only.
+LANG:10004 53 TIA connections are supported by the S7+ driver only.
+LANG:10000 58 Verwenden Sie für TIA-Verbindungen bitte den S7+ Treiber.
+LANG:10027 95 Для TIA-коннекций необходимо использовать драйвер S7+.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 67 TIA connections of the S7 driver will be disabled during migration.
+LANG:10004 67 TIA connections of the S7 driver will be disabled during migration.
+LANG:10000 75 TIA-Verbindungen des S7 Treibers werden während der Migration deaktiviert.
+LANG:10027 120 TIA-коннекции драйвера S7 будут деактивированы в процессе миграции.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+30 21
+"frmInfo"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7980613893376414 0 1.505050505050505 2.019386106623585 44.74747474747477 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Information
+LANG:10004 6 信息
+LANG:10000 11 Information
+LANG:10027 20 Информация
+2 25
+"ptType"
+""
+1 30.25 186 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 30.25 186 39 201
+0 2 2 "0s" 0 0 0 192 0 0  30.25 186 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 26
+"ptTypeDesc"
+""
+1 26.37227900242664 150 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 26.37227900242664 150 107 165
+0 2 2 "0s" 0 0 0 192 0 0  26.37227900242664 150 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 <description>
+LANG:10004 13 <description>
+LANG:10000 13 <description>
+LANG:10027 13 <description>
+13 27
+"cmdHelp"
+""
+1 4.744558004853275 0 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  12.74455800485328 293 110.7445580048533 321
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7_tia_migration\");
+}
+
+
+
+
+" 0
+ E E E
+1 28 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "barBack" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 271 T 21 1.030060120240481 0 1 0 14
+0
+0

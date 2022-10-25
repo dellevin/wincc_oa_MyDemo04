@@ -1,0 +1,1138 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 996 627 N "_3DFace" 0
+"main()
+{
+  int              a,i;
+  string           sState1, 
+                   sState2, 
+                   type, 
+                   name;
+  bool             state, 
+                   mode;
+  dyn_string       dsAllProgs; 
+ 
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+  
+  // Check user permission
+  if(!getUserPermission(2) || !getUserPermission(3))
+    tab2.enabled(FALSE);
+  
+  Row3.text(\"\");
+  Column3.text(\"\");
+  Value3.text(\"\");
+  
+  tab2.sortOnClick = TRUE;
+  tab2.tableMode(TABLE_SELECT_BROWSE);
+  tab2.selectByClick(TABLE_SELECT_LINE);  
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    tab2.visible(FALSE);
+     
+    // Loading table - only on the system that contains the _ScCom
+    load3.text() = \"1\";
+    if ( isFunctionDefined(\"sc_loadReady\") )
+      sc_loadReady();
+    else
+      return;
+        
+    // Clear tab
+    tab2.deleteAllLines();
+    dynClear(p_ddaDependances);
+    
+    // Get ALL programs
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      dsAllProgs = dpNames(p_dsSysNames[i]+\":*\", \"_Sc\");  //Get all UI datapoints - also from the dist systems
+    }
+      
+    // Get all names, type, overrides and states
+    for (i=1; i<=dynlen(dsAllProgs); i++)
+    {
+      // If datapoint has been deleted before
+      if (!dpExists(dpSubStr(dsAllProgs[i], DPSUB_SYS_DP)))
+        return;
+      
+      sc_depend2(dsAllProgs[i]);
+    }
+     
+    // Build up the table
+    for (a=1; a<=dynlen(p_ddaDependances); a++)
+    {
+      sState1 = p_ddaDependances[a][5] ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+      sState2 = p_ddaDependances[a][10] ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+      
+      sc_checkSys(p_ddaDependances[a][7], p_ddaDependances[a][7]);
+      
+      tab2.appendLine(\"name1\",        p_ddaDependances[a][1], 
+                      \"dpe1\",         p_ddaDependances[a][2],
+                      \"type1\",        p_ddaDependances[a][3],
+                      \"conditions1\",  p_ddaDependances[a][4],      
+                      \"state1\",       sState1,
+                      \"name2\",        p_ddaDependances[a][6], 
+                      \"dpe2\",         p_ddaDependances[a][7],
+                      \"action\",       p_ddaDependances[a][11],
+                      \"type2\",        p_ddaDependances[a][8],
+                      \"conditions2\",  p_ddaDependances[a][9],      
+                      \"state2\",       sState2);
+    }
+    
+    // Color the lines
+    sc_color();
+    
+    // Replace the tab cursor
+    setValue(\"tab2\", \"lineVisible\", 0);
+    setValue(\"tab2\",\"selectLineN\",0);
+    
+    // Reset the help buttons
+    Row3.text(\"\");
+    Column3.text(\"schedule_name\");
+
+    if ( tab2.lineCount() != 0 )
+    {
+      tab2.currentCell(0, 1);
+      Value3.text(tab2.cellValue()); 
+    }
+    // Loading table is ready - only on the system that contains the _ScCom
+    load3.text() = \"0\";
+    sc_loadReady();
+    
+    tab2.visible(TRUE);
+  }
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    // Connect to transfer - only on the system that contains the _ScCom
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      if(dpExists(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\"))
+      {
+        dpConnect(\"workCB\", FALSE, p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\");
+      }
+    }                                
+  }  
+}
+
+//******************************
+workCB(string dpe, string value)
+{  
+  int              y,e,c,i,o,u;
+  string           type, 
+                   name,
+                   dpe1;
+  bool             state, 
+                   mode;
+  dyn_int          diLine;                   
+  dyn_string       value12; 
+
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    y = tab2.lineCount()-1; 
+    
+    getValue(\"tab2\",\"lineRangeVisible\", o, u);
+    getValue(\"tab2\", \"getSelectedLines\", diLine);
+    
+    // Loading table - only on the system that contains the _ScCom
+    tab2.visible(FALSE);
+    load3.text() = \"1\";
+    sc_loadReady();
+  
+    // Clear tab
+    dynClear(p_ddaDependances);
+      
+    // Get all names, type, overrides and states
+    sc_transferSplit(value, value12);
+    if (dynlen(value12) == 2)
+      value = value12[2];
+
+    if (dpExists(value))
+    {
+      sc_depend2(value);
+      
+      // Find out how often value is in p_ddaDependances
+      // c = 0;
+      e = 0;
+      for(i = 1; i<=dynlen(p_ddaDependances); i++)
+      {
+        if (p_ddaDependances[i][2] == Value3.text())
+          e++;          
+      }
+     
+      sc_deleteLineDep(value, 1);
+      
+      // Update the table
+      if (tab2.lineCount() == 0)
+        sc_updateLine(e, value);
+      else
+      {
+        for (i=0; i<=tab2.lineCount()-1; i++)
+          sc_updateLine(e, value);
+      }
+    }
+    else
+    {
+      sc_deleteLineDep(value, 1);
+      sc_deleteDepend(value);
+      sc_deleteLineDep(value, 7);
+    }
+    
+    // Color the lines  
+    sc_color();
+    
+    // Reset cursor in tables
+    sc_resetCursorMainTabs(\"tab2\", value, diLine, o, u, y);
+    
+    // Reset the help buttons
+    getValue(\"tab2\", \"getSelectedLines\", diLine);
+
+    if (dynlen(diLine) != 0)
+    {
+      Row3.text(diLine[1]);
+      Column3.text(\"schedule_name\");
+      tab2.currentCell(diLine[1], 1);
+      Value3.text(tab2.cellValue()); 
+    }
+    else
+    {
+      Row3.text(\"\");
+      Column3.text(\"\");
+      if ( tab2.lineCount() )
+        tab2.currentCell(0,0);
+      Value3.text(\"\"); 
+    }
+
+    // Loading table is ready - only on the system that contains the _ScCom
+    load3.text() = \"0\";
+    sc_loadReady();
+    
+    tab2.visible(TRUE);
+  }
+}" 0
+ E E E E 1 -1 -1 0  66 22
+"refFileName"0  1
+E "  string          p_sScCom = \"_ScCom\";
+  dyn_string      p_dsSysNames;
+  dyn_uint        p_duiSysIds;
+  dyn_dyn_anytype p_ddaDependances;
+  
+//***********************************************
+//Function:   sc_deleteDepend()
+//Parameters: dpeString  :  DPE string
+//***********************************************
+sc_deleteDepend(string value)
+{
+  int         e, i;
+  bool        b;
+  string      dpe1, dpe2, action, sDpe1, sDpe2, value2, sAvc;
+  dyn_string  dsDpeList, dsDpeValues, dsDpeValuesOn, dsDpeValuesOff, dsDpes;
+                   
+  if (tab2.lineCount() == 0)
+    return;
+  
+  sc_checkSys(value, value2);
+    
+  for (i = 0; i <= tab2.lineCount()-1; i++)
+  {
+    tab2.currentCell(i,7);
+    getValue(\"tab2\", \"cellValue\", dpe2);
+    sc_checkSys(dpe2, dpe2);
+    sc_checkSys(value, value2);
+    
+    if (dpe2 == value2)  //A dead body has been found
+    {
+      //Get the schedule DP
+      tab2.currentCell(i,1);
+      getValue(\"tab2\", \"cellValue\", dpe1);
+      
+      if (dynContains(dsDpes, dpe1) == 0)
+        dynAppend(dsDpes, dpe1);
+      
+      //Get the action type
+      tab2.currentCell(i,5);
+      getValue(\"tab2\", \"cellValue\", action);
+
+      switch(action)
+      {
+        case \"REACT\"   :  dpGet(dpe1+\".reaction.dpe:_original.._value\", sDpe1,
+                                dpe1+\".reaction.dpe2:_original.._value\", sDpe2);
+
+                          sc_checkSys(sDpe1, sDpe1);
+                          if (value2 == sDpe1)
+                          {
+                            dpSet(dpe1+\".reaction.dpe:_original.._value\", \"\",
+                                  dpe1+\".reaction.valTyp:_original.._value\", 3,
+                                  dpe1+\".reaction.value:_original.._value\", \"\",
+                                  dpe1+\".reaction.valueON:_original.._value\", \"\",
+                                  dpe1+\".reaction.valueOFF:_original.._value\", \"\",
+                                  dpe1+\".reaction.relOp:_original.._value\", 1,
+                                  dpe1+\".reaction.relOpON:_original.._value\", 1,
+                                  dpe1+\".reaction.relOpOFF:_original.._value\", 1); 
+                          } 
+
+                          sc_checkSys(sDpe2, sDpe2);
+                          if (value2 == sDpe2)
+                            dpSet(dpe1+\".reaction.dpe2:_original.._value\", \"\");
+        break;                    
+        case  \"AVC\"     :  dpGet(dpe1+\".time.vcDpeString:_original.._value\", sAvc);
+                        
+                          sc_checkSys(sAvc, sAvc);
+                          if (value2 == sAvc)
+                          {
+                            dpSet(dpe1+\".time.vcDpeString:_original.._value\", \"\",
+                                  dpe1+\".time.vcValue:_original.._value\", \"\",
+                                  dpe1+\".time.vcRelOp:_original.._value\", 1,
+                                  dpe1+\".time.vcActive:_original.._value\", 0); 
+                          }
+        break;                        
+        case \"DPE\"     :  dpGet(dpe1+\".actions.dpeList.dpes:_original.._value\", dsDpeList,
+                                dpe1+\".actions.dpeList.dpeValues:_original.._value\", dsDpeValues,
+                                dpe1+\".actions.dpeList.dpeValuesON:_original.._value\", dsDpeValuesOn,
+                                dpe1+\".actions.dpeList.dpeValuesOFF:_original.._value\", dsDpeValuesOff);
+                          value = strrtrim(value, \".\");
+                          e = dynContains(dsDpeList, value+\".mode\");
+                          
+                          dynRemove(dsDpeList, e);
+                          dynRemove(dsDpeValues, e);
+                          dynRemove(dsDpeValuesOn, e);
+                          dynRemove(dsDpeValuesOff, e);
+                          
+                          dpSet(dpe1+\".actions.dpeList.dpes:_original.._value\", dsDpeList,
+                                dpe1+\".actions.dpeList.dpeValues:_original.._value\", dsDpeValues,
+                                dpe1+\".actions.dpeList.dpeValuesON:_original.._value\", dsDpeValuesOn,
+                                dpe1+\".actions.dpeList.dpeValuesOFF:_original.._value\", dsDpeValuesOff);
+        break;                               
+        case \"RECIPE\"  :  dpSet(dpe1+\".actions.recipe.active:_original.._value\", 0);
+        break;
+        default        :  break;
+      }
+    }
+  }
+  
+  for (i = 1; i <= dynlen(dsDpes); i++)
+  {
+    for (e=1; e<=dynlen(p_dsSysNames); e++)
+    {
+      if (dpExists(p_dsSysNames[e]+\":_ScCom.transfer:_original.._value\"))
+      {
+        dpGet(dpSubStr(dsDpes[i], DPSUB_SYS_DP)+\".name\", value);
+        dpSet(p_dsSysNames[e]+\":_ScCom.transfer:_original.._value\", value +\"|\"+ dpSubStr(dsDpes[i], DPSUB_SYS_DP));  //ComDP = \"_ScCom\"; 
+      } 
+    }
+  } 
+}  
+  
+//***********************************************
+//Function:     sc_deleteLineDep()
+//***********************************************  
+sc_deleteLineDep(string value, int x = 1)
+{
+  int    i,e,d;
+  string dpe1;
+  
+  if (tab2.lineCount() == 0)
+    return;
+    
+  for (i = 0; i <= tab2.lineCount()-1; i++)
+  {
+    tab2.currentCell(i,x);
+    getValue(\"tab2\", \"cellValue\", dpe1);
+    sc_checkSys(dpe1, dpe1);
+    sc_checkSys(value, value);
+    if (dpe1 == value)
+      d++;
+  }
+
+  for (e = 0; e <= d; e++)
+  {
+    for (i = 0; i <= tab2.lineCount()-1; i++)
+    {
+      tab2.currentCell(i,x);
+      getValue(\"tab2\", \"cellValue\", dpe1);
+      
+      //Both are only empty if DPE does not exist
+      sc_checkSys(dpe1, dpe1);
+      sc_checkSys(value, value);
+      if (dpe1 == value)
+        tab2.deleteLineN(i);
+    }
+  }
+}  
+  
+//***********************************************
+//Function:     sc_updateLine()
+//***********************************************
+sc_updateLine(int e, string value)
+{      
+  int              a;
+  string           sState1, 
+                   sState2; 
+   
+  for (a=1; a<=dynlen(p_ddaDependances); a++)
+  {
+    sState1 = p_ddaDependances[a][5] ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+    sState2 = p_ddaDependances[a][10] ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+
+    if ( e != 0 )
+      value = Value3.text();
+            
+    sc_checkSys(p_ddaDependances[a][7], p_ddaDependances[a][7]);
+
+    tab2.updateLine(3,  \"dpe1\",         value, 
+                        \"dpe2\",         p_ddaDependances[a][7],
+                        \"action\",       p_ddaDependances[a][11],
+                        \"name1\",        p_ddaDependances[a][1],
+                        \"type1\",        p_ddaDependances[a][3],
+                        \"conditions1\",  p_ddaDependances[a][4],      
+                        \"state1\",       sState1, 
+                        \"name2\",        p_ddaDependances[a][6], 
+                        \"action\",       p_ddaDependances[a][11],
+                        \"type2\",        p_ddaDependances[a][8],
+                        \"conditions2\",  p_ddaDependances[a][9],      
+                        \"state2\",       sState2);
+  }  
+}
+  
+//***********************************************
+//Function:     sc_color()
+//***********************************************
+sc_color()
+{
+  int e,i;
+  
+  // Color the lines
+  for(e=0; e<=10; e++)
+  {
+    for(i=0; i<=tab2.lineCount()-1; i++)
+    {
+      tab2.currentCell(i,8);
+        
+      if(tab2.cellValue() == \"NONE\")
+      {
+        tab2.currentCell(i, e);
+        tab2.cellBackCol(\"red\");
+        tab2.cellForeCol(\"white\");
+      }
+    }
+  } 
+}
+  
+//***********************************************
+//Function:   sc_depend2()
+//Parameters: dpeString  :  DPE string
+//***********************************************
+sc_depend2(string dpeString)
+{
+  int              a,e,i,o,u;
+  string           type, 
+                   helpString, 
+                   sRctList, 
+                   sRctListOn, 
+                   sRctListOff, 
+                   sAvc, sDpe1, 
+                   sDpe2, 
+                   name;
+  bool             state, 
+                   mode,
+                   active;
+  dyn_string       dsAllProgs,
+                   dsDpeList,
+                   dsRctList,
+                   dsRctDpeList; 
+  
+  dpGet(dpeString+\".name:_original.._value\", name,
+        dpeString+\".result:_original.._value\", state,
+        dpeString+\".mode:_original.._value\", mode,
+        dpeString+\".type:_original.._value\", type);
+
+  //**** Reaction - Check DPE1 and DPE2
+  dpGet(dpeString+\".reaction.dpe:_original.._value\", sDpe1,
+        dpeString+\".reaction.dpe2:_original.._value\", sDpe2);
+
+  if(sDpe1 != \"\")
+  {
+    sc_depend(sDpe1, name, dpeString, type, state, mode, sDpe1, \"REACT\");
+  }
+  if(sDpe2 != \"\")
+  {
+    sc_depend(sDpe2, name, dpeString, type, state, mode, sDpe2, \"REACT\");
+  }      
+      
+  //**** AVC - Check additional value condition
+  dpGet(dpeString+\".time.vcDpeString:_original.._value\", sAvc);
+  if(sAvc != \"\")
+  {
+    sc_depend(sAvc, name, dpeString, type, state, mode, sAvc, \"AVC\");
+  }      
+      
+  //**** Actions - Check DPE list
+  dpGet(dpeString+\".actions.dpeList.dpes:_original.._value\", dsDpeList);
+  for(e=1; e<=dynlen(dsDpeList); e++)
+  {
+    helpString = dsDpeList[e];
+    sc_depend(helpString, name, dpeString, type, state, mode, helpString, \"DPE\");
+  }
+      
+  //**** Actions - Check recipe types
+  dynClear(dsRctList);
+      
+  dpGet(dpeString+\".actions.recipe.active:_original.._value\", active,
+        dpeString+\".actions.recipe.recipeType:_original.._value\", sRctList,
+        dpeString+\".actions.recipe.recipeTypeOn:_original.._value\", sRctListOn,
+        dpeString+\".actions.recipe.recipeTypeOff:_original.._value\", sRctListOff);
+        
+  if(!active)  //Checke recipes only if activated
+    return;
+        
+  if(sRctList != \"\" && dynContains(dsRctList, sRctList) == FALSE) dynAppend(dsRctList,sRctList);
+  if(sRctListOn != \"\" && dynContains(dsRctList, sRctListOn) == FALSE) dynAppend(dsRctList,sRctListOn);
+  if(sRctListOff != \"\" && dynContains(dsRctList, sRctListOff) == FALSE) dynAppend(dsRctList,sRctListOff);
+      
+  if(dynlen(dsRctList) >= 1)
+  {
+    for(o=1; o<=dynlen(dsRctList); o++)
+    {
+      dpGet(dsRctList[o]+\".elements:_original.._value\", dsRctDpeList);
+      for(a=1; a<=dynlen(dsRctDpeList); a++)
+      {
+        helpString = dsRctDpeList[a];
+        sc_depend(helpString, name, dpeString, type, state, mode, helpString, \"RECIPE\");
+      }
+    }
+  }  
+}
+ 
+//***********************************************
+//Function:     sc_depend()
+//Parameters:   dpeString  :  DPE string
+//***********************************************
+sc_depend(string dpeString,
+          string name,
+          string prog,
+          string type,
+          string state,
+          string mode,
+          string dpe,
+          string s)
+{
+  int    u;
+  
+  //If dpeString != empty
+  if (dpeString == \"\")
+   return; 
+   
+  //dpeString = strltrim(dpeString, \"\");
+  //dpeString = strrtrim(dpeString, \"\");
+  dpeString = dpSubStr(dpeString, DPSUB_SYS_DP);
+
+  //Only if DP exists do dpTypeName - else show that there is a dead end!
+  if (dpExists(dpeString))
+  {
+    if (dpTypeName(dpeString) == \"_Sc\")
+    {
+      u = dynlen(p_ddaDependances);
+      p_ddaDependances[u+1][1] = name;  //name1
+      p_ddaDependances[u+1][2] = prog;  //dpe1
+      p_ddaDependances[u+1][3] = type;  //type1
+      p_ddaDependances[u+1][4] = state; //conditions1
+      p_ddaDependances[u+1][5] = mode;  //state1     
+      dpGet(dpSubStr(dpe, DPSUB_SYS_DP)+\".name:_original.._value\", p_ddaDependances[u+1][6]);   //name2
+      p_ddaDependances[u+1][7] = dpe;   //dpe2
+      dpGet(dpSubStr(dpe, DPSUB_SYS_DP)+\".type:_original.._value\", p_ddaDependances[u+1][8] );  //type2
+      dpGet(dpSubStr(dpe, DPSUB_SYS_DP)+\".result:_original.._value\", p_ddaDependances[u+1][9] );//conditions2
+      dpGet(dpSubStr(dpe, DPSUB_SYS_DP)+\".mode:_original.._value\", p_ddaDependances[u+1][10] ); //state2
+      p_ddaDependances[u+1][11] = s;    //action
+    }
+  }
+  else
+  {
+      u = dynlen(p_ddaDependances);
+     
+      p_ddaDependances[u+1][1] = name;    //name1
+      p_ddaDependances[u+1][2] = prog;    //dpe1
+      p_ddaDependances[u+1][3] = type;    //type1
+      p_ddaDependances[u+1][4] = state;   //conditions1
+      p_ddaDependances[u+1][5] = mode;    //state1     
+      p_ddaDependances[u+1][6] = getCatStr(\"ac\",\"dpNoAvailable\")+\"!\"; //name2
+      p_ddaDependances[u+1][7] = getCatStr(\"ac\",\"dpNoAvailable\")+\"!\"; //dpe;     //dpe2
+      p_ddaDependances[u+1][8] = \"NONE\";  //type2
+      p_ddaDependances[u+1][9] = \"NONE\";  //conditions2
+      p_ddaDependances[u+1][10] = \"NONE\"; //state2
+      p_ddaDependances[u+1][11] = s; //action
+  }      
+}" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 264
+"tab2"
+""
+1 20 20 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ "main()
+{
+  int        iRow, answer;
+  string     sRow, r, v, dpe, type;
+  dyn_int    sl;             
+  dyn_string popUpText,
+             allPartsNew,
+             edit,
+             sDelete,
+             activate,
+             deactivate,
+             copy,
+             print,
+             dsEn;
+             
+  //Check user permission
+  if(!getUserPermission(3))
+     dsEn[5] = 0;
+    
+  edit           = strsplit(getCatStr(\"scheduler\", \"edit\"), \",\");
+  edit[1]        = strltrim(edit[1]);
+  allPartsNew    = strsplit(getCatStr(\"scheduler\", \"fileNew\"), \",\");
+  allPartsNew[1] = strltrim(allPartsNew[1]);
+  sDelete[1]      = getCatStr(\"scheduler\", \"delete\");
+  activate[1]    = getCatStr(\"scheduler\", \"activate\");
+  deactivate[1]  = getCatStr(\"scheduler\", \"deactivate\");
+  copy[1]        = getCatStr(\"scheduler\", \"copy\");
+  print[1]       = getCatStr(\"scheduler\", \"print\");
+  print[2]       = getCatStr(\"scheduler\", \"table\");
+  print[3]       = getCatStr(\"scheduler\", \"details\");
+  
+  //Enable, disable menu items
+  if (tab2.lineCount() <= 0)
+  {
+    dsEn[2] = 0;
+    dsEn[3] = 0;
+    dsEn[5] = 0;
+    dsEn[7] = 0;
+    dsEn[8] = 0;
+    dsEn[21] = 0;
+    dsEn[22] = 0;
+  }
+  else
+  {
+    dsEn[2] = 1;
+    dsEn[3] = 1;
+    dsEn[5] = 1;
+    dsEn[7] = 1;
+    dsEn[8] = 1;
+    dsEn[21] = 1;
+    dsEn[22] = 1;
+  }
+
+  popUpText = makeDynString(\"CASCADE_BUTTON, \"+allPartsNew[1]+\", 1\",    //New
+                            \"PUSH_BUTTON, \"+edit[1]+\", 1, \"+dsEn[2]+\"\",           //Edit
+                            \"PUSH_BUTTON, \"+copy[1]+\", 5, \"+dsEn[3]+\"\",           //Copy
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+sDelete[1]+\", 2, \"+dsEn[5]+\"\",         //Delete
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+activate[1]+\", 3, \"+dsEn[7]+\"\",       //Activate
+                            \"PUSH_BUTTON, \"+deactivate[1]+\", 4, \"+dsEn[8]+\"\",     //Deactivate
+                            \"SEPARATOR\",                                //----------
+                            \"CASCADE_BUTTON, \"+print[1]+\", 1\",          //Print
+                            \"\"+allPartsNew[1]+\"\",                       //News 1st level
+                            \"CASCADE_BUTTON, \"+allPartsNew[2]+\", 1\",    //Time schedule
+                            \"PUSH_BUTTON, \"+allPartsNew[6]+\", 6, 1\",    //Reaction program
+                            \"PUSH_BUTTON, \"+allPartsNew[7]+\", 7, 1\",    //Info action
+                            \"PUSH_BUTTON, \"+allPartsNew[8]+\", 11, 1\",   //Special day
+                            \"\"+allPartsNew[2]+\"\",                       //News 2nd level
+                            \"PUSH_BUTTON, \"+allPartsNew[3]+\", 8, 1\",    //Day
+                            \"PUSH_BUTTON, \"+allPartsNew[4]+\", 9, 1\",    //Week
+                            \"PUSH_BUTTON, \"+allPartsNew[5]+\", 10, 1\",  //Free
+                            \"\"+print[1]+\"\",                             //Print 1st level
+                            \"PUSH_BUTTON, \"+print[2]+\", 12, \"+dsEn[21]+\"\",         //Table
+                            \"PUSH_BUTTON, \"+print[3]+\", 13, \"+dsEn[22]+\"\");        //Details
+
+  popupMenu(popUpText, answer);
+
+  if(answer == 1)
+  {
+    if (Row3.text() == 0)
+    {
+      sc_nolineselected();  return;
+    }
+    tab2.currentCell(Row3.text(),1);
+    dpe = tab2.cellValue();
+    tab2.currentCell(Row3.text(),2);
+    type = tab2.cellValue();
+    type = strtoupper(type);
+    dpe = dpSubStr(dpe,DPSUB_SYS_DP);
+    sc_editCas(type, dpe);
+  }
+  if(answer == 2)
+  {
+    getValue(\"Row3\", \"text\",r);
+    getValue(\"Value3\", \"text\",v);
+    getValue(\"tab2\", \"getSelectedLines\", sl);
+    sc_delScDp(r, v, sl);
+  }
+  sRow = Row3.text();
+  sRow = strltrim(sRow, \"\\\"\");
+  sRow = strrtrim(sRow, \"\\\"\");
+  //iRow = sRow;
+  if(answer == 3)
+    sc_actDeact(\"\", sRow, \"dpe1\", \"TRUE\");
+  if(answer == 4)
+    sc_actDeact(\"\", sRow, \"dpe1\", \"FALSE\");
+  if(answer == 5)
+    sc_copy(\"\", sRow, \"dpe1\");
+  if(answer == 8)
+    sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_day_scheduler\"),\"\",\"D\");
+  if(answer == 9)
+    sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_week_scheduler\"),\"\",\"W\");
+  if(answer == 10)
+    sc_newCas(\"/vision/scheduler/sc_freeSchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 6)
+    sc_newCas(\"/vision/scheduler/sc_reactionProg.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 7)
+    sc_newInfoAction();  
+  if(answer == 11)
+    sc_newCas(\"/vision/scheduler/sc_specialDays.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 12)
+    sc_printTableDetails(\"tab2\", \"p2\");
+  if(answer == 13)
+    sc_printScDetails(\"\", sRow, \"dpe1\", \"scDetails\", \"p10\");
+
+}" 0
+ "main()
+{
+  string dpe, type;
+  
+  if (Row3.text() == 0)
+  {
+    sc_nolineselected(); return;
+  }  
+  tab2.currentCell(Row3.text(),1);
+  dpe = tab2.cellValue();
+  tab2.currentCell(Row3.text(),2);
+  type = tab2.cellValue();
+  type = strtoupper(type);
+  dpe = dpSubStr(dpe,DPSUB_SYS_DP);
+  
+  sc_editCas(type, dpe);
+}" 0
+
+249 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 25 Arial,8,-1,5,50,0,0,0,0,0
+0  13 13 962 565
+E"main(int row, string column, string value)
+{
+  string sRow;
+  
+  // Get the table data out 
+  Row3.text(row);
+  Column3.text(column);
+  this.currentCell(row,1);
+  Value3.text(this.cellValue());
+  
+  // Sets the entered value - if the right column
+  if (column == \"state1\")
+  {
+    getValue(\"\", \"cellValueRC\", row, \"state1\", value);
+    value = strtolower(value);
+    switch(value)
+    {
+      case \"false\" : value = \"FALSE\"; break;
+      case \"0\"     : value = \"FALSE\"; break;
+      case \"true\"  : value = \"TRUE\"; break;
+      case \"1\"     : value = \"TRUE\"; break;
+      default      : value = \"FALSE\";
+    }
+    sRow = row;
+    sc_actDeact(\"tab2\", sRow, \"dpe1\", value);
+  }
+}" 0
+ 1 0 1 11 1 "name1" 20 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 13 Schedule name
+LANG:10004 12 调度名称
+LANG:10000 12 Programmname
+LANG:10027 27 Имя расписания
+
+170 "dpe1" 11 0 0 "s" 4
+LANG:10001 4 dpe1
+LANG:10004 4 dpe1
+LANG:10000 4 dpe1
+LANG:10027 4 dpe1
+E
+4
+LANG:10001 18 Schedule datapoint
+LANG:10004 8 调度DP
+LANG:10000 18 Name der Programme
+LANG:10027 23 DP расписания
+
+101 "type1" 6 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+4
+LANG:10001 13 Schedule type
+LANG:10004 12 调度类型
+LANG:10000 11 Programmtyp
+LANG:10027 27 Тип расписания
+
+60 "conditions1" 9 0 0 "s" 4
+LANG:10001 10 Conditions
+LANG:10004 6 条件
+LANG:10000 11 Bedingungen
+LANG:10027 14 Условия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+85 "state1" 9 1 1 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+E
+4
+LANG:10001 14 Schedule state
+LANG:10004 12 调度状态
+LANG:10000 21 Status des Programmes
+LANG:10027 39 Состояние расписания
+
+80 "action" 6 1 0 "s" 4
+LANG:10001 6 Action
+LANG:10004 6 动作
+LANG:10000 6 Aktion
+LANG:10027 16 Действие
+E
+4
+LANG:10001 30 Action type or value condition
+LANG:10004 27 动作类型或数值条件
+LANG:10000 25 Aktion bzw. Wertbedingung
+LANG:10027 67 Тип действия или условие по значению
+
+60 "name2" 20 1 0 "s" 4
+LANG:10001 10 Dependency
+LANG:10004 6 依赖
+LANG:10000 13 Abhängigkeit
+LANG:10027 22 Зависимость
+E
+4
+LANG:10001 13 Schedule name
+LANG:10004 12 调度名称
+LANG:10000 12 Programmname
+LANG:10027 27 Имя расписания
+
+170 "dpe2" 28 1 0 "s" 4
+LANG:10001 17 Datapoint element
+LANG:10004 3 DPE
+LANG:10000 17 Datenpunktelement
+LANG:10027 17 DP элемент
+E
+4
+LANG:10001 18 Schedule datapoint
+LANG:10004 8 调度DP
+LANG:10000 18 Programmdatenpunkt
+LANG:10027 23 DP расписания
+
+237 "type2" 6 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+4
+LANG:10001 13 Schedule type
+LANG:10004 12 调度类型
+LANG:10000 11 Programmtyp
+LANG:10027 27 Тип расписания
+
+63 "conditions2" 9 0 0 "s" 4
+LANG:10001 10 Conditions
+LANG:10004 6 条件
+LANG:10000 11 Bedingungen
+LANG:10027 14 Условия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+85 "state2" 9 1 0 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+E
+4
+LANG:10001 14 Schedule state
+LANG:10004 12 调度状态
+LANG:10000 21 Status des Programmes
+LANG:10027 39 Состояние расписания
+
+87 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 25 Arial,8,-1,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 265
+"Value3"
+""
+1 10 50 E E E 1 E 0 E N "_3DText" E N {204,0,0} E E
+ E E
+249 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 48 22 62
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E "main()
+{
+
+}" 0
+
+13 266
+"Column3"
+""
+1 10 30 E E E 1 E 0 E N "_3DText" E N {255,153,0} E E
+ E E
+250 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 28 22 42
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+13 267
+"Row3"
+""
+1 10 10 E E E 1 E 0 E N "_3DText" E N {0,153,0} E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 8 22 22
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+25 268
+"scDetails"
+""
+1 -15 288 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 373 947 547
+EE 1 0 1 2 1 "name" 41 1 0 "s" 4
+LANG:10001 17 Datapoint element
+LANG:10004 3 DPE
+LANG:10000 17 Datenpunktelement
+LANG:10027 17 DP элемент
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+464 "detail" 41 1 0 "s" 4
+LANG:10001 24 Parameterization details
+LANG:10004 6 参数
+LANG:10000 18 Parametrierdetails
+LANG:10027 45 Детали параметрирования
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+463 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 270
+"load3"
+""
+1 10 100 E E E 1 E 0 E N {255,255,255} E N {0,51,204} E E
+ E E
+252 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 98 32 122
+
+T 
+4
+LANG:10001 1 L
+LANG:10004 1 L
+LANG:10000 1 L
+LANG:10027 1 L
+E E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

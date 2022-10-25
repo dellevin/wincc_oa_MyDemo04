@@ -1,0 +1,3839 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "_3DFace" 0
+"#uses \"cnsTree\"
+#uses \"cns\"
+#uses \"CtrlCNS\"
+
+main()
+{
+  //initialize
+  tblPermission.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  tblPermission.tableMode(TABLE_SELECT_MULTIPLE);
+  tblPermission.selectByClick(TABLE_SELECT_LINE);
+
+  setEnableSystem(false);
+  setEnableView(false);
+  initializeBits();
+  initializeTree();
+
+  //add observer - private functions from cnsTree.ctl
+  cnsTree_setLayerIconMapping();
+  cnsAddObserver(\"viewObserverCB\");
+}
+
+void viewObserverCB(string where, int what)
+{
+  string sys = cnsSubStr(where, CNSSUB_SYS);
+  string viewName = cnsSubStr(where, CNSSUB_SYS | CNSSUB_VIEW);
+  if(viewName == addedView)
+    return;
+
+  //delete role if necessary
+  dyn_string viewsWithRole, roles;
+  dpGet(sys + \":_AC_General.Views.Names\", viewsWithRole,
+        sys + \":_AC_General.Views.Role\", roles);
+
+  int idx = dynContains(viewsWithRole, strrtrim(viewName, \":\"));
+  if(idx >= 1)
+  {
+    return;
+  }
+
+  shape sTree = getShape(\"treeViews\");
+  switch(what)
+  {
+    case CNS_CHANGE_NAMES:
+      cnsTree_updateTreeNodeName(where, sTree);
+      break;
+    case CNS_CHANGE_DATA:
+      setViewPermissionsAsIcons(where);
+      break;
+    case CNS_CHANGE_STRUCTURE:
+      if ( cns_treeExists(where) ) //create tree
+      {
+        cnsTree_addNewTree(where, sTree);
+        setViewPermissionsAsIcons(where);
+      }
+      else if ( cns_nodeExists(where) ) //create node
+      {
+        cnsTree_addNewNode(where, sTree);
+        setViewPermissionsAsIcons(where);
+      }
+      else if ( cns_viewExists(where) ) //create view
+      {
+        cnsTree_addNewView(where, sTree);
+      }
+      else // node or view does not exis
+      {
+        cnsTree_deleteNodeInTree(where, sTree);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+//------------------observer functions (private functions copied from cnsTree.ctl)------------------------
+dyn_string dsCnsLayerIcons;
+
+private void cnsTree_updateTreeNodeName(string where, shape sTree)
+{
+  if ( !sTree.itemExists(where) )//check if node already exist
+    return;
+
+  if ( cns_nodeExists(where) )//check if node displayname changed
+  {
+    langString lsDisplayName;
+    string sNodeName;
+
+    cnsGetDisplayNames(where, lsDisplayName);
+
+    if ( lsDisplayName != \"\" )
+      sNodeName = (string)lsDisplayName;
+    else
+      sNodeName = cnsSubStr(where, CNSSUB_NODE);
+
+    sTree.setText(where, 0, sNodeName);
+  }
+  else if ( cns_viewExists(where) )//check if view displayname changed
+  {
+    langString lsDisplayName;
+    string sNodeName;
+
+    cnsGetViewDisplayNames(where, lsDisplayName);
+
+    if ( lsDisplayName != \"\" )
+      sNodeName = (string)lsDisplayName;
+    else
+      sNodeName = cnsSubStr(where, CNSSUB_VIEW);
+
+    sTree.setText(where, 0, sNodeName);
+  }
+  else// nodename changed
+  {
+    string sParent = sTree.parent(where);
+
+    dyn_string dsChildrenTree = sTree.children(sParent);
+    dyn_string dsChildren;
+
+    dyn_string dsSystems = sTree.children(\"\");
+
+    if ( dynContains(dsSystems, sParent) )//is view
+      dsChildren = cns_getReadableViews(sParent);
+    else if ( cns_isView(sParent) )//is a tree
+      cnsGetTrees(sParent, dsChildren);
+    else//is a node
+      cnsGetChildren(sParent, dsChildren);
+
+    if ( dynlen(dsChildrenTree) == dynlen(dsChildren) ) //name updated
+    {
+      string sNewName;
+
+      for ( int i = 1; i <= dynlen(dsChildren); i++ )
+      {
+        if ( !dynContains(dsChildrenTree, dsChildren[i]) )
+        {
+          sNewName = dsChildren[i];
+          break;
+        }
+      }
+
+      sTree.changeId(where, sNewName);
+
+      cnsTree_replaceRecursive(sTree, where, sNewName, sNewName);//change id recursive
+    }
+    else//something else happened
+    {
+      sTree.removeItem(where);
+      cnsTree_expandedCB(sTree, sParent);
+    }
+  }
+}
+
+private void cnsTree_replaceRecursive(shape sTree, string sOld, string sNew, string sReplace)
+{
+  dyn_string dsChildren = sTree.children(sNew);
+
+  for ( int i = 1; i <= dynlen(dsChildren); i++ )//foreach children
+  {
+    string sId = dsChildren[i];
+
+    strreplace(sId, sOld, sReplace);
+
+    sTree.changeId(dsChildren[i], sId);
+
+    cnsTree_replaceRecursive(sTree, sOld, sId, sReplace);//recursively
+  }
+}
+
+private void cnsTree_addNewTree(string sTreePath, shape sTree)
+{
+  dyn_string dsChilderen;
+
+  cnsGetChildren(sTreePath, dsChilderen);
+
+  bool bExpandable = (dynlen(dsChilderen) > 0) ? true : false;
+
+  if ( sTree.itemExists(sTreePath) )
+    return;
+
+  string sParent = cnsSubStr(sTreePath, CNSSUB_SYS | CNSSUB_VIEW);
+
+  if ( sTree.itemExists(sParent) )
+  {
+    langString lsDisplayName;
+    string sNodeName;
+
+    string sDp;
+    int iNodeType;
+    cnsGetId(sTreePath, sDp, iNodeType);
+
+    string sNodeIcon;
+
+    cns_getNodeIcon(sTreePath, sNodeIcon);//get node icon
+
+    if ( sNodeIcon == \"\" )// if no nodeicon exist take nodetype icon
+      sNodeIcon = cns_getNodeTypeIcon(iNodeType);
+
+    if ( sNodeIcon == \"\" )//use layer color icon
+    {
+      sNodeIcon = cnsTree_getLayerIcon(sTreePath);
+    }
+
+    cnsGetDisplayNames(sTreePath, lsDisplayName);
+
+    if ( lsDisplayName != \"\" )
+      sNodeName = (string)lsDisplayName;
+    else
+      sNodeName = cnsSubStr(sTreePath, CNSSUB_NODE);
+
+    sTree.appendItemNC(sParent, sTreePath, sNodeName);
+    sTree.setExpandable(sTreePath, bExpandable);
+    sTree.setDragEnabled(sTreePath, true);
+    sTree.setDropEnabled(sTreePath, true);
+    sTree.setIcon(sTreePath, 0, sNodeIcon);
+  }
+  else if ( sTree.itemExists(sParent) && !sTree.isExpandable(sParent) )
+    sTree.setExpandable(sParent, true);
+}
+
+private void cnsTree_addNewNode(string sNodePath, shape sTree)
+{
+  dyn_string dsChilderen;
+
+  cnsGetChildren(sNodePath, dsChilderen);
+
+  bool bExpandable = (dynlen(dsChilderen) > 0) ? true : false;
+
+  if ( sTree.itemExists(sNodePath) )
+    return;
+
+  string sParent;
+
+  cnsGetParent(sNodePath, sParent);
+
+  if ( sTree.itemExists(sParent) )
+  {
+    langString lsDisplayName;
+    string sNodeName;
+
+    string sDp;
+    int iNodeType;
+    cnsGetId(sNodePath, sDp, iNodeType);
+
+    string sNodeIcon;
+
+    cns_getNodeIcon(sNodePath, sNodeIcon);//get node icon
+
+    if ( sNodeIcon == \"\" )// if no nodeicon exist take nodetype icon
+      sNodeIcon = cns_getNodeTypeIcon(iNodeType);
+
+    if ( sNodeIcon == \"\" )//use layer color icon
+    {
+      sNodeIcon = cnsTree_getLayerIcon(sNodePath);
+    }
+
+    cnsGetDisplayNames(sNodePath, lsDisplayName);
+
+    if ( lsDisplayName != \"\" )
+      sNodeName = (string)lsDisplayName;
+    else
+      sNodeName = cnsSubStr(sNodePath, CNSSUB_NODE);
+
+    sTree.appendItemNC(sParent, sNodePath, sNodeName);
+    sTree.setExpandable(sNodePath, bExpandable);
+    sTree.setDragEnabled(sNodePath, true);
+    sTree.setDropEnabled(sNodePath, true);
+    sTree.setIcon(sNodePath, 0, sNodeIcon);
+  }
+  else if ( sTree.itemExists(sParent) && !sTree.isExpandable(sParent) )
+    sTree.setExpandable(sParent, true);
+}
+
+private void cnsTree_addNewView(string sViewPath, shape sTree)
+{
+  dyn_string dsChilderen;
+
+  cnsGetTrees(sViewPath, dsChilderen);
+
+  bool bExpandable = (dynlen(dsChilderen) > 0) ? true : false;
+
+  if ( sTree.itemExists(sViewPath) )
+    return;
+
+  string sParent = cnsSubStr(sViewPath, CNSSUB_SYS);
+
+  if ( sTree.itemExists(sParent) )
+  {
+    langString lsDisplayName;
+    string sNodeName;
+
+    cnsGetViewDisplayNames(sViewPath, lsDisplayName);
+
+    if ( lsDisplayName != \"\" )
+      sNodeName = (string)lsDisplayName;
+    else
+      sNodeName = cnsSubStr(sViewPath, CNSSUB_VIEW);
+
+    sTree.appendItemNC(sParent, sViewPath, sNodeName);
+    sTree.setExpandable(sViewPath, bExpandable);
+    sTree.setDragEnabled(sViewPath, true);
+    sTree.setDropEnabled(sViewPath, true);
+    sTree.setIcon(sViewPath, 0, \"wf/nodes/view.png\");
+  }
+  else if ( sTree.itemExists(sParent) && !sTree.isExpandable(sParent) )
+    sTree.setExpandable(sParent, true);
+}
+
+private void cnsTree_deleteNodeInTree(string sNode, shape sTree)
+{
+  if ( !sTree.itemExists(sNode) )// check if tree exists
+    return;
+  else
+  {
+    string sParent = sTree.parent(sNode);
+    dyn_string dsChildren = sTree.children(sParent);
+
+    sTree.removeItem(sNode);
+
+    if ( dynlen(dsChildren) > 0 )//check if parent have children
+      sTree.setExpandable(sParent, false);
+  }
+}
+
+private cnsTree_setLayerIconMapping()
+{
+  dsCnsLayerIcons = getFileNames(getPath(PICTURES_REL_PATH,\"wf/nodes/\"),\"Layer_*.png\");
+  dynSort(dsCnsLayerIcons);
+}
+
+private string cnsTree_getLayerIcon(string sNodePath)
+{
+  sNodePath = cnsSubStr(sNodePath,CNSSUB_PATH);
+
+  dyn_string dsParts = strsplit(sNodePath, \".\");
+
+  int iLayers = dynlen(dsCnsLayerIcons);
+  int iActLayer = dynlen(dsParts);
+  int iLayerIndex;
+
+  if ( iActLayer <= iLayers )
+    return \"wf/nodes/\"+dsCnsLayerIcons[iActLayer];
+  else
+  {
+    iLayerIndex = iActLayer % iLayers;
+
+    if ( iLayerIndex == 0 )
+      iLayerIndex = iLayers;
+
+    return \"wf/nodes/\"+dsCnsLayerIcons[iLayerIndex];
+  }
+
+  return \"\";
+
+//   dsCnsLayerIcons
+}
+
+private void cnsTree_updateTreeNodeIcon(string where, shape sTree)
+{
+  if ( !sTree.itemExists(where) )//check if node already exist
+    return;
+
+  string sIcon;
+  cns_getNodeIcon(where, sIcon);
+
+  if ( sIcon == \"\" )// if no icon defined for node use node type icon
+  {
+    string sDp;
+    int iNodeType;
+    cnsGetId(where, sDp, iNodeType);
+
+    sIcon = cns_getNodeTypeIcon(iNodeType);
+  }
+
+  if ( sIcon == \"\" )//use layer color icon
+  {
+    sIcon = cnsTree_getLayerIcon(where);
+  }
+
+  sTree.setIcon(where, 0, sIcon);
+
+}
+
+cnsTree_updateNodeOpcAccessIcons(string sNode, shape sTreeObject)
+{
+  if ( !sTreeObject.itemExists(sNode) )//check if node already exist
+    return;
+
+  mapping opcIcons;
+  cnsTree_getNodeOpcAccessIcons(sNode, opcIcons);
+
+  if ( mappingHasKey(opcIcons, \"RW\") )
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_RW, opcIcons[\"RW\"]);
+  else
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_RW, \"\");
+
+  if ( mappingHasKey(opcIcons, \"A\") )
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_A, opcIcons[\"A\"]);
+  else
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_A, \"\");
+
+  if ( mappingHasKey(opcIcons, \"H\") )
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_H, opcIcons[\"H\"]);
+  else
+    sTreeObject.setIcon(sNode, CNS_TREE_COLUMN_OPC_ICON_H, \"\");
+
+  // update all childs
+  dyn_string children = sTreeObject.children(sNode);
+  int childLen = dynlen(children);
+  for (int i = 1; i <= childLen; i++)
+  {
+    cnsTree_updateNodeOpcAccessIcons(children[i], sTreeObject);
+  }
+}
+" 0
+ E E E E 1 -1 -1 0  120 50
+""0  1
+E "//-------------------------------------------------------------------------------------------------------
+public string G_CNS_KEY = \"OA:ACP\";
+public string addedView = \"\";
+
+//-----------------------------------------initialize functions-----------------------------------------
+/*
+  @descr: initialize tree on the left side with views and roles
+          if it is a roleView it will not appended to the tree, only the \"master\" view
+*/
+public void initializeTree()
+{
+  treeViews.updatesEnabled = false;
+  treeViews.clear();
+  treeViews.removeColumn(2);
+  treeViews.removeColumn(1);
+  treeViews.removeColumn(0);
+
+  dyn_string sysNames;
+  dyn_uint sysIds;
+  getSystemNames(sysNames, sysIds);
+
+  treeViews.addColumn(\"Views\");
+  treeViews.addColumn(getCatStr(\"acp\", \"acpTreeHeaderPerm\"));
+  treeViews.addColumn(getCatStr(\"acp\", \"acpTreeHeaderRole\"));
+
+  dyn_string viewPaths;
+  langString viewDisplayName;
+  dyn_string activeViewNames, activeViewBits, roles; //all view for one system
+
+  //append systems to tree
+  treeViews.appendItems(\"\", sysNames, sysNames);
+  for(int i = 1; i <= dynlen(sysNames); i++)
+  {
+    //set system icon
+    treeViews.setIcon(sysNames[i], 0, \"wf/nodes/system.png\");
+
+    dpGet(sysNames[i] + \":_AC_General.Views.Names\", activeViewNames);
+
+    //append views
+    cnsGetViews(sysNames[i], viewPaths);
+
+    int contains;
+    for(int k = 1; k <= dynlen(activeViewNames); k++)
+    {
+      contains = dynContains(viewPaths, activeViewNames[k] + \":\");
+      if(contains >= 1)
+      {
+        dynRemove(viewPaths, contains);
+      }
+    }
+
+    treeViews.appendItems(sysNames[i], viewPaths, makeDynString());
+    for(int j = 1; j <= dynlen(viewPaths); j++)
+    {
+      cnsGetViewDisplayNames(viewPaths[j], viewDisplayName);
+      treeViews.setText(viewPaths[j], 0, (string)viewDisplayName);
+      treeViews.setIcon(viewPaths[j], 0, \"wf/nodes/view.png\");
+      initializeViewTrees(viewPaths[j]);
+
+      treeViews.setText(viewPaths[j], 2, \"...\");
+    }
+  }
+  treeViews.updatesEnabled = true;
+}
+
+/*
+  @descr: initialize a tree and append it to the view
+  @param: viewPath - id from the view
+*/
+private void initializeViewTrees(string viewPath)
+{
+  dyn_string trees;
+  cnsGetTrees(viewPath, trees);
+  langString displayNames;
+
+  treeViews.appendItems(viewPath, trees, makeDynString());
+  for(int i = 1; i <= dynlen(trees); i++)
+  {
+    cnsGetDisplayNames(trees[i], displayNames);
+
+    treeViews.setText(trees[i], 0, (string)displayNames);
+    treeViews.setIcon(trees[i], 0, \"wf/nodes/Layer_1.png\");
+    initializeChildren(trees[i], 2);
+  }
+}
+
+/*
+  @descr: recursive method to go through all children
+  @param: parent - id from the parent
+          layer - simple counter
+*/
+private void initializeChildren(string parent, int layer)
+{
+  int childLayer = layer;
+  dyn_string children;
+  langString displayNames;
+  cnsGetChildren(parent, children);
+
+  treeViews.appendItems(parent, children, makeDynString());
+  for(int i = 1; i <= dynlen(children); i++)
+  {
+    cnsGetDisplayNames(children[i], displayNames);
+
+    treeViews.setText(children[i], 0, (string)displayNames);
+    treeViews.setIcon(children[i], 0, \"wf/nodes/Layer_\" + layer + \".png\");
+    initializeChildren(children[i], ++childLayer);
+  }
+}
+
+/*
+  @descr: initialize the bit table
+*/
+public void initializeBits()
+{
+  int    i, j, k;
+  bit32  b32;
+  string sBit, sCol;
+
+  gpermissions.tableMode (TABLE_SELECT_BROWSE);
+  gpermissions.selectByClick (TABLE_SELECT_LINE_COLUMN);
+  gpermissions.sortOnClick(false);
+  gpermissions.selectColors (\"_ButtonShadow\", \"_Window\");
+  gpermissions.deleteAllLines();
+
+  gpermissions.appendLine(\"#1\", \"\");
+  for ( j = 0; j < 32; j++ )
+  {
+    k = j + 2; sCol = \"#\" + k;
+    sBit = (getBit(b32, j))?1:0;
+    setValue(\"gpermissions\", \"cellValueRC\", 0, sCol, \"X\");
+    setValue (\"gpermissions\", \"columnToolTipText\", k-1, \"(\"+(j+1)+\")\");
+  }
+}
+
+//-------------------------------------------display functions------------------------------------------
+/*
+  @descr: displays the bits in the table
+*/
+private void displayPermissionBits(string sysName, string viewPath)
+{
+  string bits = getViewUserBits(sysName, viewPath);
+  for(int i = 0; i < strlen(bits); i++)
+  {
+    gpermissions.cellValueRC(0, \"#\" + (i + 2), (string)bits[i]);
+  }
+}
+
+/*
+  @descr: displays the permission in the table below
+*/
+public void displayPermission(string view, string node)
+{
+  displayPermissionBits(cnsSubStr(view, CNSSUB_SYS), view);
+  tblPermission.deleteAllLines();
+
+  dyn_string paths;
+  uint accRight;
+  string inheritedNode, dp;
+  bool isPermissionDefined;
+  cnsGetNodesByName(node + \"*\", view, CNS_SEARCH_NAME, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_ALL_TYPES, paths);
+  for(int i = 1; i <= dynlen(paths); i++)
+  {
+    cnsGetId(paths[i], dp);
+    if(dp != \"\")
+    {
+      tblPermission.appendLine(\"dp\", dp,
+                               \"node\", paths[i]);
+      isPermissionDefined = cnsGetAccessRight(paths[i], G_CNS_KEY, accRight, inheritedNode);
+      if(isPermissionDefined)
+      {
+        tblPermission.cellFillRC(tblPermission.lineCount - 1, \"permission\", \"[pattern,[center,any,\" + getIconPath(accRight, inheritedNode) + \"]]\");
+      }
+    }
+  }
+}
+
+public void displayViewRole(string id, int idx, string role)
+{
+  treeViews.setText(id, 2, role);
+
+  string sys = cnsSubStr(id, CNSSUB_SYS);
+  dyn_string views;
+  dpGet(sys + \":_AC_General.Views.Names\", views);
+
+  inpRole.text = role;
+  setViewPermissionsAsIcons(id);
+  displayView(sys, views[idx] + \":\");
+}
+
+public void displayView(string sys, string view)
+{//DebugTN(sys + \" -> \" + view);
+//   string role = treeViews.getText(treeViews.selectedItem(), 2);
+//  DebugTN(\"ROLE: \" + role);
+
+  setEnableView(true);
+  setEnableNode(false);
+  displayPermissionBits(sys, view);
+  displayPermission(view, \"\");
+//   string role = treeViews.getText(view, 2);
+//   DebugTN(view);
+//   DebugTN(\"ROLE:\" + role);
+//   if(role == \"...\")
+//   {
+//     DebugTN(\"OHNE ROLE\");
+//     setEnableView(true);
+//     setEnableNode(false);
+//     displayPermissionBits(sys, view);
+//     displayPermission(view, \"\");
+//   }
+//   else
+//   {
+//     DebugTN(\"MIT ROLE\");
+//     DebugTN(view + role);
+//     setEnableView(true);
+//     setEnableNode(false);
+//     displayPermissionBits(sys, view);
+//     displayPermission(view, \"\");
+//   }
+}
+
+public void displayNode(string view, string node)
+{
+  setEnableView(false);
+  setEnableNode(true);
+
+  uint accRight;
+  string inheritedNode;
+  bool rightDefined = cnsGetAccessRight(node, G_CNS_KEY, accRight, inheritedNode);
+
+  if(rightDefined && inheritedNode == \"\")
+  {
+    bit32 level = accRight;
+    if(getBit(level, 31))
+    {
+      rdbxInherit.number = 1;
+    }
+    else
+    {
+      rdbxInherit.number = 2;
+    }
+
+    if(getBit(level, 1))
+    {
+      rdbxPermission.number = 2;
+    }
+    else if(getBit(level, 0))
+    {
+      rdbxPermission.number = 1;
+    }
+    else
+    {
+      rdbxPermission.number = 0;
+    }
+  }
+  else
+  {
+    rdbxInherit.number = 0;
+    rdbxPermission.enabled = false;
+  }
+
+  displayPermission(view, node);
+}
+
+//-------------------------------------------getter-----------------------------------------------------
+/*
+  @descr: appends the selected role to view
+*/
+public string getViewWithRole()
+{
+  string id = treeViews.selectedItem();
+  string role = treeViews.getText(cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW), 2);
+  if(role != \"...\")
+  {
+    dyn_string idSplit = strsplit(id, \":\");
+    id = idSplit[1] + \"_\" + role + \":\";
+    if(dynlen(idSplit) == 2)
+    {
+      id += idSplit[2];
+    }
+  }
+  return id;
+}
+
+/*
+  @descr: appends the selected role to node
+*/
+public string getNodeWithRole(string path)
+{
+  string role = treeViews.getText(cnsSubStr(path, CNSSUB_SYS | CNSSUB_VIEW), 2);
+  if(role != \"...\")
+  {
+    dyn_string pathSplit = strsplit(path, \":\");
+    path = pathSplit[1] + \"_\" + role + \":\";
+    if(dynlen(pathSplit) == 2)
+    {
+      path += pathSplit[2];
+    }
+  }
+  return path;
+}
+
+/*
+  @descr: method the get right icon path
+*/
+public string getIconPath(uint accRight, string inheritedNode)
+{
+  bit32 level = accRight;
+  if(inheritedNode == \"\")
+  {
+    if(getBit(level, 1))
+    {
+      return \"cns/write_20.png\";
+    }
+    else if(getBit(level, 0))
+    {
+      return \"cns/read_20.png\";
+    }
+    else
+    {
+      return \"cns/disable_20.png\";
+    }
+  }
+  else
+  {
+    if(getBit(level, 1))
+    {
+      return \"cns/write_20_dis.png\";
+    }
+    else if(getBit(level, 0))
+    {
+      return \"cns/read_20_dis.png\";
+    }
+    else
+    {
+      return \"cns/disable_20_dis.png\";
+    }
+  }
+  return \"\";
+}
+
+/*
+  @descr: get user bits from internal datapoint
+  @param:
+*/
+private string getViewUserBits(string sysName, string viewPath)
+{
+  if(sysName != \"\")
+  {
+    dyn_string activeViewNames, activeViewBits;
+
+    dpGet(sysName + \":_AC_General.Views.Names\", activeViewNames,
+          sysName + \":_AC_General.Views.UserPermissionBitPatterns\", activeViewBits);
+
+    for(int i = 1; i <= dynlen(activeViewNames); i++)
+    {
+      if(activeViewNames[i] == strrtrim(viewPath, \":\"))
+      {
+        return activeViewBits[i];
+      }
+    }
+  }
+
+  return \"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\";
+}
+
+//-------------------------------------------setter-----------------------------------------------------
+/*
+  @descr: change bit pattern and save
+*/
+public void changeBits(string bits)
+{
+  string view = strrtrim(getViewWithRole(), \":\");
+  string sys = cnsSubStr(view, CNSSUB_SYS);
+
+  dyn_string views, userBits;
+  dpGet(sys + \":_AC_General.Views.Names\", views,
+        sys + \":_AC_General.Views.UserPermissionBitPatterns\", userBits);
+
+  userBits[dynContains(views, view)] = bits;
+
+  dpSet(sys + \":_AC_General.Views.UserPermissionBitPatterns\", userBits);
+}
+
+public void setEnableView(bool enable)
+{
+  if(treeViews.getText(treeViews.selectedItem(), 2) != \"...\")
+  {
+    setMultiValue(\"txtUserBits\",   \"enabled\", enable,
+                  \"gpermissions\",  \"enabled\", enable,
+                  \"btnDeleteRole\", \"enabled\", enable);
+
+    if(enable)
+    {
+      setEnableNode(false);
+    }
+  }
+}
+
+public void setEnableNode(bool enable)
+{
+  string id = treeViews.selectedItem();
+  string viewOnly = cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW);
+  if(treeViews.itemExists(viewOnly))
+  {
+    if(treeViews.getText(viewOnly, 2) != \"...\" && enable)
+    {
+      setMultiValue(\"rdbxInherit\",    \"enabled\", enable,
+                    \"rdbxPermission\", \"enabled\", enable,
+                    \"txtAccess\",      \"enabled\", enable);
+    }
+    else
+    {
+      setMultiValue(\"rdbxInherit\",    \"enabled\", false,
+                    \"rdbxPermission\", \"enabled\", false,
+                    \"txtAccess\",      \"enabled\", false);
+    }
+  }
+  else
+  {
+    setMultiValue(\"rdbxInherit\",    \"enabled\", false,
+                  \"rdbxPermission\", \"enabled\", false,
+                  \"txtAccess\",      \"enabled\", false);
+  }
+}
+
+public void setEnableSystem(bool enable)
+{
+  tblPermission.deleteAllLines();
+  inpRole.text = \"\";
+  initializeBits();
+
+  setMultiValue(\"txtCnsKey\",              \"enabled\", enable,
+                \"txtDefaultPermission\",   \"enabled\", enable,
+                \"inpCnsKey\",              \"enabled\", enable,
+                \"cmbbxDefaultPermission\", \"enabled\", enable,
+                \"btnAddCnsKey\",           \"enabled\", enable);
+  setEnableView(!enable);
+  setEnableNode(!enable);
+}
+
+public void setEnableRole(bool enable)
+{
+  inpRole.text = \"\";
+  setMultiValue(\"inpRole\", \"enabled\", enable,
+                \"btnRole\", \"enabled\", enable,
+                \"txtRole\", \"enabled\", enable);
+  setEnableView(!enable);
+}
+
+public void setGlobalSettings(string sys)
+{
+  if(sys != \"\")
+  {
+    string cnsUserDataKey;
+    uint defaultPermission;
+
+    dpGet(sys + \":_AC_General.CNSUserDataKey\", cnsUserDataKey,
+          sys + \":_AC_General.DefaultDpPermission\", defaultPermission);
+    inpCnsKey.text = cnsUserDataKey;
+    G_CNS_KEY = cnsUserDataKey;
+    cmbbxDefaultPermission.selectedPos = defaultPermission + 1;
+    setEnableNode(false);
+  }
+}
+
+/*
+  @descr: set the icons for one id
+  @param: id - tree id
+*/
+public void setViewPermissionsAsIcons(string id)
+{
+  dyn_string nodes = treeViews.children(id);
+  uint accRight;
+  string inheritedNode;
+  bool isPermissionDefined;
+
+  for(int i = 1; i <= dynlen(nodes); i++)
+  {
+    isPermissionDefined = cnsGetAccessRight(getNodeWithRole(nodes[i]), G_CNS_KEY, accRight, inheritedNode);
+    if(isPermissionDefined)
+    {
+      treeViews.setIcon(nodes[i], 1, getIconPath(accRight, inheritedNode));
+    }
+    else
+    {
+      treeViews.setIcon(nodes[i], 1, \"\");
+    }
+    setViewPermissionsAsIcons(nodes[i]);
+  }
+}
+
+//--------------------------------------------view functions--------------------------------------------
+/*
+  @descr: copy a existing view
+  @param: master - view to copy
+          viewRole - id of the copy
+          role - role of the view
+*/
+public bool copyView(string master, string viewRole, string role)
+{
+  //create view
+  langString viewName;
+  cnsGetViewDisplayNames(master, viewName);
+
+  for(int k = 1; k <= getNoOfLangs(); k++)
+  {
+    setLangString(viewName, k - 1, viewName[k - 1] + \"_\" + role);
+  }
+
+  addedView = viewRole;
+  cnsCreateView(viewRole, viewName);
+
+  //copy nodes from master
+  dyn_string trees, paths, pathSplit;
+  dyn_dyn_string nameTree, idTree;
+  dyn_dyn_langString displayNameTree;
+  langString names;
+  string dp;
+
+  cnsGetTrees(master, trees);
+
+  for(int i = 1; i <= dynlen(trees); i++)
+  {
+    cnsGetNodesByName(trees[i] + \".*\", master, CNS_SEARCH_NAME,
+                      CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_ALL_TYPES, paths);
+    dynSort(paths);
+    nameTree[1] = cnsSubStr(trees[i], CNSSUB_NODE);
+    displayNameTree[1] = cnsSubStr(trees[i], CNSSUB_NODE);
+    idTree[1] = \"\";
+    for(int j = 1; j <= dynlen(paths); j++)
+    {
+      pathSplit = strsplit(cnsSubStr(paths[j], CNSSUB_PATH), \".\");
+      nameTree[j+1][dynlen(pathSplit)] = cnsSubStr(paths[j], CNSSUB_NODE);
+      cnsGetDisplayNames(paths[j], names);
+      displayNameTree[j+1][dynlen(pathSplit)] = names;
+      cnsGetId(paths[j], dp);
+      idTree[j+1][dynlen(pathSplit)] = dp;
+    }
+    bool success = cnsAddTree(viewRole, nameTree, displayNameTree, idTree);
+    if(!success)
+    {
+      return false;
+    }
+    dynClear(nameTree);
+    dynClear(displayNameTree);
+    dynClear(idTree);
+  }
+  addedView = \"\";
+  return true;
+}
+
+/*
+  @descr: at startup look for errors in \"subviews\"
+*/
+public bool viewConsistent()
+{
+  //all systems
+  dyn_string systems;
+  dyn_uint ids;
+  getSystemNames(systems, ids);
+
+  //all changes key->viewid value->mapping with roles ->this mapping has the changes create, alter, delete
+  mapping changes;
+
+  //current views with roles from system
+  dyn_string views, roles;
+
+  string masterView, roleView; //view id -> roleView should be the same as masterView
+  dyn_string elemMView, elemView; //nodes in master and in role
+  int indexMView, indexView, lenMView, lenView; //helpers
+  dyn_string nodesToCreate, nodesToDelete, alteredDPs; //nodes which are new, delete, alter
+  string nodeMView, nodeView; //helpers
+  string dp1, dp2; //helpers
+
+  for(int j = 1; j <= dynlen(systems); j++) //go for each system
+  {
+    dpGet(systems[j] + \":_AC_General.Views.Names\", views,
+          systems[j] + \":_AC_General.Views.Role\", roles);
+
+    for(int i = 1; i <= dynlen(views); i++) //go for each role view -> find master view and compare
+    {
+      roleView = views[i] + \":\";
+      masterView = views[i] + \":\";
+      strreplace(masterView, \"_\" + roles[i], \"\");
+      dyn_string elemView;
+      cnsGetNodesByName(\"*\", roleView, CNS_SEARCH_NAME, 0, CNS_DATATYPE_ALL_TYPES, elemView);
+
+      dyn_string elemMView;
+      cnsGetNodesByName(\"*\", masterView, CNS_SEARCH_NAME, 0, CNS_DATATYPE_ALL_TYPES, elemMView);
+
+      indexView = 1;
+      indexMView = 1;
+      lenView = dynlen(elemView);
+      lenMView = dynlen(elemMView);
+
+      while(indexView <= lenView && indexMView <= lenMView)
+      {
+        nodeView = cnsSubStr(elemView[indexView], CNSSUB_PATH);
+        nodeMView = cnsSubStr(elemMView[indexMView], CNSSUB_PATH);
+        if(nodeView > nodeMView) // elemView ist vorraus, in der MasterView ist ein element, was nicht in der elemView ist
+        {
+          dynAppend(nodesToCreate, nodeMView);
+          ++indexMView;
+        }
+        else if (nodeView < nodeMView)
+        {
+          dynAppend(nodesToDelete, nodeView);
+          ++indexView;
+        }
+        else
+        {
+          cnsGetId(elemView[indexView],  dp1);
+          cnsGetId(elemMView[indexMView], dp2);
+          if(dp1 != dp2)
+            dynAppend(alteredDPs, nodeView);
+          ++indexView;
+          ++indexMView;
+        }
+      }
+
+      while(indexView <= lenView)
+      {
+        dynAppend(nodesToDelete, cnsSubStr(elemView[indexView], CNSSUB_PATH));
+        ++indexView;
+      }
+
+      while(indexMView <= lenMView)
+      {
+        dynAppend(nodesToCreate, cnsSubStr(elemMView[indexMView], CNSSUB_PATH));
+        ++indexMView;
+      }
+
+      //append to change mapping
+      if(dynlen(nodesToCreate) != 0 || dynlen(nodesToDelete) != 0 || dynlen(alteredDPs) != 0)
+      {
+        if(mappingHasKey(changes, masterView))
+        {
+          changes[masterView][roles[i]] = makeDynAnytype(nodesToCreate, nodesToDelete, alteredDPs);
+        }
+        else
+        {
+          mapping role;
+          role[roles[i]] = makeDynAnytype(nodesToCreate, nodesToDelete, alteredDPs);
+          changes[masterView] = role;
+        }
+      }
+
+      //clear the changes from dyn helper
+      dynClear(nodesToCreate);
+      dynClear(nodesToDelete);
+      dynClear(alteredDPs);
+    }
+  }
+  //show changes in a dialog
+  if(mappinglen(changes) != 0)
+  {
+    showChangePanel(changes);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+/*
+  @descr: show a child panel with changes
+*/
+public void showChangePanel(mapping changes)
+{
+  dyn_anytype views = mappingKeys(changes);
+  addGlobal(\"G_VIEWS\", MAPPING_VAR);
+  addGlobal(\"G_VIEW_NAME\", STRING_VAR);
+  dyn_float dreturnf;
+  dyn_string dreturns;
+
+  for(int i = 1; i <= dynlen(views); i++)
+  {
+    G_VIEW_NAME = views[i];
+    G_VIEWS = changes[views[i]];
+    ChildPanelOnCentralModalReturn(\"vision/acp/acpViewsInconsistent\", \"Errors\", makeDynString(), dreturnf, dreturns);
+
+    if(dreturnf[1] == 1)
+    {
+      notificationBar_newMsg(\"acp\", \"viewConsistent\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(views[i]), false,
+                             notificationBar_getUserDpName(), true);
+    }
+  }
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 54
+"headerViews"
+""
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"layoutAlignment" "AlignCenter"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.221783794229138 0 1.0625 -73.31335447451238 -11.125 1 E 60 10 299 42
+2 55
+"txtViews"
+""
+1 16.99311443750017 8.5 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 16.99311443750017 8.5 56 24
+0 2 2 "0s" 0 0 0 192 0 0  16.99311443750017 8.5 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Views
+LANG:10004 6 视图
+LANG:10000 5 Views
+LANG:10027 26 Представления
+29 56
+"treeViews"
+"WF"
+1 -0.006283486375295411 33.53714285714285 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"treeStepSize" "int 15"
+"midLineWidth" "int 1"
+"alternatingRowColors" "bool TRUE"
+"verticalScrollBarPolicy" "enum 2"
+"acceptDrops" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  0 34 292 528
+10 TreeWidget
+3
+0 "selectionChanged" "(string id)"
+"  if(treeViews.parent(id) != \"\") //show view or node
+  {
+    setEnableSystem(false);
+    setGlobalSettings(cnsSubStr(id, CNSSUB_SYS));
+    //change id if a role is selected
+    string tmp = id;
+    id = getViewWithRole();
+
+    //show permission
+    string view = cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW);
+    if(view == id)
+    {
+      if(treeViews.itemExists(id))
+      {
+        displayView(treeViews.parent(id), id);
+      }
+      else
+      {
+        displayPermission(id, \"\");
+        inpRole.text = treeViews.getText(tmp, 2);
+      }
+    }
+    else
+    {
+      displayNode(view, id);
+      string role = treeViews.getText(cnsSubStr(tmp, CNSSUB_SYS | CNSSUB_VIEW), 2);
+      if(role != \"...\")
+      {
+        inpRole.text = role;
+      }
+    }
+  }
+  else //show global settings from sys
+  {
+    setEnableSystem(true);
+    setGlobalSettings(treeViews.selectedItem());
+  }"
+0 "clicked" "(string id, int column)"
+"  if(id != \"\")
+  {
+    if(column == 2 && id[strlen(id) - 1] == \":\")
+    {
+      string sys = cnsSubStr(id, CNSSUB_SYS);
+      string viewName = cnsSubStr(id, CNSSUB_VIEW);
+
+      dyn_string views, roles, txt;
+      dpGet(sys + \":_AC_General.Views.Names\", views,
+            sys + \":_AC_General.Views.Role\", roles);
+
+      for(int i = 1; i <= dynlen(views); i++)
+      {
+        if(strpos(views[i], viewName) >= 0)
+        {
+          dynAppend(txt, \"PUSH_BUTTON, \" + roles[i] + \", \" + i + \", 1\");
+          //dynAppend(txt, \"PUSH_BUTTON, \" + strltrim(roles[i], \"viewName\") + \", \" + i + \", 1\");
+        }
+      }
+
+      int answer;
+      dynAppend(txt, \"SEPARATOR\");
+      dynAppend(txt, \"PUSH_BUTTON, \" + getCatStr(\"acp\", \"acpContextNewRole\") + \", -2, 1\");
+      popupMenu(txt, answer);
+
+      if(answer == -2)
+      {
+        setEnableRole(true);
+      }
+      else if(answer >= 1)
+      {
+        if(cns_viewExists(views[answer] + \":\"))
+        {
+          displayViewRole(id, answer, roles[answer]);
+        }
+        else
+        {
+          notificationBar_newMsg(\"acp\", \"acpRoleNotExists\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                       makeDynAnytype(), false,
+                       notificationBar_getUserDpName(), true);
+        }
+      }
+    }
+  }"
+0 "expanded" "(string id)"
+"  if(id != \"\")
+  {
+    if(treeViews.parent(id) == \"\")
+    {
+      string key;
+      dpGet(id + \":_AC_General.CNSUserDataKey\", key);
+      if(key == \"\")
+      {
+        treeViews.setOpen(id, false);
+        notificationBar_newMsg(\"acp\", \"acpDefineCnsKey\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                               makeDynAnytype(), false,
+                               notificationBar_getUserDpName(), true);
+      }
+      else
+      {
+        setGlobalSettings(id);
+      }
+    }
+  }"
+E25 77
+"tblPermission"
+"WF"
+1 -99.95397489539732 225.4955992191841 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main(int row, string column)
+{
+  string treeId = tblPermission.cellValueRC(row, \"node\");
+  if(treeViews.itemExists(treeId)) //master view is clicked
+  {
+    setOpenRec(\"\", treeId);
+  }
+  else //role view is clicked -> replace role
+  {
+    string id = treeViews.selectedItem();
+    string viewId = cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW);
+    string nodeIdClicked = cnsSubStr(treeId, CNSSUB_PATH);
+    setOpenRec(\"\", viewId + nodeIdClicked);
+  }
+}
+
+void setOpenRec(string prevId, string id)
+{
+  if(prevId != id)
+  {
+    treeViews.setOpen(id, true);
+    prevId = id;
+    id = cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW | CNSSUB_PARENT);
+    setOpenRec(prevId, id);
+  }
+  else
+  {
+    treeViews.setOpen(cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW), true);
+  }
+}" 0
+
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  290 253 1282 561
+EE 1 0 1 3 0 "dp" 39 1 0 "s" 4
+LANG:10001 9 Datapoint
+LANG:10004 11 数据点DP
+LANG:10000 10 Datenpunkt
+LANG:10027 23 Точка данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+441 "node" 38 1 0 "s" 4
+LANG:10001 4 Node
+LANG:10004 4 Node
+LANG:10000 6 Knoten
+LANG:10027 8 Узел
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+430 "permission" 8 1 0 "s" 4
+LANG:10001 10 Permission
+LANG:10004 6 允许
+LANG:10000 12 Berechtigung
+LANG:10027 20 Разрешение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 
+23 23 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+6 80
+"headerPermission"
+""
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"layoutAlignment" "AlignCenter"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 4.138075313807531 0 1.0625 43.71548117154815 210.6171875 1 E 60 10 299 42
+2 81
+"txtPermission"
+""
+1 308.9994348108173 230.2421875 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  wf_shapes_init();
+}
+
+
+" 0
+ E 0 1 1 2 1 E U  0 E 308.9994348108173 230.2421875 411 245
+0 2 2 "0s" 0 0 0 192 0 0  308.9994348108173 230.2421875 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Permissions
+LANG:10004 6 权限
+LANG:10000 14 Berechtigungen
+LANG:10027 20 Разрешения
+25 86
+"gpermissions"
+"WF"
+1 530 -10 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438.2401957655624 95.27387060476089 1082.240195765562 124.2738706047609
+E"main(int row, string column, string value)
+{
+  if(column == \"#2\" || column == \"#3\" || column == \"#4\" || column == \"#5\" || column == \"#6\")
+  {
+    notificationBar_newMsg(\"acp\", \"acpFiveBits\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                   makeDynAnytype(), false,
+                   notificationBar_getUserDpName(), true);
+  }
+  else
+  {
+    if(column == \"#1\")
+      return;
+    getValue(\"gpermissions\", \"cellValueRC\", row, column, value);
+    if(value == \"0\")
+      value = \"1\";
+    else if(value == \"1\")
+      value = \"X\";
+    else if(value = \"X\")
+      value = \"0\";
+    setValue(\"gpermissions\", \"cellValueRC\", row, column, value);
+
+    dyn_string bits;
+    string bitsAsString;
+    getValue(\"gpermissions\", \"getLineN\", 0, bits);
+    for(int i = 2; i <= dynlen(bits); i++)
+    {
+      bitsAsString += bits[i];
+    }
+    changeBits(bitsAsString);
+  }
+}" 0
+ 0 0 1 33 1 "#1" 0 0 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "#2" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#3" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#4" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#5" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#6" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#7" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#8" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#9" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#10" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#11" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#12" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#13" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#14" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#15" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#16" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#17" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#18" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #18
+LANG:10004 3 #18
+LANG:10000 3 #18
+LANG:10027 3 #18
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#19" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#20" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#21" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#22" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #22
+LANG:10004 3 #22
+LANG:10000 3 #22
+LANG:10027 3 #22
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#23" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #23
+LANG:10004 3 #23
+LANG:10000 3 #23
+LANG:10027 3 #23
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#24" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #24
+LANG:10004 3 #24
+LANG:10000 3 #24
+LANG:10027 3 #24
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#25" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #25
+LANG:10004 3 #25
+LANG:10000 3 #25
+LANG:10027 3 #25
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#26" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #26
+LANG:10004 3 #26
+LANG:10000 3 #26
+LANG:10027 3 #26
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#27" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #27
+LANG:10004 3 #27
+LANG:10000 3 #27
+LANG:10027 3 #27
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#28" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #28
+LANG:10004 3 #28
+LANG:10000 3 #28
+LANG:10027 3 #28
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#29" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #29
+LANG:10004 3 #29
+LANG:10000 3 #29
+LANG:10027 3 #29
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#30" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #30
+LANG:10004 3 #30
+LANG:10000 3 #30
+LANG:10027 3 #30
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#31" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #31
+LANG:10004 3 #31
+LANG:10000 3 #31
+LANG:10027 3 #31
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#32" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #32
+LANG:10004 3 #32
+LANG:10000 3 #32
+LANG:10027 3 #32
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "#33" 1 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 3 #33
+LANG:10004 3 #33
+LANG:10000 3 #33
+LANG:10027 3 #33
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 72
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 0 0 1 7
+1 0
+2 87
+"txtBit1"
+"WF"
+1 446.9383155188437 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 446.9383155188437 80.12225115740729 455 95
+0 2 2 "0s" 0 0 0 192 0 0  446.9383155188437 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 88
+"txtBit2"
+"WF"
+1 467.9383155188437 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 467.9383155188437 80.12225115740729 476 95
+0 2 2 "0s" 0 0 0 192 0 0  467.9383155188437 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 89
+"txtBit3"
+"WF"
+1 487.9383155188437 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 487.9383155188437 80.12225115740729 496 95
+0 2 2 "0s" 0 0 0 192 0 0  487.9383155188437 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 90
+"txtBit4"
+"WF"
+1 507.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 507.9383155188439 80.12225115740729 516 95
+0 2 2 "0s" 0 0 0 192 0 0  507.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 91
+"txtBit5"
+"WF"
+1 527.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 527.9383155188439 80.12225115740729 536 95
+0 2 2 "0s" 0 0 0 192 0 0  527.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 92
+"txtBit6"
+"WF"
+1 545.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 545.9383155188436 80.12225115740729 554 95
+0 2 2 "0s" 0 0 0 192 0 0  545.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 93
+"txtBit7"
+"WF"
+1 567.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 567.9383155188436 80.12225115740729 576 95
+0 2 2 "0s" 0 0 0 192 0 0  567.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+2 94
+"txtBit8"
+"WF"
+1 587.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 587.9383155188436 80.12225115740729 596 95
+0 2 2 "0s" 0 0 0 192 0 0  587.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 95
+"txtBit9"
+"WF"
+1 607.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 607.9383155188436 80.12225115740729 616 95
+0 2 2 "0s" 0 0 0 192 0 0  607.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 96
+"txtBit10_1"
+"WF"
+1 627.9383155188436 66.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 627.9383155188436 66.12225115740729 636 81
+0 2 2 "0s" 0 0 0 192 0 0  627.9383155188436 66.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 97
+"txtBit10_0"
+"WF"
+1 627.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 627.9383155188436 80.12225115740729 636 95
+0 2 2 "0s" 0 0 0 192 0 0  627.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 98
+"txtBit11"
+"WF"
+1 647.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 647.9383155188436 80.12225115740729 656 95
+0 2 2 "0s" 0 0 0 192 0 0  647.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 99
+"txtBit12"
+"WF"
+1 667.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 667.9383155188436 80.12225115740729 676 95
+0 2 2 "0s" 0 0 0 192 0 0  667.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 100
+"txtBit13"
+"WF"
+1 687.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 687.9383155188436 80.12225115740729 696 95
+0 2 2 "0s" 0 0 0 192 0 0  687.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 101
+"txtBit14"
+"WF"
+1 707.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 707.9383155188436 80.12225115740729 716 95
+0 2 2 "0s" 0 0 0 192 0 0  707.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 102
+"txtBit15"
+"WF"
+1 727.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 727.9383155188436 80.12225115740729 736 95
+0 2 2 "0s" 0 0 0 192 0 0  727.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 103
+"txtBit16_6"
+"WF"
+1 747.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 747.9383155188436 80.12225115740729 756 95
+0 2 2 "0s" 0 0 0 192 0 0  747.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 105
+"txtBit17_7"
+"WF"
+1 767.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 767.9383155188439 80.12225115740729 776 95
+0 2 2 "0s" 0 0 0 192 0 0  767.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+2 106
+"txtBit18"
+"WF"
+1 787.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 787.9383155188439 80.12225115740729 796 95
+0 2 2 "0s" 0 0 0 192 0 0  787.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 107
+"txtBit19"
+"WF"
+1 807.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 807.9383155188439 80.12225115740729 816 95
+0 2 2 "0s" 0 0 0 192 0 0  807.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 108
+"txtBit20_0"
+"WF"
+1 827.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 827.9383155188439 80.12225115740729 836 95
+0 2 2 "0s" 0 0 0 192 0 0  827.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 109
+"txtBit21"
+"WF"
+1 847.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 847.9383155188439 80.12225115740729 856 95
+0 2 2 "0s" 0 0 0 192 0 0  847.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 110
+"txtBit22"
+"WF"
+1 867.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 867.9383155188436 80.12225115740729 876 95
+0 2 2 "0s" 0 0 0 192 0 0  867.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 111
+"txtBit23"
+"WF"
+1 887.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 887.9383155188436 80.12225115740729 896 95
+0 2 2 "0s" 0 0 0 192 0 0  887.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 112
+"txtBit28"
+"WF"
+1 987.9383155188439 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 987.9383155188439 80.12225115740729 996 95
+0 2 2 "0s" 0 0 0 192 0 0  987.9383155188439 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 113
+"txtBit29"
+"WF"
+1 1007.938315518844 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 1007.938315518844 80.12225115740729 1016 95
+0 2 2 "0s" 0 0 0 192 0 0  1007.938315518844 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 114
+"txtBit30_3"
+"WF"
+1 1027.938315518843 66.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 1027.938315518843 66.12225115740729 1036 81
+0 2 2 "0s" 0 0 0 192 0 0  1027.938315518843 66.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 115
+"txtBit30_0"
+"WF"
+1 1027.938315518843 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 1027.938315518843 80.12225115740729 1036 95
+0 2 2 "0s" 0 0 0 192 0 0  1027.938315518843 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 116
+"txtBit31"
+"WF"
+1 1047.938315518844 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 1047.938315518844 80.12225115740729 1056 95
+0 2 2 "0s" 0 0 0 192 0 0  1047.938315518844 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 117
+"txtBit32_2"
+"WF"
+1 1067.938315518843 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 1067.938315518843 80.12225115740729 1076 95
+0 2 2 "0s" 0 0 0 192 0 0  1067.938315518843 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 118
+"txtBit24"
+"WF"
+1 907.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 907.9383155188436 80.12225115740729 916 95
+0 2 2 "0s" 0 0 0 192 0 0  907.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 119
+"txtBit25"
+"WF"
+1 927.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 927.9383155188436 80.12225115740729 936 95
+0 2 2 "0s" 0 0 0 192 0 0  927.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 120
+"txtBit26"
+"WF"
+1 947.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 947.9383155188436 80.12225115740729 956 95
+0 2 2 "0s" 0 0 0 192 0 0  947.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 122
+"txtBit27"
+"WF"
+1 967.9383155188436 80.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 967.9383155188436 80.12225115740729 976 95
+0 2 2 "0s" 0 0 0 192 0 0  967.9383155188436 80.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+2 124
+"txtBit20_2"
+"WF"
+1 827.9383155188439 66.12225115740729 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+123 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 827.9383155188439 66.12225115740729 836 81
+0 2 2 "0s" 0 0 0 192 0 0  827.9383155188439 66.12225115740729 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 136
+"txtUserBits"
+"WF"
+1 292.8606801225823 99.09361869747897 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+135 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.358047531671544 0 1.420861790896919 -87.39283607499307 -57.70134255959387 0 E 292.8606801225823 99.09361869747897 442.8606801225823 123.093618697479
+0 2 2 "0s" 0 0 0 64 0 0  292.8606801225823 99.09361869747897 4
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 8 Required
+LANG:10004 12 所需要的
+LANG:10000 14 Erforderliche 
+LANG:10027 8 Required
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 21 authorization levels:
+LANG:10004 15 授权等级：
+LANG:10000 20 Berechtigungsstufen:
+LANG:10027 21 authorization levels:
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 137
+"inpCnsKey"
+"WF"
+1 803.6521298165064 84 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+136 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Key under which the permission is stored
+LANG:10004 21 存储权限的密钥
+LANG:10000 56 Schlüssel unter dem die Berechtigungen gespeichert sind
+LANG:10027 40 Key under which the permission is stored
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1108 73 1247 102
+3 "0s" 0 0 0 0 0 -1  E E E
+2 138
+"txtCnsKey"
+"WF"
+1 358 29 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+137 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.3403361344537815 751.9999999999998 44.42872022208741 0 E 358 29 498 89
+0 2 2 "0s" 0 0 0 64 0 0  358 29 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 8 CNS Key:
+LANG:10004 11 CNS 密钥:
+LANG:10000 8 CNS Key:
+LANG:10027 13 Ключ CNS:
+22 140
+"cmbbxDefaultPermission"
+"WF"
+1 1169 57.65514016255483 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+139 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 Default permission for not yet configured datapoints
+LANG:10004 52 Default permission for not yet configured datapoints
+LANG:10000 57 Standardberechtigung für nicht konfigurierte Datenpunkte
+LANG:10027 52 Default permission for not yet configured datapoints
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  1108 142.5 1272 171.5
+3
+4
+LANG:10001 5 Write
+LANG:10004 3 写
+LANG:10000 9 Schreiben
+LANG:10027 5 Write
+
+0
+4
+LANG:10001 4 Read
+LANG:10004 6 读入
+LANG:10000 5 Lesen
+LANG:10027 4 Read
+
+0
+4
+LANG:10001 5 Block
+LANG:10004 6 禁用
+LANG:10000 5 Block
+LANG:10027 20 Блокировка
+
+0
+
+E
+"main()
+{
+  string sys = cnsSubStr(treeViews.selectedItem(), CNSSUB_SYS);
+  string value = cmbbxDefaultPermission.selectedPos() - 1;
+
+  ChildPanelOnCentralModal(\"vision/acp/acpDefaultPermission\", \"Change\",
+                           makeDynString(\"$sys:\" + sys,
+                                         \"$value:\" + value));
+}" 0
+
+E
+ 0 0
+19 142
+"rdbxInherit"
+"WF"
+1 439.0238056810661 139.78125 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+141 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  437.5007931287647 137.65625 704.5007931287647 210.65625
+3
+T 
+4
+LANG:10001 24 Inherit from parent node
+LANG:10004 18 从父节点继承
+LANG:10000 38 Vom übergeordneten Knoten übernehmen
+LANG:10027 63 Наследовать от родительского узла
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 24 Apply only for this node
+LANG:10004 18 应用到此节点
+LANG:10000 31 Nur für diesen Knoten anwenden
+LANG:10027 58 Применить только для этого узла
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 32 Apply for this node and subnodes
+LANG:10004 30 应用到此节点及子节点
+LANG:10000 39 Für diesen und für Subknoten anwenden
+LANG:10027 65 Применить для этого узла и подузлов
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  if(button == 0)
+  {
+    rdbxPermission.enabled = false;
+    cnsRemoveProperty(getViewWithRole(), G_CNS_KEY);
+    string id = treeViews.selectedItem();
+    string viewWithRole = getViewWithRole();
+    setViewPermissionsAsIcons(cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW));
+    displayPermission(cnsSubStr(viewWithRole, CNSSUB_SYS | CNSSUB_VIEW), viewWithRole);
+  }
+  else
+  {
+    //activate
+    rdbxPermission.enabled = true;
+    //set
+    button = rdbxPermission.number;
+    bit32 level;
+    if(rdbxInherit.number == 1)
+    {
+      setBit(level, 31, true);
+      switch(button)
+      {
+        case 0:
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        case 1:
+          setBit(level, 0, true);
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        case 2:
+          setBit(level, 1, true);
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        default:
+          break;
+      }
+    }
+    else
+    {
+      switch(button)
+      {
+        case 0:
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        case 1:
+          setBit(level, 0, true);
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        case 2:
+          setBit(level, 1, true);
+          cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+          break;
+        default:
+          break;
+      }
+    }
+    string id = treeViews.selectedItem();
+    string viewWithRole = getViewWithRole();
+    setViewPermissionsAsIcons(cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW));
+    displayPermission(cnsSubStr(viewWithRole, CNSSUB_SYS | CNSSUB_VIEW), viewWithRole);
+  }
+}
+" 0
+
+19 143
+"rdbxPermission"
+"WF"
+1 440.8609627171736 191.484375 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+142 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  738.0994564410229 138.484375 913.0994564410229 211.484375
+3
+T 
+4
+LANG:10001 5 Block
+LANG:10004 6 禁用
+LANG:10000 5 Block
+LANG:10027 20 Блокировка
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 4 Read
+LANG:10004 6 读入
+LANG:10000 5 Lesen
+LANG:10027 12 Чтение
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 5 Write
+LANG:10004 3 写
+LANG:10000 9 Schreiben
+LANG:10027 12 Запись
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  bit32 level;
+  if(rdbxInherit.number == 1)
+  {
+    setBit(level, 31, true);
+    switch(button)
+    {
+      case 0:
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      case 1:
+        setBit(level, 0, true);
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      case 2:
+        setBit(level, 1, true);
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      default:
+        break;
+    }
+  }
+  else
+  {
+    switch(button)
+    {
+      case 0:
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      case 1:
+        setBit(level, 0, true);
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      case 2:
+        setBit(level, 1, true);
+        cnsSetProperty(getViewWithRole(), G_CNS_KEY, (uint)level);
+        break;
+      default:
+        break;
+    }
+  }
+  string id = treeViews.selectedItem();
+  string viewWithRole = getViewWithRole();
+  setViewPermissionsAsIcons(cnsSubStr(id, CNSSUB_SYS | CNSSUB_VIEW));
+  displayPermission(cnsSubStr(viewWithRole, CNSSUB_SYS | CNSSUB_VIEW), viewWithRole);
+}
+" 0
+
+6 146
+"headerGlobal"
+""
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+145 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"layoutAlignment" "AlignCenter"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.7575147493916423 0 1.0625 1054.549115036502 -10.12187319874653 1 E 60 10 299 42
+2 147
+"txtGlobal"
+""
+1 1112.999434810817 9.754690201880209 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+146 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1112.999434810817 9.754690201880209 1254 25
+0 2 2 "0s" 0 0 0 192 0 0  1112.999434810817 9.754690201880209 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Global settings
+LANG:10004 6 全局
+LANG:10000 21 Globale Einstellungen
+LANG:10027 39 Глобальные настройки
+4 148
+"LINE2"
+""
+1 1100 0.5031268012534733 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+147 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1100 0.5031268012534733 1100 220
+2 151
+"txtAccess"
+"WF"
+1 309.5691637077084 144.78125 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+150 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 309.5691637077084 144.78125 459.5691637077085 168.78125
+0 2 2 "0s" 0 0 0 64 0 0  309.5691637077084 144.78125 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 13 Access right:
+LANG:10004 15 访问权限：
+LANG:10000 14 Zugriffsrecht:
+LANG:10027 26 Права доступа:
+2 152
+"txtDefaultPermission"
+"WF"
+1 358 29 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+151 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.3403361344537815 752 113.5294117647059 0 E 358 29 498 89
+0 2 2 "0s" 0 0 0 64 0 0  358 29 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 19 Default permission:
+LANG:10004 13 默认权限:
+LANG:10000 21 Standardberechtigung:
+LANG:10027 35 Права по умолчанию:
+13 153
+"btnAddCnsKey"
+"WF"
+1 527.0707428476564 27.77803166730999 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+152 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Change key
+LANG:10004 10 Change key
+LANG:10000 18 Schlüssel ändern
+LANG:10027 10 Change key
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1242.974123863281 72.95424599327256 1270.974123863281 101.9542459932726
+
+P 
+13421721
+"pictures/wf/buttons/apply.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  ChildPanelOnCentral(\"vision/acp/acpCnsKey.pnl\", \"CNS Key\", makeDynString(\"$sys:\" + treeViews.selectedItem(),
+                                                                    \"$key:\" + inpCnsKey.text));
+}" 0
+ E E E
+14 155
+"inpRole"
+"WF"
+1 -287.7474080715147 30.14076964712768 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+154 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  437.9664594494122 19.14076964712768 762.6521298165064 48.14076964712768
+3 "0s" 0 0 0 0 0 -1  E E E
+2 156
+"txtRole"
+"WF"
+1 310 27.02694237554665 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+155 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 310 27.02694237554665 460 51.02694237554665
+0 2 2 "0s" 0 0 0 64 0 0  310 27.02694237554665 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 5 Role:
+LANG:10004 7 角色:
+LANG:10000 6 Rolle:
+LANG:10027 9 Роль:
+13 157
+"btnRole"
+"WF"
+1 43.51515735074895 -26.04644472714858 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+156 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 Save role
+LANG:10004 9 Save role
+LANG:10000 15 Rolle speichern
+LANG:10027 9 Save role
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  759.4185383663737 19.12976959881399 787.4185383663737 48.12976959881399
+
+P 
+13421721
+"pictures/wf/buttons/apply.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  attentionLoad.visible = true;
+  attentionLoad.start();
+  string currentView = treeViews.selectedItem();
+  string currentViewName = cnsSubStr(currentView, CNSSUB_VIEW);
+  string currentSys = cnsSubStr(currentView, CNSSUB_SYS, false);
+  string newRole = inpRole.text;
+  string newView = currentSys + \".\" + currentViewName + \"_\" + newRole;
+  setEnableRole(false);
+
+  dyn_string roles, views, bits;
+  dpGet(currentSys + \":_AC_General.Views.Names\", views,
+        currentSys + \":_AC_General.Views.Role\", roles,
+        currentSys + \":_AC_General.Views.UserPermissionBitPatterns\", bits);
+
+  int idx = dynAppend(roles, newRole);
+  dynAppend(views, newView);
+  dynAppend(bits, \"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\");
+
+  bool copied = copyView(currentView, newView + \":\", newRole);
+  if(copied)
+  {
+    dpSetWait(currentSys + \":_AC_General.Views.Names\", views,
+          currentSys + \":_AC_General.Views.Role\", roles,
+          currentSys + \":_AC_General.Views.UserPermissionBitPatterns\", bits);
+    displayViewRole(currentView, idx, newRole);
+  }
+  else
+  {
+    notificationBar_newMsg(\"acp\", \"acpNotCreateRole\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(), false,
+                           notificationBar_getUserDpName(), true);
+  }
+  attentionLoad.stop();
+  attentionLoad.visible = false;
+}
+" 0
+ E E E
+13 158
+"btnDeleteRole"
+"WF"
+1 66.79462945025512 -26.04644472714858 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+157 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Delete role
+LANG:10004 11 Delete role
+LANG:10000 14 Rolle löschen
+LANG:10027 11 Delete role
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  782.6980104658799 19.129769598814 810.6980104658799 48.12976959881399
+
+P 
+13421721
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string viewWithRole = getViewWithRole();
+  bool deleted = cnsDeleteView(viewWithRole);
+  if(deleted)
+  {
+    notificationBar_newMsg(\"acp\", \"viewDelete\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(inpRole.text), false,
+                           notificationBar_getUserDpName(), true);
+
+    string sys = cnsSubStr(viewWithRole, CNSSUB_SYS);
+    dyn_string views, roles, bits;
+    dpGet(sys + \":_AC_General.Views.Names\", views,
+          sys + \":_AC_General.Views.UserPermissionBitPatterns\", bits,
+          sys + \":_AC_General.Views.Role\", roles);
+    int idx = dynContains(views, strrtrim(viewWithRole, \":\"));
+    dynRemove(views, idx);
+    dynRemove(roles, idx);
+    dynRemove(bits, idx);
+    dpSet(sys + \":_AC_General.Views.Names\", views,
+          sys + \":_AC_General.Views.Role\", roles,
+          sys + \":_AC_General.Views.UserPermissionBitPatterns\", bits);
+
+    string id = treeViews.selectedItem();
+    treeViews.setText(id, 2, \"...\");
+    setViewPermissionsAsIcons(id);
+    displayPermission(treeViews.parent(id), id);
+
+    setMultiValue(\"inpRole\",       \"text\",    \"\",
+                  \"btnDeleteRole\", \"enabled\", false,
+                  \"gpermissions\",  \"enabled\", false,
+                  \"txtUserBits\",   \"enabled\", false);
+  }
+  else
+  {
+    notificationBar_newMsg(\"acp\", \"viewNotDelete\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(inpRole.text), false,
+                           notificationBar_getUserDpName(), true);
+  }
+}
+" 0
+ E E E
+6 162
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_RefDiffLineDark" E N "WF_Frame" E E
+ E E
+161 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.287206266318538 0 0.9406844454338766 -29.6057430872641 54.79313724744213 1 E 23 503 406 536
+13 163
+"btnCheck"
+"WF_Transparent"
+1 -0.00172022280486317 538.9680599755117 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+162 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 21 Check errors in views
+LANG:10004 21 Check errors in views
+LANG:10000 24 Views auf Fehler prüfen
+LANG:10027 21 Check errors in views
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  -2.001720222804863 528.9680599755117 43.00172229892951 557.9680599755117
+
+P 
+4294967295
+"pictures/wf/buttons/alarms.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  //check if subviews changed
+  attentionLoad.visible = true;
+  attentionLoad.start();
+  if(viewConsistent())
+  {
+    notificationBar_newMsg(\"acp\", \"viewsNoError\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false,
+                           notificationBar_getUserDpName(), true);
+  }
+  attentionLoad.stop();
+  attentionLoad.visible = false;
+}" 0
+ E E E
+29 180
+"attentionLoad"
+""
+1 -1025.022560649401 -95.68703362986972 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+179 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"color1" "color WF_EwoWait"
+"effectType" "enum 2"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  -2.050673099199458 64.03184187213832 1277.9493269008 474.0318418721382
+19 AttentionEffect.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

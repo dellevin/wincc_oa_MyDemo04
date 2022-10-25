@@ -1,0 +1,1309 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 990 560 N "WF_PanelBackground" 1
+"$id"
+"#uses \"cns.ctl\"
+
+main()
+{ 
+  if ( sNode == \"\" )
+    return;
+  
+  cnsEditor_connectDisplayData(TRUE, \"NODE\");
+  
+  if(shapeExists(\"CNS_MODULE_EDITOR_VIEW.editor:treeFilterRef.btnCreate\"))
+  {
+    setMultiValue(\"CNS_MODULE_EDITOR_VIEW.editor:treeFilterRef.btnCreate\", \"enabled\", false,
+                  \"CNS_MODULE_EDITOR_VIEW.editor:treeFilterRef.btnCreate\", \"toolTipText\", getCatStr(\"cnsEditor\", \"cnsEditor_modbusCreateRtuTooltip\"));
+  }
+  setVisible(false);
+  // the callback in cnsEditor_connectDisplayData with initialize the shapes
+  // so we must wait a little
+  int cnt = 0;
+  while(tfNodeCnsPath.text == \"\" && ++cnt < 10)
+    delay(0,50);
+
+
+  dyn_string idParts = strsplit(strsplit(tfNodeCnsPath.text, \":\")[2], \".\");
+  if(dynlen(idParts) == 3 && //element ebene
+     isNumber(idParts[1]) && (int)idParts[1] < 256 && //rtu ebene
+     isNumber(idParts[2]) && (int)idParts[2] > 0  && (int)idParts[2] < 5 && //area ebene
+     isNumber(idParts[3]) && (int)idParts[3] >= 0 && (int)idParts[3] <= 65535 //element ebene
+    )
+  {
+    
+    if(tfNodeDp.text == \"\")
+    {
+      notificationBar_newMsg(\"modbussrv\", \"noDpLinked\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(tfNodeDisplayName.text), false, notificationBar_getUserDpName(), true);
+    
+      return;
+    }
+    
+    bool isDyn = false;
+    int  defaultLen = -1;
+    int  elementType = dpElementType(dpSubStr(tfNodeDp.text, DPSUB_SYS_DP_EL));
+    int  datatype = elementType;
+    
+    if (elementType == DPEL_BOOL)
+    {
+      defaultLen = 1;
+    }
+    else if (elementType == DPEL_BIT32 ||
+             elementType == DPEL_INT   ||
+             elementType == DPEL_UINT)
+    {
+      defaultLen = 2;
+    }
+    else if (elementType == DPEL_LONG  ||
+             elementType == DPEL_ULONG ||
+             elementType == DPEL_BIT64 ||
+             elementType == DPEL_FLOAT)
+    {
+      defaultLen = 4;
+      
+    }
+    else if (elementType == DPEL_STRING ||
+             elementType == DPEL_BLOB)
+    {
+      defaultLen = 0;
+    }
+    else if (elementType == DPEL_TIME)
+    {
+      defaultLen = 4;
+    }
+    else if (elementType == DPEL_DYN_BOOL)
+    {
+      defaultLen = 1;
+      datatype = DPEL_BOOL;
+      isDyn = true;
+    }
+    else if (elementType == DPEL_DYN_BIT32 ||
+             elementType == DPEL_DYN_INT   ||
+             elementType == DPEL_DYN_UINT)
+    {
+      if(elementType == DPEL_DYN_BIT32)
+        datatype == DPEL_BIT32;
+      else if (elementType == DPEL_DYN_INT)
+        datatype = DPEL_INT;
+      else
+        datatype = DPEL_UINT;
+      
+      defaultLen = 2;
+      isDyn = true;
+    }
+    else if (elementType == DPEL_DYN_LONG  ||
+             elementType == DPEL_DYN_ULONG ||
+             elementType == DPEL_DYN_BIT64 ||
+             elementType == DPEL_DYN_FLOAT)
+    {
+      if(elementType == DPEL_DYN_LONG)
+        datatype = DPEL_LONG;
+      else if (elementType == DPEL_DYN_ULONG)
+        datatype = DPEL_ULONG;
+      else if (elementType == DPEL_DYN_BIT64)
+        datatpye = DPEL_BIT64;
+      else
+        datatype = DPEL_FLOAT;
+      
+      defaultLen = 4;
+      isDyn = true;
+    }
+    else if (elementType == DPEL_DYN_STRING ||
+             elementType == DPEL_DYN_BLOB)
+    {
+      if(elementType == DPEL_DYN_STRING)
+        datatype = DPEL_STRING;
+      else
+        datatype = DPEL_BLOB;
+      
+      defaultLen = 0;
+      isDyn = true;
+    }
+    else if (elementType == DPEL_DYN_TIME)
+    {
+      datatype = DPEL_TIME;
+      defaultLen = 4;
+      isDyn = true;
+    }
+    
+    if(defaultLen == -1)
+    {
+      notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_modbusWrongDPE\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), false, notificationBar_getUserDpName(), true, true);
+      return;
+    }
+
+    lblHeader.visible = true;
+    lblOrigin.visible = true;
+    tfOrigin.visible = true;
+    cmdSave.visible = true;
+    
+    uint dyn = 0, regs = 0;
+    bool hasRegs = cnsGetProperty(tfNodeCnsPath.text, CNS_PROPERTY_MODBUS_REGISTERS, regs);
+    setCboDatatypes(datatype, hasRegs, regs);
+    
+    if(isDyn && defaultLen > -1)
+    {
+      lblModbusDyn.visible = true;
+      sbModbusDyn.visible = true;
+      if(cnsGetProperty(tfNodeCnsPath.text, CNS_PROPERTY_MODBUS_DYNLEN, dyn))
+        sbModbusDyn.text = dyn > 0 ? dyn : 0;
+      sbModbusDyn.enabled = true;
+    }
+  }
+  else if (dynlen(idParts) == 3)
+  {
+    string message;
+    if(!(isNumber(idParts[1]) && (int)idParts[1] < 256))//rtu ebene
+    {
+      notificationBar_newMsg(\"modbussrv\", \"elementNotInAddressSpaceRTU\", NOTIFICATION_BAR_PRIO_WARNING, \"\", 
+                             makeDynAnytype(idParts[1]), false, notificationBar_getUserDpName(), true, true);
+    }
+    else if (!(isNumber(idParts[2]) && (int)idParts[2] > 0  && (int)idParts[2] < 5))//area ebene
+    {
+      notificationBar_newMsg(\"modbussrv\", \"elementNotInAddressSpaceArea\", NOTIFICATION_BAR_PRIO_WARNING, \"\", 
+                             makeDynAnytype(idParts[2]), false, notificationBar_getUserDpName(), true, true);
+    }
+    else
+    {
+      notificationBar_newMsg(\"modbussrv\", \"elementNotInAddressSpaceRegister\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                             makeDynAnytype(idParts[3]), false, notificationBar_getUserDpName(), true, true);
+    }
+    setVisible(false);
+  }
+  else
+  {
+    notificationBar_newMsg(\"modbussrv\", \"elementNotConfigurable\", NOTIFICATION_BAR_PRIO_WARNING, \"\", 
+                           makeDynAnytype(tfNodeDisplayName.text), false, notificationBar_getUserDpName(), true, true);
+    setVisible(false);
+  }
+}
+
+
+
+
+
+
+" 0
+ "main()
+{
+  if ( bLockedByMe )
+  {
+    shape s = cnsTree_getTreeShape(\"_CNS_EDITOR\");
+    
+    string sNewNode = s.selectedItem();
+    string sOldNode = tfNodeCnsPath.text;
+
+    if ( dpExists(sViewDp) && cnsSubStr(sNewNode, CNSSUB_SYS | CNSSUB_VIEW) != cnsSubStr(sOldNode, CNSSUB_SYS | CNSSUB_VIEW) )
+      dpSet(sViewDp + \":_lock._original._locked\", false);
+  } 
+}" 0
+ E E E 1 -1 -1 0  37 46
+""0  1
+E "langString lsNodeDisplay, lsNodeDisplayPath;
+string sNode = $id;
+string sParentPath, sSystem;
+mapping m;
+string sViewDp, sOldNodeText;
+bool bLockedByMe;
+
+bool isNumber(const string &str)
+{
+  string allowed = \"1234567890\";
+  for(int i = 0; i < strlen(str); ++i)
+    if(strpos(allowed, str[i]) == -1)
+      return false;
+  return true;
+}
+
+void setVisible(bool visible)
+{
+  lblHeader.visible = visible;
+  lblOrigin.visible = visible;
+  tfOrigin.visible = visible;
+  lblDatatype.visible = visible;
+  cboDatatype.visible = visible;
+  lblModbusDyn.visible = visible;
+  sbModbusDyn.visible = visible;
+  sbRegisters.visible = visible;
+  lblRegisters.visible = visible;
+  cmdSave.visible = visible;
+}
+
+void changeDatatype(bool setProperty)
+{
+  string s = cboDatatype.text;
+  uint regs = 0;
+  if(s == \"Int16\"  ||
+     s == \"UInt16\" ||
+     s == \"Bit16\")
+  {
+    regs = 1;
+  }
+  else if (s == \"Int32\"   ||
+           s == \"UInt32\"  ||
+           s == \"Bit32\"   ||
+           s == \"Float32\")
+  {
+    regs = 2;
+  }
+  else if (s == \"Int64\"   ||
+           s == \"UInt64\"  ||
+           s == \"Bit64\"   ||
+           s == \"Float64\" ||
+           s == \"Time\")
+  {
+    regs = 4;
+  }
+  else //string, blob
+  {
+    setProperty = false; //string, blob are set in changeRegisters
+    regs = 1;
+  }
+  
+  if(setProperty)
+    cnsSetProperty(tfNodeCnsPath.text, CNS_PROPERTY_MODBUS_REGISTERS, regs);
+  else
+  {
+    int newMax = 0xFFFF / regs;
+    if(sbModbusDyn.text > newMax)
+      sbModbusDyn.text = newMax;
+    sbModbusDyn.sbMaximum = newMax;
+  }
+}
+
+void changeRegisters(bool setProperty)
+{
+  if(!sbRegisters.visible)
+    return;
+  
+  if(setProperty)
+    cnsSetProperty(tfNodeCnsPath.text, CNS_PROPERTY_MODBUS_REGISTERS, (uint)sbRegisters.text);
+  else if(sbRegisters.text > 0)
+    sbModbusDyn.sbMaximum = (int)(0xFFFF / sbRegisters.text);
+}
+
+void changeDynLength(bool setProperty)
+{
+  if(!sbModbusDyn.visible)
+    return;
+  
+  if(setProperty)
+    cnsSetProperty(tfNodeCnsPath.text, CNS_PROPERTY_MODBUS_DYNLEN, (uint)sbModbusDyn.text);
+  else if(sbModbusDyn.text > 0)
+    sbRegisters.sbMaximum = (int)(0xFFFF / sbModbusDyn.text);
+}
+
+void setCboDatatypes(int datatype, bool hasRegs, int regs)
+{
+  dyn_string items;
+  string selected = \"Invalid\";
+  
+  sbRegisters.visible = false;
+  
+  if(datatype == DPEL_BOOL)
+  {
+    items = makeDynString(\"Bool\");
+    selected = \"Bool\";
+    tfOrigin.text = selected;
+  }
+  else if(datatype == DPEL_INT)
+  {
+    items = makeDynString(\"Int16\", \"Int32\");
+    selected = \"Int32\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"Int16\";
+      else if (regs != 2)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_UINT)
+  {
+    items = makeDynString(\"UInt16\", \"UInt32\");
+    selected = \"UInt32\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"UInt16\";
+      else if (regs != 2)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_LONG)
+  {
+    items = makeDynString(\"Int16\", \"Int32\", \"Int64\");
+    selected = \"Int64\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"Int16\";
+      else if (regs == 2)
+        selected = \"Int32\";
+      else if (regs != 4)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_ULONG)
+  {
+    items = makeDynString(\"UInt16\", \"UInt32\", \"UInt64\");
+    selected = \"UInt64\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"UInt16\";
+      else if (regs == 2)
+        selected = \"UInt32\";
+      else if (regs != 4)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_BIT32)
+  {
+    items = makeDynString(\"Bit16\", \"Bit32\");
+    selected = \"Bit32\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"Bit16\";
+      else if (regs != 2)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_BIT64)
+  {
+    items = makeDynString(\"Bit16\", \"Bit32\", \"Bit64\");
+    selected = \"Bit64\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if(regs == 1)
+        selected = \"Bit16\";
+      else if (regs == 2)
+        selected = \"Bit32\";
+      else if (regs != 4)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_FLOAT)
+  {
+    items = makeDynString(\"Float32\", \"Float64\");
+    selected = \"Float64\";
+    tfOrigin.text = selected;
+    if(hasRegs)
+    {
+      if (regs == 2)
+        selected = \"Float32\";
+      else if (regs != 4)
+        selected = \"Invalid\";
+    }
+  }
+  else if (datatype == DPEL_TIME)
+  {
+    items = makeDynString(\"Time\");
+    selected = \"Time\";
+    tfOrigin.text = selected;
+    if (hasRegs && regs != 4)
+      selected = \"Invalid\";
+  }
+  else if (datatype == DPEL_STRING)
+  {
+    items = makeDynString(\"String\");
+    selected = \"String\";
+    tfOrigin.text = selected;
+    sbRegisters.text = (hasRegs ? regs : 0);
+  }
+  else if (datatype == DPEL_BLOB)
+  {
+    items = makeDynString(\"Blob\");
+    selected = \"Blob\";
+    tfOrigin.text = selected;
+    sbRegisters.text = (hasRegs ? regs : 0);
+  }
+  
+  if(datatype == DPEL_BLOB ||
+     datatype == DPEL_STRING)
+  {
+    sbRegisters.visible = true;
+    lblRegisters.visible = true;
+  }
+  else
+  {
+    lblDatatype.visible = true;
+    cboDatatype.visible = true;
+    cboDatatype.items = items;
+    cboDatatype.text = selected;
+  }
+
+  changeDatatype(false);
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 145
+"RECTANGLE1"
+""
+1 10 300 E E E 1 E 1 E N {255,255,255} E N {255,255,255} E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.010204081632653 0 0.8628571428571426 -10.10204081632648 31.14285714285724 1 E 10 300 990 370
+6 95
+"recNodePicturesFrame"
+"WT"
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 4.318008368200836 0 1.119932432432433 -269.0845020920502 241.4165184921764 1 E 60 10 299 42
+14 1
+"tfNodeID"
+"WF_Transparent"
+1 52 83 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+1 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 62 518 91
+2 "0s" 0 0 0 0 0 -1  E E E
+14 2
+"tfNodeDisplayName"
+"WF_Transparent"
+1 59.85840707964599 113 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 92 518 121
+2 "0s" 0 0 0 0 0 -1  E E E
+2 3
+"txtNodeDisplayName"
+"WF"
+1 63.34519139337153 99.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 99.5 130 114
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 99.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Node name:
+LANG:10004 13 节点名称:
+LANG:10000 9 Nodename:
+LANG:10027 16 Имя узла:
+2 4
+"txtNodeName"
+"WF"
+1 63.34519139337153 69.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 69.5 113 84
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 69.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Node ID:
+LANG:10004 9 节点ID:
+LANG:10000 8 Node ID:
+LANG:10027 14 ИД узла:
+14 6
+"tfNodeDp"
+"WF_Transparent"
+1 59.85840707964601 143 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"DragDrop" "main(string information, int dragType)
+{
+  int iType;
+  string sDp = information;
+  
+  if ( dpExists(sDp) && information != dpSubStr(information, DPSUB_SYS))
+  {
+    cnsGetId(sNode, sDp, iType);
+    
+    if ( iType == CNS_DATATYPE_EMPTY )
+      iType = CNS_DATATYPE_DATAPOINT;
+    
+    if ( cnsEditor_nodeDpOrTypeChanged(sNode, information, iType) )
+      btnNodeDpRemove.enabled = true;
+    
+    dyn_int diTypeValue = m[\"Values\"];
+    dyn_string dsTypeName = m[\"TypeNames\"];
+    
+    if ( cmbNodeType.selectedPos == diTypeValue[1] )
+      cmbNodeType.selectedPos = diTypeValue[2];
+  }
+  else
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeDpNotExist\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    btnNodeDpRemove.enabled = false;
+    this.text = \"\";
+  }
+}
+
+
+
+
+
+
+
+"
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 122 518 151
+2 "0s" 0 0 0 0 0 -1  E E E
+2 7
+"txtNodeDp"
+"WF"
+1 63.34519139337153 129.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 129.5 131 144
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 129.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Datapoint:
+LANG:10004 3 DP:
+LANG:10000 11 Datenpunkt:
+LANG:10027 24 Точка данных:
+2 12
+"txtNodeCnsPath"
+"WF"
+1 63.34519139337153 159.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 159.5 108 174
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 159.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 ID path:
+LANG:10004 9 ID路径:
+LANG:10000 8 ID Pfad:
+LANG:10027 14 ИД пути:
+2 26
+"txtNodeParent"
+"WF"
+1 63.34519139337153 39.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 39.5 120 54
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 39.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Parent ID:
+LANG:10004 6 父ID:
+LANG:10000 11 Überg. ID:
+LANG:10027 22 ИД родителя:
+6 39
+"recLocked"
+""
+1 30 30 E E E 1 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.406862745098039 0 1.412280701754386 -2.133313725490183 -2.061403508771932 2  0 0  "pictures/cns/lock.png" 4294967295 E 30 30 5 5
+2 85
+"txtNodeCnsNamePath"
+"WF"
+1 63.34519139337153 190 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 190 140 204
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 190 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Name path:
+LANG:10004 13 名称路径:
+LANG:10000 11 Namenspfad:
+LANG:10027 16 Имя пути:
+2 96
+"PRIMITIVE_TEXT1"
+"WT"
+1 13 264 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  wf_shapes_init();
+}
+
+
+" 0
+ E 0 1 1 2 1 E U  0 E 13 264 120 279
+0 2 2 "0s" 0 0 0 192 0 0  13 264 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Modbus element
+LANG:10004 12 Modbus元素
+LANG:10000 14 Modbus Element
+LANG:10027 21 Элемент Modbus
+2 128
+"lblModbusDyn"
+"WF"
+1 446.9375 427 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 446.9375 427 569 442
+0 2 2 "0s" 0 0 0 192 0 0  446.9375 427 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Number of element
+LANG:10004 12 元素数量
+LANG:10000 19 Anzahl der Elemente
+LANG:10027 39 Количество элементов
+21 129
+"sbModbusDyn"
+"WF"
+1 260.03125 407.25 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  443 450 581 479
+0
+
+E
+"main()
+{
+  changeDynLength(false);
+}" 0
+
+E
+
+N 0 65536 1 1 1 1
+14 135
+"tfNodeParent"
+"WF_Transparent"
+1 52 53 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+83 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 32 518 61
+2 "0s" 0 0 0 0 0 -1  E E E
+14 136
+"tfNodeCnsPath"
+"WF_Transparent"
+1 52 172.75 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+84 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 152 518 181
+2 "0s" 0 0 0 0 0 -1  E E E
+14 137
+"tfNodeCnsNamePath"
+"WF_Transparent"
+1 52 202.5 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+85 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  150 182 518 211
+2 "0s" 0 0 0 0 0 -1  E E E
+2 138
+"PRIMITIVE_TEXT4"
+""
+1 40 300 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 1 0 0.8 23.34519139337153 59.99999999999999 0 E 40 300 930 350
+0 2 2 "0s" 0 0 0 64 0 0  40 300 4
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 96 With this panel you can change the address space properties of a Modbus node if a DPE is linked.
+LANG:10004 69 使用此面板，如果链接了DPE，则可以更改Modbus节点的
+LANG:10000 115 Mit diesem Panel können Sie die Adressraumeigenschaften eines Modbus Knoten ändern, wenn ein DPE vernknüpft ist.
+LANG:10027 189 С помощью этой панели вы можете изменить свойства адресного пространства узла Modbus, если с ним связан DPE.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 86 You can set the type of transformation and the number of elements of a Modbus element.
+LANG:10004 21 地址空间属性。
+LANG:10000 129 Sie können die Transformations-Art bzw. die Anzahl der Register sowie die Anzahl der Elemente für das Modbus Element festlegen.
+LANG:10027 134 Вы можете задать тип преобразования и количество элементов элемента Modbus.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+22 141
+"cboDatatype"
+"WF"
+1 286 452 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  284 450 422 479
+0
+
+E
+"main()
+{
+  changeDatatype(false);
+}
+" 0
+
+E
+ 0 0
+21 142
+"sbRegisters"
+"WF"
+1 286 452 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  284 450 422 479
+0
+
+E
+"main()
+{
+  changeRegisters(false);
+}" 0
+
+E
+
+N 0 65536 1 1 1 1
+2 144
+"lblRegisters"
+"WF"
+1 286.125 426.875 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 286.125 426.875 402 442
+0 2 2 "0s" 0 0 0 192 0 0  286.125 426.875 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Number of registers
+LANG:10004 15 寄存器数量
+LANG:10000 19 Anzahl der Register
+LANG:10027 39 Количество регистров
+2 146
+"lblHeader"
+"WT"
+1 63.34519139337153 395 E E E 1 E 1 E N "WF_Text" E N "WF_CardInactive" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 395 230 410
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 395 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 21 Define Transformation
+LANG:10004 12 定义转换
+LANG:10000 25 Transformation definieren
+LANG:10027 51 Определение преобразования
+14 147
+"tfOrigin"
+"WF_Transparent"
+1 60.34519139337153 449 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+95 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  58 447 196 476
+2 "0s" 0 0 0 0 0 -1  E E E
+2 148
+"lblOrigin"
+"WF"
+1 63.34519139337153 427 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 63.34519139337153 427 148 442
+0 2 2 "0s" 0 0 0 192 0 0  63.34519139337153 427 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Datatype DPE
+LANG:10004 15 数据类型DPE
+LANG:10000 12 Datentyp DPE
+LANG:10027 23 Тип данных DPE
+2 149
+"lblDatatype"
+"WF"
+1 286.5625 426.9375 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 286.5625 426.9375 401 442
+0 2 2 "0s" 0 0 0 192 0 0  286.5625 426.9375 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 Type of transformation
+LANG:10004 12 类型变换
+LANG:10000 19 Transformations-Art
+LANG:10027 35 Тип преобразования
+13 150
+"cmdSave"
+"WF"
+1 481 515 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  893 513 976 546
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  changeDatatype(true);
+  delay(0, 100);
+  changeRegisters(true);
+  delay(0, 100);
+  changeDynLength(true);
+}" 0
+ E E E
+4 151
+"LINE1"
+""
+1 0 559 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  0 559 1020 559
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

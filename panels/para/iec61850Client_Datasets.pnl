@@ -1,0 +1,1891 @@
+V 14
+4
+LANG:10001 24 IEC 61850/61400 datasets
+LANG:10004 24 IEC 61850/61400数据集
+LANG:10000 24 IEC 61850/61400 datasets
+LANG:10027 24 IEC 61850/61400 datasets
+PANEL,-1 -1 810 580 N "_3DFace" 0
+"main()
+{
+  iec61850_DatasetPnl_initializePanel();
+  iec61850_clientResponseErrorList(ErrorString);
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  5 11
+""0  1
+E "#uses \"std\"
+#uses \"wizardFramework\"
+#uses \"libCTRL\"
+#uses \"iec61850_plugin.ctl\"
+
+string prevDatasetName;
+dyn_string userDefDataSetList, userDefDataSetInfo, datasetList, datasetInfo, ErrorString, memberLocList;
+dyn_string configuredRCBList, configuredRCBDpNamesList;
+dyn_dyn_string ddsElementTagsList;
+bool isDatasetConfigModified, bDatasetTypeStatic;
+
+dyn_string g_dsOaName, g_dsDsAttr;
+dyn_string dsRcbDatSet, dsRcbBuf, dsRcbUnb, dsRcbRsv, dsRcbUnr, dsRcbEna, dsRcbUne;
+dyn_bool dbRsv, dbEna;
+dyn_string dsRcbRsvDpe, dsRcbUnrDpe, dsRcbEnaDpe, dsRcbUneDpe;
+dyn_bool   dbRcbRsvVal, dbRcbUnrVal, dbRcbEnaVal, dbRcbUneVal;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Function to populate datasets on device change
+void dataset_DevChangePnlRefresh(string sIed)
+{
+  if ( sIed == \"\" )
+    return;
+
+  showWaitModule(1);
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+
+  cbDataSetNameList.deleteAllItems();
+  DATASET_TAGS_LIST.deleteAllItems();
+  list_rcbDpNames.deleteAllItems();
+  list_RCBNames.deleteAllItems();
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+  dyn_string dsTempList, userDefDataSetList, userDefDataSetInfo, datasetList, datasetInfo, dsDatasetTagsList;
+
+  dynClear(g_dsOaName);
+  dynClear(g_dsDsAttr);
+
+//   btnCreateDS.enabled = 0;
+
+
+
+  string DatasetName;
+  dyn_string tagsList;
+  int iPos;
+
+  isDatasetConfigModified = 0;
+
+  if ( dpExists(sIedDp) )
+  {
+    // Initializing objects
+    //iec61850_DatasetPnl_initializeObjects(); // Commented by Chandrashekar. Dynamic dataset objects shall be visible always..
+
+//     btnCreateDS.enabled = 1;
+    dynClear(memberLocList);
+    dynClear(ddsElementTagsList);
+
+    dpGet(sIedDp + IEC61850_DPE_IDP_TAGSLIST, tagsList);
+
+    iec61850_browse_FCD_FCDA_tagsInfo(tagsList, memberLocList, ddsElementTagsList);
+
+    //strip [x] on the end of each line of memberLocList e.g. ED2_REF_IEDLD1/MFLK1$MX$PhPdmWav$phsAHar[2]
+    for (int i = 1; i <= dynlen(memberLocList); ++i)
+    {
+      if (strpos(memberLocList[i], \"[\"))
+      {
+        dyn_string elements = strsplit(memberLocList[i], \"$\");
+        string lastElement = elements[dynlen(elements)];
+        int idx = strpos(lastElement, \"[\");
+        if (idx >= 0)
+        {
+          elements[dynlen(elements)] = substr(lastElement, 0, idx);
+          memberLocList[i] = strjoin(elements, \"$\");
+        }
+      }
+    }
+
+    // To retrieve datasets for the selected id
+    if ( iec61850_Dataset_getDatasetsList(sIed, dsTempList) )
+    {
+      cbDataSetNameList.items = dsTempList;
+      DatasetName = cbDataSetNameList.text;
+      prevDatasetName = cbDataSetNameList.text;
+
+      showDatasetTypeInfo(sIedDp);
+
+      //getting dataset members
+      if ( iec61850_Dataset_getDatasetMembersList(sIed, DatasetName, dsDatasetTagsList) )
+        DATASET_TAGS_LIST.items = dsDatasetTagsList;
+      else
+        DATASET_TAGS_LIST.deleteAllItems();
+
+      // Getting RCB list configured with selected Dataset
+      iec61850_Dataset_getConfiguredRCBsList(txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList);
+      list_RCBNames.items = configuredRCBList;
+      list_rcbDpNames.items = configuredRCBDpNamesList;
+
+      createExampleTags(0);
+      //btnCreateDps.enabled = 1;
+      btnTagPreview.enabled = 1;
+      btnDeleteDps.enabled = (dynlen(g_dsOaName) && dpExists(g_dsOaName[dynlen(g_dsOaName)]));
+    }
+
+    enableRcbCfgShapes(dynlen(list_RCBNames.items));
+  }
+
+  getRcbList();
+
+  showWaitModule(0);
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showDatasetTypeInfo(string sIedDp)
+{
+  // show dataset type info
+  dyn_string dsStatic, dsDynamic;
+  dpGet(sIedDp + IEC61850_DPE_IDP_DATASETS           , dsStatic,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS, dsDynamic);
+
+  if ( dynlen(cbDataSetNameList.items) )
+  {
+    ptDatasetType.visible = 1;
+
+    if ( dynContains(dsStatic, cbDataSetNameList.text) )
+    {
+      ptDatasetType.text = getCatStr(\"iec61850\", \"DatasetTypeStatic\");
+      bDatasetTypeStatic = 1;
+    }
+    else if ( dynContains(dsDynamic, cbDataSetNameList.text) )
+    {
+      if ( strpos(cbDataSetNameList.text, \"@\") != -1 )
+        ptDatasetType.text = getCatStr(\"iec61850\", \"DatasetTypeDynNon\");
+      else
+        ptDatasetType.text = getCatStr(\"iec61850\", \"DatasetTypeDynPers\");
+
+      bDatasetTypeStatic = 0;
+    }
+  }
+  else
+    ptDatasetType.visible = 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableRcbCfgShapes(bool bRcbCfg)
+{
+  setMultiValue(\"btnDelete\",      \"enabled\", !bRcbCfg && !bDatasetTypeStatic,
+                \"btnEnableRCBs\",  \"enabled\", bRcbCfg,
+                \"btnDisableRCBs\", \"enabled\", bRcbCfg);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getRcbList()
+{
+  if ( txtDatasetDevName.text == \"\" )
+    return;
+
+  dynClear(dsRcbDatSet);
+  dsRcbDatSet = list_rcbDpNames.items;;
+
+  setMultiValue(\"cmdEnable\",  \"enabled\", dynlen(dsRcbDatSet),
+                \"cmdRelease\", \"enabled\", dynlen(dsRcbDatSet));
+
+  if ( dynlen(dsRcbDatSet) )
+  {
+    for ( int i = 1; i <= dynlen(dsRcbDatSet); i++ )
+    {
+      if ( dpExists(dsRcbDatSet[i]) )
+        dpGet(dsRcbDatSet[i] + IEC61850_DPE_RCB_RESV    , dbRsv[i],
+              dsRcbDatSet[i] + IEC61850_DPE_RCB_RPTENA  , dbEna[i]);
+    }
+
+    dynClear(dsRcbRsv);
+    dynClear(dsRcbUnr);
+    dynClear(dsRcbEna);
+    dynClear(dsRcbUne);
+
+    // ETM: separated lists for created rcbs: buffered, indexed, reserved, enabled
+    for ( int i = 1; i <= dynlen(dsRcbDatSet); i++ )
+    {
+      if ( dbRsv[i] )
+        dynAppend(dsRcbRsv, dsRcbDatSet[i]);
+      else
+        dynAppend(dsRcbUnr, dsRcbDatSet[i]);
+
+      if ( dbEna[i] )
+        dynAppend(dsRcbEna, dsRcbDatSet[i]);
+      else
+        dynAppend(dsRcbUne, dsRcbDatSet[i]);
+    }
+
+    for ( int i = 1; i <= dynlen(dsRcbRsv); i++ )
+    {
+      dsRcbRsvDpe[i] = dsRcbRsv[i] + IEC61850_DPE_RCB_RESV;
+      dbRcbUnrVal[i] = 0;
+    }
+    for ( int i = 1; i <= dynlen(dsRcbUnr); i++ )
+    {
+      dsRcbUnrDpe[i] = dsRcbUnr[i] + IEC61850_DPE_RCB_RESV;
+      dbRcbRsvVal[i] = 1;
+    }
+    for ( int i = 1; i <= dynlen(dsRcbEna); i++ )
+    {
+      dsRcbEnaDpe[i] = dsRcbEna[i] + IEC61850_DPE_RCB_RPTENA;
+      dbRcbUneVal[i] = 0;
+    }
+    for ( int i = 1; i <= dynlen(dsRcbUne); i++ )
+    {
+      dsRcbUneDpe[i] = dsRcbUne[i] + IEC61850_DPE_RCB_RPTENA;
+      dbRcbEnaVal[i] = 1;
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool clearRcbList(dyn_string dsClearRcbList)
+{
+  for ( int i = dynlen(dsClearRcbList); i >= 1; i-- )
+    if ( !dpExists(dsClearRcbList[i]) )
+      dynRemove(dsClearRcbList, i);
+
+  if ( dynlen(dsClearRcbList) )
+    return 1;
+  else
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool createExampleTags(int iOption)
+{
+  dynClear(g_dsOaName);
+  dynClear(g_dsDsAttr);
+
+  string sIed   = txtDatasetDevName.text;
+  string sSelDS = cbDataSetNameList.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  int iDrvNum;
+
+  dyn_string dsTagsList, dsFinalTagsList, dsTagsClean, dsTagsType;
+  dpGet(sIedDp + IEC61850_DPE_IDP_TAGSLIST     , dsTagsList,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+
+  dyn_string dsTagsDataSet = DATASET_TAGS_LIST.items;
+  dyn_string dsTagsDSType;
+
+  iec61850_treeView_getFinalTagsList(dsTagsList, dsFinalTagsList);
+
+  for ( int i = 1; i <= dynlen(dsFinalTagsList); i++ )
+  {
+    dsTagsClean[i] = substr(dsFinalTagsList[i], 0, strpos(dsFinalTagsList[i], \"|\"));
+    dsTagsType[i] = substr(dsFinalTagsList[i], strpos(dsFinalTagsList[i], \"|\")+1);
+  }
+
+  dyn_string dsDsList;
+  iec61850_Dataset_getDatasetsList(sIed, dsDsList);
+
+  dyn_string dsDsMembers;
+  iec61850_Dataset_getDatasetMembersList(sIed, sSelDS, dsDsMembers);
+
+  dyn_string dsDsAttributes;
+  iec61850_Dataset_getDatasetAttributesList(sIed, sSelDS, dsDsAttributes);
+
+  if ( dynlen(dsDsAttributes) == 0 && iOption == 1 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetTagFCDA\"));
+    return 0;
+  }
+
+  for ( int i = 1; i <= dynlen(dsTagsType); i++ )
+    if ( dynContains(dsDsAttributes, dsTagsClean[i]) > 0 )
+      dsTagsDSType[dynContains(dsDsAttributes, dsTagsClean[i])] = dsTagsType[i];
+
+  dyn_int diOaType, diOaDpel, diTransType;
+  dyn_string dsOaType, dsOaName;
+
+  for ( int i = 1; i <= dynlen(dsTagsDSType); i++ )
+  {
+    diOaType[i] = iec61850_getDataTypeToOa(dsTagsDSType[i]);
+    diOaDpel[i] = iec61850_getDataTypeToOa(dsTagsDSType[i], 1);
+    dsOaType[i] = IEC61850_PREVIEW_TYPE + varTypeToString(iec61850_getDataTypeToOa(dsTagsDSType[i]));
+    dsOaName[i] = cleanDpName(sIed + \"_\" + sSelDS + \"_\" + dsDsAttributes[i]);
+    iec61850_getDataTypeTransInfoOffline(dsTagsDSType[i], diTransType[i]);
+  }
+
+  g_dsOaName = dsOaName;
+  g_dsDsAttr = dsDsAttributes;
+
+  if ( iOption == 1 )
+  {
+    dyn_string dsDescInfo;
+    dpGet(sIedDp + IEC61850_DPE_IDP_DESCINFO, dsDescInfo);
+
+    for ( int i = 1; i <= dynlen(dsDsAttributes); i++ )
+    {
+      dyn_dyn_string ddsE;
+      dyn_dyn_int ddiT;
+
+      ddsE[1] = makeDynString(dsOaType[i]);
+      ddiT[1] = makeDynInt(diOaDpel[i]);
+
+      if ( iec61850_createDpTypeInst(dsOaType[i], dsOaName[i], ddsE, ddiT) == -1 )
+        continue;
+
+      string sDescInfo;
+      if ( dynlen(dsDescInfo) )
+        sDescInfo = getDescInfo(dsDescInfo, dsDsAttributes[i]);
+
+      iec61850_setAddressCfg(dsOaName[i]+\".\", sIed+\".\"+dsDsAttributes[i], paIec61850ClientTransformationMapping(diTransType[i], 1), iDrvNum, sDescInfo);
+    }
+
+    btnTagPreview.enabled = 1;
+    btnDeleteDps.enabled = 1;
+  }
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void deleteExampleTags()
+{
+  openProgressBar(getCatStr(\"iec61850\", \"DatasetTagProgressText\"), \"export.gif\", getCatStr(\"iec61850\", \"DatasetTagProgressDelete\"), \"\", \"\", 1);
+
+  string sIed = txtDatasetDevName.text;
+  string sDs = cleanDpName(cbDataSetNameList.text);
+
+  dyn_string dsExDpts = dpTypes(IEC61850_PREVIEW_TYPE + \"*\");
+  dyn_string dsExDps;
+
+  for ( int i = 1; i <= dynlen(dsExDpts); i++ )
+    dynAppend(dsExDps, dpNames(sIed + \"_\" + sDs + \"*\", dsExDpts[i]));
+
+  // set address config inactive
+  //if ( dynlen(dsExDps) )
+  //  for ( int i = dynlen(dsExDps); i >= 1; i-- )
+  //    if ( dpExists(dsExDps[i]) )
+  //      iec61850_setAddressCfgActive(dsExDps[i]+\".\", 0);
+
+  // delete dps
+  if ( dynlen(dsExDps) )
+    for ( int i = dynlen(dsExDps); i >= 1; i-- )
+      if ( dpExists(dsExDps[i]) )
+        dpDelete(dsExDps[i]);
+
+  // delete types
+  if ( dynlen(dsExDpts) )
+    for ( int i = dynlen(dsExDpts); i >= 1; i-- )
+      if ( dpTypeExists(dsExDpts[i]) && dynlen(dpNames(\"*\", dsExDpts[i])) == 0 )
+        dpTypeDelete(dsExDpts[i]);
+
+  dynClear(g_dsOaName);
+  dynClear(g_dsDsAttr);
+
+  btnTagPreview.enabled = 1;
+  btnDeleteDps.enabled = 0;
+
+  while ( dpExists(dsExDps[dynlen(dsExDps)]) )
+    delay(0, 500);
+
+  if ( isProgressBarOpen() )
+    closeProgressBar();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string cleanDpName(string sDp)
+{
+  strreplace(sDp, \"$\", \"_\");
+  strreplace(sDp, \"/\", \"_\");
+  strreplace(sDp, \"[\", \"_\");
+  strreplace(sDp, \"]\", \"_\");
+  strreplace(sDp, \",\", \"_\");
+  strreplace(sDp, \"@\", \"_\");
+  return sDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void openTagPreview()
+{
+  if ( createExampleTags(1) == 0 )
+    return;
+
+  dyn_float df;
+  dyn_string ds;
+
+  openProgressBar(getCatStr(\"iec61850\", \"DatasetTagProgressText\"),
+                  \"export.gif\",
+                  getCatStr(\"iec61850\", \"DatasetTagProgressCreate\"),
+                  \"\", \"\", 1);
+
+  while ( !dpExists(g_dsOaName[dynlen(g_dsOaName)]) )
+    delay(0, 500);
+
+  if ( isProgressBarOpen() )
+    closeProgressBar();
+
+  if ( dynlen(g_dsOaName) && dpExists(g_dsOaName[dynlen(g_dsOaName)]) )
+    ChildPanelOnCentralReturn(\"para/iec61850Client_TagPreview\",
+                              getCatStr(\"iec61850\", \"DatasetTagPreview\"),
+                              makeDynString(\"$dplist:\"  + g_dsOaName,
+                                            \"$dsattr:\"  + g_dsDsAttr,
+                                            \"$iedname:\" + txtDatasetDevName.text,
+                                            \"$dataset:\" + cbDataSetNameList.text,
+                                            \"$dsclean:\" + cleanDpName(cbDataSetNameList.text)),
+                              df, ds);
+
+  if ( dynlen(ds) && ds[1] == \"1\" )
+    deleteExampleTags();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void appendTags(bool bFcd = 1)
+{
+  int iPos;
+
+  if ( iec61850_Dataset_getConfiguredRCBsList(txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetConfigured\"));
+    return;
+  }
+
+  dyn_float df;
+  dyn_string ds, dsTempList;
+  bool isListBeforeEmpty = 0;
+
+  int panelMode = -1;
+  if ( bFcd )
+    panelMode = (int)IEC61850AddressTreePanelMode::FCD;
+  else
+    panelMode =  (int)IEC61850AddressTreePanelMode::FCDA;
+
+  ChildPanelOnModalReturn(IEC61850_ADDRESS_TREE_PANEL_PATH,
+                          getCatStr(\"iec61850\", \"UserDSMembersPnlText\"),
+                          makeDynString(\"$p1:\"+txtDatasetDevName.text,
+                                        \"$p2:\"+DATASET_TAGS_LIST.items,
+                                        \"$dataset:\"+cbDataSetNameList.text,
+                                        \"$panelMode:\"+panelMode),
+                          0, 0,
+                          df, ds);
+
+  DATASET_TAGS_LIST.items = ds;
+
+  // if dataset exists modify the data
+  if ( dpExists(iec61850_getIedDpName(txtDatasetDevName.text)) )
+    iec61850_DatasetPnl_modifyMemberTagsInfo(iec61850_getIedDpName(txtDatasetDevName.text), cbDataSetNameList.text, ds, memberLocList, ddsElementTagsList, bFcd );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getDescInfo(dyn_string dsDescInfo, string sAttr)
+{
+  string sReturn = sAttr;
+  string sTagDesc;
+
+  dyn_string dsDescTags, dsDescVals;
+
+  for ( int i = 1; i <= dynlen(dsDescInfo); i++ )
+  {
+    dyn_string dsSplit = strsplit(dsDescInfo[i], \"|\");
+
+    dynAppend(dsDescTags, dsSplit[1]);
+
+    if ( dynlen(dsSplit) > 1 )
+      dynAppend(dsDescVals, dsSplit[2]);
+  }
+
+  for ( int i = 1; i <= dynlen(dsDescTags); i++ )
+  {
+    string sTemp;
+    dyn_string dsTemp = strsplit(dsDescTags[i], \"$\");
+
+    for ( int j = 1; j <= 1; j++ )
+      sTemp += dsTemp[j] + \"$\";
+
+    dsDescTags[i] = sTemp;
+  }
+
+  //strreplace(sAttr, \"$CO$\", \"$CF$\");
+
+  string sTemp;
+  dyn_string dsTemp = strsplit(sAttr, \"$\");
+
+  for ( int j = 1; j <= 1; j++ )
+    sTemp += dsTemp[j] + \"$\";
+
+  sTagDesc = sTemp;
+
+  int iPos = dynContains(dsDescTags, sTagDesc);
+
+  if ( iPos > 0 && dynlen(dsDescVals) )
+    sReturn += \" (\" + dsDescVals[iPos] + \")\";
+
+  return sReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(780, 550);
+  dyn_int diBcPos  = makeDynInt( 10,   5);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(330, 330);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+
+  setMultiValue(\"cbDataSetNameList\", \"enabled\", !bVisible,
+                \"btnCreateDS\",       \"enabled\", !bVisible);
+//                 \"btnDelete\",         \"enabled\", !bVisible && !bDatasetTypeStatic && (dynlen(list_RCBNames.items) <= 0));
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 7
+"frmPreDS"
+""
+1 420 34 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+7 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.946755695376779 0 3.118276051892266 -807.6373920582478 -100.8379708973762 0 E 420 34 821 211
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Datasets
+LANG:10004 9 数据集
+LANG:10000 11 Datensätze
+LANG:10027 25 Наборы данных
+22 10
+"cbDataSetNameList"
+""
+1 30 55 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 List of datasets
+LANG:10004 15 数据集列表
+LANG:10000 21 Liste der Datensätze
+LANG:10027 40 Список наборов данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 53 731 81
+0
+
+E
+"main()
+{
+  string DeviceName, DatasetName, tempDSName;
+  dyn_string dsTempList, ds;
+  dyn_float df;
+  dyn_string datasetMembersList;
+  int iPos;
+
+  dynClear(g_dsOaName);
+  dynClear(g_dsDsAttr);
+
+  if ( txtDatasetDevName.text != \"\" )
+  {
+    DeviceName = txtDatasetDevName.text;
+    string sIedDp = iec61850_getIedDpName(DeviceName);
+    showDatasetTypeInfo(sIedDp);
+
+    // To check Dataset members list empty. If yes show popup
+    if ( prevDatasetName != \"\" && DATASET_TAGS_LIST.itemCount < 1 && !bDatasetTypeStatic )
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"MembersListEmpty\"));
+      cbDataSetNameList.text = prevDatasetName;
+      return;
+    }
+
+    //To check whether user made any changes. If yes show popup
+    if ( prevDatasetName != cbDataSetNameList.text && prevDatasetName != \"\" )
+    {
+      iec61850_Dataset_getDatasetsList(DeviceName, dsTempList);
+      if ( dynContains(dsTempList, prevDatasetName) < 1 || isDatasetConfigModified )
+      {
+        tempDSName = cbDataSetNameList.text;
+        cbDataSetNameList.text = prevDatasetName;
+
+        if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DatasetNotSaved\")) )
+          return;
+
+        isDatasetConfigModified = 0;
+        cbDataSetNameList.text = tempDSName;
+      }
+    }
+
+    list_RCBNames.deleteAllItems();
+    prevDatasetName = cbDataSetNameList.text;
+    DatasetName = cbDataSetNameList.text;
+
+    //if datsets found populate dataset tags
+    if ( iec61850_Dataset_getDatasetMembersList( DeviceName, DatasetName, datasetMembersList ))
+      DATASET_TAGS_LIST.items = datasetMembersList;
+    else
+      DATASET_TAGS_LIST.deleteAllItems();
+
+    iec61850_Dataset_getConfiguredRCBsList( txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList );
+    list_RCBNames.items = configuredRCBList;
+    list_rcbDpNames.items = configuredRCBDpNamesList;
+
+    createExampleTags(0);
+    //btnCreateDps.enabled = 1;
+    btnTagPreview.enabled = 1;
+    btnDeleteDps.enabled = (dynlen(g_dsOaName) && dpExists(g_dsOaName[dynlen(g_dsOaName)]));
+  }
+
+  enableRcbCfgShapes(dynlen(list_RCBNames.items));
+  getRcbList();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+13 13
+"btnCreateDS"
+""
+1 535 90 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Create dynamic dataset
+LANG:10004 6 创建
+LANG:10000 31 Dynamischen Datensatz erstellen
+LANG:10027 63 Создать динамический набор данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 88 631 116
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  // create dynamic dataset
+  dyn_float df;
+  dyn_string ds, dsTempList;
+  string sIed = txtDatasetDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  uint uiBrowseSource;
+
+  // check if selected device was already browsed
+  dpGet(sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource);
+
+  if ( uiBrowseSource == 0 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceNotBrowsed\"));
+    return;
+  }
+
+  // Checking whether displaying dataset saved or not..
+  iec61850_Dataset_getDatasetsList(sIed, dsTempList);
+
+  if((prevDatasetName != \"\") && (dynContains(dsTempList, prevDatasetName) < 1))
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"SaveDataset\"));
+    return;
+  }
+  // Checking whether dataset empty..
+  if((prevDatasetName != \"\") && DATASET_TAGS_LIST.itemCount < 1)
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"MembersListEmpty\"));
+    return;
+  }
+
+  // Checking whether dataset is changed..
+  if ( isDatasetConfigModified )
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetNotSaved\"));
+
+  // locking block
+  //------------------------------------------------------------------
+
+  bool bVal, bLockState, bFcd;
+  bVal = iec61850_getDPE_lockState(sIedDp + IEC61850_DPE_IDP_CONFIG_DYN, bLockState);
+
+  if ( !bVal )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                              getCatStr(\"para\", \"warning\"),
+                              makeDynString(\"Device is locked!\"));
+    return;
+  }
+
+  // lock
+  if ( !bLockState )
+    iec61850_getDPE_Locked(sIedDp + IEC61850_DPE_IDP_CONFIG_DYN);
+
+  //------------------------------------------------------------------
+  // open child panel to create new dataset
+  ChildPanelOnModalReturn(IEC61850_DYNDATASET_PANEL_PATH,
+                          getCatStr(\"iec61850\", \"UserDSPnlText\"),
+                          makeDynString(\"$p1:\" + sIed),
+                          0, 0, df, ds);
+
+  if ( dynlen(ds) > 1 )
+  {
+    dsTempList = cbDataSetNameList.items;
+    dynAppend(dsTempList,ds[1]);
+    cbDataSetNameList.text = ds[1];
+    bFcd = (ds[2] == 1) ? 1 : 0;
+
+    prevDatasetName = ds[1];
+    DATASET_TAGS_LIST.deleteAllItems();
+    list_rcbDpNames.deleteAllItems();
+    list_RCBNames.deleteAllItems();
+
+    btnAppendTags.enabled = 1;
+    btnDeleteTags.enabled = 1;
+
+    enableRcbCfgShapes(dynlen(list_RCBNames.items));
+    //btnDelete.enabled = 1;
+
+    iec61850_DatasetPnl_createNewDynDataset();
+    appendTags(bFcd);
+  }
+
+  iec61850_getDPE_UnLocked(sIedDp + IEC61850_DPE_IDP_CONFIG_DYN);
+  showDatasetTypeInfo(sIedDp);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 14
+"btnDelete"
+""
+1 635 90 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Remove dynamic dataset
+LANG:10004 6 删除
+LANG:10000 31 Dynamischen Datensatz entfernen
+LANG:10027 63 Удалить динамический набор данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  633 88 731 116
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  //function used in case of dynamic dataset
+  dyn_string dsDynDatasets, dsDynDSMemList, dsDynDSAttrList, dsTempList;
+  string datasetName = cbDataSetNameList.text, sValue, sTemp, msgString1;
+  int iPos, iValue, iTemp;
+  dyn_string ds;
+  dyn_float df;
+  bool isTimeout = 0, removeFromWinCCOA = 0;
+  dyn_string dpNamesList;
+  dyn_anytype conditions, returnValue;
+  string sIed = txtDatasetDevName.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  int iRcbCount = list_RCBNames.itemCount;
+
+  if ( iRcbCount > 0 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RcbConfigured\"));
+    btnDelete.enabled = 0;
+    return;
+  }
+
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission() )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\", \"permission\"));
+    return;
+  }
+
+  if ( iec61850_Dataset_getConfiguredRCBsList(txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetConfigured\"));
+    return;
+  }
+
+  if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeleteDataset\")) )
+    return;
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS   , dsDynDatasets,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_MEMBERSLIST, dsDynDSMemList,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DOATTRLIST , dsDynDSAttrList);
+
+  iPos = dynContains(dsDynDatasets, datasetName);
+
+  // check for dataset exists
+  if ( iPos > 0 )
+  {
+    dynRemove(dsDynDatasets, iPos);
+    dynRemove(dsDynDSMemList, iPos);
+
+    dynClear(dsTempList);
+
+    for ( int iLoop = 1; iLoop < iPos; iLoop++ )
+      dynAppend(dsTempList, dsDynDSMemList[iLoop]);
+
+    for ( int iLoop = iPos; iLoop <= dynlen(dsDynDSMemList); iLoop++ )
+    {
+      iTemp = strpos(dsDynDSMemList[iLoop], \"|\");
+      iValue = substr(dsDynDSMemList[iLoop], 0, iTemp);
+      iValue--;
+
+      sTemp = iValue;
+      sTemp += substr(dsDynDSMemList[iLoop], iTemp);
+      dynAppend(dsTempList, sTemp);
+    }
+
+    dsDynDSMemList = dsTempList;
+    sValue = iPos + \"|\";
+
+    for ( int iLoop = 1; iLoop <= dynlen(dsDynDSAttrList); iLoop++ )
+    {
+      if ( strpos(dsDynDSAttrList[iLoop], sValue) == 0 )
+      {
+        dynRemove(dsDynDSAttrList, iLoop);
+        iLoop--;
+      }
+    }
+
+    dynClear(dsTempList);
+
+    for ( int iLoop = iPos; iLoop <= dynlen(dsDynDSAttrList); iLoop++ )
+    {
+      iTemp = strpos(dsDynDSAttrList[iLoop], \"|\");
+      iValue = substr(dsDynDSAttrList[iLoop], 0, iTemp);
+
+      if ( iValue < iPos )
+        dynAppend(dsTempList, dsDynDSAttrList[iLoop]);
+      else
+      {
+        iValue--;
+        sTemp = iValue;
+        sTemp += substr(dsDynDSAttrList[iLoop], iTemp);
+        dynAppend(dsTempList, sTemp);
+      }
+    }
+
+    dsDynDSAttrList = dsTempList;
+  }
+
+  iPos = cbDataSetNameList.selectedPos();
+  cbDataSetNameList.deletePos(iPos);
+  prevDatasetName = \"\";
+
+  if ( cbDataSetNameList.text != \"\" )
+  {
+    if ( iec61850_Dataset_getDatasetMembersList(txtDatasetDevName.text, cbDataSetNameList.text, dsTempList) )
+      DATASET_TAGS_LIST.items = dsTempList;
+    else
+      DATASET_TAGS_LIST.deleteAllItems();
+
+    prevDatasetName = cbDataSetNameList.text;
+
+    if ( iec61850_Dataset_getConfiguredRCBsList(txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList) )
+    {
+      btnAppendTags.enabled = 0;
+      btnDeleteTags.enabled = 0;
+    }
+
+    list_RCBNames.items = configuredRCBList;
+    list_rcbDpNames.items = configuredRCBDpNamesList;
+  }
+  else
+  {
+    DATASET_TAGS_LIST.deleteAllItems();
+
+    btnAppendTags.enabled = 0;
+    btnDelete.enabled = 0;
+    btnDeleteTags.enabled = 0;
+  }
+
+  if ( isRedundant() )
+    dpSet(sIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS   , dsDynDatasets,
+          sIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_DYN_MEMBERSLIST, dsDynDSMemList,
+          sIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_DYN_DOATTRLIST , dsDynDSAttrList);
+
+  dpSet(sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DATASETS   , dsDynDatasets,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_MEMBERSLIST, dsDynDSMemList,
+        sIedDp + IEC61850_DPE_IDP_CONFIG_DYN_DOATTRLIST , dsDynDSAttrList);
+
+  iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DatasetDeleted\"));
+  showDatasetTypeInfo(sIedDp);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 16
+"ptDatasetSelect"
+""
+1 30 35 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 35 160 50
+0 2 2 "0s" 0 0 0 64 0 0  30 35 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Select dataset:
+LANG:10004 16 选择数据集:
+LANG:10000 18 Datensatz wählen:
+LANG:10027 39 Выбрать набор данных:
+13 30
+"btnDeleteTags"
+""
+1 740 170 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 31 Delete selected dataset members
+LANG:10004 30 删除选定的数据集成员
+LANG:10000 40 Ausgewählte Datensatzelemente entfernen
+LANG:10027 76 Удалить выбранные элементы набора данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 168 767 197
+
+P 
+12632256
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  // function used in case of dynamic dataset
+  dyn_string configuredRCBList, dsMembersList;
+
+  if ( iec61850_Dataset_getConfiguredRCBsList(txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatasetConfigured\"));
+    return;
+  }
+
+  dyn_string dsSelecedItems = DATASET_TAGS_LIST.selectedItems, dsAllItems = DATASET_TAGS_LIST.items;
+  dyn_int selItems = DATASET_TAGS_LIST.selectedPositions;
+  dyn_string ds;
+  dyn_float df;
+
+  if ( dynlen(selItems) < 1 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"NoMembersSelected\"));
+    return;
+  }
+
+  if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"RemoveSelectedMembers\")) )
+    return;
+
+  for ( int i = dynlen(selItems); i > 0; i-- )
+    DATASET_TAGS_LIST.deletePos(selItems[i]);
+
+  dsMembersList = DATASET_TAGS_LIST.items;
+
+  if ( dpExists(iec61850_getIedDpName(txtDatasetDevName.text)) )
+    iec61850_DatasetPnl_modifyMemberTagsInfo(iec61850_getIedDpName(txtDatasetDevName.text), cbDataSetNameList.text, dsMembersList, memberLocList, ddsElementTagsList);
+}
+
+" 0
+ E E E
+13 31
+"btnAppendTags"
+""
+1 740 140 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Select dataset memebers
+LANG:10004 21 选择数据集成员
+LANG:10000 28 Datensatzelemente auswählen
+LANG:10027 57 Выбрать элементы набора данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 138 767 167
+
+P 
+12632256
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sIed = txtDatasetDevName.text;
+  string sSelDS = cbDataSetNameList.text;
+  dyn_string dsDsAttributes;
+  iec61850_Dataset_getDatasetAttributesList(sIed, sSelDS, dsDsAttributes);
+  appendTags(dynlen(dsDsAttributes));
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+14 42
+"txtDatasetDevName"
+""
+1 30 514 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  dataset_DevChangePnlRefresh(newText);
+}
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  28 508 56 536
+3 "0s" 0 0 0 0 0 -1  E E E
+2 43
+"ptMembersList"
+""
+1 30 120 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 120 139 135
+0 2 2 "0s" 0 0 0 192 0 0  30 120 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Dataset members:
+LANG:10004 16 数据集成员:
+LANG:10000 18 Datensatzelemente:
+LANG:10027 43 Элементы набора данных:
+17 44
+"list_RCBNames"
+""
+1 30 440 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Configured RCBs
+LANG:10004 9 配置RCB
+LANG:10000 18 Konfigurierte RCBs
+LANG:10027 40 Сконфигурированные RCB
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 438 731 506
+0
+
+E
+E
+E
+
+5 0
+2 45
+"ptConfiguregRCBList"
+""
+1 30 420 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 420 135 435
+0 2 2 "0s" 0 0 0 192 0 0  30 420 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Configured RCBs:
+LANG:10004 9 配置RCB
+LANG:10000 19 Konfigurierte RCBs:
+LANG:10027 41 Сконфигурированные RCB:
+13 46
+"btnEnableRCBs"
+""
+1 90 510 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  88 508 116 536
+
+T 
+4
+LANG:10001 6 Enable
+LANG:10004 6 启用
+LANG:10000 10 Aktivieren
+LANG:10027 24 Активировать
+"main()
+{
+  // enable all configured rcbs from the selected dataset
+  if ( txtDatasetDevName.text == \"\" )
+    return;
+
+  dyn_string dsDpNamesList, dsDpValuesList, dsRcbDpList, dsCurrentValues, dsUnique;
+  dsRcbDpList = list_rcbDpNames.items;
+
+  for ( int i = 1; i <= dynlen(dsRcbDpList); i++ )
+  {
+    dynAppend(dsDpNamesList, dsRcbDpList[i] + IEC61850_DPE_RCB_RPTENA);
+    dynAppend(dsDpValuesList, 1);
+  }
+
+  dpGet(dsDpNamesList, dsCurrentValues);
+  dsUnique = dsCurrentValues;
+  dynUnique(dsUnique);
+
+  // rcbs should only be enabled if: only 1 rcb & disabled || more rcbs & same states but disabled || more rcbs & different states
+  if ( ( dynlen(dsCurrentValues) == 1 && dsCurrentValues[1] == 0 ) ||
+       ( dynlen(dsUnique) == 1 && dsUnique[1] == 0 ) ||
+       ( dynlen(dsUnique) > 1 ) )
+  {
+    dpSetWait(dsDpNamesList, dsDpValuesList);
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RcbCfgEnabled\"));
+  }
+  else
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RcbCfgEnabledAlready\"));
+}
+
+
+
+
+" 0
+ E E E
+13 47
+"btnDisableRCBs"
+""
+1 120 510 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  118 508 146 536
+
+T 
+4
+LANG:10001 7 Disable
+LANG:10004 6 禁用
+LANG:10000 12 Deaktivieren
+LANG:10027 9 Откл.
+"main()
+{
+  // disable all configured rcbs from the selected dataset
+  if ( txtDatasetDevName.text == \"\" )
+    return;
+
+  dyn_string dsDpNamesList, dsDpValuesList, dsRcbDpList, dsCurrentValues, dsUnique;
+  dsRcbDpList = list_rcbDpNames.items;
+
+  for ( int i = 1; i <= dynlen(dsRcbDpList); i++ )
+  {
+    dynAppend(dsDpNamesList, dsRcbDpList[i] + IEC61850_DPE_RCB_RPTENA);
+    dynAppend(dsDpValuesList, 0);
+  }
+
+  dpGet(dsDpNamesList, dsCurrentValues);
+
+  dsUnique = dsCurrentValues;
+  dynUnique(dsUnique);
+
+  // rcbs should only be disabled if: only 1 rcb & enabled || more rcbs & same states but enabled || more rcbs & different states
+  if ( ( dynlen(dsCurrentValues) == 1 && dsCurrentValues[1] == 1 ) ||
+       ( dynlen(dsUnique) == 1 && dsUnique[1] == 1 ) ||
+       ( dynlen(dsUnique) > 1 ) )
+  {
+    dpSetWait(dsDpNamesList, dsDpValuesList);
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RcbCfgDisabled\"));
+  }
+  else
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RcbCfgDisabledAlready\"));
+}
+
+
+
+
+" 0
+ E E E
+17 48
+"list_rcbDpNames"
+""
+1 60 510 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  58 508 86 536
+0
+
+E
+E
+E
+
+0 0
+17 0
+"DATASET_TAGS_LIST"
+""
+1 30 140 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 39 Dataset members of the selected dataset
+LANG:10004 33 所选数据集的数据集成员
+LANG:10000 42 Datensatzelemente des gewählten Datensatz
+LANG:10027 63 Элементы выбранного набора данных
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 138 731 411
+0
+
+E
+E
+E
+
+2 0
+2 49
+"ptDatasetType"
+""
+1 30 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 30 90 305 105
+0 2 2 "0s" 0 0 0 64 0 0  30 90 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 <Dataset type>
+LANG:10004 17 <数据集类型>
+LANG:10000 14 <Datensatztyp>
+LANG:10027 34 <Тип набора данных>
+13 50
+"btnCreateDps"
+""
+1 740 325 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Create preview tags
+LANG:10004 15 创建预览Tag
+LANG:10000 22 Preview-Tags erstellen
+LANG:10027 19 Create preview tags
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 323 767 352
+
+P 
+12632256
+"pictures/StandardIcons/Vision_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  createExampleTags(1);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 51
+"btnDeleteDps"
+""
+1 738 384 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Delete preview tags
+LANG:10004 15 删除预览Tag
+LANG:10000 21 Vorschau-DPs löschen
+LANG:10027 19 Delete preview tags
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 383 767 412
+
+P 
+12632256
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteExampleTags();
+}
+
+
+
+
+
+" 0
+ E E E
+13 52
+"btnTagPreview"
+""
+1 740 355 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 Create tags and open preview
+LANG:10004 24 创建Tag并打开预览
+LANG:10000 34 Tags erstellen und Preview öffnen
+LANG:10027 28 Create tags and open preview
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738 353 767 382
+
+P 
+12632256
+"pictures/StandardIcons/Zoom_in_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  openTagPreview();
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 53
+"cmdEnable"
+""
+1 599.5 590 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 reserve all released RCBs / enable all disabled RCBs
+LANG:10004 52 reserve all released RCBs / enable all disabled RCBs
+LANG:10000 68 alle freigegebenen RCBs reservieren / alle inaktiven RCBs aktivieren
+LANG:10027 52 reserve all released RCBs / enable all disabled RCBs
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  577.5 513 730.5 541
+
+T 
+4
+LANG:10001 11 Enable RCBs
+LANG:10004 10 是能RCBs
+LANG:10000 14 RCBs aktiveren
+LANG:10027 20 Включить RCB
+"main()
+{
+  // reserve + enable all configured rcbs from the selected dataset
+  if ( txtDatasetDevName.text == \"\" )
+    return;
+
+  dyn_string dsRet = iec61850_ChildPanelOnAskPopUpMessage(getCatStr(\"iec61850\", \"RCBReserveEnableDatSet\"));
+
+  if ( dynlen(dsRet) )
+  {
+    int iRetRsv, iRetEna;
+
+    // list of unreserved/released rcbs --> set rcbs reserved
+    if ( dynlen(dsRcbUnrDpe) && clearRcbList(dsRcbUnrDpe) )
+      iRetRsv = dpSetWait(dsRcbUnrDpe, dbRcbRsvVal);
+
+    // list of unenabled/disabled rcbs  --> set rcbs enabled
+    if ( dynlen(dsRcbUneDpe) && clearRcbList(dsRcbUneDpe) )
+      iRetEna = dpSetWait(dsRcbUneDpe, dbRcbEnaVal);
+
+    // rcbs were reserved & enabled --> update list of rcbs
+    if ( iRetRsv == 0 && iRetEna == 0 )
+      getRcbList();
+  }
+}
+
+" 0
+ E E E
+13 54
+"cmdRelease"
+""
+1 496.5 530 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 52 disable all enabled RCBs / release all reserved RCBs
+LANG:10004 52 disable all enabled RCBs / release all reserved RCBs
+LANG:10000 65 alle aktiven RCBs deaktivieren / alle reservierten RCBs freigeben
+LANG:10027 52 disable all enabled RCBs / release all reserved RCBs
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  417.5 513 570.5 541
+
+T 
+4
+LANG:10001 12 Release RCBs
+LANG:10004 9 施放RCB
+LANG:10000 14 RCBs freigeben
+LANG:10027 22 Отключить RCB
+"main()
+{
+  // disable + unreserve all configured rcbs from the selected dataset
+  if ( txtDatasetDevName.text == \"\" )
+    return;
+
+  dyn_string dsRet = iec61850_ChildPanelOnAskPopUpMessage(getCatStr(\"iec61850\", \"RCBDisableReleaseDatSet\"));
+
+  if ( dynlen(dsRet) )
+  {
+    int iRetUne, iRetUnr;
+
+    // list of enabled rcbs  --> set rcbs unenabled/disabled
+    if ( dynlen(dsRcbEnaDpe) && clearRcbList(dsRcbEnaDpe) )
+      iRetUne = dpSetWait(dsRcbEnaDpe, dbRcbUneVal);
+
+    // list of reserved rcbs --> set rcbs unreserved/released
+    if ( dynlen(dsRcbRsvDpe) && clearRcbList(dsRcbRsvDpe) )
+      iRetUnr = dpSetWait(dsRcbRsvDpe, dbRcbUnrVal);
+
+    // rcbs were disabled & released --> update list of rcbs
+    if ( iRetUne == 0 && iRetUnr == 0 )
+      getRcbList();
+  }
+}
+
+" 0
+ E E E
+29 61
+"ewoAe"
+""
+1 24.99999999999943 75.18341486696085 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  9.999999999999432 5.183414866960851 108.9999999999994 104.1834148669608
+19 AttentionEffect.ewo
+0
+E29 62
+"ewoBc"
+""
+1 9.999999999999432 5.183414866960851 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  9.999999999999432 5.183414866960851 108.9999999999994 104.1834148669608
+19 BackgroundCover.ewo
+0
+E14 63
+"tfActRegDs"
+""
+1 150 514 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if ( newText == 2 )
+    btnDelete.enabled = !bDatasetTypeStatic && (dynlen(list_RCBNames.items) <= 0);
+}
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  148 508 176 536
+3 "0s" 0 0 0 0 0 -1  E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

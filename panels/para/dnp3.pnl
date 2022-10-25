@@ -1,0 +1,2072 @@
+V 13
+4
+LANG:10001 18 DNP3 configuration
+LANG:10004 10 DNP3配置
+LANG:10000 19 DNP3-Parametrierung
+LANG:10027 37 Параметрирование DNP3
+PANEL,-1 -1 533 440 N "_3DFace" 0
+"main()
+{
+  int        i;
+  string     sPlc = \"\", sDp;
+  dyn_string dsPlc = dpNames(getSystemName()+\"*\",\"_Dnp3Station\"), ds;
+  
+  string systemName = getSystemName();
+  addGlobals();
+  
+  for ( i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // don't display redundant datapoints
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+    
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+    if ( dsPlc[i][0] == \"_\" )
+      dsPlc[i] = substr(dsPlc[i], 1, strlen(dsPlc[i])-1);
+  }
+  
+  if ( dynlen(dsPlc) > 0 )
+    sPlc = dsPlc[1];
+  
+  cmbPlc.items = dsPlc;
+  cmbPlc.text = sPlc;
+  if (sPlc != \"\")
+  {
+    readDpWritePanel(systemName + \"_\" +sPlc);
+    connectState(systemName + \"_\" + sPlc);
+  }
+  if (isRedundant())
+  {
+    setReduStateVisible(true);
+  }
+  else
+  {
+    setReduStateVisible(false);
+  }
+      // dpConnect and disconnect must be in the same script
+  // in the loop below nothing happens if the name of the sPlc
+  // does not change
+  while(1)
+  {
+    delay(0,20);
+    sPlc = cmbPlc.text;
+    if (sPlc != \"\")
+      connectState(systemName + \"_\" + sPlc);
+  }
+}
+
+void connectState (string sPlc)
+{
+  // to avoid error message when cloasing the panle check if 
+  // variable exists
+  if (!globalExists(\"gLastPlc\"))
+    return;
+  if (sPlc == gLastPlc )
+    return;
+
+  if (gLastPlc != \"\")
+  {
+    dpDisconnect(\"workIIN\", gLastPlc + \".State.IIN\");
+    dpDisconnect(\"workConnState\", gLastPlc + \".State.ConnState\");
+      
+    if (isRedundant())
+    {
+      dpDisconnect(\"workIIN_2\", gLastPlc + \"_2.State.IIN\");
+      dpDisconnect(\"workConnState_2\", gLastPlc + \"_2.State.ConnState\");    
+    }
+  }
+
+  dpConnect(\"workIIN\", true, sPlc + \".State.IIN\");
+  dpConnect(\"workConnState\", true, sPlc + \".State.ConnState\");
+  if (isRedundant())
+  {
+    dpConnect(\"workIIN_2\", true, sPlc + \"_2.State.IIN\");
+    dpConnect(\"workConnState_2\", true, sPlc + \"_2.State.ConnState\");    
+  }
+  gLastPlc = sPlc;
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "setReduStateVisible(bool vis)
+{
+  setMultiValue(\"tfState_2\", \"enabled\", FALSE,
+                \"tfIin1_2\", \"enabled\", FALSE,
+                \"tfIin2_2\", \"enabled\", FALSE,
+                \"ptState_2\", \"enabled\", vis,
+                \"ptIndication_2\", \"enabled\", vis,
+                \"FRAME3\", \"enabled\", vis);
+}
+dnp3CreateNewStation(string dp)
+{
+  dyn_string ds;
+  ds = strsplit(dp, \":\");
+  string sSystem = ds[1]+\":\";
+  dp = ds[2];
+  int iSystem = getSystemId(sSystem);
+  int iAnswer;
+  dyn_errClass dErr;
+   
+  isRemoteSystemRedundant(iAnswer,sSystem);
+  
+  dpCreate(dp, \"_Dnp3Station\", iSystem);
+  dErr = getLastError();
+  if ( dynlen(dErr)>0)
+  {
+     throwError(dErr);
+     errorDialog(dErr); 
+  }
+  
+  if ( iAnswer == 1 )
+  {
+    dpCreate(dp + \"_2\", \"_Dnp3Station\", iSystem);
+    dErr = getLastError();
+    if ( dynlen(dErr)>0)
+    {
+       throwError(dErr);
+       errorDialog(dErr); 
+    }
+  }
+}
+
+readDpWritePanel(string sPlc)
+{
+  langString ls;
+  dyn_string ds;
+  string config;
+  bool active;
+  unsigned usResp, gqclasses, usClearIIN;
+  
+  ls = dpGetComment(sPlc+\".\");
+  t1.text  = ls;
+  ds = ls;
+  gLangList = ds;
+  
+  // read data from DP
+  dpGet(sPlc + \".Configuration\", config,
+        sPlc + \".Command.UnsolicitedResponse\", usResp,
+        sPlc + \".Command.ClearIIN\", usClearIIN,
+        sPlc + \".Command.Active\", active,
+        sPlc + \".Command.GQ\", gqclasses);
+  
+  if (gqclasses == 0)
+    gqclasses = 15;
+  if (usClearIIN == 0)
+    usClearIIN = 3;
+  
+  // parse the configuration string
+  ds = strsplit(config, ':');
+  if (dynlen(ds) == 0)
+    dynAppend(ds,\"\"); // index 1 must not fail
+    
+  // there might be a valid configuration 
+  if (ds[1] == \"IP\" && dynlen(ds) == 4)
+  {
+    // it is an IP configuration
+    setMultiValue(\"rbMode\", \"number\", 0,
+                  \"tfHost\", \"text\", ds[2],
+                  \"sbPort\", \"text\", ds[3],
+                  \"sbLinkAddress\", \"text\", ds[4]);
+    setParamMode (0);
+  }
+  else if (ds[1] == \"SI\" && dynlen(ds) == 3)
+  {
+    // it is a serial configuration
+    setMultiValue(\"rbMode\", \"number\", 1,
+                  \"tfHost\", \"text\", ds[2],
+                  \"sbLinkAddress\", \"text\", ds[3]);
+    setParamMode (1);
+  }
+  else
+  {
+    // default 
+    setMultiValue(\"rbMode\", \"number\", 0,
+                  \"tfHost\", \"text\", \"\",
+                  \"sbPort\", \"text\", 0,
+                  \"sbLinkAddress\", \"text\", 0);
+    setParamMode (0);
+  }
+    
+  setMultiValue(\"cbActive\", \"state\", 0, active,
+                \"cbUnSolicited\", \"state\", 0, usResp & 1,
+                \"cbUnSolicited\", \"state\", 1, usResp & 2,
+                \"cbUnSolicited\", \"state\", 2, usResp & 4,
+                \"cbUnSolicited\", \"state\", 3, usResp & 256,
+                \"cbClasses\", \"state\", 0, gqclasses & 1,
+                \"cbClasses\", \"state\", 1, gqclasses & 2,
+                \"cbClasses\", \"state\", 2, gqclasses & 4,
+                \"cbClasses\", \"state\", 3, gqclasses & 8,
+                \"cbClearIIN\", \"state\", 0, usClearIIN & 1,
+                \"cbClearIIN\", \"state\", 1, usClearIIN & 2);
+  
+}
+
+void setParamMode (int mode)
+{
+  if (mode == 0)
+  {
+    // IP
+    setMultiValue(\"sbPort\", \"visible\", true,
+                  \"ptxtPort\", \"visible\", true,
+                  \"ptxtHost\", \"visible\", true,
+                  \"ptxtDevice\", \"visible\", false);
+  }
+  else
+  {
+    // serial
+    setMultiValue(\"sbPort\", \"visible\", false,
+                  \"ptxtPort\", \"visible\", false,
+                  \"ptxtHost\", \"visible\", false,
+                  \"ptxtDevice\", \"visible\", true);
+  }
+}
+//////////////////////////////////////////////////////////////////////////////
+bool setDp()
+{
+  langString ls;
+  string sPlc = cmbPlc.text;
+  string config;
+  bool usResp1, usResp2, usResp3, usResp4, active;
+  string dp, host;
+  unsigned port, usResp, la;
+  int mode;
+  
+  if (sPlc == \"\" )
+    return FALSE;
+
+  dp = getSystemName() + \"_\"+sPlc;
+  ls = gLangList;
+  dpSetComment( dp+\".\", ls); 
+  
+  getMultiValue(\"cbActive\", \"state\", 0, active,
+                \"cbUnSolicited\", \"state\", 0, usResp1,
+                \"cbUnSolicited\", \"state\", 1, usResp2,
+                \"cbUnSolicited\", \"state\", 2, usResp3,
+                \"cbUnSolicited\", \"state\", 3, usResp4,
+                \"rbMode\", \"number\", mode,
+                \"tfHost\", \"text\", host,
+                \"sbPort\", \"text\", port,
+                \"sbLinkAddress\", \"text\", la);
+  if (mode == 0)
+  {
+    config = \"IP:\" + host + \":\" + port + \":\" + la;
+  }
+  else if (mode == 1)
+  {
+    config = \"SI:\" + host + \":\" + la;
+  }
+  if (usResp1)
+    usResp += 1;
+  if (usResp2)
+    usResp += 2;
+  if (usResp3)
+    usResp += 4;
+  if (usResp4)
+    usResp += 256;
+  
+  dpSet(dp + \".Configuration\", config,
+        dp + \".Command.UnsolicitedResponse\", usResp,
+        dp + \".Command.Active\", active);
+  
+  return TRUE;
+}
+
+
+void workIIN(string dp, unsigned iin)
+{
+  setValue(\"tfIin1\", \"text\", formatIIN(iin, 1));
+  setValue(\"tfIin2\", \"text\", formatIIN(iin, 0));
+}
+
+void workConnState_2(string dp, int connState)
+{
+  tfState_2.text = getCatStr(\"dnp3\", \"ConnState\"+connState);
+}
+
+void workIIN_2(string dp, unsigned iin)
+{
+  setValue(\"tfIin1_2\", \"text\", formatIIN(iin, 1));
+  setValue(\"tfIin2_2\", \"text\", formatIIN(iin, 0));
+}
+
+string formatIIN(unsigned iin, int byte)
+{
+  int i;
+  bit32 b32;
+  string str;
+  
+  while (byte > 0)
+  {
+    iin = iin / 256;
+    byte--;
+  }
+  b32 = iin;
+  str = b32;
+  return substr(str, 24, 8);
+}
+void workConnState(string dp, int connState)
+{
+  tfState.text = getCatStr(\"dnp3\", \"ConnState\"+connState);
+}
+
+
+void addGlobals()
+{
+  addGlobal(\"gLangList\", DYN_STRING_VAR);
+  addGlobal(\"gLastPlc\", STRING_VAR);
+}
+
+void removeGlobals()
+{
+  removeGlobal(\"gLangList\", DYN_STRING_VAR);
+  removeGlobal(\"gLastPlc\", STRING_VAR);
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  removeGlobals();
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+22 0
+"cmbPlc"
+""
+1 20 58.99999999999999 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select an equipment
+LANG:10004 18 选择一个设备
+LANG:10000 17 Gerät auswählen
+LANG:10027 35 Выбрать устройство
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 24 297 50
+0
+
+"main()
+{
+}" 0
+
+"main()
+{
+  string sPlc = getSystemName()+ \"_\" + this.text;
+  readDpWritePanel(sPlc);
+}" 0
+
+E
+ 0 0
+30 1
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.825525040387722 0 0.8585858585858586 1.744749596122781 -36.92929292929293 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 7 Gerät 
+LANG:10027 20 Устройство
+13 2
+"cmdNewDp"
+""
+1 416 51 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 Create a new equipment with default settings
+LANG:10004 33 使用默认设置创建新设备
+LANG:10000 45 Neues Gerät mit Grundeinstellungen erstellen
+LANG:10027 96 Создать новое устройство с настройками по умолчанию
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  408 23 511 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i = 1;
+  string     sPlc = cmbPlc.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+  string systemName = getSystemName();
+  
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+    getCatStr(\"da\",\"createdp\"),
+    makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), sPlc),df,ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 ) return;
+
+  sPlc = (dynlen(ds)>0)?ds[1]:\"\";
+  sPlc = strrtrim(strltrim(sPlc));
+  
+  if ( strpos(sPlc, \" \") != -1 || strpos(sPlc, \"__\") != -1 ||
+       patternMatch(\"*_1\", sPlc) || patternMatch(\"*_2\", sPlc) || patternMatch(\"*_\", sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpInvalid\")));
+    return;
+  }
+  else if ( (sPlc == \"\") || (sPlc == \" \") ||(sPlc == \"_\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpEmpty\")));
+    return;
+  }
+  else if ( dpExists(systemName	+ sPlc) || dpExists(systemName	+ \"_\" + sPlc))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpExists\")));
+    return;
+  }
+  
+  if ( strpos(sPlc, \"_\", 0) != -1 )
+    sPlc = strltrim(sPlc, \"_\");
+
+
+  dnp3CreateNewStation(systemName + \"_\"+sPlc);
+
+  cmbPlc.text  = sPlc;
+  
+  dsPlc = cmbPlc.items;
+  dynAppend(dsPlc, cmbPlc.text); 
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc); 
+  cmbPlc.items = dsPlc;
+  readDpWritePanel(systemName + \"_\"+sPlc);
+
+}" 0
+ E E E
+13 3
+"cmdRemoveDp"
+""
+1 311 51 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove an equipment
+LANG:10004 18 移除一个设备
+LANG:10000 16 Gerät entfernen
+LANG:10027 35 Удалить устройство
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  303 23 406 51
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPlc.selectedPos;
+  string     sPlc = cmbPlc.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+  dyn_string dsDpe;
+  dyn_anytype dsValues;
+  string systemName = getSystemName();
+  string dp = systemName + \"_\"+sPlc;
+  
+
+  if ( sPlc == \"\" ) return;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"para\",\"information\"),
+    makeDynString(getCatStr(\"diskspace\",\"dpDelete\"),
+                  getCatStr(\"para\",\"yes\"),
+                  getCatStr(\"para\",\"no\")),
+    df, ds);
+
+  if (!df[1]) return;
+  
+  dynRemove(dsPlc, iPos); 
+  cmbPlc.items = dsPlc;
+
+  // set the global variable to empty
+  // to avoid dpDisconnect on nonexisting dp
+  gLastPlc = \"\";
+  if (dynlen(dsPlc) < 1)
+    cmbPlc.text = \"\";
+  else
+  { 
+    if (iPos <1)
+      iPos = 1; 
+  
+    if (iPos > dynlen( dsPlc))
+      iPos = dynlen(dsPlc);
+    
+    cmbPlc.selectedPos(iPos);
+    cmbPlc.text = dsPlc[iPos];
+  }
+  sPlc = cmbPlc.text;
+  if (dpExists (dp))
+    dpDelete( dp); 
+  if ( dpExists (dp+\"_2\"))
+    dpDelete( dp+\"_2\"); 
+  if (sPlc != \"\")
+    readDpWritePanel(systemName + \"_\"+sPlc);
+
+}" 0
+ E E E
+14 4
+"t1"
+""
+1 150 59 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  148 57 477 83
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  ls=gLangList;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }    
+  setMultiValue(\"t\"+s,\"text\",ls);
+  gLangList = ds;
+}" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  getValue(\"langliste\"+s,\"items\",ds);
+  ls=ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }    
+  setMultiValue(\"t\"+s,\"text\",ls,
+                \"langliste\"+s,\"items\",ds);
+}" 0
+
+13 5
+"langedit1"
+""
+1 483 90 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  483 56 511 84
+
+P 
+13160660
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"t1\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  ls=gLangList;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }    
+  setMultiValue(\"t\"+s,\"text\",ls);
+  gLangList = ds;
+}" 0
+ E E "main()
+{
+  this.visible = getNoOfLangs() != 1;
+}" 0
+
+2 6
+"Text1"
+""
+1 18 59 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 61 143 78
+0 2 0 "0s" 0 0 0 66 0 0  20 61 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Device description:
+LANG:10004 12 设备描述
+LANG:10000 20 Gerätebeschreibung:
+LANG:10027 31 Описание устр-ва:
+30 7
+"Frame4"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.825525040387722 0 1.050505050505051 1.744749596122773 -72.0808080808081 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Common settings
+LANG:10004 12 常规设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+19 8
+"rbMode"
+""
+1 23 141.25 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  21 108 95 162
+2
+T 
+4
+LANG:10001 3 TCP
+LANG:10004 3 TCP
+LANG:10000 3 TCP
+LANG:10027 3 TCP
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Serial
+LANG:10004 6 串口
+LANG:10000 7 Seriell
+LANG:10027 13 Послед.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  
+  setParamMode(button);
+}
+
+
+
+
+
+" 0
+
+21 9
+"sbPort"
+""
+1 619 128 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Port number of DNP3 server
+LANG:10004 6 端口
+LANG:10000 27 Portnummer des DNP3 Servers
+LANG:10027 41 Номер порта DNP3 сервера
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  317 121 381 147
+0
+
+E
+E
+E
+
+N 0 65535 1 0 1 1
+14 10
+"tfHost"
+""
+1 151 123 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 82 TCP: Host name or IP address of DNP3 server. Serial: Name of interface (e.g. COM1)
+LANG:10004 6 主机
+LANG:10000 93 TCP: Host name oder IP addresse des DNP3 servers. Seriell: Name der Schnittstelle (z.B. COM1)
+LANG:10027 163 TCP: Имя хоста или IP-адрес сервера DNP3. Последовательный интерфейс: имя интерфейса (напр., COM1)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  149 121 277 147
+3 "0s" 0 0 0 0 0 -1  E E E
+2 13
+"ptxtHost"
+""
+1 105 125 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 105 125 132 142
+0 2 2 "0s" 0 0 0 66 0 0  105 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Host
+LANG:10004 6 主机
+LANG:10000 4 Host
+LANG:10027 8 Хост
+2 14
+"ptxtPort"
+""
+1 285 125 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 285 125 315 142
+0 2 2 "0s" 0 0 0 66 0 0  285 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Port
+LANG:10004 6 端口
+LANG:10000 4 Port
+LANG:10027 8 Порт
+30 16
+"FRAME1"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.825525040387722 0 0.8484848484848482 1.74474959612278 72.24242424242429 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+13 19
+"buGQ"
+""
+1 -62.23255813953488 334.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Execute general query for specified classes
+LANG:10004 33 对指定的类执行常规查询
+LANG:10000 49 Generalabfrage für angegebene Klassen ausführen
+LANG:10027 83 Выполнить общий запрос для указанных классов
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 224 121 252
+
+T 
+4
+LANG:10001 13 General query
+LANG:10004 13 General query
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+"main()
+{
+  bool cl0, cl1, cl2, cl3;
+  unsigned val = 0;
+
+  string sPlc = cmbPlc.text;
+  
+  if (sPlc == \"\")
+    return;
+  
+  getMultiValue(\"cbClasses\", \"state\", 0, cl0,
+                \"cbClasses\", \"state\", 1, cl1,
+                \"cbClasses\", \"state\", 2, cl2,
+                \"cbClasses\", \"state\", 3, cl3);
+  if (cl0)
+    val += 1;
+  if (cl1)
+    val += 2;
+  if (cl2)
+    val += 4;
+  if (cl3)
+    val += 8;
+  
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.GQ\", val);  
+
+}" 0
+ E E E
+13 20
+"buColdRestart"
+""
+1 332 374.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 34 Triggers cold start of DNP3 device
+LANG:10004 28 触发DNP3设备的冷启动
+LANG:10000 37 Löst Kaltstart des DNP3 Gerätes aus
+LANG:10027 82 Запускает холодный перезапуск DNP3 устройства
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  318 257 421 285
+
+T 
+4
+LANG:10001 12 Cold Restart
+LANG:10004 9 冷重启
+LANG:10000 9 Kaltstart
+LANG:10027 24 Холодный пзп.
+"main()
+{
+  string sPlc = cmbPlc.text;
+  
+  if (sPlc == \"\")
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.ColdRestart\", true);  
+}" 0
+ E E E
+13 21
+"buDelayMeas"
+""
+1 286 345.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Start delay measurement
+LANG:10004 18 开始延迟测量
+LANG:10000 28 Startet Verzögerungsmessung
+LANG:10027 54 Запускает измерение задержки
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  318 224 421 252
+
+T 
+4
+LANG:10001 5 Delay
+LANG:10004 6 延迟
+LANG:10000 12 Verzögerung
+LANG:10027 16 Задержка
+"main()
+{
+  string sPlc = cmbPlc.text;
+  
+  if (sPlc == \"\")
+    return;
+
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.DelayMeasurement\", true);  
+
+}" 0
+ E E E
+30 23
+"FRAME2"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4054927302100163 0 0.8484848484848484 5.945072697899838 166.2424242424243 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+20 24
+"cbActive"
+""
+1 389.9999999999999 204.6896551724138 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 62 Check button for setting the device in active or inactive mode
+LANG:10004 67 检查按钮,将设备设置为正在运行的或未运行的模式
+LANG:10000 54 Checkbutton zum aktiv bzw. inaktiv setzen des Gerätes
+LANG:10027 104 Переключения устройства в активный или неактивный режим
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  418 163 491 187
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE14 25
+"tfState"
+""
+1 112 317.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 54 Display of connection state to DNP3 device on server 1
+LANG:10004 44 显示服务器1上DNP3设备的连接状态
+LANG:10000 55 Zeigt Verbindungszustand zum DNP3 Gerät am Server 1 an
+LANG:10027 113 Показывает состояние подключения к DNP3-устройству на сервере 1
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  110 315 254 341
+2 "0s" 0 0 0 0 0 -1  E E E
+2 26
+"PRIMITIVE_TEXT4"
+""
+1 18 319 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 18 319 103 336
+0 2 2 "0s" 0 0 0 66 0 0  18 319 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 7 Zustand
+LANG:10027 18 Состояние
+14 27
+"tfIin1"
+""
+1 112 347.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 202 Internal Indication Bits IIN1 (server 1) <br>(right to left)<br>all stations<br>class 1 events<br>class 2 events<br> class 3 events<br><br>need time<br>local control<br>device trouble<br>device restart 
+LANG:10004 177 内部指示位IIN1(服务器1)<br(从右到左)<br所有报文<br 1级事件<br 2级事件<br 3级事件<br <br需要时间＆lt; br ;本地控制<br设备故障<br设备重启
+LANG:10000 210 Internal Indication Bits IIN1 (Server 1) <br>(Von rechts nach links)<br>all stations<br>class 1 events<br>class 2 events<br> class 3 events<br><br>need time<br>local control<br>device trouble<br>device restart 
+LANG:10027 383 Биты внутренних признаков IIN1 (сервер 1) <br>(с права на лево)<br>все станции<br>события 1го класса<br>события 2го класса<br> события 3го класса<br><br>необх. время<br>местное управление<br>проблемы устр-ва<br>перезапуск устр-ва 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  110 345 179 371
+3 "0s" 0 0 0 0 0 -1  E E E
+2 28
+"PRIMITIVE_TEXT5"
+""
+1 22 349 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 22 349 107 366
+0 2 2 "0s" 0 0 0 66 0 0  22 349 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Int. Indication
+LANG:10004 13 诠释.迹象
+LANG:10000 15 Int. Indication
+LANG:10027 23 Внутр. призн.
+30 29
+"FRAME3"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.3976666745895864 0 0.8484848484848484 271.0233332541042 165.2424242424243 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 State Host 2
+LANG:10004 6 主机
+LANG:10000 13 Status Host 2
+LANG:10027 31 Состояние хоста 2
+14 30
+"tfState_2"
+""
+1 372 317.0000000000002 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Shows connection state to DNP3 device on server 2
+LANG:10004 44 显示服务器2上DNP3设备的连接状态
+LANG:10000 55 Zeigt Verbindungsstatus zum DNP3 Geräte am Server 2 an
+LANG:10027 113 Показывает состояние подключения к DNP3-устройству на сервере 2
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  370 315 514 341
+2 "0s" 0 0 0 0 0 -1  E E E
+2 31
+"ptState_2"
+""
+1 283 319 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 283 319 368 335.9999999999999
+0 2 2 "0s" 0 0 0 66 0 0  283 319 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 7 Zustand
+LANG:10027 18 Состояние
+2 33
+"ptIndication_2"
+""
+1 287 350 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 287 350 372 366.9999999999999
+0 2 2 "0s" 0 0 0 66 0 0  287 350 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Int. Indication
+LANG:10004 13 诠释.迹象
+LANG:10000 15 Int. Indication
+LANG:10027 23 Внутр. призн.
+20 38
+"cbClasses"
+""
+1 135 231 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Class selection for general query
+LANG:10004 27 总召唤数值的类选择
+LANG:10000 34 Klassenauswahl für Generalabfrage
+LANG:10027 58 Выбор класса для общего запроса
+
+1
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  133 229 249 253
+4
+T 
+4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, int state)
+{
+  int i, j, pos;
+  dyn_bool db;
+  db = makeDynBool(false, false, false, false);
+  getMultiValue(\"cbClasses\", \"state\", 0, db[1],
+                \"cbClasses\", \"state\", 1, db[2],
+                \"cbClasses\", \"state\", 2, db[3],
+                \"cbClasses\", \"state\", 3, db[4]);
+  j = 0;
+  for (i = 1; i <= dynlen(db); i++)
+  {
+    if (db[i])
+    {
+      j++;
+      pos = i -1;
+    }
+  }
+  if (j == 1)
+  {
+    // deactivate
+    setValue(\"cbClasses\", \"itemEnabled\", pos, false);
+  }
+  else
+  {
+    // activate all
+    setMultiValue(\"cbClasses\", \"itemEnabled\", 0, true,
+                  \"cbClasses\", \"itemEnabled\", 1, true,
+                  \"cbClasses\", \"itemEnabled\", 2, true,
+                  \"cbClasses\", \"itemEnabled\", 3, true);
+  }
+}" 0
+13 60
+"PUSH_BUTTON1"
+""
+1 202 406.0000000000001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+81 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  200 404 303 432
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+  {
+    PanelOff();
+    return;
+  }
+
+  if ( setDp())
+  {
+    PanelOff();
+  }
+  removeGlobals();
+}" 0
+ E E E
+13 61
+"PUSH_BUTTON2"
+""
+1 272 406.0000000000001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+82 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  408 404 511 432
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  removeGlobals();
+  PanelOff();
+}" 0
+ E E E
+13 62
+"PUSH_BUTTON3"
+""
+1 68 406.0000000000001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  304 404 407 432
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+    return;
+  
+  setDp();
+}" 0
+ E E E
+13 63
+"PUSH_BUTTON4"
+""
+1 17 406.0000000000001 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 404 116 432
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"dnp3\");
+}" 0
+ E E E
+13 64
+"buClearIIN"
+""
+1 -62.23255813953488 375.9354838709677 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Reset of Internal Indication bits
+LANG:10004 21 内部指示位复位
+LANG:10000 41 Rücksetzen der Internal Indications Bits
+LANG:10027 65 Сбросить внутренние биты индикации
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 257 121 285
+
+T 
+4
+LANG:10001 9 Clear IIN
+LANG:10004 9 清除IIN
+LANG:10000 15 IIN Rücksetzen
+LANG:10027 20 Очистить IIN
+"main()
+{
+  bool cl0, cl1;
+  unsigned val = 0;
+
+  string sPlc = cmbPlc.text;
+  
+  if (sPlc == \"\")
+    return;
+  
+  getMultiValue(\"cbClearIIN\", \"state\", 0, cl0,
+                \"cbClearIIN\", \"state\", 1, cl1);
+  if (cl0)
+    val += 1;
+  if (cl1)
+    val += 2;
+  
+  dpSet(getSystemName() + \"_\" + sPlc + \".Command.ClearIIN\", val);  
+
+}" 0
+ E E E
+20 65
+"cbClearIIN"
+""
+1 135 261.0000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Internal Indication bits to reset
+LANG:10004 27 要重置的内部指示位
+LANG:10000 40 Rückzusetzende Internal Indication bits
+LANG:10027 68 Внутренние биты индикации для сброса
+
+1
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  133 259 306 283
+2
+T 
+4
+LANG:10001 7 Restart
+LANG:10004 12 重新开始
+LANG:10000 7 Restart
+LANG:10027 15 Перезап.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 NeedTime
+LANG:10004 12 需要时间
+LANG:10000 8 NeedTime
+LANG:10027 20 Треб. время
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, int state)
+{
+  int i, j, pos;
+  dyn_bool db;
+  db = makeDynBool(false, false);
+  getMultiValue(\"cbClearIIN\", \"state\", 0, db[1],
+                \"cbClearIIN\", \"state\", 1, db[2]);
+  j = 0;
+  for (i = 1; i <= dynlen(db); i++)
+  {
+    if (db[i])
+    {
+      j++;
+      pos = i -1;
+    }
+  }
+  if (j == 1)
+  {
+    // deactivate
+    setValue(\"cbClearIIN\", \"itemEnabled\", pos, false);
+  }
+  else
+  {
+    // activate all
+    setMultiValue(\"cbClearIIN\", \"itemEnabled\", 0, true,
+                  \"cbClearIIN\", \"itemEnabled\", 1, true);
+  }
+}" 0
+20 73
+"cbUnSolicited"
+""
+1 151 165 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 69 Selection of classes where Unsolicited Responses should be activated.
+LANG:10004 43 选择应激活未经请求的响应的类.
+LANG:10000 75 Auswahl der Klassen für die "Unsolicited Responses" aktiviert werden soll.
+LANG:10027 106 Классы, для которых активируются незапрашиваемые ответы. 
+
+1
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  149 163 332 187
+4
+T 
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 8 Inactive
+LANG:10004 6 禁用
+LANG:10000 7 Inaktiv
+LANG:10027 18 Неактивен
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE2 78
+"PRIMITIVE_TEXT20"
+""
+1 23 165 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 23 165 129 184
+0 2 2 "0s" 0 0 0 64 0 0  23 165 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Unsolicited Resp. 
+LANG:10004 18 召唤数值响应
+LANG:10000 17 Unsolicited Resp.
+LANG:10027 25 Незапр. ответ.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+21 79
+"sbLinkAddress"
+""
+1 418 156 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Link address of station
+LANG:10004 18 站的链接地址
+LANG:10000 24 Link Adresse der Station
+LANG:10027 31 Адрес устройства
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  416 120 480 146
+0
+
+E
+E
+E
+
+N 0 65535 1 0 1 1
+2 80
+"PRIMITIVE_TEXT21"
+""
+1 385 125 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 385 125 409.4449408085771 142
+0 2 2 "0s" 0 0 0 66 0 0  385 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 LA
+LANG:10004 2 LA
+LANG:10000 2 LA
+LANG:10027 2 LA
+2 81
+"ptxtDevice"
+""
+1 98 125 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 98 125 140.0725806451613 142
+0 2 2 "0s" 0 0 0 66 0 0  98 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 6 Gerät
+LANG:10027 9 Устр.
+14 83
+"tfIin2"
+""
+1 187 347.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 216 Internal Indication Bits IIN2 (Server 1)<br>(right to left)<br>no func code support<br>unknown object<br>parameter error<br>event buffer overflow<br><br>already executing<br>config corrupt<br>reserved 2<br>reserved 1
+LANG:10004 31 内部指示位IIN2(服务器1)
+LANG:10000 224 Internal Indication Bits IIN2 (Server 1)<br>(Von rechts nach links)<br>no func code support<br>unknown object<br>parameter error<br>event buffer overflow<br><br>already executing<br>config corrupt<br>reserved 2<br>reserved 1
+LANG:10027 448 Биты внутренних признаков IIN2 (сервер 1) <br>(с права на лево)<br>код ф-ции не поддерживается<br>неизвестный объект<br>ошибка параметра<br>переполнение буфера событий<br><br>уже выполняется<br>повреждение конфигурации<br>зарезервировано 2<br>зарезервировано 1
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  185 345 254 371
+3 "0s" 0 0 0 0 0 -1  E E E
+14 84
+"tfIin1_2"
+""
+1 372 348.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 201 Internal Indication Bits IIN1 (server 2)<br>(right to left)<br>all stations<br>class 1 events<br>class 2 events<br> class 3 events<br><br>need time<br>local control<br>device trouble<br>device restart 
+LANG:10004 31 内部指示位IIN1(服务器2)
+LANG:10000 209 Internal Indication Bits IIN1 (Server 2)<br>(Von rechts nach links)<br>all stations<br>class 1 events<br>class 2 events<br> class 3 events<br><br>need time<br>local control<br>device trouble<br>device restart 
+LANG:10027 382 Биты внутренних признаков IIN1 (сервер 2) <br>(с права на лево)<br>все станции<br>события 1го класса<br>события 2го класса<br> события 3го класса<br><br>необх. время<br>местное управление<br>проблемы устр-ва<br>перезапуск устр-ва
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  370 346 439 372
+3 "0s" 0 0 0 0 0 -1  E E E
+14 85
+"tfIin2_2"
+""
+1 447 348.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 216 Internal Indication Bits IIN2 (Server 2)<br>(right to left)<br>no func code support<br>unknown object<br>parameter error<br>event buffer overflow<br><br>already executing<br>config corrupt<br>reserved 2<br>reserved 1
+LANG:10004 31 内部指示位IIN2(服务器2)
+LANG:10000 224 Internal Indication Bits IIN2 (Server 2)<br>(Von rechts nach links)<br>no func code support<br>unknown object<br>parameter error<br>event buffer overflow<br><br>already executing<br>config corrupt<br>reserved 2<br>reserved 1
+LANG:10027 448 Биты внутренних признаков IIN2 (сервер 2) <br>(с права на лево)<br>код ф-ции не поддерживается<br>неизвестный объект<br>ошибка параметра<br>переполнение буфера событий<br><br>уже выполняется<br>повреждение конфигурации<br>зарезервировано 2<br>зарезервировано 1
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  445 346 514 372
+3 "0s" 0 0 0 0 0 -1  E E E
+1 86 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 20 420 T 124 1.092184368737474 0 1 -21.84368737474948 -24
+0
+0

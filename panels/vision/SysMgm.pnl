@@ -1,0 +1,479 @@
+V 14
+4
+LANG:10001 17 System management
+LANG:10004 12 系统管理
+LANG:10000 17 System Management
+LANG:10027 37 Управление системой
+PANEL,-1 -1 1024 646 N "WF_PanelBackground" 0
+"main()
+{  
+  if ( !getUserPermission(4) )
+  {
+    RootPanelOn(\"vision/MessageWarning\",
+                getCatStr(\"para\",\"warning\"),
+                makeDynString(getCatStr(\"pt\",\"error-12\")));
+  }
+  else
+  {
+    Ref_Work.setModuleName(\"SysMgmt_Module\");
+    Ref_Info.setModuleName(\"Breadcrumb_Module\");
+  
+    Ref_Work.openPanel(\"vision/SystemMgm/sysMgm_GridPanel.pnl\");
+    Ref_Info.openPanel(\"vision/SystemMgm/sysMgm_PanelBreadcrumb.pnl\");
+  
+    loadSysMgmtOverview();
+  
+    uiConnect(\"cb_screenResized\",\"Ref_Work\", \"screenResized\");
+  }
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 610
+""0  1
+E "#uses \"sysMgm\"
+#uses \"classes/TileScreen\"
+#uses \"classes/Tile\"
+
+// dyn_string SYMBOLS;
+TileScreen SysMgmt = TileScreen(\"GRID\", \"SysMgmt_Module\",\"panel\"), Breadcrumb = TileScreen(\"GRID\", \"Breadcrumb_Module\",\"panel\");
+int maxColumns = 6, tileXSize = 97; //TODO: automatic or central
+
+loadSysMgmtOverview()
+{
+  dyn_string dps;
+  string input;
+  int newXSize, newYSize;
+
+  //calculate inital maxColumns 
+  panelSize(myPanelName(),  newXSize, newYSize, TRUE);
+  maxColumns = newXSize / tileXSize;
+  
+  //   Remove remaining Symbol
+  SysMgmt.clearScreen();
+  SysMgmt.deleteAllTiles();
+ 
+  //Clear Data
+  smDbClear();  
+  
+  //Get SysMgmt DPs  
+  dps = smGetDps(true);
+  
+  //Load Data from DPs
+  for (int i=1; i<=dynlen(dps); i++)
+  {
+    dps[i] = dpSubStr(dps[i], DPSUB_SYS_DP);
+    smDbLoadRoot(dps[i]);
+  }
+  
+  //Add Symbol to the Panel
+  for(int i = 1; i <= dynlen(dps); i++)
+  {
+      string temp = dpSubStr(dps[i], DPSUB_SYS_DP);
+      Tile t = Tile(\"vision/SystemMgm/sysMgm_overview_icon.pnl\");
+      input = makeDynString(temp);
+      t.setInputs(input);
+      SysMgmt.appendTile(t);
+  }
+  
+  Breadcrumb.clearScreen();
+  Breadcrumb.deleteAllTiles();
+  // Add Breadcrumb
+  Tile temp = Tile(\"vision/SystemMgm/sysMgm_Breadcrumb.pnl\");
+  input = makeDynString(getCatStr(\"SysMgm\", \"sysMgm\"));
+  temp.setInputs(input);
+  Breadcrumb.appendTile(temp);
+  
+  Breadcrumb.drawScreen(maxColumns);
+  
+  SysMgmt.drawScreen(maxColumns);
+ 
+  
+  connectSymbols();
+  
+}
+
+connectSymbols()
+{
+  // set up the ecents for clicking on a existing project to start this üproject
+  for(int i = 1; i <= SysMgmt.countTile();i++)
+  {
+    Tile t = Tile(\"\");
+    t = SysMgmt.getTile(i); // get a tile with the project info
+
+    uiConnect(\"cb_loadSysMgmDetail\",\"SysMgmt_Module.panel:\"+t.getTileName(),\"Clicked\");
+  }  
+}
+
+cb_loadSysMgmDetail(string dp, int level)
+{
+  
+  if ( level == 1 )
+  {
+      dyn_string items;
+      int count, total = 0;  
+      
+      //   Load Data from DP
+      strreplace(dp, \"root\", \"\");
+      smDbLoadItems(dp);
+  
+    //   Get ItemsIdents from DP
+      items = smDbGetItemIdents(\"root\"+dp);
+      
+      Breadcrumb.clearScreen();
+      //Add Breadcrumb \">\"
+      Tile t1 = Tile(\"vision/SystemMgm/sysMgm_Breadcrumb.pnl\");
+      string input = makeDynString(\">\");
+      t1.setInputs(input);
+      Breadcrumb.appendTile(t1);
+      
+      //Add Breadcrumb Name from Level 2
+      Tile t2 = Tile(\"vision/SystemMgm/sysMgm_Breadcrumb.pnl\");
+      input = makeDynString(smDbGetRootSetting(\"root\"+dp, COLUMN_TITLE));
+      t2.setInputs(input);
+      Breadcrumb.appendTile(t2);
+
+      Breadcrumb.drawScreen(maxColumns); 
+      
+      t1 = Breadcrumb.getTile(1);
+      uiConnect(\"cb_Navi\",\"Breadcrumb_Module.panel:\"+t1.getTileName(),\"Clicked\");
+            
+    //   Remove remaining Symbol
+      SysMgmt.clearScreen();
+      SysMgmt.deleteAllTiles();
+  
+    //   Add new SYMBOLS
+      for(int i = 1; i <= dynlen(items) ; i++)
+      {
+          if (smHasVisiblePermission(items[i]))  //Nur wenn es sichtbar sein darf
+          {   
+            Tile t = Tile(\"vision/SystemMgm/sysMgm_overview_icon.pnl\");
+            string input = makeDynString(items[i], dp);
+            t.setInputs(input);
+            SysMgmt.appendTile(t);
+          }
+      }
+  
+      SysMgmt.drawScreen(maxColumns); 
+      connectSymbols();
+    }
+    else if ( level == 2 )
+    {
+      smStartAction(dp);
+    }
+    
+}
+
+
+cb_screenResized(string ref, int newMaxCols, int width, int height)
+{
+
+  maxColumns = newMaxCols;
+  if(ref != \"Ref_Work\") return;
+  
+  SysMgmt.arrangeScreen(maxColumns);
+  
+  //Removed this part because of not working scrollbar
+  // added hight of bottom bar and top menu
+//   height += height_temp;
+//   
+//   int temp;
+//   panelSize(myPanelName(),  width, temp, TRUE);
+//   setPanelSize(myModuleName(), myPanelName(), FALSE, width, height);
+}
+
+cb_Navi()
+{
+  loadSysMgmtOverview();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 5
+"CBRef" "1"
+"EClose" E
+"LangSwitchMode" "1"
+"dpi" "96"
+"sizePolicy" "Preferred Fixed"
+2 1 0 0 0 0 1 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 17
+"RECTANGLE1"
+"WF_BottomBar"
+1 0 350 E E E 1 E 1 E N "_ButtonBarBackground" E N "WF_Head" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "-1 55"
+"maximumSize" "-1 55"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 2.050100200400801 0 1.227272727272727 0 591 1 E 0 0 499 44
+13 21
+"cmdClose"
+"WF"
+1 926.4166666666665 573.5833333333335 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+4
+"minimumSize" "80 32"
+"maximumSize" "80 32"
+"sizePolicy" "Minimum Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  931 600.5 1014 635.5
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  smDbClear();
+  smDbRemoveIdLock();
+  PanelOff();
+}" 0
+ E E E
+32 22
+"SPACER1"
+""
+1 401 592 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+ 401 592 922 643 1
+15 56
+"Clock1"
+"WF"
+1 161.696 602.0866666666668 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "-1 32"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  162 602.5 390 633.5
+E 1 1 "%X" "%A %d.%m.%Y"
+1 1 0 2
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 
+14 57
+"TextField1"
+"WF"
+1 73.44999999999999 994.516317016316 E E E 1 E 1 E N "WF_Text" E N "_Button" E E
+ "main()
+{
+STD_UserPopup();
+}
+" 0
+ E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+
+3
+"minimumSize" "-1 32"
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  8 600.5 153 635.5
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+STD_showUser();
+} 
+" 0
+ E
+1 58 2 "" 1
+35 "verticalScrollBarPolicy" 2 0 0
+31 "transform" 0 0 2.56390977443609 0 1.278195488721805 -84.60902255639097 -22.12770793847978
+0
+1 59 3 "" 1
+35 "verticalScrollBarPolicy" 2 0 1
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 1 "LAYOUT_GROUP1" 4
+5 0 
+17 21 22 56 57 
+
+"" ""
+1 1 1 9 9 0 0 1 10
+3 2 "Ref_Work" 4
+"layoutAlignment" "AlignNone"
+"" ""
+"vision/SystemMgm/sysMgm_Module.pnl" 43 85 T 44 1 0 1.263046284344459 0 -18.7403233504355
+0
+3 3 "Ref_Info" 4
+"minimumSize" "-1 75"
+"maximumSize" "-1 75"
+"layoutAlignment" "AlignNone"
+"" ""
+"vision/SystemMgm/sysMgm_Module.pnl" 9.999999999999661 9 T 45 2.56390977443609 0 0.2319749216300941 8.698939647141182e-013 0.2319749216300941
+0
+4 4 "LAYOUT_GROUP4" -1
+0 3 
+
+2 3 1 
+"" ""
+0 2 0 1 0
+0

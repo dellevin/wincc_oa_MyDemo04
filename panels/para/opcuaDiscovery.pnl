@@ -1,0 +1,725 @@
+V 14
+4
+LANG:10001 15 OPCUA Discovery
+LANG:10004 12 OPCUA 探测
+LANG:10000 15 OPCUA Discovery
+LANG:10027 15 OPCUA Discovery
+PANEL,-1 -1 720 480 N "_3DFace" 4
+"$CONN"
+"$DRVNUM"
+"$REDU"
+"$URL"
+"main()
+{
+  g_sep1 = \" \";
+  g_sep2 = \"-\";
+  g_sep3 = \"_\";
+
+  g_conn = $CONN;
+  g_drvdp = g_sep3 + g_conn;
+
+  g_url = $URL;
+  g_client = getUaClient(g_conn);
+  g_reqid = \"request_discovery\" + g_drvdp + g_sep3 + g_url;
+
+  g_drvnum = $DRVNUM;
+  g_redu = $REDU;
+  g_strat = opcuaDriver_listStrategies();
+
+  tfConnection.text = g_conn;
+  tfUrl.text = g_url;
+
+  cmdOk.enabled = 0;
+
+  trItems.addColumn(\"Application Name / Endpoint URL\");
+  trItems.addColumn(\"Strategy / Message mode\");
+
+  trItems.hideColumn(1, 1);
+
+  if ( dpExists(g_client) )
+    dpConnect(\"refreshTree\", false, g_client + \".Discovery.ApplicationNames\" + sONL,
+                                    g_client + \".Discovery.ApplicationUris\"  + sONL,
+                                    g_client + \".Discovery.ProductUris\"      + sONL,
+                                    g_client + \".Discovery.DiscoveryUrls\"    + sONL,
+                                    g_client + \".Discovery.EndpointUrls\"     + sONL,
+                                    g_client + \".Discovery.RequestId\"        + sONL);
+
+  trItems.enabled(0);
+  trItems.updatesEnabled(1);
+
+  setInputFocus(myModuleName(), myPanelName(), \"tfUrl\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void refreshTree(string dp1, dyn_string dsAN,
+                 string dp2, dyn_string dsAU,
+                 string dp3, dyn_string dsPU,
+                 string dp4, dyn_string dsDU,
+                 string dp5, dyn_string dsEU,
+                 string dp6, string sRID)
+{
+  if ( sRID != g_reqid )
+  {
+    trItems.enabled(1);
+    trItems.updatesEnabled(1);
+    return;
+  }
+
+  for ( int i = 1; i <= dynlen(dsAU); i++ )
+  {
+    // browsing has no result for queried node || local discovery server was found
+    if ( !strlen(dsAU[i]) || strpos(dsAU[i], \"UALocalDiscoveryServer\") >= 0 )
+      continue;
+
+    if ( !trItems.itemExists(dsAU[i]) )
+    {
+      trItems.appendItem(\"\", dsAU[i], dsAN[i]);
+      trItems.setToolTip(dsAU[i], 0, \"Application URI: \" + dsAU[i] + \"\\n\" + \"Product URI: \"+ dsPU[i]);
+
+      if ( dsEU[i] == \"\" )
+        continue;
+
+      trItems.setExpandable(dsAU[i], 1);
+
+      dyn_string dsEUparts = strsplit(dsEU[i], g_sep1);
+      dyn_string dsStratMsg, dsEndpoint;
+
+      for ( int j = 1; j <= dynlen(dsEUparts); j++ )
+      {
+        if ( j%2 == 0 )
+          dynAppend(dsStratMsg, dsEUparts[j]);
+        else
+          dynAppend(dsEndpoint, dsEUparts[j]);
+      }
+
+      for ( int k = 1; k <= dynlen(dsEndpoint); k++ )
+      {
+        if ( !trItems.itemExists(dsEndpoint[k]+ g_sep1 + dsStratMsg[k]) )
+        {
+          trItems.appendItem(dsAU[i], dsEndpoint[k] + g_sep1 + dsStratMsg[k], dsEndpoint[k]);
+          trItems.setText(dsEndpoint[k] + g_sep1 + dsStratMsg[k], 1, dsStratMsg[k]);
+        }
+      }
+    }
+  }
+
+  trItems.enabled(true);
+  trItems.updatesEnabled(true);
+
+  showWaitModule(0);
+  cmdDiscover.enabled = 1;
+
+  if ( dynlen(dsAU) <= 0 )
+  {
+    string sMsg = getCatStr(\"opcua\", \"serverNotReachable\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"information\"),
+                             makeDynString(sMsg));
+    return;
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"opcuaDriver_plugin.ctl\"
+////////////////////////////////////////////////////////////////////////////////////////////////////
+string g_sep1;
+string g_sep2;
+string g_sep3;
+
+string g_conn;
+string g_drvdp;
+
+string g_url;
+string g_client;
+string g_reqid;
+
+int g_drvnum;
+bool g_redu;
+dyn_string g_strat;
+
+string sORI = \":_original.._value\";
+string sONL = \":_online.._value\";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void closeAndReturn(bool bOk = 0)
+{
+  string sId = trItems.currentItem();
+  string sParent = trItems.parent(sId);
+  string sUrl = (strpos(sId, g_sep1)>=0)?strsplit(sId, g_sep1)[1]:\"\";
+  string sStratMsg = trItems.getText(sId, 1);
+  string sStrat = (strpos(sStratMsg, g_sep2)>=0)?strsplit(sStratMsg, g_sep2)[1]:\"\";
+  string sMsgMode = (strpos(sStratMsg, g_sep2)>=0)?strsplit(sStratMsg, g_sep2)[2]:\"\";
+
+  string sCatMsg = getCatStr(\"opcua\", \"strategyNotSupported\");
+  strreplace(sCatMsg, \"$1\", sStrat);
+
+  if ( strlen(sId) && sParent != \"\" )
+  {
+    if ( !bOk )
+      setValue(\"cmdOk\", \"enabled\", 1);
+    else
+    {
+      if ( dynContains(g_strat, sStrat) > 0 )
+      {
+        if ( g_redu )
+          PanelOffReturn(makeDynFloat(1), makeDynString(sUrl));
+        else
+          PanelOffReturn(makeDynFloat(1), makeDynString(sUrl, sStrat, sMsgMode));
+      }
+      else
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                 getCatStr(\"para\", \"warning\"),
+                                 makeDynString(sCatMsg));
+    }
+  }
+  else
+    setValue(\"cmdOk\", \"enabled\", 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getUaClient(string sConn)
+{
+  string sUaClient;
+  dyn_string dsUaClients = dpNames(\"*\", \"_OPCUA\");
+  dyn_string dsUaServers;
+
+  for ( int i = 1; i <= dynlen(dsUaClients); i++ )
+  {
+    dpGet(dsUaClients[i] + \".Config.Servers\", dsUaServers);
+
+    if ( dynContains(dsUaServers, sConn) > 0 )
+    {
+      sUaClient = dpSubStr(dsUaClients[i], DPSUB_DP);
+      break;
+    }
+  }
+
+  return sUaClient;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void discoverServerUrl()
+{
+  dyn_int diDrvRunning = checkDrvNums();
+
+  if ( dynContains(diDrvRunning, g_drvnum) <= 0 )
+  {
+    string sMsg = getCatStr(\"opcua\", \"opcuaDrvNumWarning\");
+    strreplace(sMsg, \"$1\", g_drvnum);
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"information\"),
+                             makeDynString(sMsg));
+    return;
+  }
+
+  tfUrl.text = g_url;
+  g_reqid = \"request_discovery\" + g_drvdp + g_sep3 + g_url;
+
+  trItems.clear();
+  trItems.hideColumn(1, 0);
+
+  cmdDiscover.enabled = 0;
+
+  showWaitModule(1);
+
+  dpSet(g_client + \".Discovery.Discover\" + sORI, makeDynString(g_reqid, g_url));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  if ( !bVisible )
+    delay(0, 500);
+
+  wait_modul_config.visible = bVisible;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_int checkDrvNums()
+{
+  dyn_int diCheckedDrvNums;
+
+  string sSys = getSystemName();
+  dyn_int diCDMN, diCDMN_2;
+
+  dpGet(sSys + \"_Connections.Driver.ManNums:_online.._value\", diCDMN);
+
+  for ( int i = 1; i <= dynlen(diCDMN); i++ )
+  {
+    string sDrv;
+
+    if ( dpExists(sSys + \"_Driver\" + diCDMN[i]) )
+      dpGet(sSys + \"_Driver\" + diCDMN[i] + \".DT\", sDrv);
+
+    if ( sDrv == \"OPCUAC\" )
+      dynAppend(diCheckedDrvNums, diCDMN[i]);
+  }
+
+  if ( isRedundant() )
+  {
+    dpGet(sSys + \"_Connections_2.Driver.ManNums:_online.._value\", diCDMN_2);
+
+    for ( int i = 1; i <= dynlen(diCDMN_2); i++ )
+    {
+      string sDrv_2;
+
+      if ( dpExists(sSys + \"_Driver\" + diCDMN_2[i]) )
+        dpGet(sSys + \"_Driver\" + diCDMN_2[i] + \"_2.DT\", sDrv_2);
+
+      if ( sDrv_2 == \"OPCUAC\" )
+        dynAppend(diCheckedDrvNums, diCDMN_2[i]);
+    }
+  }
+
+  dynSort(diCheckedDrvNums);
+  return diCheckedDrvNums;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 0
+"frmDiscovery"
+""
+1 10 44.2142857142857 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.273224043715847 0 1.508474576271187 -2.732240437158469 -50.33898305084747 0 E 10 40 560 100
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 25 OPC UA discovery settings
+LANG:10004 19 OPC UA 探测设置
+LANG:10000 30 OPC UA Discovery Einstellungen
+LANG:10027 48 Параметры обнаружения OPC UA
+14 1
+"tfConnection"
+""
+1 65.36800494830894 34 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 33 521 59
+2 "0s" 0 0 0 0 0 -1  E E E
+13 11
+"cmdCancel"
+""
+1 432 539 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  613 443 711 471
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(), makeDynString());
+}
+" 0
+ E E E
+13 12
+"cmdOk"
+""
+1 433 554 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  513 443 611 471
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  closeAndReturn(1);
+}
+" 0
+ E E E
+29 17
+"trItems"
+""
+1 10 114.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"alternatingRowColors" "bool TRUE"
+"allColumnsShowFocus" "bool TRUE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10 110 709 419
+10 TreeWidget
+2
+0 "doubleClicked" "(string id, int column)"
+"  if ( id != \"\" && column >= 0 )
+    closeAndReturn(1);"
+0 "clicked" "(string id, int column)"
+"  if ( id != \"\" && column >= 0 )
+    closeAndReturn();"
+E2 18
+"ptConnection"
+""
+1 25 39.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 25 39.5 96 55
+0 2 2 "0s" 0 0 0 192 0 0  25 39.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 11 Connection:
+LANG:10004 9 连接：
+LANG:10000 11 Verbindung:
+LANG:10027 21 Соединение:
+1 29 0 "" 0
+0
+14 22
+"tfUrl"
+""
+1 170.0000000000002 141.0000000000005 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 ie "opc.tcp://someserver:4841"
+LANG:10004 34 例如 "opc.tcp://someserver:4841"
+LANG:10000 30 zB "opc.tcp://someserver:4841"
+LANG:10027 38 напр., "opc.tcp://someserver:4841"
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  g_url = newText;
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 63 521 89
+3 "0s" 0 0 0 0 0 -1  E E E
+13 24
+"cmdDiscover"
+""
+1 396.5 174 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 15 Start discovery
+LANG:10004 12 启动探测
+LANG:10000 17 Discovery starten
+LANG:10027 15 Start discovery
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  538 63 691 91
+
+T 
+4
+LANG:10001 8 Discover
+LANG:10004 6 探测
+LANG:10000 8 Discover
+LANG:10027 20 Обнаружить
+"main()
+{
+  discoverServerUrl();
+}
+" 0
+ E E E
+2 25
+"PRIMITIVE_TEXT1"
+""
+1 25 70 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 25 70 156 85
+0 2 2 "0s" 0 0 0 192 0 0  25 70 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 21 Discovery Server URL:
+LANG:10004 19 探测服务器URL:
+LANG:10000 21 Discovery Server URL:
+LANG:10027 33 URL сервера обнар-я:
+29 28
+"wait_modul_config"
+""
+1 11 134 E E E 1 E 0 E N "_WindowText" E N {63,63,63,131} E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"frameShape" "enum 0"
+"frameShadow" "enum 48"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  11 134 110 233
+15 Canvas.Canvas.1
+0
+"main()
+{
+  this.backCol(\"_3DFace\");
+  this.ModuleName = \"wait_modul_config\";
+
+  dyn_int diSize = makeDynInt(698, 285);
+  wait_modul_config.size(diSize[1], diSize[2]);
+
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\",
+                    \"wait_modul_config\",
+                    \"wait_modul_config\",
+                    makeDynString(\"$1:\"+diSize[1],
+                                  \"$2:\"+diSize[2]));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+13 31
+"cmdHelp"
+""
+1 -336 437 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 443 106 471
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main(mapping event)
+{
+  std_help(\"opcua\");
+}
+
+" 0
+ E "main(mapping event)
+{
+
+}
+" 0
+ E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 30 460 T 20 1.440881763527055 0 1 -43.22645290581166 -25
+0
+0

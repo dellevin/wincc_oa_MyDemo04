@@ -1,0 +1,332 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 649 549 N "_3DFace" 2
+"$TEXT"
+"$TOPOINDEX"
+"main()
+{
+  string text = $TEXT;
+  MENUTEXT.text = text;        // Set the name of the menu item
+  iTopoIndex    = $TOPOINDEX;		// set the topology index ( for later when we click on it )
+
+  int w, h;
+  langString font = MENUTEXT.font;
+  getValue(\"MENUTEXT\", \"size\", w, h);
+  
+  MENUTEXT.visible = true;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which retrieves font size from the font type
+ * @param font is the font type as a string
+ * @return font size
+ */
+int fontSize(string font)
+{
+  dyn_string parts = strsplit(font, \",\");
+  return (int)parts[3];  // 3 - font size position
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "
+int iTopoIndex;
+
+
+// **********************************************
+// Name : MenuRightClicked()
+// **********************************************
+// Description:
+//    Is called when we right-click our menu item
+//
+// Parameters:
+//   strSystemName: system to look at
+//   iButton:       the index of the button
+//   iTopoIndex:    index in topology
+//   iMenuOffsetX:  Menu position X
+//   iMenuOffsetY:  Menu position Y
+//    
+// Returns:
+//    Nothing
+//
+// **********************************************
+
+
+void MenuRightClicked()
+{
+  // define font and colors
+  int iX;
+  int iY;
+  string sFontString = \"-13,0,0,0,700,0,0,0,0,3,2,1,34,Arial\"; // arial, bold, 10
+  //string sForeColor = \"GHF_cmdNaviLevel4_text\";
+  //string sBackColor = \"GHF_cmdNaviLevel4_bc\";
+  string sForeColor = \"black\";
+  string sBackColor = \"grey\";
+  int iAnswer;            // Answer of popup menu
+  
+  // The menu bar that we build
+  dyn_string strMenu;
+
+  string strSystemName = getSystemName();
+  strreplace(strSystemName, \":\", \"\");
+
+  // We are now going to build the appropriate menu bar
+  // by calling a recursive function  
+  //BuildMenu( strSystemName, strMenu, iTopoIndex );
+  ptnavi_BuildLevel3Menu(strSystemName, strMenu, iTopoIndex);
+
+  // get the position of the current level 3 button
+  //getValue( \"MENUTEXT\",\"position\",iX,iY);
+  getCursorPosition(iX, iY, TRUE); // IM 109486
+  
+  // Add a bit of offset
+  //iY=iY + 42;
+  //iX=iX + tptms_DisplayPosX[ ptnavi_GetScreenName() ];
+
+  // When we don't have a valid popup menu, then it is time to quit here
+  if( !dynlen( strMenu ))
+  {
+    return;
+  }
+  
+  //DebugN( strMenu );
+  
+  // Open the popup and look for an answer
+  // popupMenuXY( strMenu, iX, iY, iAnswer , sFontString, sForeColor, sBackColor);
+  
+  popupMenuXY( strMenu, iX, iY, iAnswer );
+   
+  // when an snwer was chosen then open the panel now
+  if( iAnswer > 0 )
+  {
+    pt_panelOn3(
+    iAnswer,
+    \"mainModule_\"+ ptnavi_GetScreenName(),
+    strSystemName,
+    0,
+    1);
+  }
+  
+  
+} 
+
+// **********************************************
+// Name : BuildMenu()
+// **********************************************
+// Description:
+//    This is a recursive function that 
+//    is used to build the level 3 menu bar.
+//    
+//    We use it to build a menu bar just like
+//    'popupMenuXY()\" likes to have it with 
+//    PUSH_BUTTON's and CASCADE_BUTTON's
+//
+// Parameters:
+//   strSystemName: system to look at
+//   strMenu:       menu were our menu items are added to
+//   iTopoIndex:    index in topology
+// 
+// Returns:
+//    Nothing
+//
+// **********************************************
+
+void BuildMenu(
+  string &strSystemName,    // System name for which we're building a popup menu
+  dyn_string &strMenu,      // Menu were our menu items are added to
+  int iTopoIndex            // Index in the topology ( where we start Note that this is arecursive function )
+)
+{
+  // Local data
+  bool bChildren;           // TRUE -> This branch does have children
+  int t;                    // To iterate through the children of the current branch
+  int iChildTopoIndex;      // Index in toplogy of one of the child branches that we're looking at
+
+
+  // Only when there is a topoindex, you can show a pop-up!
+  if( iTopoIndex <= 0 )
+  {
+    return;
+  }
+
+  // Determine wether the branch we're looking at, has children
+  bChildren = dynlen( ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iTopoIndex ] ) >= 1;
+
+  // This branch should have children If not, then we have a recursive problem
+  if( !bChildren )
+  {
+    return;
+  }
+
+  // Iterate through all the children
+  for( t = 1; t <= dynlen( ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iTopoIndex ] ); t++)
+  {
+    iChildTopoIndex = ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iTopoIndex ][ t ];
+    
+    // An option in our menu bar can look like:
+    // - PUSH_BUTTON,text,id,1    ( the 1 is for enable / disable )
+    // - CASCADE_BUTTON,text,1
+    // We now add an entry to our menu bar
+    // PUSH_BUTTON when there are no child branches, CASCADE_BUTTON when there are
+
+    if( dynlen( ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iChildTopoIndex ] ) == 0 )
+    {
+       dynAppend( strMenu, \"PUSH_BUTTON,  \" + ptnavi_navigation[ strSystemName][ ptnavi_NODENAME ][iChildTopoIndex] + \",\" + iChildTopoIndex + \",1\" ); 
+    }          
+        
+    else 
+    {
+      dynAppend( strMenu, \"CASCADE_BUTTON,  \" + ptnavi_navigation[ strSystemName][ ptnavi_NODENAME ][iChildTopoIndex] + \",1\" );
+    }  
+    
+  }
+
+  // Now look for branches that have children of their own 
+  for( t = 1; t<= dynlen( ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iTopoIndex ] ); t++)
+  {
+    iChildTopoIndex = ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iTopoIndex ][ t ];
+    
+    // Look for branches that do have children. For each child, we call this function recursively
+    if( dynlen( ptnavi_navigation[ strSystemName ][ ptnavi_CHILDREN ][ iChildTopoIndex ] ) >  0 )
+    {
+    
+      dynAppend( strMenu, ptnavi_navigation[ strSystemName][ ptnavi_NODENAME ][ iChildTopoIndex] );
+          
+      BuildMenu( strSystemName, strMenu, iChildTopoIndex );
+    }  
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 0
+"MENUTEXT"
+""
+1 0 0 E E E 1 E 0 E N {38,96,115} E N {192,214,219} E E
+ "main()
+{
+  MenuRightClicked();
+}
+" 0
+ E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"hoverfclr" "N {255,255,255}"
+"hoverbclr" "N {38,96,115}"
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E "main()
+{
+  string strSystemName = getSystemName();
+  strreplace(strSystemName, \":\", \"\");
+  
+  // Open the first panel in our topology
+  pt_panelOn3(
+    iTopoIndex,
+    \"mainModule_\"+ ptnavi_GetScreenName(),
+    strSystemName,
+    0,
+    1);
+}
+
+
+" 0
+ 0 1 1 0 1 E U  1 E 2 2 68 18
+0 2 0 "0s" 0 0 0 64 0 0  2 2 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Text1
+LANG:10004 7 文本1
+LANG:10000 5 Text1
+LANG:10027 11 Текст1
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

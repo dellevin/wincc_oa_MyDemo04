@@ -1,0 +1,909 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 501 393 N "_3DFace" 0
+"main()
+{
+  // do some initializations
+  spDaysValid.value = 100;
+
+  checkInputReady();
+}" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "void checkInputReady()
+{
+  if (txtCertName.text != \"\" &&
+      strlen(txtCountry.text) == 2 &&
+      txtUri.text != \"\" &&
+      txtProvince.text != \"\" &&
+      txtOrganization.text != \"\" &&
+      txtMail.text != \"\" &&
+      txtDepartment.text != \"\" &&
+      txtDnsName.text != \"\" || txtIPAddress.text != \"\")
+    cmdCreateCert.enabled = true;
+  else
+    cmdCreateCert.enabled = false;
+}" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "120"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 3
+"cmdCreateCert"
+""
+1 395 345 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  393 343 481 371
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int i;
+  char pathCharSep = (_WIN32 ? \"\\\\\" : \"/\");
+  string derFile = txtPKIPath1.text + pathCharSep + \"CA\" + pathCharSep + \"certs\" + pathCharSep + txtCertName.text + \".der\";
+  string pemFile = txtPKIPath1.text + pathCharSep + \"CA\" + pathCharSep + \"private\" + pathCharSep + txtCertName.text + \".pem\";
+
+  dyn_string dsDns = strsplit(txtDnsName.text, \" \");
+  dyn_string dsIp = strsplit(txtIPAddress.text, \" \");
+  string sDns, sIp, urnHost;
+
+  if (dynlen(dsDns) > 0)
+    urnHost = dsDns[1];
+  else if (dynlen(dsIp) > 0)
+    urnHost = dsIp[1];
+
+  for (i = 1; i <= dynlen(dsDns); i++)
+  {
+    sDns = sDns + \",DNS:\" +dsDns[i];
+  }
+
+  for (i = 1; i <= dynlen(dsIp); i++)
+  {
+    sIp = sIp + \",IP:\" +dsIp[i];
+  }
+
+  if ( (access(derFile, F_OK) == 0) ||
+       (access(pemFile, F_OK) == 0) )
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", \"alreadyExists\",
+                                   makeDynString(getCatStr(\"opcua\", \"certAlreadyExists\"),
+                                                 getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")), df, ds);
+
+    if ( !df[1] )
+      return;
+
+    remove(derFile);
+    remove(pemFile);
+  }
+
+  string tmpConfig = tmpnam();
+
+  file fd = fopen(tmpConfig, \"w+\");
+
+  string openSSLConfig =
+  \"[ req ]\\n\" +
+  \"default_bits		= 2048\\n\" +
+  \"default_keyfile 	= privkey.pem\\n\" +
+  \"distinguished_name	= req_distinguished_name\\n\" +
+  \"attributes		= req_attributes\\n\" +
+  \"x509_extensions	= v3_ca\\n\" +
+  \"prompt                  = no\\n\" +
+  \"string_mask             = nombstr\\n\" +
+  \"default_days            = 1000\\n\" +
+  \"[ req_distinguished_name ]\\n\" +
+  \"C      = \" + txtCountry.text +
+  \"\\nST     = \" + txtProvince.text +
+  \"\\nL      = \" + txtLocality.text +
+  \"\\nO      = \" + txtOrganization.text +
+  \"\\nOU     = \" + txtDepartment.text +
+  \"\\nCN = \" + txtMail.text +
+  \"\\n[ req_attributes ]\\n\" +
+  \"challengePassword		= A challenge password\\n\" +
+  \"challengePassword_min		= 4\\n\" +
+  \"challengePassword_max		= 20\\n\" +
+  \"[ v3_ca ]\\n\" +
+  \"subjectKeyIdentifier=hash\\n\" +
+  \"authorityKeyIdentifier=keyid:always,issuer:always\\n\" +
+  \"basicConstraints = CA:false\\n\"+
+  \"subjectAltName=URI:\" + txtUri.text+sDns+sIp+\"\\n\" +
+  \"keyUsage=digitalSignature,nonRepudiation,keyEncipherment,dataEncipherment,keyCertSign\\n\" +
+  \"extendedKeyUsage=serverAuth,clientAuth\\n\";
+
+  fputs(openSSLConfig, fd);
+  fclose(fd);
+
+  string tmpOut = tmpnam();
+  system(\"openssl req -new -x509 -nodes -extensions v3_ca -keyout \" + pemFile + \" -out \" +
+         derFile + \" -outform DER -days \" + spDaysValid.text + \" -config \" + tmpConfig + \" -batch >> \" + tmpOut + \" 2>&1\");
+
+  remove(tmpOut);
+  remove(tmpConfig);
+
+  i = 0;
+  // on some systems there seem to be a timing issue
+  // so try several times with delay
+  while (i < 4 && ((access(derFile, F_OK) != 0) || (access(pemFile, F_OK) != 0)))
+  {
+    delay(1);
+    i++;
+  }
+  if (i == 4 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"couldNotCreateOPCUACert\",
+                             makeDynString(getCatStr(\"opcua\", \"couldNotCreateCert\")));
+
+    // be paranoid maybe one of them was created
+    remove(derFile);
+    remove(pemFile);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"OPCUACertCreated\",
+                             makeDynString(getCatStr(\"opcua\", \"certCreated\")));
+  }
+}
+
+
+" 0
+ E E E
+2 5
+"PRIMITIVE_TEXT4"
+""
+1 121 16 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 16 115 36
+0 2 2 "0s" 0 0 0 66 0 0  11 16 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 File Name:
+LANG:10004 12 文件名：
+LANG:10000 10 Dateiname:
+LANG:10027 18 Имя файла:
+14 7
+"txtCertName"
+""
+1 121 15 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 66 Certificate file name.
+Extension ".der" is automatically appended.
+LANG:10004 52 证书文件名.
+扩展名".der" 已经自动添加.
+LANG:10000 81 Dateiname des Zertifikates.
+Die Erweiterung ".der" wird automatisch hinzugefügt.
+LANG:10027 66 Certificate file name.
+Extension ".der" is automatically appended.
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 13 481 39
+3 "0s" 0 0 0 0 0 -1  E E E
+2 8
+"PRIMITIVE_TEXT5"
+""
+1 133 87 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 87 115 104
+0 2 2 "0s" 0 0 0 66 0 0  11 87 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Country Code:
+LANG:10004 12 国家代码
+LANG:10000 12 Ländercode:
+LANG:10027 20 Код страны:
+14 10
+"txtCountry"
+""
+1 121.189368155177 85 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 Two letter Country code (z.B. AT, US ...)
+LANG:10004 44 两个字母的国家代码(z.B. AT, US ...)
+LANG:10000 41 Ländercode zweistellig (z.B. AT, US ...)
+LANG:10027 41 Two letter Country code (z.B. AT, US ...)
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 83 161 109
+3 "0s" 0 0 0 0 0 -1  E E E
+2 11
+"PRIMITIVE_TEXT6"
+""
+1 295 87 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 160 87 222 110
+0 2 2 "0s" 0 0 0 66 0 0  160 87 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Province:
+LANG:10004 7 省份:
+LANG:10000 8 Provinz:
+LANG:10027 16 Провинц.:
+14 12
+"txtProvince"
+""
+1 229 85 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 e.g. Burgenland
+LANG:10004 15 e.g. Burgenland
+LANG:10000 15 Z.B. Burgenland
+LANG:10027 15 e.g. Burgenland
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  227 83 482 109
+3 "0s" 0 0 0 0 0 -1  E E E
+2 13
+"PRIMITIVE_TEXT7"
+""
+1 133 117 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 117 115 135
+0 2 2 "0s" 0 0 0 66 0 0  11 117 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 City:
+LANG:10004 7 城市:
+LANG:10000 10 Ort/Stadt:
+LANG:10027 11 Город:
+14 14
+"txtLocality"
+""
+1 121 115 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 e.g. Eisenstadt
+LANG:10004 15 e.g. Eisenstadt
+LANG:10000 15 Z.B. Eisenstadt
+LANG:10027 15 e.g. Eisenstadt
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 113 481 139
+3 "0s" 0 0 0 0 0 -1  E E E
+2 15
+"PRIMITIVE_TEXT8"
+""
+1 133 147 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 147 115 165
+0 2 2 "0s" 0 0 0 66 0 0  11 147 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Organization:
+LANG:10004 13 组织机构:
+LANG:10000 13 Organisation:
+LANG:10027 23 Организация:
+14 16
+"txtOrganization"
+""
+1 120.9999999999999 146 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 e.g. ETM
+LANG:10004 8 e.g. ETM
+LANG:10000 8 Z.B. ETM
+LANG:10027 8 e.g. ETM
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 144 481 170
+3 "0s" 0 0 0 0 0 -1  E E E
+2 17
+"PRIMITIVE_TEXT9"
+""
+1 133 177 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 177 115 195
+0 2 2 "0s" 0 0 0 66 0 0  11 177 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Department:
+LANG:10004 7 部门:
+LANG:10000 10 Abteilung:
+LANG:10027 27 Подразделение:
+14 18
+"txtDepartment"
+""
+1 120.9999999999999 177 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 e.g. Development
+LANG:10004 16 e.g. Development
+LANG:10000 16 Z.B. Entwicklung
+LANG:10027 16 e.g. Development
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 175 481 201
+3 "0s" 0 0 0 0 0 -1  E E E
+14 21
+"txtMail"
+""
+1 119.9999999999999 208 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 42 Name of application (e.g. WinCC OA Client)
+LANG:10004 38 应用的名称(例如WinCC OA Client)
+LANG:10000 41 Name der Anwendung (z.B. WinCC OA Client)
+LANG:10027 42 Name of application (e.g. WinCC OA Client)
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 206 480 232
+3 "0s" 0 0 0 0 0 -1  E E E
+2 22
+"PRIMITIVE_TEXT11"
+""
+1 133 208 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 208 115 226
+0 2 2 "0s" 0 0 0 66 0 0  11 208 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 7 名称:
+LANG:10000 5 Name:
+LANG:10027 6 Имя
+2 24
+"PRIMITIVE_TEXT12"
+""
+1 133 46 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 46 115 64
+0 2 2 "0s" 0 0 0 66 0 0  11 46 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Expiration in:
+LANG:10004 13 到期时间:
+LANG:10000 18 Gültigkeitsdauer:
+LANG:10027 28 Истекает через:
+21 25
+"spDaysValid"
+""
+1 121 45 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  119 43 232 67
+0
+
+E
+E
+E
+
+N 0 999999999 1 0 1 1
+2 26
+"PRIMITIVE_TEXT13"
+""
+1 362 46 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 240 46 344 64
+0 2 2 "0s" 0 0 0 64 0 0  240 46 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Days
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 5 дн.
+14 27
+"txtPKIPath1"
+""
+1 20 345 E E E 1 E 0 E N "_WindowText" E N "AESfgPending" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  18 343 162 367
+3 "0s" 0 0 0 0 0 -1  E E E
+14 28
+"txtDnsName"
+""
+1 119.9999999999999 271 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 78 More than one host name can be given, if necessary, as 'space' separated list.
+LANG:10004 86 允许给定多于1个主机地址，如果需要，使用 “space” 来隔离列表
+LANG:10000 80 Mehrere Hostnamen können wenn nötig mit Leerzeichen getrennt angegeben werden.
+LANG:10027 78 More than one host name can be given, if necessary, as 'space' separated list.
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 269 480 295
+3 "0s" 0 0 0 0 0 -1  E E E
+2 29
+"PRIMITIVE_TEXT14"
+""
+1 134 273 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 12 273 116 291
+0 2 2 "0s" 0 0 0 66 0 0  12 273 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 DNS Name:
+LANG:10004 10 DNS名称:
+LANG:10000 9 DNS Name:
+LANG:10027 11 DNS-имя:
+14 30
+"txtIPAddress"
+""
+1 119.9999999999999 305 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 80 More than one IP addresse can be given, if necessary, as 'space' separated list.
+LANG:10004 82 允许给定多于1个IP地址，如果需要，使用 “space” 来隔离列表
+LANG:10000 82 Mehrere IP Adressen können wenn nötig mit Leerzeichen getrennt angegeben werden.
+LANG:10027 80 More than one IP addresse can be given, if necessary, as 'space' separated list.
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 303 480.0000000000001 329
+3 "0s" 0 0 0 0 0 -1  E E E
+2 31
+"PRIMITIVE_TEXT15"
+""
+1 133.9999999999999 307 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 12.00000000000003 307 116 325
+0 2 2 "0s" 0 0 0 66 0 0  12.00000000000003 307 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 IP Address:
+LANG:10004 11 IP地址：
+LANG:10000 11 IP Adresse:
+LANG:10027 14 IP-адрес:
+14 32
+"txtUri"
+""
+1 119.9999999999999 239 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 Uniform Resource Identifier for the application
+LANG:10004 36 应用程序的统一资源标识符
+LANG:10000 47 Uniform Resource Identifier für die Anwendung 
+LANG:10027 47 Uniform Resource Identifier for the application
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  checkInputReady();
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 237 480 263
+3 "0s" 0 0 0 0 0 -1  E E E
+2 33
+"PRIMITIVE_TEXT16"
+""
+1 133 239 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 11 239 115 257
+0 2 2 "0s" 0 0 0 66 0 0  11 239 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Application URI:
+LANG:10004 11 应用 URI:
+LANG:10000 16 Application URI:
+LANG:10027 25 URI приложения:
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

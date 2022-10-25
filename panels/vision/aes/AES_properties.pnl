@@ -1,0 +1,748 @@
+V 14
+4
+LANG:10001 25 Properties of alert panel
+LANG:10004 18 报警面板属性
+LANG:10000 29 Eigenschaften von Meldeschirm
+LANG:10027 44 Свойства панели алармов
+PANEL,-1 -1 480 582 N "_3DFace" 0
+"//#uses \"AES_peter.ctl\"
+
+main()
+{
+  prepareVST();
+  dyn_string configNames;
+
+  // we need this call to build new panelglobal vstn/ddares object
+//  aes_reload();
+
+  // saving all important values to panelglobal variables
+  g_propDpName   =getDollarValue( AESREGDOLLAR_PROPDP );
+  g_balPropDpName=getDollarValue( AESREGDOLLAR_BALPROPDP );
+  g_configName   =getDollarValue( AESREGDOLLAR_CONFIGNAME );
+  g_alertRow     =getDollarValue( AESREGDOLLAR_ALERTROW );
+  g_configPanel  =getDollarValue( AESREGDOLLAR_CONFIGPANEL );
+
+  if( isDollarDefined( AESREGDOLLAR_COLTITLES ) )
+  {
+    g_colTitles=aec_s2ds( getDollarValue( AESREGDOLLAR_COLTITLES ), AEC_SEP );
+  }
+
+  if( isDollarDefined( AESREGDOLLAR_COLNAMES ) )
+  {
+    g_colNames=aec_s2ds( getDollarValue( AESREGDOLLAR_COLNAMES ), AEC_SEP );
+  }
+
+//DebugN(\"Properties titles(\" + dynlen(g_colTitles) + \")=\" + g_colTitles );
+//DebugN(\"Properties names(\" + dynlen(g_colNames) + \")=\" + g_colNames );
+
+  aes_getScreenType( g_propDpName, g_screenType );
+  aes_getTabType( g_propDpName, g_tabType );
+
+  // adding additional filter tab if enabled via config entry accordingly
+  string sAdditionalFilterTab;
+  AesType extendedFiltersMode = aes_getExtendedFiltersMode();
+
+  if (g_screenType == 1 && extendedFiltersMode == AesType::Alarm)
+  {
+    sAdditionalFilterTab = \"vision/aes/AS_propFilterExtended.pnl\";
+  }
+  else if (g_screenType == 2 && extendedFiltersMode == AesType::Event)
+  {
+    sAdditionalFilterTab = \"vision/aes/ES_propFilterExtended.pnl\";
+  }
+  else if ((g_screenType == 1 || g_screenType == 2) && extendedFiltersMode == AesType::Both)
+  {
+    sAdditionalFilterTab = \"vision/aes/AES_propFilterExtended.pnl\";
+  }
+
+  if (sAdditionalFilterTab != \"\") // add tab for additional filters
+  {
+    int iRegCount = reg_main.registerCount();
+    reg_main.insertRegister(iRegCount);
+    reg_main.registerHeader(iRegCount, getCatStr(\"aesExtension\", \"extendedFilter\"));
+    reg_main.registerPanel(iRegCount, sAdditionalFilterTab, makeDynString());
+  }
+
+  DebugFTN(\"extendedFilter\", \"extended filter panel\", sAdditionalFilterTab);
+  DebugFTN(\"extendedFilter\", \"g_propDpName\", g_propDpName);
+  DebugFTN(\"extendedFilter\", \"g_screenType\", g_screenType);
+  DebugFTN(\"extendedFilter\", \"g_tabType\", g_tabType);
+
+  if( !aes_operationPermission( g_configName, AES_OPERTYPE_PROPERTIES, AES_OPER_REMOVE ) )
+  {
+    //§§§ dialog
+    setMultiValue(  \"pb_saveConfig\", \"enabled\", false,
+                    \"pb_deleteConfig\", \"enabled\", false );
+  }
+  else
+  {
+    int deletePermission; //contains the permission to delete a DP
+    dpGetCache(\"_System.Auth.Dp:_original.._value\", deletePermission); // Querie the userpermission which is needed to delete a DP
+    setMultiValue(  \"pb_saveConfig\", \"enabled\", true,
+                    \"pb_deleteConfig\", \"enabled\", getUserPermission(deletePermission)); // set enabled if user is allowed to delete a DP
+  }
+
+  // if we were in config panel, we have to copy property settings to dummy runtime dp
+  // even screenType, tabType
+  if( g_configPanel )
+  {
+    //aes_copyDp();
+  }
+
+  aes_propInit( g_screenType, g_tabType, g_configName, g_propDpName );
+
+  if( g_alertRow )
+  {
+    ti_type.enabled=false;
+  }
+
+  setValue( \"sl_tmpVisCol\", \"items\", g_colTitles );
+
+  reg_main.visible=true;
+
+  localProperty.visible(distsync_isConfigured());
+}
+" 0
+ "main()
+{
+  dropVST();
+}" 0
+ E E E 1 -1 -1 0  13 8
+""0  1
+E "//////// neu ******* begin
+// neu
+dyn_anytype ddaRes;
+
+// neu - jetzt über dollar var
+dyn_string g_colNames;
+dyn_string g_colTitles;
+
+// the following variables will be set in initial section
+string g_propDpName;
+string g_balPropDpName;		// balanced propDpName
+string g_configName;
+int g_screenType; // 1 = Alarm Screen, 2 = Event Screen
+int g_tabType;
+bool g_alertRow;
+bool g_configPanel;
+
+const int
+COLIDX=1,
+PANEL=2,
+COLNAME=3,
+COLVIS=4,
+COLSCRRENTYPE=5,
+COLTABTYPE=6,
+COLCONFIGNAME=7;
+
+int
+firstAlertReg, lastAlertReg,
+firstEventReg, lastEventReg;
+
+// const
+int
+//alerts
+PREGA_TIMERANGE,
+PREGA_FILTER,
+PREGA_FILTERTYPES,
+PREGA_FILTERSTATE,
+PREGA_FILETERSYSTEM,
+PREGA_SORT,
+PREGA_VISIBLE,
+PREGA_GENERAL,
+// events
+PREGE_TIMERANGE,
+PREGE_FILTER,
+PREGE_FILTERTYPES,
+PREGE_FILTERSTATE,
+PREGE_FILETERSYSTEM,
+PREGE_SORT,
+PREGE_VISIBLE,
+PREGE_GENERAL;
+
+closePanel()
+{
+  string config;
+  dyn_string ds, configList;
+  dyn_float df;
+  int pos;
+
+  configList=configName.items;
+  config=configName.text;
+
+  if( dynlen( configList ) > 0 )
+  {
+    ds=configList;
+    pos=dynContains( configList, config );
+    if( pos > 0 )
+    {
+      df[1]=pos;
+    }
+    else
+    {
+      df[1]=0;
+    }
+  }
+  else
+  {
+    df[1]=0;
+    ds=makeDynString();
+  }
+
+  df[2]=AES_CONF_CANCEL;
+
+  // we don't write back data to runtime dp at cancel
+  PanelOffReturn( df, ds );
+}
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  closePanel();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 18
+"Frame1"
+""
+1 10 499 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.406779661016949 0 -178.9830508474577 0 E 10 440 470 500
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Properties
+LANG:10004 6 属性
+LANG:10000 13 Eigenschaften
+LANG:10027 16 Свойства
+2 20
+"Text1"
+""
+1 110 543 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 112 545 191 560
+0 2 0 "0s" 0 0 0 192 0 0  112 545 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Active config:
+LANG:10004 22 正在运行的配置:
+LANG:10000 14 Aktive Konfig:
+LANG:10027 35 Активный конф.элем.
+13 14
+"Button4"
+""
+1 340 459 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Open config
+LANG:10004 12 打开配置
+LANG:10000 14 Konfig öffnen
+LANG:10027 33 Открыть конф.элем.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  338 457 366 485
+
+P 
+10862530
+"pictures/StandardIcons/Open_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  aes_loadPropertyConfig();
+}" 0
+ E E E
+22 5
+"configName"
+""
+1 17.84375 460 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 458 461 484
+0
+
+E
+"main()
+{
+  aes_loadPropertyConfig();
+}" 0
+
+E
+ 0 0
+13 1
+"ok"
+""
+1 284.9999999999999 547 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  283 546 371 574
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+
+  int screenType, tabType;
+  string config;
+  dyn_string ds, configList;
+  dyn_float df;
+  int pos, ret;
+
+  bool b_aesAutoRestart;
+  bool b_firstAnswerReceived;
+
+  configList=configName.items;
+  config=configName.text;
+
+  // set b_aesAutoRestart = 0 and b_firstAnswerReceived = 0 if properties dialog is closed with OK
+  DebugFTN(\"aesDist\",__LINE__,__FUNCTION__,\"set b_aesAutoRestart and b_firstAnswerReceived\",g_propDpName);
+  b_aesAutoRestart = 0;
+  b_firstAnswerReceived = 0;
+
+  mAESAutoRestart[g_propDpName] = b_aesAutoRestart;
+  mFirstAnswerReceived[g_propDpName] = b_firstAnswerReceived;
+
+  // only this set operation write datas to runtime dp
+  aes_setProps( g_propDpName, config, g_screenType, g_tabType, ret, false, false);
+
+  // saving configchange to runtime dp
+  dpSetCache( g_propDpName + \".Settings.Config\" + AES_ORIVAL, config );
+
+  if( dynlen( configList ) > 0 )
+  {
+    ds=configList;
+    pos=dynContains( configList, config );
+
+    if( pos > 0 )
+    {
+      df[1]=pos;
+    }
+    else
+    {
+      df[1]=0;
+    }
+  }
+  else
+  {
+    df[1]=0;
+    ds=makeDynString();
+  }
+
+  df[2]=AES_CONF_OK;
+
+  PanelOffReturn( df, ds );
+}" 0
+ E E E
+13 2
+"abbrechen"
+""
+1 374.9999999999999 547 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+7 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  373 546 461 574
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  closePanel();
+}" 0
+ E E E
+28 11
+"reg_main"
+""
+1 70 85 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  8 8 472 432
+E8 "#0" 4
+LANG:10001 2 #A
+LANG:10004 2 #A
+LANG:10000 2 #A
+LANG:10027 2 #A
+0
+"#1" 4
+LANG:10001 2 #B
+LANG:10004 2 #B
+LANG:10000 2 #C
+LANG:10027 2 #B
+0
+"#2" 4
+LANG:10001 2 #C
+LANG:10004 2 #C
+LANG:10000 2 #D
+LANG:10027 2 #C
+0
+"#3" 4
+LANG:10001 2 #D
+LANG:10004 2 #D
+LANG:10000 2 #E
+LANG:10027 2 #D
+0
+"#4" 4
+LANG:10001 2 #E
+LANG:10004 2 #E
+LANG:10000 2 #F
+LANG:10027 2 #E
+0
+"#5" 4
+LANG:10001 2 #F
+LANG:10004 2 #F
+LANG:10000 2 #G
+LANG:10027 2 #F
+0
+"#6" 4
+LANG:10001 2 #G
+LANG:10004 2 #G
+LANG:10000 2 #H
+LANG:10027 2 #G
+0
+"#7" 4
+LANG:10001 2 #H
+LANG:10004 2 #H
+LANG:10000 2 #I
+LANG:10027 2 #H
+0
+
+13 12
+"pb_saveConfig"
+""
+1 403.8 491 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Save property
+LANG:10004 12 保存属性
+LANG:10000 21 Eigenschaft speichern
+LANG:10027 35 Сохранить свойство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  402 489 430 517
+
+P 
+13160660
+"pictures/StandardIcons/Save_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  aes_savePropertyConfig();
+}" 0
+ E E E
+13 13
+"pb_deleteConfig"
+""
+1 432.8 491 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Delete property
+LANG:10004 12 删除属性
+LANG:10000 20 Eigenschaft löschen
+LANG:10027 31 Удалить свойство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  432 489 460 517
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  aes_removePropertyConfig();
+}" 0
+ E E E
+13 19
+"pb_newConfig"
+""
+1 372.9333333333333 491 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 New property
+LANG:10004 9 新房产
+LANG:10000 23 Eigenschaft neu anlegen
+LANG:10027 33 Добавить свойство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  372 489 402 517
+
+P 
+13160660
+"pictures/StandardIcons/new_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  aes_addPropertyConfig();
+}" 0
+ E E E
+14 21
+"txtConfigName"
+""
+1 150 548 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  148 546 252 572
+3 "0s" 0 0 0 0 0 -1  E E E
+1 25 0 "" 0
+0
+20 24
+"localProperty"
+""
+1 294 492 E E E 0 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  292 490 375 516
+1
+T 
+4
+LANG:10001 7 Private
+LANG:10004 9 私有的
+LANG:10000 6 Privat
+LANG:10027 14 Частный
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 510 T 21 1.050100200400802 0 1 -25.75150300601203 28
+0
+0

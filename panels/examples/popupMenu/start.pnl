@@ -1,0 +1,707 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1234 721 N "white" 0
+"main()
+{
+  // GRID BLOCK
+  rowNames = makeDynString(\"Belt\", \"Belt\", \"Belt\",
+                             \"Engine\", \"Engine\", \"Engine\", \"Engine\", \"Engine\",
+                             \"Cooling\", \"Cooling\", \"Cooling\");
+
+  rowIndices = makeDynString(\"A\", \"B\", \"C\",
+                             \"A1\", \"A2\", \"B1\", \"B2\", \"C\",
+                              \"A\", \"B\", \"C\");
+
+  rowDpes = makeDynString(\"beltA\", \"beltB\", \"beltC\",
+                            \"engineA1\", \"engineA2\", \"engineB1\", \"engineB2\", \"engineC\",
+                            \"coolingA\", \"coolingB\", \"coolingC\");
+
+  // Header labels
+  columnBlockNames = makeDynString(\"Voltage\", \"Temperature\");
+
+  columnBlockIcons = makeDynString(\"StandardIcons/plc_inactive_40.png\",
+                                   \"examples/popupMenu/thermometer.png\");
+
+  // Header sub-labels
+  columnNames = makeDynString(\"Actual\", \"Set\", \"Warning limit\", \"Error limit\");
+
+  columnIcons = makeDynString(\"examples/popupMenu/actual.png\",
+                           \"examples/popupMenu/set.png\",
+                           \"examples/popupMenu/warning.png\",
+                           \"examples/popupMenu/alarm.png\");
+
+
+  // MENU BLOCK
+  // Menu titles
+  menuHeaders[1] = \"Main\";  // header name
+  menuLabels[1] = makeDynString(\"Main\");  // menu item names
+  menuIcons[1] = makeDynString(\"examples/popupMenu/home-enabled.png\");  // menu item icons
+
+  menuHeaders[2] = \"Sites\";  // header name
+  menuLabels[2] = makeDynString(\"Site A\", \"Site B\", \"Site C\");  // menu item names
+  menuIcons[2] = makeDynString(\"examples/popupMenu/refresh_40-enabled.png\",
+                               \"examples/popupMenu/refresh_40-enabled.png\",
+                               \"examples/popupMenu/refresh_40-enabled.png\");  // menu item icons
+
+
+  menuHeaders[3] = \"Tools\";  // header name
+  menuLabels[3] = makeDynString(\"Alarm Screen\");  // menu item names
+  menuIcons[3] =  makeDynString(\"examples/popupMenu/AesScreenAlerts_40-enabled.png\");  // menu item icons
+
+  menuHeaders[4] = \"\";  // header name
+  menuLabels[4] = makeDynString(\"Exit\");  // menu item names
+  menuIcons[4] =  makeDynString(\"examples/popupMenu/delete_40-enabled.png\");  // menu item icons
+
+  setScaleStyle(SCALE_NONE);
+  mapMenuItems();  // write the defined above parameters into global dynamic array
+
+  // Keep main window parameters
+  mainShape = this;
+  nameMainModule = myModuleName();
+  nameMainPanel = myPanelName();
+
+  // Create DataPoints
+  dyn_errClass err = createDPEs(rowDpes);
+  if ( dynlen(err) > 0 )  // if any errors -> opne the Dialog and stop
+  {
+    errorDialog(err);
+    rcButton.enabled(false);
+    return;
+  }
+
+  // Open the Quick Navigation panel
+  RootPanelOnModule(\"examples/popupMenu/subPanels/naviWindow.pnl\", \"QuickNavi\", embNavi.ModuleName(), makeDynString());
+
+  // Open the Main Panel
+  diSelection = makeDynInt(1, 1);
+  invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openRootPanel\");
+}
+" 0
+ E E E E 1 -1 -1 0  10 20
+""0  1
+E "#uses \"examples/popupMenu.ctl\"
+
+/*
+  @authors Grygorii Sokhrannyi, Markus Trummer
+  The function which opens Menu Window
+*/
+void openMenu()
+{
+  // Get main window size, needed to adjust the size of the menu
+  getMainWindowSize();
+
+  // Define and get the menu item position
+  dyn_int oldPosition = diSelection;
+  diSelection = getPopup(makeDynString(\"$GROUP:\" + diSelection[1], \"$SUBGROUP:\" + diSelection[2]));
+
+  if ( (diSelection[1] == -1) && (diSelection[2] == -1) )  // no item selected
+    return;
+
+  if ( oldPosition == diSelection )  // if no changes, nothing to load
+    return;
+
+  // Load the appropriate panel
+  if ( (diSelection[1] == 1) && (diSelection[2] == 1) )
+    invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openRootPanel\");
+  else if ( (diSelection[1] == 2) && (diSelection[2] == 1) )
+    invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openSidePanel\", \"A\");
+  else if ( (diSelection[1] == 2) && (diSelection[2] == 2) )
+    invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openSidePanel\", \"B\");
+  else if ( (diSelection[1] == 2) && (diSelection[2] == 3) )
+    invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openSidePanel\", \"C\");
+  else if ( (diSelection[1] == 3) && (diSelection[2] == 1) )
+    invokeMethod(nameMainModule + \".\" + nameMainPanel + \":mainPanel\", \"openAlarmPanel\");
+  else if ( (diSelection[1] == 4) && (diSelection[2] == 1) )
+    PanelOff();
+}
+
+/*
+  @authors Grygorii Sokhrannyi, Markus Trummer
+  Open a child panel in the given position and return the menu item list
+  @param: dsParams - dynamic string variable which is a template for a menu item position (group number and item number)
+  @return: da2 - the selected item position, if no item is selected (click outside of a menu), then (-1, -1) is returned
+*/
+dyn_int getPopup(const dyn_string &dsParams)
+{
+  // Get position of the menu button
+  int x,y;
+  getValue(\"\", \"position\", x, y);
+
+  // Define property of the menu; position, reference panel name.
+  int iX = x, iY = y + this.getHeight();
+  dyn_anytype da = makeDynAnytype(myModuleName(),
+                                  getPath(PANELS_REL_PATH, \"examples/popupMenu/subPanels/PopUpModule.pnl\"),
+                                  myPanelName(),
+                                  \"popup\",
+                                  iX,
+                                  iY,
+                                  1.0,
+                                  true,
+                                  dsParams,
+                                  false,
+                                  makeMapping(\"windowFlags\", \"Popup\"));
+
+  // Load the menu items and get the selected item number
+  dyn_anytype da2;
+  childPanel(da, da2);
+
+  return da2;
+}
+
+/*
+  @authors Markus Trummer
+  Map menu items - titles, headers and icons, into the global mapping variable
+*/
+void mapMenuItems()
+{
+  // If is already initialized (e.g. navigate from one position panel to another one
+  if ( dynlen(dmIfItems) > 0 )
+    dynClear(dmIfItems);
+
+  mapping menuItems;
+
+  for (int i = 1; i <= dynlen(menuHeaders); ++i)
+  {
+    menuItems[KEY_TEXT] = menuHeaders[i];
+    menuItems[KEY_ITEMS] = createSubItem(menuLabels[i], menuIcons[i]);
+
+    dynAppend(dmIfItems, menuItems);
+  }
+}
+
+/*
+  @authors Markus Trummer
+  Map menu labels to an icons
+  @params:
+    dsText - menu labels
+    dsIcon - menu icons
+  @return: dmTmpSubItems - the labels and icons mapping
+*/
+dyn_mapping createSubItem(const dyn_string &dsTexts, const dyn_string &dsIcons)
+{
+  mapping mTmpItem;
+  dyn_mapping dmTmpSubItems;
+
+  for (int i = 1; i <= dynlen(dsTexts); i++)
+  {
+    mTmpItem[KEY_TEXT] = dsTexts[i];
+    mTmpItem[KEY_ICON] = dsIcons[i];
+
+    dynAppend(dmTmpSubItems, mTmpItem);
+  }
+
+  return dmTmpSubItems;
+}
+
+/*
+  @author Grygorii Sokhrannyi
+  The function which creates DPEs needed for this example
+  @param: DPEs - the Datapoints to be created
+  @return: err - error if any raised during the function work
+*/
+dyn_errClass createDPEs(const dyn_string &DPEs)
+{
+  dyn_errClass err;
+
+  for (int i = 1; i <= dynlen(DPEs); ++i)
+  {
+    if ( !dpExists(DPEs[i]) )
+    {
+      dpCreate(DPEs[i], \"ANALOG2\");
+      err = getLastError();
+
+      if ( dynlen(err) > 0 )
+        return err;
+      else
+        newAlert(DPEs[i]);
+    }
+  }
+
+  return err;
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"sizePolicy" "Preferred Expanding"
+3 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 10
+"RECTANGLE2"
+""
+1 150 20 E E E 1 E 1 E N "SiemensWebFunctionalBlack" E N "SiemensNaturalBlueLight" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E 1.537802668581435 0 0.7654891474479124 -221.6704002872152 -5.950670251769014 4 "[linear,pad,0.12,0,0.892,0,0.114,SiemensNaturalBlueLight,0.987,SiemensNaturalBlueDark]" E 150 20 940 80
+1 47 0 "" 1
+31 "transform" 0 0 0.810060033229359 0 0.9440059958171346 330.9320307161951 39.62246557446208
+1 "message" 1 1 E 
+35 "horizontalScrollBarPolicy" 2 0 0
+35 "verticalScrollBarPolicy" 2 0 0
+0
+6 9
+"RECTANGLE1"
+""
+1 130 90 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E 2.475996578744341 0 1.324489795918367 -15.75996578744341 -57.20408163265306 4 "[linear,pad,0.976,0.012,0.988,0.867,0.00336,SiemensNaturalBlueDark,0.993,SiemensNaturalBlueLight]" E 130 90 10 580
+1 48 1 "" 1
+1 "leftClick" 1 1 "main ()
+{
+  handleClicked();
+}
+" 0
+ 
+35 "verticalSizePolicy" 0 0 1
+31 "transform" 0 0 1.259604376767492 0 2.479557391790312 -123.5067822471337 282.8091810939272
+35 "horizontalSizePolicy" 0 0 7
+35 "layoutAlignment" 0 0 0
+12 "maximumSize" 0 0 -1 52
+12 "minimumSize" 0 0 -1 52
+0
+29 33
+"embNavi"
+""
+1 11.81181992199388 69.14308176100799 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+11
+"newPanelAnimDuration" "int 0"
+"oldPanelAnimDuration" "int 0"
+"newPanelAnimateOpacity" "bool TRUE"
+"oldPanelAnimateOpacity" "bool TRUE"
+"newPanelAnimateSize" "bool TRUE"
+"oldPanelAnimateSize" "bool TRUE"
+"newPanelAnimType" "string TopLeft"
+"oldPanelAnimType" "string BottomRight"
+"horizontalScrollBarPolicy" "enum 1"
+"verticalScrollBarPolicy" "enum 1"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  11.81181992199388 69.14308176100799 308 498.7292644757437
+15 Canvas.Canvas.1
+0
+E2 24
+"title"
+""
+1 920 20 E E E 1 E 1 E N "white" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.690643838865248 0 0.9594109242534611 -1164.570542500437 -8.188218485069221 0 E 920 20 1210 60
+0 2 2 "0s" 0 0 0 64 0 0  920 20 1
+4
+LANG:10001 31 Arial,-1,40,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,40,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,40,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,40,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 21 Menu and Grid example
+LANG:10004 19 菜单和Grid例子
+LANG:10000 25 Menü und Raster Beispiel
+LANG:10027 33 Пример Меню и Сети
+13 36
+"but3"
+""
+1 130.9781138204523 193.7023363810852 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1010.959001275138 8.519822791166501 1043.118026188172 56.35577120321189
+
+P 
+4294967295
+"36.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main(mapping event)
+{
+  // Hide every 3rd column with the Button 3
+  int numColumn = 3;
+  dyn_int columns2Hide;
+
+  for (int i = 0; i < dynlen(columnBlockNames); ++i)
+    dynAppend(columns2Hide, numColumn + i * dynlen(columnNames) * 2);
+
+  hideColumn(TRUE, columns2Hide);
+
+  this.visible(false);
+}
+" 0
+ E E E
+13 37
+"but5"
+""
+1 130.9781138204523 252.07713487627 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1093.424717091882 9.35217327338777 1125.583742004917 57.18812168543315
+
+P 
+4294967295
+"37.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main(mapping event)
+{
+  // Hide every 5th column with the Button 5
+  int numColumn = 5;
+  dyn_int columns2Hide;
+
+  for (int i = 0; i < dynlen(columnBlockNames); ++i)
+    dynAppend(columns2Hide, numColumn + i * dynlen(columnNames) * 2);
+
+  hideColumn(TRUE, columns2Hide);
+
+  this.visible(false);
+}
+" 0
+ E E E
+13 38
+"but7"
+""
+1 130.9781138204523 311.1243147812589 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1174.884753447446 9.35501450092802 1207.04377836048 57.19096291297341
+
+P 
+4294967295
+"38.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main(mapping event)
+{
+  // Hide every 7th column with the Button 7
+  int numColumn = 7;
+  dyn_int columns2Hide;
+
+  for (int i = 0; i < dynlen(columnBlockNames); ++i)
+    dynAppend(columns2Hide, numColumn + i * dynlen(columnNames) * 2);
+
+  hideColumn(TRUE, columns2Hide);
+
+  this.visible(false);
+}
+" 0
+ E E E
+29 42
+"ewo5"
+""
+1 1063.235405535667 9.933332819326839 E E E 1 E 0 E N "_3DText" E N "white" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"toolTipDuration" "int 1"
+"effectType" "enum 3"
+"color1" "color SiemensNaturalYellowDark"
+"layoutDirection" "enum 0"
+"contextMenuPolicy" "enum 0"
+"tabletTracking" "bool TRUE"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1076.392561983471 10.0888492632495 1142.665289256199 59.05828017477833
+19 AttentionEffect.ewo
+0
+E29 43
+"ewo7"
+""
+1 1143.685606394513 9.933332819326839 E E E 1 E 0 E N "_3DText" E N "white" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"toolTipDuration" "int 1"
+"effectType" "enum 3"
+"color1" "color STD_tendency_rising"
+"layoutDirection" "enum 0"
+"contextMenuPolicy" "enum 0"
+"tabletTracking" "bool TRUE"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1157.727272727273 10.0888492632495 1224 59.05828017477833
+19 AttentionEffect.ewo
+0
+E29 41
+"ewo3"
+""
+1 986.1403745167427 -1.780312252174327 E E E 1 E 0 E N "_3DText" E N "white" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"toolTipDuration" "int -1"
+"effectType" "enum 3"
+"color1" "color STD_value_invalid"
+"layoutDirection" "enum 0"
+"contextMenuPolicy" "enum 0"
+"tabletTracking" "bool TRUE"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  995.0578512396696 11.03056908847121 1061.330578512396 60
+19 AttentionEffect.ewo
+0
+E32 46
+"SPACER1"
+""
+1 315 68 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Fixed Expanding"
+"layoutAlignment" "AlignNone"
+ 315 68 339 704.9999999999999 1
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "mainPanel" 3
+"minimumSize" "600 -1"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+"" ""
+"examples/popupMenu/subPanels/refEmb.pnl" 10 20 T 0 1.465653945969053 0 1.432282569522205 3.230879250450996 -4.940786670630684
+0
+3 1 "pTitleMenuButton" 4
+"minimumSize" "52 55"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignLeft|AlignLeading"
+"UDS Clicked" "Clicked()
+{
+  openMenu();
+}
+
+"
+"UDP IsActive" "bool FALSE"
+"UDP Enabled" "bool TRUE"
+"UDP DefaultPressedImagePath" "string examples/popupMenu/interest_popup_button_prs.png"
+"UDP DefaultImagePath" "string examples/popupMenu/interest_popup_button_act.png"
+"UDP DefaultDisabledImagePath" "string examples/popupMenu/interest_popup_button_act.png"
+"UDP ActivePressedImagePath" "string examples/popupMenu/interest_popup_button_prs.png"
+"UDP ActiveImagePath" "string examples/popupMenu/interest_popup_button_def.png"
+"UDP ActiveDisabledImagePath" "string examples/popupMenu/interest_popup_button_act.png"
+"" ""
+"examples/popupMenu/subPanels/ImageToggleButton.pnl" 0 0 T 8 0.4809896549915191 0 0.878697012849835 10.01648428183226 10.29644634705395
+0
+1 2 "SHAPE_GROUP2" 3
+2 0 
+33 9 
+
+"minimumSize" "300 400"
+"maximumSize" "300 -1"
+"sizePolicy" "Fixed Expanding"
+"layoutAlignment" "AlignNone"
+"" ""
+4 3 "LAYOUT_GROUP3" 5
+1 2 
+46 
+2 0 
+"S 46" "1 1 1 1"
+"G 2" "0 0 3 1"
+"G 0" "0 2 3 1"
+"" ""
+0 3 0 0
+1 4 "SHAPE_GROUP4" 5
+8 1 
+36 37 38 41 42 43 24 10 
+1 
+"minimumSize" "-1 52"
+"maximumSize" "-1 52"
+"layoutAlignment" "AlignNone"
+"" ""
+4 5 "LAYOUT_GROUP5" -1
+0 2 
+
+3 4 
+"G 3" "1 0 1 1"
+"G 4" "0 0 1 1"
+"" ""
+0 2 0 1 1
+0

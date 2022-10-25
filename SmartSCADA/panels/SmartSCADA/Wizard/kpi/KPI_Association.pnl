@@ -1,0 +1,4748 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 1
+"$CNS_TREE_KEY"
+"#uses \"SmartSCADA/util/ssc_license\"
+#uses \"cnsEditor\" 
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_KPI))
+  {
+    TABLE_VALUES.enabled(false);
+    RB_Single_WildCard.enabled(false);
+    TABLE_ASSOCIATION.enabled(false);
+    TF_CONTEXT.enabled(false);
+    RB_TRIGGER.enabled(false);
+    CB_TIMER.enabled(false);
+    CB_TIMER_PARA.enabled(false);
+    CB_ONLINE.enabled(false);
+    btn_Preview.enabled(false);
+    BT_DELETE_KPI.enabled(false);
+    NewKPI.enabled(false);
+    CB_KPI.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"KPI\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  dyn_string kpis;
+  
+  ssc_getKPIDefList(kpis);
+  dpGet(\"_ssc_global_configuration.kpi\", kpiConfigDP);
+  CB_KPI.items(kpis);
+  TABLE_ASSOCIATION.sortOnClick(true);
+  RB_TRIGGER.enabled(false);
+  
+  selectionChanged(); //Load the content of the selected CBX
+  
+  //CNS realted
+  cnsTree_addSelectionChangedCB(CNS_TREE_KEY , \"cnsEditor_treeSelectionChangedCB\");
+  cnsTree_addRightClickedCB(CNS_TREE_KEY , \"cnsEditor_treeRightClickedCB\");
+  cnsTree_addDragDropCB(CNS_TREE_KEY , \"cnsEditor_dragDropCB\");
+  
+  //check for user permission and deactivate areas of the panel where user has no permissions
+  if(!getUserPermission(SSC_USER_PERMISSION_KPI))
+  {
+    RB_Single_WildCard.enabled(false);
+    TABLE_ASSOCIATION.enabled(false);
+    TF_CONTEXT.enabled(false);
+    RB_TRIGGER.enabled(false);
+    CB_TIMER.enabled(false);
+    CB_TIMER_PARA.enabled(false);
+    CB_ONLINE.enabled(false);
+    btn_Preview.enabled(false);
+    BT_DELETE_KPI.enabled(false);
+    NewKPI.enabled(false);
+    CB_KPI.enabled(false);
+  }
+}
+
+void clear()
+{
+  kpiInEdit = \"\";
+  dynClear(models);
+  
+  CB_KPI.selectedPos(-1);  
+  TE_FORMULA.text(\"\");
+  TF_CONTEXT.text(\"\");
+  TF_DESC.text(\"\");
+  TABLE_ASSOCIATION.deleteAllLines();
+}
+
+
+
+
+
+
+" 0
+ "main()
+{
+  cnsTree_unRegTreeObject(CNS_TREE_KEY);
+//   PanelOff();  //Would be needet for turning off quicktest!
+}
+
+
+" 0
+ E E E 1 -1 -1 0  19 23
+""0  1
+E "/*
+Author: Fei Li, lifei@siemens.com
+Panel for configuring KPI instances.
+
+Copyright (C) Siemens AG 2015. All Rights Reserved.
+*/
+#uses \"SmartSCADA/kpi/libKPI\"
+#uses \"SmartSCADA/kpi/kpiRegistry\"
+#uses \"cnsEditor\"
+#uses \"cnsTree\"
+
+//Associate table column IDs.
+const string C_PARAMETER=\"cParameter\";
+const string C_VALUE=\"cValue\";
+const string C_INCONTEXT=\"cInContext\";
+const string C_CONNECT=\"cParaConnect\";
+
+bool AssociationChanged = false;
+bool saveInProgress = false;
+int iMultiSingle = 1;
+string sContextContent = \"\";
+string kpiInEdit;
+dyn_string models;//obsolete
+dyn_string dsSelectedKPIs;
+mapping kpiInstDPTable;
+mapping kpiInstDPTablePreview;
+dyn_int diTableValues_SelectedLine;
+bool bTABLE_KpiIntances_Changed; //This Variable Stores if the Changed Script was done
+string kpiConfigDP;
+
+/**
+  This function is for saving with the Bottom Bar in the Wizard framework for KPI Panel
+  @return -1 Not changed / 0 Panel changed correctly
+*/
+int panelSave()
+{
+  startAttentionEwo(0);
+
+  if(\"\"==kpiInEdit)
+  {
+    stopAttentionEwo(0);
+    return WF_PANEL_SAVE_NOTHING_SAVE;
+  }
+
+  string context = TF_CONTEXT.text();
+
+  dyn_string parameters, dsKpiInstances;
+  dyn_bool inContext, dbKpiActive;
+  dyn_int paraTypes;
+  string trigger, timePara;
+  dyn_string kpiDPNames;
+  dyn_int diSelectedLines_TABLE_VALUES;
+  int nokKPIs;
+
+  int triggerType = RB_TRIGGER.number();
+
+  if(triggerType == SSC_ONLINE_PARA)
+  {
+    trigger = CB_ONLINE.selectedText();
+
+    if(trigger != \"*\")
+    {
+      int paraIndex = CB_ONLINE.selectedPos();
+      trigger = paraIndex;
+    }
+
+  }else if(triggerType == SSC_TIME_PARA)
+  {
+    trigger = CB_TIMER.selectedText();
+    int index = CB_TIMER_PARA.selectedPos()-1;
+    if(index >= 1)
+    {
+      paraTypes[index] = SSC_TIME_PARA;
+      timePara = CB_TIMER_PARA.selectedText();
+    }
+  }
+
+  int numRows = TABLE_ASSOCIATION.lineCount();
+
+  for(int i=1;i<=numRows;i++)
+  {
+    dynAppend(parameters, TABLE_ASSOCIATION.cellValueRC(i-1,C_VALUE));
+    dynAppend(inContext, TABLE_ASSOCIATION.cellValueRC(i-1,C_INCONTEXT));
+    string parameterName = TABLE_ASSOCIATION.cellValueRC(i-1, \"cParameter\");
+
+    int paraType = 0;
+    if(dynlen(paraTypes) >= i)
+    {
+      paraType = paraTypes[i];
+    }
+
+    if(TABLE_ASSOCIATION.cellValueRC(i-1,C_CONNECT))
+    {
+      string tempPara = parameters[dynlen(parameters)];
+      if(inContext[dynlen(inContext)])
+      {
+        tempPara = context + tempPara;
+      }
+
+      if(!ssc_validAddress(tempPara) && !inContext[dynlen(inContext)])
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"NoDP\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(),
+                               TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        stopAttentionEwo(0);
+        return WF_PANEL_SAVE_NOTHING_SAVE;
+      }
+      else if(paraType != SSC_TIME_PARA)
+      {
+        paraTypes[i] = SSC_ONLINE_PARA;
+      }
+    }
+    else
+    {
+      if(dynlen(paraTypes) < i || paraTypes[i] != SSC_TIME_PARA)
+      {
+        paraTypes[i] = SSC_CONST_PARA;
+      }
+    }
+  }
+
+  getValue(\"RB_Single_WildCard\", \"number\", iMultiSingle);
+  getValue(\"TABLE_VALUES\",\"getSelectedLines\",diSelectedLines_TABLE_VALUES);
+
+  if(iMultiSingle == 0)
+  { //Single Edit Mode
+    SSCDebugTN(\"Panel: Single Edit Mode\");
+    if(dynlen(diSelectedLines_TABLE_VALUES) == 0)
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"NoKPIInstance\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      stopAttentionEwo(0);
+      return WF_PANEL_SAVE_NOTHING_SAVE;
+    }
+
+    string sDPtemp, KPITempComment,sTempContext;
+    dyn_string dsTempParameters;
+    int iKPITypeIndex;
+    dyn_bool bTempSearchInContext;
+    dyn_int iTempConnect;
+    string sShapeParametersLong;
+    int iLineCount;
+
+    getValue(\"selectedInstance\",\"text\",sDPtemp);
+
+    //Fill in the parameters
+    CHBX_WarningChangesLost.state(0,0);
+
+    KPITempComment = TF_DESC.text();
+    for (int i = 1; i<= dynlen(inContext); i++)
+    {
+      inContext[i] = 0;
+    }
+    for (int j = 1; j<= dynlen(parameters); j++)
+    {
+      if( paraTypes[j] == 1)
+      {
+        if (!ssc_validAddress(parameters[j]))
+        {
+          notificationBar_newMsg(\"ssc_wizards\", \"NoDP\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+          stopAttentionEwo(0);
+          return WF_PANEL_SAVE_NOTHING_SAVE;
+        }
+      }
+    }
+    bool createDPs = 1;
+    string sSelectedKPI;
+
+    if (dynlen(diSelectedLines_TABLE_VALUES) == 1)
+    {
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[1],\"kpiActive\",dbKpiActive[1]);
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[1],\"kpiKey\", sSelectedKPI);
+    }
+    else if(dynlen(diSelectedLines_TABLE_VALUES) > 1)
+    {
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[dynlen(diSelectedLines_TABLE_VALUES)],\"kpiActive\",dbKpiActive[1]);
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[dynlen(diSelectedLines_TABLE_VALUES)],\"kpiKey\", sSelectedKPI);
+    }
+
+    int error = ssc_registerKPI(kpiDPNames, nokKPIs, kpiInEdit, context, parameters,
+                              paraTypes, inContext, trigger, TF_DESC.text(), createDPs, dbKpiActive[1], sSelectedKPI);
+
+    if (error == 0)
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"kpi0009\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                             makeDynString(dynlen(kpiDPNames)), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      AssociationChanged = false;
+      wf_bottomBar_reload();
+      stopAttentionEwo(0);
+      return WF_PANEL_SAVE_SAVED;
+    }
+    else
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"NotSaved\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      stopAttentionEwo(0);
+      return WF_PANEL_SAVE_NOTHING_SAVE;
+    }
+  }//END IF Single Mode
+  else
+  {
+    SSCDebugTN(\"Panel: Enhanced Edit Mode\");
+    //Normal Multi Edit Mode
+    dyn_float resultFloat;
+    dyn_string resultString;
+    bool bSingleEditMode;
+    string sDPtemp;
+    getValue(\"selectedInstance\",\"text\",sDPtemp);
+
+    if(dpExists(sDPtemp))
+    {
+      dpGet(sDPtemp + SSC_KPISINGLEUPDATED_DPE, bSingleEditMode);
+      if(bSingleEditMode == TRUE)
+      {
+        string sMsgText = getCatStr(\"ssc_wizards\",\"msgOverwrite\");
+        ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", getCatStr(\"ssc_wizards\", \"kpi00011\"),
+                                     makeDynString(sMsgText, \"OK\", getCatStr(\"ssc_wizards\",\"copy\"),getCatStr(\"ssc_wizards\",\"cancel\")),
+                                     resultFloat,
+                                     resultString);
+        if(resultFloat[1] == 0)
+        {
+          //Copy the KPI Instance without context
+          int error = ssc_registerKPI(kpiDPNames, nokKPIs, kpiInEdit, \"\", parameters,
+                                paraTypes, inContext, trigger, TF_DESC.text());
+
+          if(error == 0)
+          {
+            notificationBar_newMsg(\"ssc_wizards\", \"kpi0009\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                             makeDynString(dynlen(kpiDPNames)), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+          }
+          else
+          {
+            if (error == -2)
+            {
+              notificationBar_newMsg(\"ssc_wizards\", \"NotSaved\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(),
+                                     TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+            }
+            else
+            {
+              notificationBar_newMsg(\"ssc_wizards\", \"NOKKPICreation\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                                     makeDynString(dynlen(sSelectedKPI), nokKPIs), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+            }
+          }
+          //Reload all instances
+          reloadSavedInstances();
+
+          //Reload the Bottombar
+          AssociationChanged = false;
+          wf_bottomBar_reload();
+          stopAttentionEwo(0);
+          return WF_PANEL_SAVE_SAVED;
+        }
+        else if(resultFloat[1] == 1)
+        {
+          //Set the KPI Instance to Wildcard mode so the ssc_registerKPI can edit it in wildcard mode.
+          dpSet(sDPtemp + SSC_KPISINGLEUPDATED_DPE, FALSE);
+        }else if(resultFloat[1] == 2)
+        {
+          //Cancel in Message Panel
+          stopAttentionEwo(0);
+          return WF_PANEL_SAVE_ABORT_BY_USER; //nothing to do
+        }
+      }
+    }
+    //Normal Wildcard edit
+    btn_stopKpiCreation.enabled = true;
+    int error = ssc_registerKPI(kpiDPNames, nokKPIs, kpiInEdit, context, parameters,
+                            paraTypes, inContext, trigger, TF_DESC.text());
+    btn_stopKpiCreation.enabled = false;
+    g_stopKpiCreation = false;
+
+    if(dynlen(kpiDPNames) > 0)
+    {
+      TEXT_NUM_INSTANCE.text(dynlen(kpiDPNames)+\" KPI(s) registered.\");
+
+      if(error == 0)
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"kpi0009\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                               makeDynString(dynlen(kpiDPNames)), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      }
+      else if (error == -1)
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"NOKKPICreation\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+                               makeDynString(dynlen(kpiDPNames), nokKPIs), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      }
+      else
+      {
+        notificationBar_newMsg(\"ssc_wizards\", \"NotSaved\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE,
+                               makeDynString(notificationBar_getUserDpName()), true, false);
+      }
+
+
+      string kpiKey;
+      int iLineCount;
+      string sTableValueRC;
+
+      //Reload all instances
+      reloadSavedInstances();
+
+      //Reload WF-Bottom Bar
+      AssociationChanged = false;
+      wf_bottomBar_reload();
+      string sDpe = selectedInstance.text();
+      getValue(\"TABLE_VALUES\",\"lineCount\",iLineCount);
+      for(int i = 0; i < iLineCount; i++)
+      {
+        getValue(\"TABLE_VALUES\",\"cellValueRC\", i, \"kpiKey\", sTableValueRC);
+        if (sTableValueRC == sDpe)
+        {
+          TABLE_VALUES.selectLineN(i);
+          break;
+        }
+      }
+      stopAttentionEwo(0);
+      return WF_PANEL_SAVE_SAVED;//Saved succesfully
+    }
+    else
+    {
+      notificationBar_newMsg(\"ssc_wizards\", \"NotSaved\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      stopAttentionEwo(0);
+      return WF_PANEL_SAVE_NOTHING_SAVE;
+    }
+  }//END IF Wildcard Mode
+}
+
+/**
+ This Function is for the Wizard Framework Bottom Bar (Save and Reset)
+  @return 1 or -1 either if changes are open or not
+*/
+int isPanelChanged()
+{
+  if (AssociationChanged)
+    return WF_PANEL_CHANGED;
+  else
+    return WF_PANEL_NO_CHANGE;
+}
+
+/*
+  this Function sets the filter for the DPTree
+*/
+void setFilter()
+{
+  dpTreeNode.SetDpFilter(tfFilter.text);
+  btnDelFilter.visible = true;
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  * @brief function starts one of the attention EWOs
+  * @param ewo: 0 is the InstanceEWO 1 is the PreviewEWO
+  */
+void startAttentionEwo(int ewo)
+{
+  if(ewo == 0)
+  {
+    att_CalculatingInstance.start();
+    att_CalculatingInstance.visible(true);
+    saveInProgress = true;
+  }
+  else
+  {
+    att_calculatingPreview.start();
+    att_calculatingPreview.visible(true);
+  }
+
+  BT_DELETE_KPI.enabled(false);
+  btnSearch.enabled(false);
+  btnSearch_DPTree.enabled(false);
+  CB_KPI.enabled(false);
+  CB_ONLINE.enabled(false);
+  CB_TIMER.enabled(false);
+  CB_TIMER_PARA.enabled(false);
+  chkBx_internalDPs.enabled(false);
+  CNSSelector.enabled(false);
+  cnsTreeObject.enabled(false);
+  DPSelector.enabled(false);
+  dpTreeNode.enabled(false);
+  NewKPI.enabled(false);
+  btn_Preview.enabled(false);
+  RB_Single_WildCard.enabled(false);
+  RB_TRIGGER.enabled(false);
+  TABLE_ASSOCIATION.enabled(false);
+  TABLE_VALUES.transparentForMouse(true);
+  TF_CONTEXT.enabled(false);
+  TF_DESC.enabled(false);
+
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  * @brief function stops one of the attention EWOs
+  * @param ewo: 0 is the InstanceEWO 1 is the PreviewEWO
+  */
+void stopAttentionEwo(int ewo)
+{
+  if(ewo == 0)
+  {
+    att_CalculatingInstance.stop();
+    att_CalculatingInstance.visible(false);
+    saveInProgress = false;
+  }
+  else
+  {
+    att_calculatingPreview.stop();
+    att_calculatingPreview.visible(false);
+  }
+
+  BT_DELETE_KPI.enabled(true);
+  btnSearch.enabled(true);
+  btnSearch_DPTree.enabled(true);
+  CB_KPI.enabled(true);
+  CB_ONLINE.enabled(true);
+  CB_TIMER.enabled(true);
+  CB_TIMER_PARA.enabled(true);
+  chkBx_internalDPs.enabled(true);
+  CNSSelector.enabled(true);
+  cnsTreeObject.enabled(true);
+  DPSelector.enabled(true);
+  dpTreeNode.enabled(true);
+  NewKPI.enabled(true);
+  btn_Preview.enabled(true);
+  RB_Single_WildCard.enabled(true);
+  RB_TRIGGER.enabled(true);
+  TABLE_ASSOCIATION.enabled(true);
+  TABLE_VALUES.transparentForMouse(false);
+  TF_CONTEXT.enabled(true);
+  TF_DESC.enabled(true);
+}
+
+/**
+  This function loads the Preview of the Context and Parameter search
+  @return  (int) number of KPI instances of the preview
+*/
+int sc_reloadPreview()
+{
+  if(\"\"==kpiInEdit)
+  {
+    notificationBar_newMsg(\"ssc_errors\", \"selectKPI\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    return -1;
+  }
+  string context = TF_CONTEXT.text();
+  dyn_string parameters;
+  dyn_bool inContext;
+  dyn_int paraTypes;
+  int numRows = TABLE_ASSOCIATION.lineCount();
+  string trigger;
+  int triggerType = RB_TRIGGER.number();
+  dyn_string kpiDPNames;
+  int nokKPIs, numKPIs;
+
+  for(int i=1;i<=numRows;i++)
+  {
+    dynAppend(parameters, TABLE_ASSOCIATION.cellValueRC(i-1,C_VALUE));
+    dynAppend(inContext, TABLE_ASSOCIATION.cellValueRC(i-1,C_INCONTEXT));
+    if(TABLE_ASSOCIATION.cellValueRC(i-1,C_CONNECT))
+      dynAppend(paraTypes, SSC_ONLINE_PARA);
+    else
+      dynAppend(paraTypes, SSC_CONST_PARA);
+  }
+  if(triggerType== SSC_ONLINE_PARA)
+  {
+    trigger = CB_ONLINE.selectedText();
+
+    if(trigger != \"*\")
+    {
+      int paraIndex = CB_ONLINE.selectedPos();
+      trigger = paraIndex;
+    }
+  }
+  else if(triggerType==SSC_TIME_PARA)
+  {
+    trigger = CB_TIMER.selectedText();
+    int index = CB_TIMER_PARA.selectedPos()-1;
+    if(index > 0)
+      paraTypes[index] = SSC_TIME_PARA;
+  }
+  //Calls the Function with the Parameter register = 0 --> Only return the kpiDPNames for Preview
+  int error = ssc_registerKPI(kpiDPNames, nokKPIs, kpiInEdit, context, parameters,
+                            paraTypes, inContext, trigger, TF_DESC.text(),0 ,1, \"\");
+
+  SSCDebugTN(__LINE__+\" | numKPIs\",dynlen(kpiDPNames), \"kpiDPNames\", kpiDPNames);
+  if(error == 0 || error == -1)
+  {
+    numKPIs = dynlen(kpiDPNames);
+    tbl_Preview.deleteAllLines();
+    tbl_Preview.appendLines(numKPIs);
+    int iPos;
+    for(int i=1;i<=numKPIs;i++)
+    {
+      iPos = uniStrPos(kpiDPNames[i],\":\",0);  //Systemnamen aus String rausschneiden
+      kpiDPNames[i] = substr(kpiDPNames[i],iPos+1);
+      tbl_Preview.cellValueRC(i-1, \"kpiKey\", kpiDPNames[i]);
+    }//for
+  }//if
+  else
+  {
+    tbl_Preview.deleteAllLines();
+  }
+
+  return numKPIs;
+}
+
+/*
+  This functon reloads the saved KPI Instances in the TABLE_VALUES with dpNames delets the MasterDP and SystemNames.
+*/
+void reloadSavedInstances()
+{
+  TABLE_VALUES.updatesEnabled(false);
+  dyn_string dsKPIInstancesActive;
+  dyn_string dsKPIInstances = dpNames(\"*.enabled\",\"SSC_KPI_Instance\");
+  dyn_int dbKpiActive;
+  dyn_bool enabled;
+  dyn_int rowFontTypes;
+  dyn_string backColor;
+  int iPos;
+  dynSort(dsKPIInstances);
+  dynClear(dsKPIInstancesActive);
+
+  for(int i = 1; i<= dynlen(dsKPIInstances); i++)
+  {
+    iPos = uniStrPos(dsKPIInstances[i],\":\",0);
+    dsKPIInstances[i] = substr(dsKPIInstances[i],iPos+1);
+    dsKPIInstancesActive[i] = dsKPIInstances[i]; //Active ist fertig
+    iPos = uniStrPos(dsKPIInstances[i],\".enabled\",0);
+    dsKPIInstances[i] = substr(dsKPIInstances[i],0,iPos);
+  }
+
+  //MasterDP aus den dyn_Listen löschen wenn vorhanden
+  int iDynIdx = dynContains(dsKPIInstances,\"_mp_SSC_KPI_Instance\");
+  dynRemove(dsKPIInstances,iDynIdx);
+  iDynIdx = dynContains(dsKPIInstancesActive,\"_mp_SSC_KPI_Instance.enabled\");
+  dynRemove(dsKPIInstancesActive,iDynIdx);
+  if (dynlen(dsKPIInstancesActive) > 0)
+  {
+    if(dpExists(dsKPIInstancesActive[1]))
+      dpGet(dsKPIInstancesActive, dbKpiActive);
+  }
+
+  int numKPIs = dynlen(dsKPIInstances);
+  TABLE_VALUES.deleteAllLines();
+
+  for(int i = 1; i <= dynlen(dbKpiActive); i++)
+  {
+    dynAppend(enabled, dbKpiActive[i] == SSC_KPI_ENABLED);
+    dynAppend(rowFontTypes, dbKpiActive[i] < 0 ? 2 : 0);
+    dynAppend(backColor, dbKpiActive[i] >= 0 ? \"STD_text\" : dbKpiActive[i] == -1 ? \"WF_Error\" : \"WF_Info\");
+  }
+
+  TABLE_VALUES.updateLines(1, \"kpiKey\", dsKPIInstances, \"kpiActive\", enabled, TABLE_FONTTYPE | TABLE_FORECOLOR, rowFontTypes, backColor);
+  TABLE_VALUES.sort(true, \"kpiKey\");
+  TABLE_VALUES.updatesEnabled(TRUE);
+}
+/*
+  Callback for the TABLE_VALUES Initialize
+  Calls a update function for updating the
+*/
+void CB_isKpiActive2(anytype userData, dyn_dyn_anytype tab)
+{
+  updateEnabledStatus(tab);
+}
+
+//Update the the Cell in the Table
+void updateEnabledStatus(dyn_dyn_anytype tab)
+{
+  TABLE_VALUES.updatesEnabled(false);
+  int rowFontType, iCuttingDP;
+  string KPIInstance, sSystemName, tempDP, backColor;
+  bool enabled;
+
+  for(int i = 2; i<= dynlen(tab); i++)
+  {
+    tempDP = dpSubStr(tab[i][1],DPSUB_DP);
+    enabled = tab[i][2] == SSC_KPI_ENABLED;
+    rowFontType = tab[i][2] < 0 ? 2 : 0;
+    backColor = tab[i][2] >= 0 ? \"STD_text\" : tab[i][2] == -1 ? \"WF_Error\" : \"WF_Info\";
+    TABLE_VALUES.updateLines(1, \"kpiKey\", makeDynString(tempDP), \"kpiActive\", makeDynBool(enabled),
+                             TABLE_FONTTYPE | TABLE_FORECOLOR, makeDynInt(rowFontType), makeDynString(backColor));
+  }
+  TABLE_VALUES.updatesEnabled(true);
+}
+//END - Connect to Enabled status of the KPI to ensure that the Status is always correct in the Panel.
+
+/*This function checks if there are open changes in the Panel to show the save changes Notification!
+*/
+int changesOpen(string selectedDP = \"\")
+{
+  string sSelectedInstance;
+  string KPITypeName, KPIKey, KPIComment, sContext, sTrigger;
+  int iConnectParameter, iTimerParameter;
+  dyn_bool searchInContext;
+  dyn_int ConnectToDP;
+  bool bWarningChange, bSingleEdit;
+  dyn_string dsParameters;
+
+  string shapeContext, shapeKPIComment, sShapeParametersLong;
+  dyn_bool dbShapeSearchInContext;
+  dyn_int diShapeConnect;
+  dyn_string shapeParameters;
+  int iLineCount, iKPITypeIndex;
+  getValue(\"selectedInstance\",\"text\",sSelectedInstance); //beim ersten mal \"\"
+  getValue(\"CHBX_WarningChangesLost\", \"state\",\"0\",bWarningChange);  //beim ersten mal \"\"
+  if (\"\" != kpiInEdit)
+  {
+    if(sSelectedInstance == \"\")
+    {
+      setValue(\"selectedInstance\",\"text\",selectedDP);
+      sSelectedInstance = selectedDP;
+    }
+    if(sSelectedInstance != \"\")
+    {
+      readShapeValues(shapeContext,shapeKPIComment,iLineCount,shapeParameters,sShapeParametersLong,
+                      iKPITypeIndex, dbShapeSearchInContext, diShapeConnect);
+      readDPValues(sSelectedInstance, KPITypeName,KPIKey,KPIComment,sContext,sTrigger,dsParameters,
+                   searchInContext, ConnectToDP, iConnectParameter, iTimerParameter, bSingleEdit);
+
+      if( ((shapeContext == \"\" || shapeContext == sContext)
+        &&  (dynlen(shapeParameters) == 0 || sShapeParametersLong == \"\" || shapeParameters == dsParameters)
+        && (shapeKPIComment == \"\" || shapeKPIComment == KPIComment)
+        && (dbShapeSearchInContext == searchInContext)
+        && (diShapeConnect == ConnectToDP))
+        || (bWarningChange == TRUE && sSelectedInstance == selectedDP)
+        || (sShapeParametersLong == \"\" && shapeContext == \"\" && shapeKPIComment == \"\"))
+      {
+        if (selectedDP != \"\")
+          return 1;
+        else
+          return -2;
+      }
+      else
+      {
+        notificationBar_newMsg(\"ssc_errors\", \"changesLost\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        CHBX_WarningChangesLost.state(0,1);
+        //selectedInstance.text(selectedDP);
+        return -1;
+      }
+    }
+    else
+    {
+      if (AssociationChanged == FALSE  || bWarningChange == TRUE)//Nothing selected no DPSelected or warning was already shown.
+      {
+        return 2;
+      }
+      else
+      {
+        notificationBar_newMsg(\"ssc_errors\", \"changesLost\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        CHBX_WarningChangesLost.state(0,1);
+        //selectedInstance.text(selectedDP);
+        return -1;
+      }
+    }
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_errors\", \"selectKPI\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    return -3;
+  }
+}
+
+/*
+  This function loads the complete configuration from the selected KPI Instance from the DPstructure and shows it in the ASSOCIATION Table.
+*/
+int showSelectedItem(string selectedDP)
+{
+
+  string sSelectedInstance;
+  string KPITypeName, KPIKey, KPIComment, sContext, sTrigger;
+  int iConnectParameter, iTimerParameter;
+  dyn_bool searchInContext;
+  dyn_int ConnectToDP;
+  bool bWarningChange, bSingleEdit;
+  dyn_string dsParameters, dsKPIitems;
+
+  string shapeContext, shapeKPIKey, shapeKPIComment, shapeTriger, sShapeParametersLong;
+  dyn_bool dbShapeSearchInContext;
+  dyn_int diShapeConnect;
+  dyn_string shapeParameters;
+  int iLineCount, iKPITypeIndex;
+  getValue(\"selectedInstance\",\"text\",sSelectedInstance); //beim ersten mal \"\"
+  getValue(\"CHBX_WarningChangesLost\", \"state\",\"0\",bWarningChange);  //beim ersten mal \"\"
+
+  readDPValues(selectedDP, KPITypeName,KPIKey,KPIComment,sContext,sTrigger,dsParameters,searchInContext, ConnectToDP, iConnectParameter, iTimerParameter, bSingleEdit);
+
+  //Find the KPI type and select the Type in the combobox
+  getValue(\"CB_KPI\",\"items\",dsKPIitems);
+  for(iKPITypeIndex = 1; iKPITypeIndex <= dynlen(dsKPIitems); iKPITypeIndex++)
+  {
+    if (KPITypeName == dsKPIitems[iKPITypeIndex])
+      break;
+  }
+  setValue(\"CB_KPI\",\"selectedPos\",iKPITypeIndex); //KPITypeName
+
+  selectionChanged(); //Update the KPI Type Combobox
+
+  getValue(\"TABLE_ASSOCIATION\",\"lineCount\",iLineCount);
+
+  //Fill in Trigger
+  int iTriggerPos = SSC_CONST_PARA;
+  for (int l =1; l<=dynlen(ConnectToDP); l++)
+  {
+    if(ConnectToDP[l] == SSC_TIME_PARA)
+    {
+      iTriggerPos = SSC_TIME_PARA;
+      break;
+    }
+    else if(ConnectToDP[l] == SSC_ONLINE_PARA && strlen(sTrigger) > 0)
+    {
+      iTriggerPos = SSC_ONLINE_PARA;
+    }
+  }
+  dyn_string dsAllTimedFuncs = dpNames(\"*\", \"_TimedFunc\");
+  if(dynContains(dsAllTimedFuncs, sTrigger) > 0)
+  {
+    iTriggerPos = SSC_TIME_PARA;
+  }
+
+
+  if(iTriggerPos == SSC_TIME_PARA)
+  {
+    setValue(\"RB_TRIGGER\", \"number\", SSC_TIME_PARA);
+    TriggerChanged(SSC_TIME_PARA);
+    setValue(\"CB_TIMER_PARA\", \"selectedPos\", iTimerParameter+1);
+    setValue(\"CB_TIMER\", \"selectedPos\", iConnectParameter);
+  }
+  else if(iTriggerPos == SSC_ONLINE_PARA)
+  {
+    setValue(\"RB_TRIGGER\", \"number\", SSC_ONLINE_PARA);
+    TriggerChanged(SSC_ONLINE_PARA);
+    setValue(\"CB_ONLINE\", \"selectedPos\", iConnectParameter);
+  }
+  else
+  {
+    setValue(\"RB_TRIGGER\", \"number\", SSC_CONST_PARA);
+    TriggerChanged(SSC_CONST_PARA);
+  }
+  //Fill in the parameters
+  int iMax;
+  if (dynlen(dsParameters) < iLineCount || dynlen(dsParameters) == iLineCount)
+    iMax = dynlen(dsParameters);
+  else
+    iMax = iLineCount;
+
+  for(int i=1; i <= iMax; i++)
+  {
+		if(!searchInContext[i])
+		{
+			setAssociationTableCombobox((i-1), (dsParameters[i]));
+      chooseComboBoxEntry((i-1), \"\", \"\");
+		}
+		else
+		{
+			setAssociationTableCombobox((i-1), (sContext + dsParameters[i]));
+			chooseComboBoxEntry((i-1), dsParameters, sContext);
+		}
+    setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", (i-1), \"cInContext\", searchInContext[i]);
+
+    if(ConnectToDP[i] == SSC_ONLINE_PARA)
+      setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", (i-1), \"cParaConnect\", TRUE);
+    else
+      setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", (i-1), \"cParaConnect\", FALSE);
+  }
+  setValue(\"TF_CONTEXT\",\"text\",sContext);
+
+  //Set the Single Multi Edit Radio Button
+  if (sContext == \"\" || bSingleEdit == TRUE)
+  {
+    setValue(\"RB_Single_WildCard\",\"number\",0);
+    singleWildcardRB(0, FALSE);
+  }
+  else
+  {
+    setValue(\"RB_Single_WildCard\", \"number\", 1);
+    singleWildcardRB(1, FALSE);
+  }
+
+  AssociationChanged = false;
+  wf_bottomBar_reload();
+  setValue(\"tbl_Preview\",\"deleteAllLines\");
+  setValue(\"TF_DESC\",\"text\",KPIComment);
+  CHBX_WarningChangesLost.state(0,0);
+  selectedInstance.text(selectedDP);
+}
+
+/*
+  This function is for updating the KPI table view
+*/
+int selectionChanged()
+{
+  string kpiFunc;
+  string kpiDisplay;
+  dyn_string parameters;
+  dyn_string dsTempParameters;
+
+  kpiInEdit = CB_KPI.selectedText();
+  if(kpiInEdit == \"\")
+  {
+    return -1;
+  }
+  dpGet(kpiInEdit+SSC_KPIFUNC_DPE, kpiFunc);
+  TE_FORMULA.text(kpiFunc);
+
+  dpGet(kpiInEdit+SSC_KPIDISPLAY_DPE,kpiDisplay);
+  TF_DISPLAY.text(kpiDisplay);
+
+  dpGet(kpiInEdit+SSC_KPIPARAMS_DPE, parameters);
+  int numPara = dynlen(parameters);
+  TABLE_ASSOCIATION.deleteAllLines();
+  TABLE_ASSOCIATION.appendLines(numPara);
+  for(int i=0;i<numPara;i++)
+  {
+    TABLE_ASSOCIATION.cellValueRC(i,C_PARAMETER,parameters[i+1]);
+    TABLE_ASSOCIATION.cellValueRC(i,C_INCONTEXT,false);
+    TABLE_ASSOCIATION.cellValueRC(i,C_CONNECT,false);
+  }
+  dsTempParameters = parameters;
+  dynClear(parameters);
+  dynAppend(parameters,\"\");
+  dynAppend(parameters, dsTempParameters);
+  CB_TIMER_PARA.items(parameters);
+  RB_TRIGGER.enabled(getUserPermission(SSC_USER_PERMISSION_KPI));
+
+  dynClear(parameters);
+  dpGet(kpiInEdit+SSC_KPIPARAMS_DPE, parameters);
+  dynAppend(parameters,\"*\");
+  CB_ONLINE.items(parameters);
+  selectedInstance.text(\"\");
+}
+
+
+/** This function checks if changes took place to any shape for configuring the KPI instance
+  @return 0 no changes took place, 1 some parameters have changed
+*/
+int KPIParameterChanged()
+{
+  //DPValues
+  string KPITypeName, KPIKey, KPIComment, sContext, sTrigger;
+  dyn_bool searchInContext;
+  dyn_int ConnectToDP;
+  dyn_string dsParameters, dsKPIitems;
+
+  //Shape Values
+  string shapeContext, shapeKPIKey, shapeKPIComment, shapeTriger, sShapeParametersLong;
+  dyn_string shapeParameters;
+  int iLineCount, iKPITypeIndex;
+  dyn_bool dbShapeSearchInContext;
+  dyn_int diShapeConnect;
+  string sSelectedInstance;
+  bool bWarningChange, bSingleEdit;
+  int iConnectParameter, iTimerParameter;
+
+  readShapeValues(shapeContext, shapeKPIComment, iLineCount, shapeParameters, sShapeParametersLong, iKPITypeIndex, dbShapeSearchInContext, diShapeConnect);
+  readDPValues(sSelectedInstance, KPITypeName, KPIKey, KPIComment, sContext, sTrigger, dsParameters, searchInContext, ConnectToDP, iConnectParameter, iTimerParameter, bSingleEdit);
+
+  if( (shapeParameters == dsParameters) && (dbShapeSearchInContext == searchInContext) && (diShapeConnect == ConnectToDP))
+   return 0;
+  else
+   if(sShapeParametersLong == \"\")
+     return 0;
+   else
+     return 1;
+}
+
+/*
+  This function reads all Shape values
+*/
+int readShapeValues(string &shapeContext, string &shapeKPIComment, int &iLineCount, dyn_string &shapeParameters, string &sShapeParametersLong, int &iKPITypeIndex, dyn_bool &bTempSearchInContext, dyn_int &iTempConnect)
+{
+  dyn_string dsTempKPIitems;
+  string KPITypeName, sSelectedInstance;
+  int iRDB_Trigger;
+  getValue(\"TF_CONTEXT\",\"text\",shapeContext);
+  getValue(\"TF_DESC\",\"text\",shapeKPIComment);
+  getValue(\"TABLE_ASSOCIATION\",\"lineCount\",iLineCount);
+  //Read all
+  for(int i=1; i <= iLineCount; i++)
+  {
+    getValue(\"TABLE_ASSOCIATION\",\"cellValueRC\",(i-1),\"cValue\",shapeParameters[i]);
+    sShapeParametersLong = sShapeParametersLong + shapeParameters[i]; // to check the content of the parameters
+    getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", (i-1), \"cInContext\", bTempSearchInContext[i]);
+    getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", (i-1), \"cParaConnect\", iTempConnect[i]);
+// To Do:
+    getValue(\"RB_TRIGGER\", \"number\", iRDB_Trigger);
+    if(iRDB_Trigger == SSC_TIME_PARA)
+    {
+      int iPos;
+      getValue(\"CB_TIMER_PARA\", \"selectedPos\", iPos); //Ausgewählter Parameter in der Trigger Cmb Box
+
+      //Leerzeile als erster Parameter
+      iPos--;
+      if(iPos == i)
+      {
+        iTempConnect[i] = SSC_TIME_PARA;
+      }
+    }
+  }
+  getValue(\"CB_KPI\",\"items\",dsTempKPIitems);
+
+  getValue(\"selectedInstance\",\"text\",sSelectedInstance);
+  if (sSelectedInstance != \"\")
+  {
+    dpGet(sSelectedInstance + SSC_KPINAME_DPE,      KPITypeName);
+    for(iKPITypeIndex = 1; iKPITypeIndex <= dynlen(dsTempKPIitems); iKPITypeIndex++)
+    {
+      if (KPITypeName == dsTempKPIitems[iKPITypeIndex])
+        break;
+    }
+  }
+}
+
+/*
+  This function prepares list of timed functions
+*/
+dyn_string prepareTimedFunctions()
+{
+  dyn_string dsTimedFunctions = dpNames(\"*\",\"_TimedFunc\");
+  for (int m = 1; m<= dynlen(dsTimedFunctions); m++)
+  {
+    int iSscTfPos = uniStrPos(dsTimedFunctions[m], \"_ssc_tf_\", 0);
+    if(-1 == iSscTfPos || 11 <= iSscTfPos )
+    {
+      dynRemove(dsTimedFunctions, m);
+      m--;
+    }
+  }
+  return dsTimedFunctions;
+}
+
+/*
+  This function guesses the dropdown-index the connect parameter
+*/
+int guessConnectParameter(string sTrigger,
+                          dyn_int ConnectToDP,
+						  dyn_string paramInstances,
+                          int &iConnectParameter,
+                          int &iAdditionalParameter)
+{
+  iAdditionalParameter = 0;
+
+  if (\"\" == sTrigger)
+  {
+    iConnectParameter = -1;
+    iAdditionalParameter = 0;
+    return SSC_ADHOC_RUNNER;
+  }
+
+  dyn_string triggerlist = strsplit(sTrigger, SSC_TRIGGER_SEPARATOR);
+  int triggerCount = dynlen(triggerlist);
+  if (1 < triggerCount)
+  {
+    iConnectParameter = dynlen(paramInstances)+1;
+    iAdditionalParameter = triggerCount;
+    return SSC_ONLINE_RUNNER;
+  }
+
+  int iPosition = dynContains(paramInstances,sTrigger);
+  if ( iPosition > 0 )
+  {
+    iConnectParameter = iPosition;
+    return SSC_ONLINE_RUNNER;
+  }
+
+  dyn_string dsTimedFunctions = prepareTimedFunctions();
+  int iTimedFuncPosition = dynContains(dsTimedFunctions, sTrigger);
+  if(iTimedFuncPosition > 0)
+  {
+    iConnectParameter = iTimedFuncPosition;
+    for (int n = 1; n<= dynlen(ConnectToDP); n++)
+    {
+      if(ConnectToDP[n] == SSC_TIME_PARA)
+      {
+        iAdditionalParameter = n;
+        return SSC_TIMED_RUNNER;
+      }
+    }
+    return SSC_TIMED_RUNNER;
+  }
+
+  iConnectParameter = -1;
+  return -1;
+}
+
+/*
+  This function reads all DPE Values from the given KPI Instance
+*/
+int readDPValues(string sSelectedInstance,
+                 string &KPITypeName,
+                 string &KPIKey,
+                 string &KPIComment,
+                 string &sContext,
+                 string &sTrigger,
+                 dyn_string &dsParameters,
+                 dyn_bool &searchInContext,
+                 dyn_int &ConnectToDP,
+                 int &iConnectParameter,
+                 int &iTimerParameter,
+                 bool &bSingleEdit)
+{
+  bool bDPexists = dpExists(sSelectedInstance);
+  dyn_string paramInstances, dsDPEParameters;
+
+  if(!bDPexists)
+  {
+    return -2;
+  }
+
+  dpGet(sSelectedInstance + SSC_KPICONTEXT_DPE,   sContext);
+  bool bWildcardMode = (sContext != \"\");
+  dpGet(sSelectedInstance + SSC_KPINAME_DPE,      KPITypeName,
+        sSelectedInstance + SSC_KPIKEY_DPE,       KPIKey,
+        sSelectedInstance + SSC_KPIDESC_DPE,      KPIComment,
+        sSelectedInstance + SSC_KPITRIGGER_DPE,   sTrigger,
+        sSelectedInstance + (bWildcardMode ? SSC_KPIPARAINPUTS_DPE : SSC_KPIPARAMINSTS_DPE), dsParameters,
+        sSelectedInstance + SSC_KPISEARCHINCONTEXT_DPE, searchInContext,
+        sSelectedInstance + SSC_KPIPARAMTYPES_DPE, ConnectToDP,
+        sSelectedInstance + SSC_KPIPARAMINSTS_DPE, paramInstances,
+        sSelectedInstance + SSC_KPISINGLEUPDATED_DPE, bSingleEdit);
+
+  if(dpExists(KPITypeName + SSC_KPIPARAMS_DPE))
+  {
+    dpGet(KPITypeName + SSC_KPIPARAMS_DPE, dsDPEParameters);
+  }
+  else
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"TypeDoesnotExist\", NOTIFICATION_BAR_PRIO_ERROR, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    SSCDebugTN(\"KPI Instance Type Does not exist \\\"\" + KPITypeName+ \"\\\"\");
+    return -1;
+  }
+
+  int iAdditionalParameter = 0;
+  int triggerType = guessConnectParameter(sTrigger, ConnectToDP, paramInstances, iConnectParameter, iAdditionalParameter);
+  if (SSC_TIMED_RUNNER == triggerType)
+  {
+    iTimerParameter = iAdditionalParameter;
+  }
+  return triggerType;
+}
+
+/*
+  This function updates the Trigger Section on the Panel.
+*/
+void TriggerChanged(int button)
+{
+  int iTABLE_ASSOCIATION_LineCount;
+  dyn_bool dbTABLE_ASSOCIATION_ConnectState;
+  dyn_string timedFuncs;
+
+  getValue(\"TABLE_ASSOCIATION\", \"lineCount\", iTABLE_ASSOCIATION_LineCount);
+  for(int i = 0; i < iTABLE_ASSOCIATION_LineCount; i++)
+  {
+    getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", i, \"cParaConnect\", dbTABLE_ASSOCIATION_ConnectState[i+1]);
+  }
+
+  //no trigger
+  if(SSC_CONST_PARA == button)
+  {
+    int iTABLE_ASSOCIATION_LineCount;
+
+    TEXT_ONLINE.visible(false);
+    CB_ONLINE.visible(false);
+
+    TEXT_ASSIGN.visible(false);
+    TEXT_TIMER.visible(false);
+    CB_TIMER.visible(false);
+    CB_TIMER_PARA.visible(false);
+
+    LBL_Manual.visible(true);
+
+    /*commented by Joshua Hercher on July 22nd: Rene and Jörgen said, this should not happen
+    //If No Trigger is set, all Connect parameters have to be cleared
+    //getValue(\"TABLE_ASSOCIATION\", \"lineCount\", iTABLE_ASSOCIATION_LineCount); //is called two times, secound time unnecessary
+    for (int i = 0; i<iTABLE_ASSOCIATION_LineCount; i++)
+    {
+      setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", i, \"cParaConnect\", FALSE);
+    }
+    */
+  }else if(SSC_ONLINE_PARA ==button)//online value
+  {
+    TEXT_ONLINE.visible(true);
+    CB_ONLINE.visible(true);
+
+    TEXT_ASSIGN.visible(false);
+    TEXT_TIMER.visible(false);
+    CB_TIMER.visible(false);
+    CB_TIMER_PARA.visible(false);
+
+    LBL_Manual.visible(false);
+
+  }else if(SSC_TIME_PARA == button)//timed
+  {
+    TEXT_ONLINE.visible(false);
+    CB_ONLINE.visible(false);
+
+    TEXT_ASSIGN.visible(true);
+    TEXT_TIMER.visible(true);
+    CB_TIMER.visible(true);
+    CB_TIMER_PARA.visible(true);
+
+    timedFuncs = dpNames(SSC_TFDP_PREFIX+\"*\",\"_TimedFunc\");
+    CB_TIMER.items(timedFuncs);
+
+    LBL_Manual.visible(false);
+  }
+}
+
+//CNS TREE related
+const string CNS_TREE_KEY = \"_CNS_TREE_MANAGEMENT\";
+
+/*
+  This function sets the Filter for the CNS Tree
+*/
+void setFilterCNS()
+{
+  int iCount;
+
+  if ( !frSearch.visible )//only display filter
+    iCount = cnsTree_setFilter(cnsTree_getTreeShape($CNS_TREE_KEY), \"\", txtDispFilter.text);
+  else//all filters enabled
+    iCount = cnsTree_setFilter(cnsTree_getTreeShape($CNS_TREE_KEY), txtPathFilter.text, txtDispFilter.text, cbNodeType.userData(cbNodeType.selectedPos));
+  if ( iCount == 0 )
+     notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_filterError\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                            makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+  else
+     notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_filterResult\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                            makeDynAnytype(iCount), false, notificationBar_getUserDpName(), true);
+  btnDelFilter_DPTree.visible = true;
+}
+
+/*Clears the Filter from CNS Tree*/
+void clearFilterCNS()
+{
+  txtDispFilter.text = \"\";
+  txtPathFilter.text = \"\";
+  cnsTree_deleteFilter(cnsTree_getTreeShape(CNS_TREE_KEY));
+  btnDelFilter.visible = false;
+}
+
+int cnsGetNodeLevel(string cnsPath)
+{
+  dyn_string dsLevels = strsplit(cnsPath, \".\");
+  return dynlen(dsLevels);
+}//End CNS Tree Related Functions
+
+
+
+/*Single Wildcard Edit mode switch: Sets all shapes for single or enhanced Edit editable or not, and loads infomraion from DP*/
+void singleWildcardRB(int button, bool bLoadParameters = true)
+{
+  int iTableLines;
+  string sTempContext, sSelectedDP;
+  dyn_bool dbSearchInContext;
+  dyn_string dsSingleParameterValues;
+
+
+  if(button == 0) //Single Edit
+  {
+    setValue(\"TF_CONTEXT\",\"visible\",FALSE);
+
+    if (bLoadParameters)
+    {
+      getValue(\"TABLE_ASSOCIATION\", \"lineCount\",iTableLines);
+      getValue(\"selectedInstance\",  \"text\", sSelectedDP);
+
+      if(dpExists(sSelectedDP + SSC_KPIPARAMINSTS_DPE))
+      {
+        dpGet(sSelectedDP + SSC_KPIPARAMINSTS_DPE, dsSingleParameterValues);
+        int iMax;
+        if (dynlen(dsSingleParameterValues) < iTableLines || dynlen(dsSingleParameterValues) == iTableLines)
+          iMax = dynlen(dsSingleParameterValues);
+        else
+          iMax = iTableLines;
+
+        for(int i = 1; i<= iMax; i++)
+        {
+          setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\",i-1,\"cInContext\",FALSE);
+					setAssociationTableCombobox((i-1), dsSingleParameterValues[i]);
+          chooseComboBoxEntry((i-1), \"\", \"\");
+          AssociationChanged = true;
+          wf_bottomBar_reload();
+        }
+        setValue(\"TABLE_ASSOCIATION\", \"columnEditable\", 2, FALSE); //Column Search in Cntext could NOT be changed
+      }
+      else
+      {
+        //Springe wieder zurück zu Enhanced Edit
+        setValue(\"TF_CONTEXT\",\"visible\",TRUE);
+        notificationBar_newMsg(\"ssc_wizards\", \"SelectKpiInstance\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        setValue(\"RB_Single_WildCard\",\"number\",1);
+      }
+    }
+  }else if(button == 1) //Enhanced edit
+  {
+    setValue(\"TF_CONTEXT\",\"visible\",TRUE);
+    setValue(\"TABLE_ASSOCIATION\", \"columnEditable\",2,TRUE); //Column Search in Cntext could be changed
+    if (bLoadParameters)
+    {
+      getValue(\"selectedInstance\",\"text\",         sSelectedDP);
+      dpGet(sSelectedDP + SSC_KPISEARCHINCONTEXT_DPE, dbSearchInContext);
+      dpGet(sSelectedDP + SSC_KPIPARAINPUTS_DPE, dsSingleParameterValues);
+      //Fix for editing the number of Parameters afterwards
+      int iMax;
+      if (dynlen(dsSingleParameterValues) < iTableLines || dynlen(dsSingleParameterValues) == iTableLines)
+        iMax = dynlen(dsSingleParameterValues);
+      else
+        iMax = iTableLines;
+
+      for(int i = 1; i<= iMax; i++)
+      {
+        setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\",i-1,\"cInContext\",dbSearchInContext[i]);
+				if(dbSearchInContext[i])
+				{
+					chooseComboBoxEntry((i-1), dsSingleParameterValues[i], \"\");
+				}
+      }
+        AssociationChanged = true;
+        wf_bottomBar_reload();
+    }
+  }
+}
+
+/*this function set's the KPIs from the selected line active or inactive*/
+int setKPIActiveInactive(int row, string column = \"kpiActive\", string value = true)
+{
+
+  dyn_int diSelectedLines_TABLE_VALUES;
+  dyn_bool dbKpiActive;
+  dyn_string dsKpiInstances;
+  bool bActive;
+
+  getValue(\"TABLE_VALUES\",\"getSelectedLines\",diSelectedLines_TABLE_VALUES);
+  getValue(\"TABLE_VALUES\",\"cellValueRC\", row, \"kpiActive\", bActive);
+
+  if(!dynContains(diSelectedLines_TABLE_VALUES, row)){
+    dynAppend(diSelectedLines_TABLE_VALUES, row);
+  }
+
+  for(int i = 1; i<= dynlen(diSelectedLines_TABLE_VALUES); i++)
+  {
+    dbKpiActive[i] = bActive;
+    getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[i],\"kpiKey\",dsKpiInstances[i]);
+    dsKpiInstances[i] = dsKpiInstances[i] + SSC_KPIENABLED_DPE;
+  }
+  dpSetWait(dsKpiInstances, dbKpiActive);
+  //For multiselect Changes of active /inactive State
+  dpGet(dsKpiInstances,dbKpiActive);
+  for(int i = 1; i<= dynlen(dsKpiInstances); i++)
+  {
+    setValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines_TABLE_VALUES[i],\"kpiActive\",dbKpiActive[i]);
+  }
+  return dynlen(dsKpiInstances);
+}
+
+/*
+ * @author Joshua Hercher joshua.hercher@etm.at
+ * displays the context of a DPE as a combobox in the association table
+ * @param row - row number of the DPE
+ * @param information - full DPE path
+ */
+void setAssociationTableCombobox(int row, string information){
+
+  bool setContextWithoutPeriod = false;
+  string contextWithoutPeriod;
+  dyn_string tempContext, temp2Context, finalContext;
+	int i = 2;
+
+  dynAppend(tempContext, dpSubStr(information, DPSUB_ALL));
+  dynAppend(tempContext, dpSubStr(information, DPSUB_DP_EL_CONF_DET_ATT));
+
+	//Import via CNS Selector doesn't work with dpSubStr
+	if(tempContext[1] == \"\")
+	{
+		dynClear(tempContext);
+		dynAppend(tempContext, cnsSubStr(information, CNSSUB_SYS | CNSSUB_VIEW | CNSSUB_PATH | CNSSUB_TAIL));
+		dynAppend(tempContext, cnsSubStr(information, CNSSUB_VIEW | CNSSUB_PATH | CNSSUB_TAIL));
+		dynAppend(tempContext, cnsSubStr(information, CNSSUB_PATH | CNSSUB_TAIL));
+		temp2Context = strsplit(tempContext[3], \".\");
+
+    //if value has no context (e.g. because its a number value for a timedfunction) no combobox is created
+    if(tempContext[2] == \".:\")
+    {
+      TABLE_ASSOCIATION.cellValueRC(row,\"cValue\",information);
+      return;
+    }
+
+		//iterator needs to be 1 or first parameter is missed
+		i = 1;
+	}
+	else
+	{
+    temp2Context = strsplit(tempContext[1], \".\");
+    //when a DP is chosen we might need an entry without the point at the end (if a DP is dragged temp2Context size will 1
+    if(sizeof(temp2Context) == 1)
+    {
+      setContextWithoutPeriod = true;
+      contextWithoutPeriod =  substr(tempContext[2], 0, strlen(tempContext[2]) - 1);
+    }
+  }
+  //first line is true so that the line is edit enabled
+  dynAppend(finalContext, \"true\");
+  dynAppend(finalContext, tempContext[1]);
+  dynAppend(finalContext, tempContext[2]);
+  if(setContextWithoutPeriod)
+  {
+    dynAppend(finalContext, contextWithoutPeriod);
+  }
+
+
+  for(i; i <= sizeof(temp2Context); i++)
+  {
+    string toAppend;
+		if(i == 1)
+		{
+			toAppend += temp2Context[i];
+		}
+		else
+		{
+    toAppend += \".\" + temp2Context[i];
+	  }
+		if(i < sizeof(temp2Context))
+    {
+      for(int j = i+1; j <= sizeof(temp2Context); j++)
+      {
+        toAppend += \".\" + temp2Context[j];
+      }
+    }
+    dynAppend(finalContext, toAppend);
+  }
+
+  TABLE_ASSOCIATION.cellValueRC(row,\"cValue\",information);
+  TABLE_ASSOCIATION.cellWidgetRC(row, \"cValue\", \"ComboBox\", finalContext);
+}
+
+/**
+	@author Joshua Hercher joshua.hercher@etm.at
+	This function takes either a context or a parameter. If both are set, the function will first try to solve Context
+  If that fails parameter will be used.
+	the value is then compared to the full Combobox text and if it matches replaces the shown value
+  @param context the context set by the user
+  @param parameter the context aware parameter
+  @param row line where the combobox value should be set
+*/
+void chooseComboBoxEntry(int row, string parameter = \"\", string context = \"\")
+{
+	string fullText;
+	string shortText;
+	getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", row, \"cValue\", fullText);
+
+	if(strpos(fullText, context) >= 0)
+  {
+	  shortText = substr(fullText, strlen(context));
+    //only valid context should be used, else we use the parameter
+    if(shortText[0] == \".\" || (strlen(context) > 0 && context[strlen(context)-1] == \":\"))
+    {
+  	  TABLE_ASSOCIATION.cellValueRC(row, \"cValue\", shortText);
+      return;
+    }
+  }
+
+  if(parameter != \"\")
+	{
+		if(strpos(fullText, parameter) >= 0)
+		{
+			TABLE_ASSOCIATION.cellValueRC(row, \"cValue\", parameter);
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  cnsTree_unRegTreeObject(CNS_TREE_KEY);
+//   PanelOff(); //Would be needet for turning off quicktest!
+}
+
+
+" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+6 225
+"RECTANGLE14"
+""
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.339290552163146 0 0.8799951263736242 -76.76492432234085 87.32261226373785 1 E 23 503 406 536
+29 62
+"txt_infoconf"
+"WF_Transparent"
+1 751.0759493670887 15.5864293259376 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+17
+"wordWrap" "enum 1"
+"sizeAdjustPolicy" "enum 0"
+"wrapPolicy" "enum 0"
+"alignment" "enum 1"
+"horizontalScrollBarPolicy" "enum 0"
+"layoutDirection" "enum 0"
+"frameShape" "enum 0"
+"textInteractionFlags" "enum 1"
+"inputMethodHints" "enum 1024"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"contextMenuPolicy" "enum 1"
+"textFormat" "enum 2"
+"frameShadow" "enum 48"
+"readOnly" "bool TRUE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  750 15.00000000000001 1260 97
+15 PVSS.TextEdit.1
+0
+"main()
+{
+//   string text = \"Please assign values to the parameters. \"
+//                 +\"You can configure parameters for a large number of devices by using KPI context, \"
+//                 +\"which can be name pattern, DP type or plant model paths.\";
+  string text = getCatStr(\"ssc_wizards\",\"DescriptionAssociatePNL\");
+  this.text(text);
+}
+" 0
+6 74
+"RECTANGLE11"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 0.5572982392789904 0 1 360.0000000000001 351.0000000000005 1 E 0 0 1237 24
+25 6
+"TABLE_ASSOCIATION"
+"WF"
+1 325.6366277831031 151.294678404641 E E E 1 E 1 E N "STD_text" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  if(CB_TIMER_PARA.selectedPos() == row + 2 && RB_TRIGGER.number == SSC_TIME_PARA)
+  {
+    notificationBar_newMsg(\"ssc_wizards\", \"kpi00013\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, 
+                               makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false); 
+  }
+  else if(row >= 0)
+  {
+  	bool contextSet;
+	
+    setAssociationTableCombobox(row, information); 
+			
+    int iRBWildCard;
+    getValue(\"RB_Single_WildCard\", \"number\",iRBWildCard);  
+  
+    if (iRBWildCard==0)
+    {
+      setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", row, \"cInContext\", FALSE);
+    }
+	
+  	//only set context aware checkbox if context is checked
+  	getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", row, \"cInContext\", contextSet);
+  	if(contextSet)
+  	{
+  		chooseComboBoxEntry(row, \"\", TF_CONTEXT.text());
+  	}
+    AssociationChanged = TRUE;
+    wf_bottomBar_reload();
+  }
+}
+
+
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 183 1052 353
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+}" 0
+"main(int row, string column, string value)
+{
+  int iRB_TRIGGER_TriggerPos, iSelectedTriggerParameter, iTABLE_ASSOCIATIONLineNumbers;
+  string sParameterName;
+  
+  getValue(\"TABLE_ASSOCIATION\", \"lineCount\", iTABLE_ASSOCIATIONLineNumbers);
+  getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", row, \"cParameter\", sParameterName);
+  getValue(\"RB_TRIGGER\",\"number\",iRB_TRIGGER_TriggerPos);
+  
+  if(column == \"cParaConnect\")
+  {
+    if(value == FALSE)//Connect wird deaktiviert --> muss in Trigger nachsehen ob verwendet und wenn ja rausnehmen.  
+    {
+      if(iRB_TRIGGER_TriggerPos == SSC_ONLINE_PARA)
+      {
+        getValue(\"CB_ONLINE\",\"selectedPos\",iSelectedTriggerParameter);
+        SSCDebugTN(\"iSelectedTriggerParameter\", iSelectedTriggerParameter, \"iTABLE_ASSOCIATIONLineNumbers\", iTABLE_ASSOCIATIONLineNumbers);
+        if(iTABLE_ASSOCIATIONLineNumbers + 1 == iSelectedTriggerParameter)
+        {
+          ParameterInUse(row, \"*\");
+        }
+        else if(iSelectedTriggerParameter == (row+1))
+        {
+          ParameterInUse(row, sParameterName);
+        } 
+        else
+        {
+          AssociationChanged = true;
+          wf_bottomBar_reload();
+        }
+      }
+    }
+    else
+    {
+      if(CB_TIMER_PARA.selectedPos() == row + 2 && iRB_TRIGGER_TriggerPos == SSC_TIME_PARA)
+      { 
+        notificationBar_newMsg(\"ssc_wizards\", \"kpi00012\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, 
+                               makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);       
+        TABLE_ASSOCIATION.cellValueRC(row, column, false);
+        return;
+      }
+    }
+    AssociationChanged = true;
+    wf_bottomBar_reload();
+  }
+  else
+  {
+    AssociationChanged = true;
+    wf_bottomBar_reload();
+  }
+
+}
+
+void ParameterInUse(int row, string sParameterName)
+{
+   notificationBar_newMsg(\"ssc_wizards\", \"TriggerParameterInUse\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(sParameterName), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+   setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", row, \"cParaConnect\", TRUE);
+}
+
+
+
+
+
+" 0
+ 1 0 1 4 0 "cParameter" 17 1 0 "s" 4
+LANG:10001 9 Parameter
+LANG:10004 6 参数
+LANG:10000 9 Parameter
+LANG:10027 9 Parameter
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+200 "cValue" 32 1 1 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 5 Value
+E
+4
+LANG:10001 92 Insert the dpe path, dpe for context search (with leading dot) or constant for the parameter
+LANG:10004 84 插入 dpe 路径，用于上下文搜索的 dpe（带前导点）或参数的常量
+LANG:10000 93 DPE Pfad, DPE für Kontextsuche (mit führendem Punkt) oder Konstante für Parameter eingeben
+LANG:10027 92 Insert the dpe path, dpe for context search (with leading dot) or constant for the parameter
+
+363 "cInContext" 4 1 1 "s" 4
+LANG:10001 7 Context
+LANG:10004 9 上下文
+LANG:10000 7 Kontext
+LANG:10027 7 Context
+E
+4
+LANG:10001 17 Search in context
+LANG:10004 21 在上下文中搜索
+LANG:10000 17 In Kontext suchen
+LANG:10027 17 Search in context
+
+55 "cParaConnect" 4 1 1 "s" 4
+LANG:10001 6 Online
+LANG:10004 6 在线
+LANG:10000 6 Online
+LANG:10027 6 Online
+E
+4
+LANG:10001 40 Use the online value for the calculation
+LANG:10004 27 使用在线值进行计算
+LANG:10000 43 Online Wert für die Berechnung heranziehen
+LANG:10027 40 Use the online value for the calculation
+
+55 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+2 8
+"PRIMITIVE_TEXT2"
+"WF"
+1 15 11.52107954782045 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 11.52107954782045 103 27
+0 2 2 "0s" 0 0 0 192 0 0  15 11.52107954782045 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 KPI definition
+LANG:10004 15 KPI指标定义
+LANG:10000 14 KPI Definition
+LANG:10027 14 KPI definition
+2 11
+"PRIMITIVE_TEXT3"
+"WF"
+1 315 12.08725102573693 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 315 12.08725102573693 442 27
+0 2 2 "0s" 0 0 0 192 0 0  315 12.08725102573693 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Calculation formula
+LANG:10004 12 计算公式
+LANG:10000 17 Berechnungsformel
+LANG:10027 19 Calculation formula
+29 12
+"TE_FORMULA"
+"WF"
+1 315.1632581471506 29.16700712316518 E E E 1 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 70 Shows the calculation formula or the function for the KPI calculation.
+LANG:10004 44 显示 KPI 计算的计算公式或函数。
+LANG:10000 73 Zeigt die Berechnungsformel oder die Funktion für die KPI Berechnung an.
+LANG:10027 70 Shows the calculation formula or the function for the KPI calculation.
+
+2
+"readOnly" "bool TRUE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  315 29 735 97
+15 PVSS.TextEdit.1
+0
+E22 13
+"CB_KPI"
+"WF"
+1 14.99999999999992 34.62646859116658 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 108 Select a KPI definition to create new KPI instance(s). The type of existing KPI instances cannot be changed.
+LANG:10004 94 选择一个 KPI 定义以创建新的 KPI 实例。 现有 KPI 实例的类型无法更改。
+LANG:10000 129 KPI Definition wählen um neue KPI Instanz(en) anzulegen. Für bestehende KPI Instanzen ist es nicht möglich den Typ zu ändern.
+LANG:10027 108 Select a KPI definition to create new KPI instance(s). The type of existing KPI instances cannot be changed.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 29 302 58
+0
+
+E
+"main()
+{
+  string sSelectedText;
+  getValue(\"selectedInstance\",\"text\",sSelectedText);
+  int changed = changesOpen(sSelectedText);
+  if (changed > 0)
+  {
+    selectionChanged();
+//     TF_CONTEXT.editable(TRUE);
+    setValue(\"TF_CONTEXT\",\"visible\",TRUE);
+    setValue(\"RB_Single_WildCard\",\"number\",1);
+    setValue(\"TABLE_ASSOCIATION\", \"columnEditable\", 2, TRUE);
+    setValue(\"TF_CONTEXT\",\"text\",\"\"); 
+    setValue(\"TF_DESC\",\"text\",\"\");
+    TABLE_VALUES.deleteSelection();
+
+    // setzt die Trigger Einstellungen auf No Trigger
+    TriggerChanged(SSC_CONST_PARA); 
+    setValue(\"RB_TRIGGER\",\"number\",SSC_CONST_PARA);
+     
+    //Nothing to save at the moment    
+    AssociationChanged = false;
+    wf_bottomBar_reload();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+2 30
+"PRIMITIVE_TEXT6"
+""
+1 375.2965522572982 141.1952764585988 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 375.2965522572982 141.1952764585988 645 156
+0 2 2 "0s" 0 0 0 192 0 0  375.2965522572982 141.1952764585988 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 46 KPI context (Configure multiple KPI instances)
+LANG:10004 42 KPI 上下文（配置多个 KPI 实例）
+LANG:10000 49 KPI Kontext (mehrere KPI Instanzen konfigurieren)
+LANG:10027 46 KPI context (Configure multiple KPI instances)
+2 35
+"PRIMITIVE_TEXT7"
+""
+1 784.75 356.0000000000005 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 784.75 356.0000000000005 857 371
+0 2 2 "0s" 0 0 0 192 0 0  784.75 356.0000000000005 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 11 Description
+2 37
+"TEXT_NUM_INSTANCE"
+""
+1 265.1625387820037 488.6719266309286 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+7
+"shadowOffset" "[8,8]"
+"shadowColor" "{63,63,63,131}"
+"shadowRadius" "18"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 265.1625387820037 488.6719266309286 267 499
+0 2 2 "0s" 0 0 0 192 0 0  265.1625387820037 488.6719266309286 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+6 52
+"RECTANGLE1"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 1.034318049354778 0 1 0.003650883681586947 109.9574133006827 1 E 0 0 1237 24
+2 58
+"PRIMITIVE_TEXT13"
+""
+1 897.7142093775736 2547.095745094363 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999999 0 1 362.7857906224265 78.45783949858489 0 E 12.5107616348717 35.99914760419564 165 51
+0 2 2 "0s" 0 0 0 192 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 23 Configure KPI instances
+LANG:10004 17 配置 KPI 实例
+LANG:10000 25 KPI Instanz konfigurieren
+LANG:10027 23 Configure KPI instances
+19 64
+"RB_TRIGGER"
+"WF"
+1 375.3279546267899 535.2403352472073 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Defines the trigger for calculating KPI instance.
+LANG:10004 38 定义计算 KPI 实例的触发器。
+LANG:10000 60 Legt den Auslöser für die Berechnung der KPI Instanz fest.
+LANG:10027 49 Defines the trigger for calculating KPI instance.
+
+3
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373 532.4800804148356 693 556.4800804148356
+3
+T 
+4
+LANG:10001 10 No trigger
+LANG:10004 12 无触发器
+LANG:10000 12 Kein Trigger
+LANG:10027 10 No trigger
+
+1 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Online value
+LANG:10004 12 在线数值
+LANG:10000 11 Online Wert
+LANG:10027 12 Online value
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Timed function
+LANG:10004 12 定时功能
+LANG:10000 12 Zeitfunktion
+LANG:10027 14 Timed function
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  TriggerChanged(button);
+  AssociationChanged = true;
+  wf_bottomBar_reload();
+
+}" 0
+
+2 68
+"PRIMITIVE_TEXT20"
+"WF"
+1 15 64 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 64 88 79
+0 2 2 "0s" 0 0 0 192 0 0  15 64 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 11 Description
+29 127
+"TF_DESC"
+"WF"
+1 655.6488747986077 361.9691301065375 E E E 1 E 1 E N "WF_Text" E N "WF_TextOver" E E
+ E E
+94 0 0 0 0 0
+E "main()
+{
+  AssociationChanged = true;
+  wf_bottomBar_reload();
+}" 0
+ E
+0
+4
+LANG:10001 34 Enter comment for the KPI instance
+LANG:10004 26 输入 KPI 实例的注释
+LANG:10000 42 Kommentar für die KPI Instanzen einfügen
+LANG:10027 34 Enter comment for the KPI instance
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  770 375 1050 530
+15 PVSS.TextEdit.1
+1
+0 "Clicked" "(int para, int pos)"
+"  langString lang_description;
+  dyn_string d_description;
+  string kpi;
+  dyn_anytype test;
+    
+  dyn_int lines = TABLE_VALUES.getSelectedLines();
+  if(dynlen(lines) > 0)
+  {
+    kpi = TABLE_VALUES.cellValueRC(lines[1], \"kpiKey\");
+    
+    dpGet(kpi + \".comment\", lang_description);
+        
+    langEditor(lang_description);
+    
+    d_description = lang_description;
+    
+    this.text(d_description[getActiveLang() + 1]);
+    
+    dpSet(kpi + \".comment\", lang_description);
+  }"
+E19 178
+"RB_Single_WildCard"
+"WF"
+1 749.2790967168713 134.1952764585988 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 149 Single edited KPI instances were not changed through enhanced edit mode. Note: Single edited KPI instances could only be changed in single edit mode.
+LANG:10004 143 单个编辑的 KPI 实例未通过增强编辑模式进行更改。 注意：单次编辑的 KPI 实例只能在单次编辑模式下更改。
+LANG:10000 198 Einzelbearbeitete KPI Instanzen werden im erweiterten Bearbeitungsmodus nicht mehr überschrieben. Hinweis: Einzeln bearbeitete Instanzen können nur noch im Einzelbearbeitungsmodus editiert werden.
+LANG:10027 149 Single edited KPI instances were not changed through enhanced edit mode. Note: Single edited KPI instances could only be changed in single edit mode.
+
+2
+"layoutAlignment" "AlignLeft|AlignLeading"
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  748 132 1042 165
+2
+T 
+4
+LANG:10001 11 Single edit
+LANG:10004 12 单次编辑
+LANG:10000 17 Einzelbearbeitung
+LANG:10027 11 Single edit
+
+1 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Enhanced edit
+LANG:10004 12 增强编辑
+LANG:10000 22 Erweiterte Bearbeitung
+LANG:10027 13 Enhanced edit
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+1
+"main()
+{
+  this.number(1);
+  setValue(\"TABLE_ASSOCIATION\", \"columnEditable\", 2, TRUE);
+}" 0
+ "main(int button)
+{
+  singleWildcardRB(button);
+}" 0
+
+13 224
+"BT_DELETE_KPI"
+"WF_Transparent"
+1 -845.7769552747849 61.52945420168078 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 31 Delete selected KPI instance(s)
+LANG:10004 26 删除选定的 KPI 实例
+LANG:10000 37 Ausgewählte KPI Instanz(en) löschen
+LANG:10027 31 Delete selected KPI instance(s)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  38 529.9800804148356 67 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 12 PUSH_BUTTON4
+LANG:10004 12 PUSH_BUTTON4
+LANG:10000 12 PUSH_BUTTON4
+LANG:10027 12 PUSH_BUTTON4
+"main()
+{
+  //global Var from ScopeLib: dsSelectedKPIs 
+  dynClear(dsSelectedKPIs);
+  string sTempKPIKey;
+  dyn_string resultString;
+  dyn_float resultFloat;
+  dyn_int diSelectedLines;
+  int selectedLinesCount;
+ 
+  dpGet(\"_ssc_global_configuration.kpi\", kpiConfigDP); //lädt den globalen KonfigurationsDP
+  
+  getValue(\"TABLE_VALUES\",\"getSelectedLines\",diSelectedLines);
+  selectedLinesCount = dynlen(diSelectedLines);
+
+  if (selectedLinesCount > 0)
+  {
+    for(int i = 1; i<= selectedLinesCount; i++)
+    {
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines[i],\"kpiKey\",sTempKPIKey);
+      dynAppend(dsSelectedKPIs,sTempKPIKey);
+    }
+  
+    string sMsgText = getCatStr(\"ssc_wizards\",\"msgDeleteKPI\");
+    strreplace(sMsgText, \"$4\",selectedLinesCount);
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", \"Delete KPI Instance\",
+                                   makeDynString(sMsgText, getCatStr(\"ssc_wizards\",\"delete\"),getCatStr(\"ssc_wizards\",\"cancel\")),
+                                   resultFloat, 
+                                   resultString);
+    if(resultFloat[1] == 1) 
+    {
+      ssc_deleteKPIInsts(dsSelectedKPIs);
+      AssociationChanged = false;
+      wf_bottomBar_reload();
+      reloadSavedInstances();
+      setValue(\"selectedInstance\",\"text\",\"\");
+  
+      //delete the selection of the VALUES Table and load a new KPI
+      string sSelectedText;
+      getValue(\"selectedInstance\",\"text\",sSelectedText);
+      int changed = changesOpen(sSelectedText);
+      if (changed > 0)
+      {
+        selectionChanged();
+  //       TF_CONTEXT.editable(TRUE);
+        setValue(\"TF_CONTEXT\",\"visible\",TRUE);
+        setValue(\"RB_Single_WildCard\",\"number\",1);
+        setValue(\"TF_CONTEXT\",\"text\",\"\"); 
+        setValue(\"TF_DESC\",\"text\",\"\");
+        TABLE_VALUES.deleteSelection();
+
+        // setzt die Trigger Einstellungen auf No Trigger
+        TriggerChanged(SSC_CONST_PARA); 
+        setValue(\"RB_TRIGGER\",\"number\",SSC_CONST_PARA);
+     
+        //Nothing to save at the moment    
+        AssociationChanged = false;
+        wf_bottomBar_reload();
+      }
+    }  
+    dynClear(dsSelectedKPIs);
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00073\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+13 228
+"NewKPI"
+"WF_Transparent"
+1 -871 61.52945420168077 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Clear selections
+LANG:10004 15 清空所选择
+LANG:10000 21 Auswahl zurücksetzen
+LANG:10027 16 Clear selections
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  13 529.9800804148356 42 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/kpi.png"
+4
+LANG:10001 12 PUSH_BUTTON4
+LANG:10004 12 PUSH_BUTTON4
+LANG:10000 12 PUSH_BUTTON4
+LANG:10027 12 PUSH_BUTTON4
+"main()
+{
+  string sSelectedText;
+  getValue(\"selectedInstance\",\"text\",sSelectedText);
+  int changed = changesOpen(sSelectedText);
+  if (changed > 0)
+  {
+    selectionChanged();
+//     TF_CONTEXT.editable(TRUE);
+    setValue(\"TF_CONTEXT\",\"visible\",TRUE);
+    setValue(\"RB_Single_WildCard\",\"number\",1);
+    setValue(\"TF_CONTEXT\",\"text\",\"\"); 
+    setValue(\"TF_DESC\",\"text\",\"\");
+
+    // setzt die Trigger Einstellungen auf No Trigger
+    TriggerChanged(SSC_CONST_PARA); 
+    setValue(\"RB_TRIGGER\",\"number\",SSC_CONST_PARA);
+    TABLE_VALUES.deleteSelection();
+    
+    //Nothing to save at the moment    
+    AssociationChanged = false;
+    wf_bottomBar_reload();
+  }
+}
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"kpi\");
+}" 0
+
+25 145
+"TABLE_VALUES"
+"WF"
+1 -1.05646067051083 159.7217026698626 E E E 1 E 1 E N "STD_text" E N "_Window" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"draggable" ""
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  if(!saveInProgress)
+  {
+    int iChangesOpen;
+    string sDPSelected;
+    dyn_int diSelectedLines;
+    dyn_int diSelectedLines;
+    string sPreviousSelection;
+    bool bStateCHBX_selectionChanged;
+
+    bTABLE_KpiIntances_Changed = TRUE;  
+  
+    getValue(\"TABLE_VALUES\",\"getSelectedLines\",diSelectedLines); 
+    if(dynlen(diSelectedLines) > 0)
+    {
+      getValue(\"selectedInstance\",\"text\",sPreviousSelection);
+      getValue(\"TABLE_VALUES\",\"cellValueRC\",diSelectedLines[dynlen(diSelectedLines)],\"kpiKey\",sDPSelected);
+      if (sPreviousSelection == \"\")
+        sPreviousSelection = sDPSelected;
+  
+      iChangesOpen = changesOpen(sPreviousSelection);  //Check for open changes in the Panel
+    
+      getValue(\"CHBX_selectionChanged\",\"state\",0,bStateCHBX_selectionChanged);
+      if(!bStateCHBX_selectionChanged)
+      {    
+        if(iChangesOpen > 0)
+        {
+          showSelectedItem(sDPSelected);
+          SSCDebugTN(\"Selection Changed TABLE VALUES\");  
+          //setValue(\"TABLE_ASSOCIATION\", \"columnEditable\",2,FALSE); //Column Search in Cntext could NOT be changed
+          getValue(\"TABLE_VALUES\", \"getSelectedLines\", diTableValues_SelectedLine); 
+          setValue(\"CHBX_selectionChanged\",\"state\",0,FALSE);
+        }
+        else
+        {
+          selectedInstance.text(sDPSelected);
+          TABLE_VALUES.deleteSelection();
+          if(dynlen(diTableValues_SelectedLine) > 0)
+          {
+            setValue(\"TABLE_VALUES\", \"selectLineN\", diTableValues_SelectedLine[1]);
+            setValue(\"CHBX_selectionChanged\",\"state\",0,TRUE);
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 158 362 532
+"main()
+{
+  this.tableMode(TABLE_SELECT_MULTIPLE);//(TABLE_SELECT_LINE);
+  this.selectByClick(TABLE_SELECT_LINE); //Select the whole line
+  this.selectColors(\"{112,162,212}\", \"white\"); //defines the color of the selected Line
+  this.visible(true);
+  
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  reloadSavedInstances();
+  
+  //Connect to Enabled status of the KPI to ensure that the Status is always correct in the Panel.
+  string query; 
+  anytype userData;
+  query = \"SELECT '_online.._value' FROM '*.enabled*' WHERE _DPT = \\\"\" + SSC_KPI_INSTANCE_TYPE + \"\\\"\";
+  userData = getUserName(); 
+  
+  dpQueryConnectSingle(\"CB_isKpiActive2\", FALSE, userData , query);
+  
+}" 0
+"main(int row, string column, string value)
+{
+  int iChangesOpen;
+  string sDPSelected, sSelectedInstanceKPI;
+  dyn_int diSelectedLines;
+  bool ScriptSelectionChanged;
+ 
+  if(column == \"kpiActive\")
+  {
+    if(getUserPermission(SSC_USER_PERMISSION_KPI))
+    {
+      setKPIActiveInactive(row, column, value);
+    }
+    else
+    {
+      this.cellValueRC(row, column, !value);
+    }
+  } 
+  getValue(\"CHBX_selectionChanged\",\"state\",0,ScriptSelectionChanged);
+  if (!ScriptSelectionChanged && !bTABLE_KpiIntances_Changed)
+  {
+    //SSCDebugTN(__LINE__, \"Clicked!!!\");
+    if(column == \"kpiKey\")
+    {
+      getValue(\"TABLE_VALUES\", \"cellValueRC\", row, \"kpiKey\", sDPSelected);
+      getValue(\"selectedInstance\", \"text\", sSelectedInstanceKPI);
+      if(sSelectedInstanceKPI == sDPSelected) // wird nur ausgeführt wenn die gleiche Zelle doppelt geklickt wird
+      {
+        iChangesOpen = changesOpen(sDPSelected);
+        if(iChangesOpen > 0)
+        {
+          showSelectedItem(sDPSelected);
+          //setValue(\"TABLE_ASSOCIATION\", \"columnEditable\",2,TRUE); //Column Search in Cntext could be changed
+        }
+      }
+    }
+  }
+  else
+  {
+    bTABLE_KpiIntances_Changed = FALSE;
+    setValue(\"CHBX_selectionChanged\",\"state\",0,FALSE);
+  }
+}
+
+
+
+
+
+
+
+" 0
+ 1 0 1 5 0 "kpiActive" 1 1 1 "s" 4
+LANG:10001 1 A
+LANG:10004 1 A
+LANG:10000 1 A
+LANG:10027 1 A
+E
+4
+LANG:10001 34 Calculation of KPI instance active
+LANG:10004 23 计算 KPI 实例活动
+LANG:10000 37 Berechnung für KPI Instanz aktiviert
+LANG:10027 34 Calculation of KPI instance active
+
+20 "kpiKey" 28 1 0 "s" 4
+LANG:10001 12 KPI instance
+LANG:10004 10 KPI 实例
+LANG:10000 11 KPI Instanz
+LANG:10027 12 KPI instance
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+324 "kpiActive_" 1 0 1 "s" 4
+LANG:10001 1 A
+LANG:10004 1 A
+LANG:10000 1 A
+LANG:10027 1 A
+E
+4
+LANG:10001 101 Shows the current state of the kpi instance. Changing the state is only possible in single edit mode.
+LANG:10004 87 显示 kpi 实例的当前状态。 只有在单一编辑模式下才能更改状态。
+LANG:10000 87 Zeigt den status der KPI Instanz an. Ändern ist nur in der Einzelbearbeitung möglich.
+LANG:10027 101 Shows the current state of the kpi instance. Changing the state is only possible in single edit mode.
+
+20 "kpiValue" 8 0 0 "[0.3f,False,False,AlignLeft,False]" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 5 Value
+LANG:10027 5 Value
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+100 "updateTime" 12 0 0 "[t,False,,AlignLeft]" 4
+LANG:10001 11 Update Time
+LANG:10004 12 更新时间
+LANG:10000 11 Update Time
+LANG:10027 11 Update Time
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+150 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 4 7
+1 0
+2 235
+"PRIMITIVE_TEXT25"
+""
+1 374.875 356.0000000000004 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 374.875 356.0000000000004 421 371
+0 2 2 "0s" 0 0 0 192 0 0  374.875 356.0000000000004 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Trigger
+LANG:10004 9 触发器
+LANG:10000 7 Trigger
+LANG:10027 7 Trigger
+2 244
+"HeaderRight"
+""
+1 20781.38275412548 2549.597305750478 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999999 0 1 1052.000000000001 78.45783949858489 0 E 12.5107616348717 35.99914760419564 89 51
+0 2 2 "0s" 0 0 0 192 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 DP Selector
+LANG:10004 12 DP 选择器
+LANG:10000 11 DP Selektor
+LANG:10027 11 DP Selector
+2 250
+"HeaderLeft"
+""
+1 20781.38275412548 2549.597305750478 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+123 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999999 0 1 2.244619182562929 78.45783949858489 0 E 12.5107616348717 35.99914760419564 99 51
+0 2 2 "0s" 0 0 0 192 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 KPI instances
+LANG:10004 10 KPI 实例
+LANG:10000 13 KPI Instanzen
+LANG:10027 13 KPI instances
+2 253
+"TF_DISPLAY"
+"WF"
+1 18 81 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+124 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 18 81 303 106
+0 2 2 "0s" 0 0 0 64 0 0  18 81 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+14 262
+"tf_instanceFilter"
+"WF"
+1 -0.9976674673261932 143.3675078817562 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+127 0 0 0 0 0
+E "main()
+{
+  //
+}" 0
+ E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 133 312 162
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  string text = tf_instanceFilter.text;
+  TABLE_VALUES.filterRows(\"kpiKey\", makeDynString(text), true);
+}" 0
+
+13 268
+"btn_instanceDeleteFilter"
+"WF"
+1 17.06813091090396 632.5096639489101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 15 删除过滤器
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  308 133 337 162
+
+P 
+4294967295
+"pictures/cns/delete_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  tf_instanceFilter.text = \"\";
+  TABLE_VALUES.filterRows(\"kpiKey\", makeDynString(\"*\"), true);
+}
+
+" 0
+ E E E
+13 269
+"btn_instanceFilter"
+"WF"
+1 42.06813091090396 632.5096639489101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+130 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  333 133 362 162
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  string text = tf_instanceFilter.text;
+  TABLE_VALUES.filterRows(\"kpiKey\", makeDynString(text), true);
+}" 0
+ E E E
+29 272
+"att_CalculatingInstance"
+"WF"
+1 174.3984921535226 322.1513256979604 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+131 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color WF_Text"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  130.5036508836816 295.9787066503414 229.5036508836816 394.9787066503414
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+29 273
+"att_calculatingPreview"
+"WF"
+1 1159.392667356798 312.6726190476189 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+132 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color WF_Text"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1115.497826086957 286.4999999999999 1214.497826086957 385.4999999999999
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+4 276
+"LINE3"
+""
+1 360 110.0000000000001 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+133 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  360 110.0000000000001 360 558.9999999999999
+4 277
+"LINE4"
+""
+1 1050 110 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+134 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1050 110 1050 559.2503444610953
+4 278
+"LINE5"
+""
+1 770 350 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+135 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  770 350 770 559
+4 283
+"LINE8"
+""
+1 0.2552236703693325 109.9574133006827 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+138 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  0.2552236703693325 109.9574133006827 1279.203505148854 109.9574133006827
+4 284
+"LINE9"
+""
+1 0 135 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+139 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  0 135 1278.948281478485 135
+14 29
+"TF_CONTEXT"
+"WF"
+1 412.9851170898885 163.92775354933 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+"main()
+{
+  getValue(\"TF_CONTEXT\",\"text\",sContextContent);
+}
+" 0
+ "main()
+{
+  string sTemp;
+  getValue(\"TF_CONTEXT\",\"text\",sTemp);
+  if(sTemp != sContextContent && sTemp != \"\")
+  {
+    AssociationChanged = true;
+    wf_bottomBar_reload();
+  }
+}" 0
+ E
+0
+4
+LANG:10001 143 Context can be DP type, DP, CNS nodes. Wildcards can be applied to DP and CNS nodes. Drag&Drop to the context from the DP selector is possible.
+LANG:10004 136 上下文可以是DP类型、DP、CNS节点。 通配符可以应用于 DP 和 CNS 节点。 可以从 DP 选择器拖放到上下文。
+LANG:10000 155 Als Kontext sind DP Typen, Datenpunkte und CNS Knoten zulässig. Wildcards können im Kontext verwendet werden. Drag&Drop aus dem DP Selektor ist möglich.
+LANG:10027 143 Context can be DP type, DP, CNS nodes. Wildcards can be applied to DP and CNS nodes. Drag&Drop to the context from the DP selector is possible.
+
+3
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+  //remove last point in dp
+  int infoStart = 0;
+  int infoEnd = strlen(information)-1;
+  if('.'==information[infoEnd])
+    this.text(substr(information, infoStart, infoEnd));
+  else
+    this.text(information);
+}
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 158 1052 187
+3 "0s" 0 0 0 0 0 -1  E E "#uses \"notificationBar\"
+main()
+{
+  dyn_anytype daParameterValues;
+  dyn_string dsDpNames;
+  string sTemp;
+  getValue(\"TF_CONTEXT\",\"text\",sTemp);
+  if(sTemp != sContextContent && sTemp != \"\") 
+    AssociationChanged = true;
+    wf_bottomBar_reload();
+    
+  int ParameterSet = associationParameters(daParameterValues);
+  if (ParameterSet == 0 && \"\" != kpiInEdit)
+  {
+    int numberLines = sc_reloadPreview(dsDpNames);
+    if (numberLines > 0)
+      notificationBar_newMsg(\"ssc_wizards\", \"PreviewAvailable\", NOTIFICATION_BAR_PRIO_INFO, WF_ERR_NOTHING, makeDynString(numberLines), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    else
+      notificationBar_newMsg(\"ssc_wizards\", \"NoDp\", NOTIFICATION_BAR_PRIO_INFO, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+  else
+    if (ParameterSet > 0)    
+      notificationBar_newMsg(\"sc_errors\", \"notAllParameters\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING, makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+}
+
+int associationParameters(dyn_anytype &daParameterValues)
+{
+  int iTableLines;
+  int parameterSet;
+  getValue(\"TABLE_ASSOCIATION\",\"lineCount\",iTableLines);
+  
+  for(int i=0; i< iTableLines; i++)
+  {
+    getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", 0, \"cValue\", daParameterValues[i+1]);
+    if (daParameterValues[i+1] == \"\")
+      parameterSet += 1;
+  }
+  return parameterSet;
+}
+
+
+" 0
+
+4 280
+"LINE7"
+""
+1 0.03875837741156829 530 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+137 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  0.03875837741156829 530 1278.987039855897 530
+4 285
+"LINE10"
+""
+1 360.0000000000001 375.0000000000005 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+140 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  360.0000000000001 375.0000000000005 1050 375.0000000000005
+13 288
+"btn_stopKpiCreation"
+"WF_Transparent"
+1 356.0000000000002 535.9800804148356 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+141 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 60 Stops creating KPI instances based on context (no roll back)
+LANG:10004 53 停止根据上下文创建 KPI 实例（不回滚）
+LANG:10000 68 Stoppt die Erzeugung kontextbasierter KPI Instanzen (ohne Roll-Back)
+LANG:10027 60 Stops creating KPI instances based on context (no roll back)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  318.0000000000002 529.9800804148356 347.0000000000002 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  g_stopKpiCreation = true;
+  this.enabled = false;
+}
+" 0
+ E E E
+22 65
+"CB_ONLINE"
+"WF"
+1 441.1199609214266 445.0989348401098 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 108 Select a parameter for the online value trigger. " * " selects all parameters for the online value trigger. 
+LANG:10004 83 选择在线值触发器的参数。 “*”选择在线值触发的所有参数。
+LANG:10000 113 Parameter für den online Wert Trigger auswählen. " * " Selektiert alle Parameter für den Online Wert Trigger. 
+LANG:10027 107 Select a parameter for the online value trigger. " * " selects all parameters for the online value trigger.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  372.5434760458271 417.8807243968882 757.0000000000001 446.8807243968882
+0
+
+E
+"main()
+{
+  int iSelectedPos, iLineCount;
+  string sCBtext;
+  AssociationChanged = true;
+  wf_bottomBar_reload();
+  getValue(\"CB_ONLINE\", \"selectedPos\",iSelectedPos);
+  getValue(\"CB_ONLINE\", \"text\", sCBtext);
+  if (sCBtext == \"*\")
+  {
+    getValue(\"TABLE_ASSOCIATION\", \"lineCount\", iLineCount);
+    for(int i = 0; i < iLineCount; i++)
+    {
+      setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", i, \"cParaConnect\", TRUE);
+    }
+  }
+  else
+    setValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", iSelectedPos-1, \"cParaConnect\", TRUE);
+}" 0
+
+E
+ 0 0
+2 66
+"TEXT_ONLINE"
+""
+1 374.8350137957597 397.0000000000005 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 374.8350137957597 397.0000000000005 491 412
+0 2 2 "0s" 0 0 0 192 0 0  374.8350137957597 397.0000000000005 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Select online trigger
+LANG:10004 18 选择在线触发
+LANG:10000 25 Online Trigger auswählen
+LANG:10027 21 Select online trigger
+29 218
+"cnsTreeObject"
+"WF"
+1 1049.764504075636 159.9999999999999 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"lineWidth" "int 1"
+"autoExpandDelay" "int -1"
+"midLineWidth" "int 1"
+"treeStepSize" "int 17"
+"acceptDrops" ""
+"DragStart" "main(int keys, string id)
+{
+  dragStart(id);
+}"
+"DragDrop" "main(string information, int dragType, string id, int column)
+{
+  //DebugN(\"dragDrop\", information, dragType, id, column);
+  //DebugN(\"-------------------------------------------------------------\");
+  
+  if(id == \"\")  //The tree was dropped in an empty area of the tree widget or the Drag&Drop was canceled
+  {
+    return;
+  }
+  
+  bool bRet;
+  int iNodeLevel;
+  string sDp, sNodeLast, sNodeRelative, sNewNodePath;
+  blob blUserData;
+  langString lsDisplayName;
+  
+  string sSrcID = information;
+  string sDstID = id;
+  
+  string sSrcSys = cnsSubStr(sSrcID, CNSSUB_SYS);
+  string sSrcView = cnsSubStr(sSrcID, CNSSUB_VIEW);
+  string sSrcParent = cnsSubStr(sSrcID, CNSSUB_SYS | CNSSUB_VIEW | CNSSUB_PARENT);
+  string sSrcPath = cnsSubStr(sSrcID, CNSSUB_PATH);
+  
+  string sDstSys = cnsSubStr(sDstID, CNSSUB_SYS);
+  string sDstView = cnsSubStr(sDstID, CNSSUB_VIEW);
+  
+  if(sSrcID == sSrcSys)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A system node can not be embeded into a tree.\"));
+    return;
+  }
+  
+  if(sSrcID == (sSrcSys+\".\"+sSrcView+\":\"))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A view can not be embeded into a tree.\"));
+    return;
+  }
+  
+  if(strpos(sDstID, sSrcID) == 0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"CNS Tree Management Warning\", makeDynString(\"$1:A tree can not be embeded into itself.\"));
+    return;
+  }
+  
+  if(sSrcParent == sSrcID)  //Tree was dragged. In this case the parent has to be the view.
+  {
+    sSrcParent = sSrcSys+\".\"+sSrcView+\":\";
+  }
+  
+  dyn_string dsNodesRelative = makeDynString();
+  dyn_string dsNodesPath = makeDynString();
+  dyn_string dsNodesDp = makeDynString();
+  dyn_string dsNodesLast = makeDynString();
+  dyn_int diNodesLevel = makeDynInt();
+  dyn_blob dblNodesUserData;
+  dyn_langString dlsNodesDisplayName;
+  
+  bRet = cnsGetNodesByName(\"*\"+sSrcPath+\"*\", sSrcSys+\".\"+sSrcView+\":\", CNS_SEARCH_NAME, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_ALL_TYPES, dsNodesPath);
+  if(!bRet) SSCDebugN(\"ERROR: cnsGetNodesByName()\"+\",\"+\"*\"+sSrcPath+\"*\"+\",\"+sSrcSys+\".\"+sSrcView+\":\");
+  
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    bRet = cnsGetId(dsNodesPath[i], sDp);
+    bRet = cnsGetUserData(dsNodesPath[i], blUserData);
+    bRet = cnsGetDisplayNames(dsNodesPath[i], lsDisplayName);
+    sNodeLast = cnsSubStr(dsNodesPath[i], CNSSUB_NODE);
+        
+    sNodeRelative = dsNodesPath[i];
+    strreplace(sNodeRelative, sSrcParent, \"\");
+    sNodeRelative = strltrim(sNodeRelative, \".\");
+    
+    iNodeLevel = cnsGetNodeLevel(sNodeRelative);
+    
+    dynAppend(dsNodesDp, sDp);
+    dynAppend(dblNodesUserData, blUserData);
+    dynAppend(dlsNodesDisplayName, lsDisplayName);
+    dynAppend(dsNodesLast, sNodeLast);
+    dynAppend(diNodesLevel, iNodeLevel);
+    dynAppend(dsNodesRelative, sNodeRelative);
+  }
+  
+  dyn_dyn_langString ddlsTreeNames;
+  dyn_dyn_string ddsTreeIds, ddsTreeDps;
+  
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    sDp = dsNodesDp[i];
+    blUserData = dblNodesUserData[i];
+    lsDisplayName = dlsNodesDisplayName[i];
+    sNodeLast = dsNodesLast[i];
+    iNodeLevel = diNodesLevel[i];
+    
+    for(int k=1; k<iNodeLevel; k++)
+    {
+      ddsTreeIds[i][k] = \"\";
+      ddlsTreeNames[i][k] = \"\";
+      ddsTreeDps[i][k] = \"\";
+    }
+    
+    ddsTreeIds[i][iNodeLevel] = sNodeLast;
+    ddlsTreeNames[i][iNodeLevel] = lsDisplayName;
+    ddsTreeDps[i][iNodeLevel] = sDp;
+  }
+  
+  int iMenuAnswer, iPosX, iPosY;
+  dyn_string dsMenuStruct = makeDynString(\"PUSH_BUTTON, Copy Tree, 1, 1\",
+                                          \"PUSH_BUTTON, Move Tree, 2, 1\");
+  getCursorPosition(iPosX, iPosY, TRUE);
+  popupMenuXY(dsMenuStruct, iPosX, iPosY, iMenuAnswer);
+  
+  if(iMenuAnswer < 1)  //No entry was selected in the PopUpMenu or it was canceled
+    return;
+  
+  //At first copy the tree
+  bRet = cnsAddTree(sDstID, ddsTreeIds, ddlsTreeNames, ddsTreeDps);
+  
+  if(!bRet)
+  {
+    SSCDebugN(getLastError());
+    SSCDebugN(\"ERROR: cnsAddTree()\"+\",\"+sDstID+\",\"+dynlen(ddsTreeIds)+\",\"+dynlen(ddlsTreeNames)+\",\"+dynlen(ddsTreeDps));
+    return; //When copy failed do not continue
+  }
+  
+  //If the tree should be moved then now delete the original tree
+  if(iMenuAnswer == 2)
+  {
+    bRet = cnsDeleteTree(sSrcID);
+    if(!bRet) SSCDebugN(\"ERROR: cnsDeleteTree()\"+\",\"+sSrcID);
+  }
+  
+  //Now copy the UserData (Icon, OPC AccessRight) from the original nodes to the new ones
+  for(int i=1; i<=dynlen(dsNodesPath); i++)
+  {
+    sNewNodePath = sDstID + (sDstID==(sDstSys+\".\"+sDstView+\":\")?\"\":\".\") + dsNodesRelative[i];  //Only add the dot if the tree is embeded to an existing one but not if it was embeded to a view
+    blUserData = dblNodesUserData[i];
+    
+    bRet = cnsSetUserData(sNewNodePath, blUserData);
+    if(!bRet) SSCDebugN(\"ERROR: cnsSetUserData()\"+\",\"+sNewNodePath+\",\"+(string)blUserData);
+  }
+}
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1050 160 1280 530
+10 TreeWidget
+2
+0 "expanded" "(string id)"
+"  this.updatesEnabled = false;
+  cnsTree_expandedEvent(CNS_TREE_KEY, id);
+  this.updatesEnabled = true;"
+0 "rightClicked" "(string id, int column)"
+"  //DebugN(\"Tree Management -> RightClicked\", id, column);
+  
+  if(id == \"\")
+    return;
+  
+  bool bRet;
+  string sNodeID = id;
+  bool bEnabled = TRUE;
+  
+  string sNodeSys = cnsSubStr(sNodeID, CNSSUB_SYS);
+  string sNodeView = cnsSubStr(sNodeID, CNSSUB_VIEW);
+  
+  if(sNodeID == sNodeSys)
+    bEnabled = FALSE;
+  
+  if(sNodeID == (sNodeSys+\".\"+sNodeView+\":\"))
+    bEnabled = FALSE;
+  
+  int iMenuAnswer, iPosX, iPosY;
+  dyn_string dsMenuStruct = makeDynString(\"PUSH_BUTTON, Delete Node, 1, \" + (int)bEnabled);
+  
+  getCursorPosition(iPosX, iPosY, TRUE);
+  popupMenuXY(dsMenuStruct, iPosX, iPosY, iMenuAnswer);
+  
+  if(iMenuAnswer < 1)  //No entry was selected in the PopUpMenu or it was canceled
+    return;
+  
+  bRet = cnsDeleteTree(sNodeID);
+  if(!bRet) SSCDebugN(\"ERROR: cnsDeleteTree()\"+\",\"+sNodeID);"
+"main()
+{
+  cnsTree_regTreeObject(CNS_TREE_KEY, \"cnsTreeObject\");
+  shape sTree = cnsTree_getTreeShape(CNS_TREE_KEY);
+  cnsTree_initTree(sTree);
+  cnsTree_showDps(CNS_TREE_KEY,TRUE);
+}" 0
+14 210
+"txtDispFilter"
+"WF"
+1 1110.931264124781 127.5491753303541 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+103 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 19 Display name filter
+LANG:10004 21 显示名称过滤器
+LANG:10000 18 Displaynamenfilter
+LANG:10027 36 Фильтр имени экрана
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1048 133 1257 162
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  if(this.text != \"\")
+    setFilterCNS();
+  else
+    clearFilterCNS();
+}
+" 0
+
+13 212
+"btnDelFilter"
+"WF"
+1 -54 580.6923076923076 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 15 删除过滤器
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1228 133 1257 162
+
+P 
+4294967295
+"pictures/cns/delete_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  clearFilterCNS();
+}
+" 0
+ E E E
+13 211
+"btnSearch"
+"WF"
+1 -28 580.6923076923076 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1253 133 1282 162
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  setFilter();
+}" 0
+ E E E
+13 94
+"CNSSelector"
+"WF_Transparent"
+1 1115 539.4884448424601 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+89 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 11 Plant model
+LANG:10004 12 工厂模型
+LANG:10000 13 Anlagenmodell
+LANG:10027 11 Plant model
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1113 529.9800804148356 1142 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/plant_model.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  tfFilter.visible = false;
+  dpTreeNode.visible = false;
+  btnDelFilter_DPTree.visible = false;
+  btnSearch_DPTree.visible = false;
+  chkBx_internalDPs.visible = false;
+                        
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"CNSSelector\"));
+  
+  tbl_Preview.visible = false;
+  
+  cnsTreeObject.visible(true);
+  txtDispFilter.visible(true);
+  btnDelFilter.visible(true);
+  btnSearch.visible(true);
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"plant_model\");
+}" 0
+
+6 215
+"RECTANGLE13"
+""
+1 5 65 E E E 1 E 0 E N "WF_RefDiffLineDark" E N "WF_Frame" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.05091 0 0.8888072902707052 1067.74545 151.7275261324042 1 E 5 65 280 165
+2 216
+"PRIMITIVE_TEXT22"
+"WF"
+1 1088 232 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1088 232 1132 246
+0 2 2 "0s" 0 0 0 192 0 0  1088 232 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 ID path:
+LANG:10004 8 ID path:
+LANG:10000 8 ID Pfad:
+LANG:10027 16 ИД (путь):
+14 214
+"txtPathFilter"
+"WF"
+1 1222.685404686753 219.5 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+107 0 0 0 0 0
+E "main()
+{
+  //
+}" 0
+ E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  1158 225 1349 254
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text(\"\");
+}
+" 0
+ "main()
+{
+  setFilter();
+}
+" 0
+
+22 213
+"cbNodeType"
+"WF"
+1 1159.725490196079 260.5 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  1158 255 1349 284
+0
+
+"main()
+{
+  this.appendItem( getCatStr(\"cnsEditor\", \"cnsEditor_allNodeTypes\") );
+  this.userData(1, CNS_SEARCH_ALL_TYPES);
+  
+  dpConnect(\"nodetypesChanges\", true, \"_CNS_General.NodeTypes.TypeName\",
+                                      \"_CNS_General.NodeTypes.TypeValue\");
+}
+
+void nodetypesChanges(string sdp1, dyn_langString dsTypeName,
+                      string sdp2, dyn_int diTypeValue)
+{
+  if ( isAnswer() )// init
+  {
+    for ( int i = 1; i <= dynlen(dsTypeName); i++ )
+    {
+      this.appendItem(dsTypeName[i]);
+      this.userData(i+1, diTypeValue[i]);
+    }
+  }
+  else//new or deleted node type
+  {
+    this.deleteAllItems();
+    this.appendItem( getCatStr(\"cnsEditor\", \"cnsEditor_allNodeTypes\") );
+    this.userData(1, CNS_SEARCH_ALL_TYPES);
+    
+    for ( int i = 1; i <= dynlen(dsTypeName); i++ )
+    {
+      this.appendItem(dsTypeName[i]);
+      this.userData(i+1, diTypeValue[i]);
+    }
+  }
+}" 0
+
+E
+E
+ 0 0
+2 217
+"PRIMITIVE_TEXT23"
+"WT"
+1 1088 262 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1088 262 1148 276
+0 2 2 "0s" 0 0 0 192 0 0  1088 262 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Node type:
+LANG:10004 15 节点类型：
+LANG:10000 9 Nodetype:
+LANG:10027 16 Тип узла:
+22 46
+"CB_TIMER"
+"WF"
+1 441.9981262621809 446.0989348401098 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 124 Select a predefined timed function for the recalculation of the KPI instance. Timed functions can be created in PARA module.
+LANG:10004 111 选择一个预定义的定时函数来重新计算 KPI 实例。 定时功能可以在 PARA 模块中创建。
+LANG:10000 131 Vordefinierte Timed Function für die Berechnung der KPI Instanz auswählen. Timed Functions können im PARA Modul angelegt werden.
+LANG:10027 124 Select a predefined timed function for the recalculation of the KPI instance. Timed functions can be created in PARA module.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373.2965522572982 418.0000000000005 757 447.0000000000005
+0
+
+E
+"main()
+{
+  AssociationChanged = true;
+  wf_bottomBar_reload();
+}" 0
+
+E
+ 0 0
+22 49
+"CB_TIMER_PARA"
+"WF"
+1 439.6733461943083 505.0000000000005 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 178 Caution: In case of the usage of the time-parameter, it must contain a kpi function with a variable parameter of WinCC OA type "time". If not, please do not assign the parameter.
+LANG:10004 172 注意：在使用时间参数的情况下，它必须包含一个带有 WinCC OA 类型“时间”的可变参数的 kpi 函数。 如果不是，请不要分配参数。
+LANG:10000 189 Achtung: Bei Verwendung des time-Parameters muss eine kpi Funktion hinterlegt sein, die einen Variablenparameter vom WinCC OA Type "time" enthält. Sonst bitte keine Zuweisung durchführen.
+LANG:10027 179 Caution: In case of the usage of the time-parameter, it must contain a kpi function with a variable parameter of WinCC OA type "time". If not, please do not assign the parameter. 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  372.7692307692308 478 757 507
+0
+
+E
+"main()
+{
+  AssociationChanged = true;
+  wf_bottomBar_reload();
+}" 0
+
+E
+ 0 0
+2 47
+"TEXT_TIMER"
+""
+1 374.8350137957597 396.7958995554637 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 374.8350137957597 396.7958995554637 408 412
+0 2 2 "0s" 0 0 0 192 0 0  374.8350137957597 396.7958995554637 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Timer
+LANG:10004 9 定时器
+LANG:10000 5 Timer
+LANG:10027 5 Timer
+2 51
+"TEXT_ASSIGN"
+"WF"
+1 374.8350137957597 457.0000000000005 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 374.8350137957597 457.0000000000005 582 472
+0 2 2 "0s" 0 0 0 192 0 0  374.8350137957597 457.0000000000005 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 34 Assign execution time to parameter
+LANG:10004 30 将执行时间分配给参数
+LANG:10000 46 Ausführungszeitpunkt einem Parameter zuweisen
+LANG:10027 34 Assign execution time to parameter
+2 77
+"LBL_Manual"
+""
+1 374.8350137957597 396.7958995554637 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 374.8350137957597 396.7958995554637 639 412
+0 2 2 "0s" 0 0 0 192 0 0  374.8350137957597 396.7958995554637 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 44 Calculate the selected KPI instance manually
+LANG:10004 32 手动计算选定的 KPI 实例
+LANG:10000 29 KPI Instanz manuell berechnen
+LANG:10027 44 Calculate the selected KPI instance manually
+25 15
+"tbl_Preview"
+"WF"
+1 1050.173234614892 137.4622078246771 E E E 1 E 1 E N "STD_text" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1048 133 1282 532
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+}" 0
+E 1 0 1 4 0 "kpiKey" 42 1 0 "s" 4
+LANG:10001 13 KPI instances
+LANG:10004 10 KPI 实例
+LANG:10000 13 KPI Instanzen
+LANG:10027 13 KPI instances
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+480 "active" 8 0 0 "s" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 6 Active
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+100 "kpiValue" 8 0 0 "[0.3f,False,False,AlignLeft,False]" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 5 Value
+LANG:10027 5 Value
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+100 "updateTime" 12 0 0 "[t,False,,AlignLeft]" 4
+LANG:10001 11 Update Time
+LANG:10004 12 更新时间
+LANG:10000 11 Update Time
+LANG:10027 11 Update Time
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+150 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 144
+"btn_Preview"
+"WF_Transparent"
+1 1065.427744677815 539.3421514928012 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+96 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 35 List of KPI instances to be created
+LANG:10004 29 要创建的 KPI 实例列表
+LANG:10000 45 Vorschau auf neu zu erstellende KPI Instanzen
+LANG:10027 35 List of KPI instances to be created
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1063 529.9800804148356 1092 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/list.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  startAttentionEwo(1);
+  
+  //DPTreeview
+  tfFilter.visible = false;
+  dpTreeNode.visible = false;
+  btnDelFilter_DPTree.visible = false;
+  btnSearch_DPTree.visible = false;
+  chkBx_internalDPs.visible = false;
+  
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"Preview\"));
+  
+  tbl_Preview.visible = true;
+  
+  cnsTreeObject.visible(false);
+  txtDispFilter.visible(false);
+  btnDelFilter.visible(false);
+  btnSearch.visible(false);
+  
+  
+ //Load preview of the context search 
+  dyn_anytype daParameterValues;
+  dyn_string dsDpNames;
+  string sTemp;
+  getValue(\"TF_CONTEXT\",\"text\",sTemp);
+  if(sTemp != sContextContent && sTemp != \"\") 
+    AssociationChanged = true;
+    wf_bottomBar_reload();
+    
+  int ParameterSet = associationParameters(daParameterValues);
+  if (ParameterSet == 0 && \"\" != kpiInEdit)
+  {
+    int numberLines = sc_reloadPreview(dsDpNames);
+  }
+  
+  stopAttentionEwo(1);
+}
+
+int associationParameters(dyn_anytype &daParameterValues)
+{
+  int iTableLines;
+  int parameterSet;
+  getValue(\"TABLE_ASSOCIATION\",\"lineCount\",iTableLines);
+  
+  for(int i=0; i< iTableLines; i++)
+  {
+    getValue(\"TABLE_ASSOCIATION\", \"cellValueRC\", 0, \"cValue\", daParameterValues[i+1]);
+    if (daParameterValues[i+1] == \"\")
+      parameterSet += 1;
+  }
+  return parameterSet;
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"list\");
+  
+  //DP Selector on init Visible
+  tfFilter.visible = true;
+  dpTreeNode.visible = true;
+  btnDelFilter_DPTree.visible = true;
+  btnSearch_DPTree.visible = true;
+  
+  //KPI Instances are always visible!
+  TABLE_VALUES.visible = true;
+  
+//   HeaderRight.text(getCatStr(\"ssc_wizards\",\"Instances\"));
+  //Preview not visible
+  tbl_Preview.visible = false;
+}" 0
+
+13 90
+"DPSelector"
+"WF_Transparent"
+1 1090.427744677815 539.3421514928012 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 10 Datapoints
+LANG:10004 2 DP
+LANG:10000 11 Datenpunkte
+LANG:10027 28 Точки данных (DP)
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1088 529.9800804148356 1117 558.9800804148356
+
+P 
+4294967295
+"pictures/wf/buttons/dp_tree_node.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  chkBx_internalDPs.visible = true;
+  tfFilter.visible = true;
+  dpTreeNode.visible = true;
+  btnDelFilter_DPTree.visible = true;
+  btnSearch_DPTree.visible = true;
+  tbl_Preview.visible = false;
+  HeaderRight.text(getCatStr(\"ssc_wizards\",\"DPSelector\"));
+  
+  cnsTreeObject.visible(false);
+  txtDispFilter.visible(false);
+  btnDelFilter.visible(false);
+  btnSearch.visible(false);
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"dp_tree_node\");
+}" 0
+
+14 89
+"tfFilter"
+"WF"
+1 1103.787776495899 127.3975757575757 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+84 0 0 0 0 0
+E "main()
+{
+  setFilter();
+}" 0
+ E
+0
+4
+LANG:10001 19 Display name filter
+LANG:10004 21 显示名称过滤器
+LANG:10000 18 Displaynamenfilter
+LANG:10027 36 Фильтр имени экрана
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1048 133 1232 162
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  setFilter();
+}
+" 0
+
+13 93
+"btnDelFilter_DPTree"
+"WF"
+1 937.068130910904 632.5096639489101 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 15 删除过滤器
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1228 133 1257 162
+
+P 
+4294967295
+"pictures/cns/delete_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dpTreeNode.SetDpFilter(\"\");
+  tfFilter.text = \"\";
+  btnDelFilter_DPTree.visible = true;
+}
+
+" 0
+ E E E
+13 92
+"btnSearch_DPTree"
+"WF"
+1 962.068130910904 632.5096639489101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1253 133 1282 162
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  setFilter();
+}" 0
+ E E E
+29 91
+"dpTreeNode"
+"WF"
+1 1079.167371275601 228.7426590144704 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+9
+"selectionMode" "enum 0"
+"dragDropOverwriteMode" "bool FALSE"
+"layoutDirection" "enum 0"
+"dragDropMode" "enum 1"
+"expandedStateName" "string CNS_EDITOR_VIEW"
+"verticalScrollBarPolicy" "enum 2"
+"sizeAdjustPolicy" "enum 2"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1050 160 1280 500
+29 DatapointTree.DatapointTree.1
+1
+0 "OnLButtonClk" "(string dp, int isType, int sysNum)"
+"//   dragStart(\"ms\");"
+"main()
+{
+  this.alternatingRowColors = TRUE;
+  this.lastNode(\"LAST_NODE_ELEMENT\");
+  this.showMasterDps(false);
+}
+" 0
+20 256
+"chkBx_internalDPs"
+"WF"
+1 1065 507 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+125 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1063 505 1234 526
+1
+T 
+4
+LANG:10001 17 Show internal DPs
+LANG:10004 15 显示内部 DP
+LANG:10000 20 Interne DPs anzeigen
+LANG:10027 17 Show internal DPs
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  this.text(0, getCatStr(\"ssc_wizards\", \"kpi0008\"));
+}
+" 0
+"main(int button, int state)
+{
+  dpTreeNode.showInternalDpTypes(state);
+}" 0
+29 161
+"selectedInstance"
+""
+1 761.8770833333334 57 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  761 58 1182 108
+15 PVSS.TextEdit.1
+0
+E20 177
+"CHBX_WarningChangesLost"
+""
+1 761.8918959943562 12.13466394891009 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  760 10 834 38
+1
+T 
+4
+LANG:10001 7 Warning
+LANG:10004 6 告警
+LANG:10000 7 Warning
+LANG:10027 7 Warning
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+EE20 231
+"CHBX_selectionChanged"
+""
+1 761.8023241039656 33.13466394891009 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  760 31 892 59
+1
+T 
+4
+LANG:10001 17 Selection Changed
+LANG:10004 15 选择已更改
+LANG:10000 16 SelectionChanged
+LANG:10027 17 Selection Changed
+
+0 
+2
+LANG:10001 0 
+LANG:10004 0 
+E E
+0 0 0 0 0
+0
+EE14 81
+"wf_txtF_cmd"
+""
+1 669.5929826797385 38.1709582174904 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  668 27 762 61
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+14 82
+"wf_txtF_answer"
+""
+1 669.6982694738151 70.78211053568273 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  668 57 762 99
+3 "0s" 0 0 0 0 0 -1  E E E
+2 289
+"lbl_actInst"
+""
+1 20781.38275412548 2549.597305750478 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+142 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 76 Number of active KPI Instances and available KPI Instances: active/available
+LANG:10004 62 激活的 KPI 实例数和可用 KPI 实例数：激活/可用
+LANG:10000 78 Anzahl aktiver KPI Instanzen und verfügbarer KPI Instanzen: aktiv/verfügbar	
+LANG:10027 76 Number of active KPI Instances and available KPI Instances: active/available
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  string query = ssc_singleQueryBuilder(\"_online.._value\", \"*\"+SSC_KPIENABLED_DPE, \"_DPT = \\\"\"+SSC_KPI_INSTANCE_TYPE+\"\\\"\");
+
+  dpQueryConnectSingle(\"updateActiveInstances\", true, \"activeInst\", 
+                       \"SELECT '_online.._value' FROM '\" + SSC_KPI_CONF_ACTIVE + \"'\");
+}
+
+void updateActiveInstances(string userdata, dyn_dyn_anytype tab)
+{
+  int maxInstances = ssc_maxKpiNumber();
+  this.text(tab[2][2] + \" / \" + maxInstances);
+}" 0
+ E 0 1 1 2 1 E 0.910873179012173 0 1 332.7540366452026 77.60269424952205 0 E 12.5107616348717 35.99914760419564 14 51
+0 2 2 "0s" 0 0 0 194 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+1 3 "SHAPE_GROUP3" -1
+2 0 
+81 82 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+0

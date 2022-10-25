@@ -1,0 +1,1725 @@
+V 14
+4
+LANG:10001 20 MODBUS configuration
+LANG:10004 12 MODBUS配置
+LANG:10000 21 MODBUS-Parametrierung
+LANG:10027 31 Конфигурация MODBUS
+PANEL,-1 -1 555 685 N "_3DFace" 0
+"main()
+{
+  sSys = getSystemName();
+  bRedu = isRedundant();
+
+  string     sPlc;
+  string     sOldDp = \"\", sDp = \"\", sOldDp2 = \"\", sDp2 = \"\";
+
+  dyn_string dsPlc = dpNames(sSys + \"*\", MBTYPE);
+
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // do not display redundant datapoints
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    dsPlc[i] = dpSubStr(dsPlc[i], DPSUB_DP);
+    if ( dsPlc[i][0] == \"_\" )
+      dsPlc[i] = substr(dsPlc[i], 1, strlen(dsPlc[i])-1);
+  }
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    setShapesInit(false);
+    cmbPlc.text = \"\";
+  }
+  else
+  {
+    setShapesInit(true);
+    sPlc = dsPlc[1];
+  }
+
+
+  cmbPlc.items = dsPlc;
+  cmbPlc.text  = sPlc;
+
+  tabregModbus.namedRegisterEnabled(\"#3\", false);
+
+  if ( sPlc != \"\" )
+    getDpData(MBINOA + sPlc);
+
+  while ( true )
+  {
+    sDp = MBINOA + cmbPlc.text;
+
+    if ( sDp != sOldDp )
+    {
+      if ( sOldDp != \"\" && dpExists(sOldDp) )
+      {
+        dpDisconnect(\"modbusWork\",
+                     sOldDp + \".ConnState\",
+                     sOldDp + \".Error\",
+                     sOldDp + \".SentFrames\",
+                     sOldDp + \".RcvFrames\",
+                     sOldDp + \".RejFrames\");
+      }
+      if ( sDp != \"\" && dpExists(sDp) )
+      {
+        dpConnect(\"modbusWork\",
+                  sDp + \".ConnState\",
+                  sDp + \".Error\",
+                  sDp + \".SentFrames\",
+                  sDp + \".RcvFrames\",
+                  sDp + \".RejFrames\");
+      }
+      sOldDp = sDp;
+    }
+
+    if ( bRedu )
+    {
+      sDp2 = MBINOA + cmbPlc.text + MBREDU;
+
+      if ( sDp2 != sOldDp2 )
+      {
+        if ( sOldDp2 != \"\" && dpExists(sOldDp2) )
+        {
+          dpDisconnect(\"modbusWork2\",
+                       sOldDp2 + \".ConnState\",
+                       sOldDp2 + \".Error\",
+                       sOldDp2 + \".SentFrames\",
+                       sOldDp2 + \".RcvFrames\",
+                       sOldDp2 + \".RejFrames\");
+        }
+        if ( sDp2 != \"\" && dpExists(sDp2) )
+        {
+          dpConnect(\"modbusWork2\",
+                    sDp2 + \".ConnState\",
+                    sDp2 + \".Error\",
+                    sDp2 + \".SentFrames\",
+                    sDp2 + \".RcvFrames\",
+                    sDp2 + \".RejFrames\");
+        }
+        sOldDp2 = sDp2;
+      }
+    }
+
+    ptHost2.foreCol = bRedu ? \"black\" : \"grey\";
+    setMultiValue(\"ptErrorCodeRedu\",      \"enabled\", bRedu,
+                  \"ptRejectedFramesRedu\", \"enabled\", bRedu,
+                  \"ptSentFramesRedu\",     \"enabled\", bRedu,
+                  \"ptReceivedFramesRedu\", \"enabled\", bRedu,
+                  \"ptConnectedRedu\",      \"enabled\", bRedu);
+
+    delay(0,500);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "const string MBINOA = \"_\";
+const string MBREDU = \"_2\";
+const string MBNAME = \"Mod_Plc\";
+const string MBTYPE = MBINOA + MBNAME;
+
+string sSys;
+bool bRedu;
+bool g_oldEndianity;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void createNewDp(string sDp, int iNum)
+{
+  int iAnswer, iSystem = getSystemId(sSys);
+  dyn_errClass dErr;
+  string sDp2 = sDp + MBREDU;
+
+  isRemoteSystemRedundant(iAnswer, sSys);
+
+  dpCreate(sDp, MBTYPE, iSystem);
+  dpSet(sDp + \".PlcNumber\",          iNum,
+        sDp + \".TransactionTimeout\", 1000,
+        sDp + \".Coding\",             1,
+        sDp + \".Active\",             true);
+
+  dErr = getLastError();
+
+  if ( dynlen(dErr) > 0 )
+  {
+     throwError(dErr);
+     errorDialog(dErr);
+  }
+
+  if ( bRedu )
+  {
+    dpCreate(sDp2, MBTYPE);
+    dpSet(sDp2 + \".PlcNumber\",          iNum,
+          sDp2 + \".TransactionTimeout\", 1000,
+          sDp2 + \".Coding\",             1,
+          sDp2 + \".Active\",             true);
+
+    dErr = getLastError();
+
+    if ( dynlen(dErr) > 0 )
+    {
+       throwError(dErr);
+       errorDialog(dErr);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+setDpData(string sDp)
+{
+  int        UnitAddress = 0, TransactionTimeout = 0, Coding = 0,
+             ReduUnitAddress = 0, i;
+  bool       SetInvalidBit = false, RedundantPlc = false, Active = false;
+  bit32      configFlags = 0;
+  string     sDp2;
+  dyn_string dsPlc = dpNames(getSystemName()+\"*\", MBTYPE), ds,
+             HostsAndPorts, ReduHostsAndPorts;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+
+  sDp2 = sDp + MBREDU;
+
+  if ( !dpExists(sDp) )
+  {
+    dpCreate(sDp, MBTYPE);
+
+    if ( bRedu )
+      dpCreate(sDp2, MBTYPE);
+  }
+
+  HostsAndPorts      = lstHosts.items;
+  UnitAddress        = spbUnitAddress.text;
+  TransactionTimeout = spbTimeout.text;
+  Coding             = cmbFrameCoding.selectedPos;
+  SetInvalidBit      = chkInvalidBit.state(0);
+  setBit(configFlags, 0, chkOnlyActive.state(0));
+  setBit(configFlags, 1, cmbTsMode.selectedPos - 1);
+  setBit(configFlags, 2, (cmbEndianity.selectedPos > 1) ? cmbEndianity.selectedPos - 2 : g_oldEndianity);
+  setBit(configFlags, 3, (cmbEndianity.selectedPos > 1));
+
+  RedundantPlc       = chkRedu.state(0);
+  ReduHostsAndPorts  = lstHosts2.items;
+  ReduUnitAddress    = spbUnitAddress2.text;
+  Active             = chkActive.state(0);
+  g_oldEndianity     = configFlags[2];
+
+  dpSet(sDp + \".HostsAndPorts\",      HostsAndPorts,
+        sDp + \".UnitAddress\",        UnitAddress,
+        sDp + \".TransactionTimeout\", TransactionTimeout,
+        sDp + \".Coding\",             Coding,
+        sDp + \".SetInvalidBit\",      SetInvalidBit,
+        sDp + \".ConfigFlags\",        configFlags,
+        sDp + \".Active\",             Active,
+        sDp + \".RedundantPlc\",       RedundantPlc,
+        sDp + \".ReduHostsAndPorts\",  ReduHostsAndPorts,
+        sDp + \".ReduUnitAddress\",    ReduUnitAddress);
+
+  if ( bRedu )
+  {
+    dpSet(sDp2 + \".HostsAndPorts\",      HostsAndPorts,
+          sDp2 + \".UnitAddress\",        UnitAddress,
+          sDp2 + \".TransactionTimeout\", TransactionTimeout,
+          sDp2 + \".Coding\",             Coding,
+          sDp2 + \".SetInvalidBit\",      SetInvalidBit,
+          sDp2 + \".ConfigFlags\",        configFlags,
+          sDp2 + \".Active\",             Active,
+          sDp2 + \".RedundantPlc\",       RedundantPlc,
+          sDp2 + \".ReduHostsAndPorts\",  ReduHostsAndPorts,
+          sDp2 + \".ReduUnitAddress\",    ReduUnitAddress);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void modbusWork(string dp1, int ConnState,
+                string dp2, int Error,
+                string dp3, int SentFrames,
+                string dp4, int RcvFrames,
+                string dp5, int RejFrames)
+{
+  txtConnected2.text = getCatStr(\"modbus\", \"connstate\"+ConnState);
+  txtErrorCode2.text = Error;
+  txtSentFrames2.text = SentFrames;
+  txtReceivedFrames2.text = RcvFrames;
+  txtRejectedFrames2.text = RejFrames;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void modbusWork2(string dp1, int ConnStateRedu,
+                 string dp2, int ErrorRedu,
+                 string dp3, int SentFramesRedu,
+                 string dp4, int RcvFramesRedu,
+                 string dp5, int RejFramesRedu)
+{
+  tfConnectedRedu.text = getCatStr(\"modbus\", \"connstate\"+ConnStateRedu);
+  tfErrorCodeRedu.text = ErrorRedu;
+  tfSentFramesRedu.text = SentFramesRedu;
+  tfReceivedFramesRedu.text = RcvFramesRedu;
+  tfRejectedFramesRedu.text = RejFramesRedu;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getDpData(string sDp, int iInit = 0)
+{
+  int        PlcNumber = 0, UnitAddress = 0, TransactionTimeout = 0, Coding = 0, ReduUnitAddress = 0;
+  bool       SetInvalidBit = false, RedundantPlc = false, Active = false;
+  bit32      configFlags;
+  dyn_string HostsAndPorts, ReduHostsAndPorts;
+
+  dpGet(sDp + \".PlcNumber\",          PlcNumber,
+        sDp + \".HostsAndPorts\",      HostsAndPorts,
+        sDp + \".UnitAddress\",        UnitAddress,
+        sDp + \".TransactionTimeout\", TransactionTimeout,
+        sDp + \".Coding\",             Coding,
+        sDp + \".SetInvalidBit\",      SetInvalidBit,
+        sDp + \".Active\",             Active,
+        sDp + \".ConfigFlags\",        configFlags,
+        sDp + \".RedundantPlc\",       RedundantPlc,
+        sDp + \".ReduHostsAndPorts\",  ReduHostsAndPorts,
+        sDp + \".ReduUnitAddress\",    ReduUnitAddress);
+
+  spbPlcNumber.text          = PlcNumber;
+  lstHosts.items             = HostsAndPorts;
+  spbUnitAddress.text        = UnitAddress;
+  spbTimeout.text            = TransactionTimeout;
+  cmbFrameCoding.selectedPos = Coding;
+  chkInvalidBit.state(0)     = SetInvalidBit;
+
+  chkOnlyActive.state(0)     = configFlags[0];
+  cmbTsMode.selectedPos      = configFlags[1] + 1;
+  cmbEndianity.selectedPos   = configFlags[3] ? configFlags[2] + 2 : 1;
+  g_oldEndianity = configFlags[2];
+
+  chkActive.state(0)         = Active;
+  chkRedu.state(0)           = RedundantPlc;
+  lstHosts2.items            = ReduHostsAndPorts;
+  spbUnitAddress2.text       = ReduUnitAddress;
+
+  tabregModbus.namedRegisterEnabled(\"#3\", RedundantPlc);
+
+  if ( iInit == 1 )
+  {
+    int ConnState, Error, SentFrames, RcvFrames, RejFrames;
+
+    dpGet(sDp + \".ConnState\",  ConnState,
+          sDp + \".Error\",      Error,
+          sDp + \".SentFrames\", SentFrames,
+          sDp + \".RcvFrames\",  RcvFrames,
+          sDp + \".RejFrames\",  RejFrames);
+
+    txtConnected2.text      = getCatStr(\"modbus\", \"connstate\"+ConnState);
+    txtErrorCode2.text      = Error;
+    txtSentFrames2.text     = SentFrames;
+    txtReceivedFrames2.text = RcvFrames;
+    txtRejectedFrames2.text = RejFrames;
+
+    if ( bRedu )
+    {
+      int ConnStateRedu, ErrorRedu, SentFramesRedu, RcvFramesRedu, RejFramesRedu;
+
+      dpGet(sDp + \".ConnState\",  ConnStateRedu,
+            sDp + \".Error\",      ErrorRedu,
+            sDp + \".SentFrames\", SentFramesRedu,
+            sDp + \".RcvFrames\",  RcvFramesRedu,
+            sDp + \".RejFrames\",  RejFramesRedu);
+
+      tfConnectedRedu.text      = getCatStr(\"modbus\", \"connstate\"+ConnStateRedu);
+      tfErrorCodeRedu.text      = ErrorRedu;
+      tfSentFramesRedu.text     = SentFramesRedu;
+      tfReceivedFramesRedu.text = RcvFramesRedu;
+      tfRejectedFramesRedu.text = RejFramesRedu;
+    }
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setShapesInit(bool bState)
+{
+  dyn_string dsEna0 = getShapes(myModuleName(), myPanelName(), \"\");
+  dyn_string dsEna1 = makeDynString(\"cmdNewDp\", \"cmdHelp\", \"cmdCancel\", \"ptHost1\", \"ptHost2\", \"PANEL_REF0.RECTANGLE1\", \"PANEL_REF0.LINE1\");
+
+  for ( int i = dynlen(dsEna0); i > 1; i-- )
+    if ( dynContains(dsEna1, dsEna0[i]) )
+      dynRemove(dsEna0, i);
+
+  for ( int i = 1; i <= dynlen(dsEna0); i++ )
+    setValue(dsEna0[i], \"enabled\", bState);
+
+  spbPlcNumber.enabled = false;
+  ptHost1.foreCol = bState ? \"black\" : \"grey\";
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 3 层
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 67
+"frmState"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+66 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 1.757575757575757 -0.09451795841210014 -142.5757575757573 0 E 10 340 540 440
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 5 State
+LANG:10004 12 通讯诊断
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+2 51
+"ptErrorCode"
+""
+1 153 475 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 91 477 155 492
+0 2 0 "0s" 0 0 0 194 0 0  155 477 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Error code:
+LANG:10004 13 错误代码:
+LANG:10000 11 Fehlercode:
+LANG:10027 19 Код ошибки
+2 53
+"ptSentFrames"
+""
+1 153 506.5 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 70 508.5 155 524
+0 2 0 "0s" 0 0 0 194 0 0  155 508.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Sent requests:
+LANG:10004 16 已发送请求:
+LANG:10000 19 Gesendete Requests:
+LANG:10027 35 Отправленные запр.:
+2 55
+"ptReceivedFrames"
+""
+1 153 536.5 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 45 538.5 155 554
+0 2 0 "0s" 0 0 0 194 0 0  155 538.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Received requests:
+LANG:10004 16 收到的请求:
+LANG:10000 20 Empfangene Requests:
+LANG:10027 32 Принятые запросы:
+30 63
+"frmPlc"
+""
+1 10 90 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 1.10204081632653 -0.09451795841210009 -39.08163265306122 0 E 10 40 540 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 3 PLC
+LANG:10004 3 PLC
+LANG:10000 3 SPS
+LANG:10027 6 ПЛК
+2 65
+"ptRejectedFrames"
+""
+1 153 566.5 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 46 568.5 155 584
+0 2 0 "0s" 0 0 0 194 0 0  155 568.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Rejected requests:
+LANG:10004 19 被拒绝的请求:
+LANG:10000 20 Verworfene Requests:
+LANG:10027 38 Отклоненные запросы:
+13 19
+"cmdApply"
+""
+1 370 650 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 648 456 676
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  setDpData(MBINOA + cmbPlc.text);
+}
+" 0
+ E E E
+13 20
+"cmdCancel"
+""
+1 460 650 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 46 Panel schließen, ohne eine Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  458 648 546 676
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+20 40
+"chkRedu"
+""
+1 385 90 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 38 Activates redundant PLC configuration.
+LANG:10004 3 PLC
+LANG:10000 39 Aktiviert redundante SPS Konfiguration.
+LANG:10027 84 Активирует резервированную конфигурацию ПЛК.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  383 88 511 112
+1
+T 
+4
+LANG:10001 13 Redundant PLC
+LANG:10004 10 冗余 PLC
+LANG:10000 14 Redundante SPS
+LANG:10027 24 Резервир. ПЛК
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  tabregModbus.namedRegisterEnabled(\"#3\", state);
+  tabregModbus.activeRegister() = ( state ) ? 2 : 0;
+}
+" 0
+13 47
+"cmdHelp"
+""
+1 9 648 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 648 96 676
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"modbus_para\");
+}
+" 0
+ E E E
+14 52
+"txtErrorCode2"
+""
+1 160 475 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 473 276 499
+2 "0s" 0 0 0 0 0 -1  E E E
+14 54
+"txtSentFrames2"
+""
+1 160 521 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 503 276 529
+2 "0s" 0 0 0 0 0 -1  E E E
+14 56
+"txtReceivedFrames2"
+""
+1 160 551 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 533 276 559
+2 "0s" 0 0 0 0 0 -1  E E E
+22 59
+"cmbPlc"
+""
+1 20 24 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 23 356 49
+0
+
+E
+"main()
+{
+  getDpData(MBINOA + cmbPlc.text);
+}
+
+
+" 0
+
+E
+ 0 0
+14 66
+"txtRejectedFrames2"
+""
+1 160 581 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 563 276 589
+2 "0s" 0 0 0 0 0 -1  E E E
+13 68
+"cmdNewDp"
+""
+1 450 24 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 31 Create DP with default settings
+LANG:10004 6 创建
+LANG:10000 35 DP erstellen mit Grundeinstellungen
+LANG:10027 67 Создать DP с установками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  448 22 536 50
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  string     sOldPlc = \"\", sPlc = \"\", sPlc2 = \"\", sDp, sNum;
+  dyn_string dsPlc = cmbPlc.items, dsPlcNum;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+
+  for ( int i = 1; i <= dynlen(dsPlc); i++ )
+    dsPlcNum[i] = substr(dsPlc[i], strlen(MBNAME)+1);
+
+  dyn_float df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/modbus_input.pnl\",
+                                 getCatStr(\"da\", \"createdp\"),
+                                 makeDynString(getCatStr(\"modbus\", \"plcnuminput\"),
+                                               dsPlcNum),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+  if ( dynlen(ds) > 1 )
+  {
+    sPlc    = ds[1];
+    sNum = ds[2];
+  }
+
+  sDp = MBINOA + sPlc;
+
+  if ( sPlc == \"\")
+  {
+    // dp name empty
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"modbus\", \"dpempty\")));
+    return;
+  }
+  else if ( dpExists(sDp) )
+  {
+    // dp exists
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"modbus\", \"dpexists\")));
+    return;
+  }
+
+  createNewDp(sDp, (int)sNum);
+
+  if ( dynlen(dsPlc) < 1 )
+    setShapesInit(true);
+
+  tabregModbus.activeRegister(0);
+
+  getDpData(sDp, 1);
+
+  dsPlc = cmbPlc.items;
+  dynAppend(dsPlc, sPlc);
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc);
+  cmbPlc.items = dsPlc;
+
+  cmbPlc.selectedPos = dynContains(dsPlc, sPlc);
+}
+" 0
+ E E E
+13 69
+"cmdRemoveDp"
+""
+1 360 24 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Remove datapoint
+LANG:10004 8 删除DP
+LANG:10000 20 Datenpunkt entfernen
+LANG:10027 38 Удалить точку данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 22 446 50
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPlc.selectedPos;
+  string     sPlc = cmbPlc.text, sPlc2 = sPlc + MBREDU;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+
+  if ( sPlc == \"\" )
+    return;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"para\", \"information\"),
+                                 makeDynString(getCatStr(\"modbus\", \"dpdelete\"),
+                                               getCatStr(\"para\", \"yes\"),
+                                               getCatStr(\"para\", \"no\")),
+                                 df, ds);
+
+  if ( !df[1] )
+    return;
+
+  dynRemove(dsPlc, iPos);
+  cmbPlc.items = dsPlc;
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    cmbPlc.text = \"\";
+    setShapesInit(false);
+  }
+  else
+  {
+    cmbPlc.selectedPos = (dynlen(dsPlc)>=iPos)?iPos:dynlen(dsPlc);
+    cmbPlc.text = dsPlc[cmbPlc.selectedPos];
+    getDpData(MBINOA + cmbPlc.text);
+  }
+
+  delay(0,501);
+
+  if ( dpExists(MBINOA + sPlc2) )
+    dpDelete(MBINOA + sPlc2);
+  if ( dpExists(MBINOA + sPlc) )
+    dpDelete(MBINOA + sPlc);
+
+}
+" 0
+ E E E
+20 72
+"chkActive"
+""
+1 25 90 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 88 167 112
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE2 73
+"ptConnected"
+""
+1 153 596.5 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 120 598.5 155 614
+0 2 0 "0s" 0 0 0 194 0 0  155 598.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 State:
+LANG:10004 7 状态:
+LANG:10000 7 Status:
+LANG:10027 19 Состояние:
+14 74
+"txtConnected2"
+""
+1 160 611 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 593 276 619
+2 "0s" 0 0 0 0 0 -1  E E E
+1 110 0 "" 0
+0
+2 80
+"ptConnectedRedu"
+""
+1 413 596.5 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 380 598.5 415 614
+0 2 0 "0s" 0 0 0 194 0 0  415 598.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 State:
+LANG:10004 7 状态:
+LANG:10000 7 Status:
+LANG:10027 19 Состояние:
+14 81
+"tfConnectedRedu"
+""
+1 420 595 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 593 536 619
+2 "0s" 0 0 0 0 0 -1  E E E
+2 84
+"ptErrorCodeRedu"
+""
+1 413 476.5 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 351 478.5 415 494
+0 2 0 "0s" 0 0 0 194 0 0  415 478.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Error code:
+LANG:10004 13 错误代码:
+LANG:10000 11 Fehlercode:
+LANG:10027 19 Код ошибки
+2 85
+"ptSentFramesRedu"
+""
+1 413 506.5 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 330 508.5 415 524
+0 2 0 "0s" 0 0 0 194 0 0  415 508.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Sent requests:
+LANG:10004 16 已发送请求:
+LANG:10000 19 Gesendete Requests:
+LANG:10027 35 Отправленные запр.:
+2 86
+"ptReceivedFramesRedu"
+""
+1 413 536.5 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 305 538.5 415 554
+0 2 0 "0s" 0 0 0 194 0 0  415 538.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Received requests:
+LANG:10004 16 收到的请求:
+LANG:10000 20 Empfangene Requests:
+LANG:10027 32 Принятые запросы:
+2 87
+"ptRejectedFramesRedu"
+""
+1 413 566.5 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 306 568.5 415 584
+0 2 0 "0s" 0 0 0 194 0 0  415 568.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Rejected requests:
+LANG:10004 19 被拒绝的请求:
+LANG:10000 20 Verworfene Requests:
+LANG:10027 38 Отклоненные запросы:
+14 88
+"tfErrorCodeRedu"
+""
+1 420 475 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 473 536 499
+2 "0s" 0 0 0 0 0 -1  E E E
+14 89
+"tfSentFramesRedu"
+""
+1 420 505 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 503 536 529
+2 "0s" 0 0 0 0 0 -1  E E E
+14 90
+"tfReceivedFramesRedu"
+""
+1 420 535 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 533 536 559
+2 "0s" 0 0 0 0 0 -1  E E E
+14 91
+"tfRejectedFramesRedu"
+""
+1 420 565 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  418 563 536 589
+2 "0s" 0 0 0 0 0 -1  E E E
+2 92
+"ptHost1"
+""
+1 197 455 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 197 455 237 470
+0 0 0 "0s" 0 0 0 192 0 0  197 455 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Host 1
+LANG:10004 7 主机1
+LANG:10000 6 Host 1
+LANG:10027 10 Хост 1
+2 94
+"ptHost2"
+""
+1 457 455 E E E 1 E 1 E N "grey" E N "_3DFace" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 457 455 497 470
+0 0 0 "0s" 0 0 0 192 0 0  457 455 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Host 2
+LANG:10004 7 主机2
+LANG:10000 6 Host 2
+LANG:10027 10 Хост 2
+28 102
+"tabregModbus"
+""
+1 10 64.68513119533525 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  8 127 546 390
+E3 "#1" 4
+LANG:10001 20 Device configuration
+LANG:10004 12 设备配置
+LANG:10000 20 Gerätekonfiguration
+LANG:10027 45 Конфигурация устройства
+1 "para/modbus_device.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#2" 4
+LANG:10001 17 Advanced settings
+LANG:10004 12 高级设置
+LANG:10000 24 Erweiterte Einstellungen
+LANG:10027 47 Дополнительные настройки
+1 "para/modbus_advanced.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#3" 4
+LANG:10001 13 Redundant PLC
+LANG:10004 10 冗余 PLC
+LANG:10000 14 Redundante SPS
+LANG:10027 24 Резервир. ПЛК
+1 "para/modbus_redundant.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+13 103
+"pbGQ"
+""
+1 -55.99999999999999 414 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 37 Executes general query on the device.
+LANG:10004 31 在设备上执行常规查询.
+LANG:10000 41 Führt Generalabfrage auf das Gerät aus.
+LANG:10027 62 Выполняет общий опрос устройства.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 413 131 441
+
+T 
+4
+LANG:10001 13 General Query
+LANG:10004 15 总召唤数值
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+"main()
+{
+  unsigned plcNum, drvNum;
+  string sDp = MBINOA + cmbPlc.text;
+
+  dpGet(sDp + \".DrvNumber\", drvNum,
+        sDp + \".PlcNumber\", plcNum);
+
+  if ( drvNum > 0 )
+  {
+    dpSet(\"_Driver\" + drvNum + \".SM\", 1);
+    dpSet(\"_Driver\" + drvNum + \".GQ\", plcNum+256);
+  }
+}
+" 0
+ E E E
+30 104
+"frmCommon"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+91 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 0.5486350384309575 -0.09451795841209965 -121.8507818711903 0 E 10 340 540 440
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 15 Common settings
+LANG:10004 12 常规设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+30 105
+"frmCmd"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+92 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00945179584121 0 0.538659855914031 -0.09451795841209965 212.2478037732208 0 E 10 340 540 440
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 8 Commands
+LANG:10004 12 控制命令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+13 108
+"cmdOk"
+""
+1 380 650 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+93 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  278 648 366 676
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确认
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  setDpData(MBINOA + cmbPlc.text);
+  PanelOff();
+}
+" 0
+ E E E
+20 109
+"chkInvalidBit"
+""
+1 205 89.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Set Invalid Bit if connection to PLC is lost.
+LANG:10004 40 PLC断线时设置连接状态无效位.
+LANG:10000 54 Setze Ungültigbit, wenn die Verbindung verloren geht.
+LANG:10027 100 Установить бит недостоверности при потере связи с ПЛК.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  203 88 347 112
+1
+T 
+4
+LANG:10001 15 Set Invalid Bit
+LANG:10004 15 设置无效位
+LANG:10000 20 Ungültig-Bit setzen
+LANG:10027 36 Уст. бит недостов-ти
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 3 层
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 3 层
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 3 层
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 3 层
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 3 层
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 650 T 71 1.110220440881764 0 1 0 -10
+0
+0

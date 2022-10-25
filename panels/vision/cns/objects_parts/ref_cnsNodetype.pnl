@@ -1,0 +1,1219 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"main()
+{  
+  sOldNodeTypeText = tfNodeTypeID.text;
+  
+  dpConnect(\"panelLockCB\",true,\"_CNS_General.NodeTypes:_lock._original._locked\",
+                               \"_CNS_General.NodeTypes:_lock._original._user_id\",
+                               \"_CNS_General.NodeTypes:_lock._original._man_nr\",
+                               \"_CNS_General.NodeTypes:_lock._original._man_type\");
+  
+  
+  dpConnect(\"updateDataTypes\", \"_CNS_General.NodeTypes.TypeId\",
+                               \"_CNS_General.NodeTypes.TypeName\",
+                               \"_CNS_General.NodeTypes.TypeValue\",
+                               \"_CNS_General.NodeTypes.Icon\");
+  
+  delay(0,100);
+  tab.selectLineN(0);
+  selectionChanged();
+}
+
+void updateDataTypes(string sdp1, dyn_string dsTypeId,
+                     string sdp2, dyn_langString dlsTypeName,
+                     string sdp3, dyn_int diValue,
+                     string sdp4, dyn_string dsIcon)
+{
+  dyn_int diIndex;
+
+  for ( int i = 1; i <= dynlen(dsTypeId); i++ )
+    dynAppend(diIndex,i);  
+  
+  setValue(\"tab\",\"updateLines\",1, \"INDEX\", diIndex, \"VALUE\", diValue, \"ID\", dsTypeId, \"NAME\", dlsTypeName, \"ICON\", dsIcon);
+  
+  dyn_string dsIds = tab.getColumnN(1);
+  
+  for ( int i = dynlen(dsIds); i > 0 ; i-- )
+  {
+    if ( !dynContains(dsTypeId, dsIds[i]) )
+      tab.deleteLineN(i-1);
+  }
+  
+  dyn_string dsIcons = tab.getColumnN(4);
+  
+  for ( int i = 1; i <= dynlen(dsIcons); i++)
+  {
+    if ( dsIcons[i] == \"\" )
+      tab.cellFillRC(i-1,\"ICONPREV\",\"\");
+    else
+      tab.cellFillRC(i-1,\"ICONPREV\",\"[pattern,[center,any,\"+dsIcons[i]+\"]]\");
+  }
+  
+  selectionChanged();
+}
+
+void panelLockCB(string sdp1, bool bLocked,
+                 string sdp2, unsigned uId,
+                 string sdp3, char cManNr,
+                 string sdp4, char cManType)
+{
+  string sUser;
+  string sHost;
+  
+  dyn_int manNums;
+  dyn_string hostNames;
+
+  int iActiveHost;
+  reduActive(iActiveHost);
+  
+  if ( iActiveHost == 2 )//host 2 is active
+  {
+    dpGet(\"_Connections_2.Ui.ManNums\", manNums, \"_Connections_2.Ui.HostNames\", hostNames);
+  }
+  else// host 1 active or not redundant
+  {
+    dpGet(\"_Connections.Ui.ManNums\", manNums, \"_Connections.Ui.HostNames\", hostNames);
+  }  
+  
+  
+  int index = dynContains(manNums, cManNr);
+  
+  if (index < 1) 
+    sHost = getHostName(cManType, cManNr);
+  else 
+    sHost = hostNames[index];
+  
+  string sToolTip = getCatStr(\"cnsEditor\", \"cnsEditor_locked\")+\"<br>\"+
+                    \"<b>Hostname: </b>\"+ sHost +\"<br>\"+
+                    \"<b>User: </b>\" + getUserName(uId)+\"<br>\"+
+                    \"<b>Manager Nr.: </b>\" + (int)cManNr;
+  
+  recLocked.toolTipText(sToolTip);
+  
+  if ( bLocked && myManNum() == cManNr )//already locked by me
+  {
+    setPanelLocked(false);
+    return;
+  }
+
+  if ( !bLocked && dpSet(\"_CNS_General.NodeTypes:_lock._original._locked\", true) )
+    setPanelLocked(false);
+  else
+    setPanelLocked(true);
+  
+}
+
+void setPanelLocked(bool bLocked)
+{
+  if ( !bLocked )
+    bLockedByMe = true;
+  else
+    bLockedByMe = false;
+
+  recLocked.visible(bLocked);
+//   tfNodeTypeID.enabled(!bLocked);
+//   btnViewDisplayNameEdit.enabled(!bLocked);
+//   btnCreate.enabled(!bLocked);
+
+  if ( bLocked )
+  {
+    tfNodeTypeID.enabled(false);
+    btnViewDisplayNameEdit.enabled(false);
+    btnCreate.enabled(false);
+    btnDelete.enabled(false);
+  }
+  else
+  {
+    if ( tab.selectLineN > 1 )
+    {
+      tfNodeTypeID.enabled(true);
+      btnViewDisplayNameEdit.enabled(true);
+      btnCreate.enabled(true);
+      btnDelete.enabled(true);
+    }
+    else
+    {
+      tfNodeTypeID.enabled(false);
+      btnViewDisplayNameEdit.enabled(false);
+      btnCreate.enabled(true);
+      btnDelete.enabled(false);
+    }
+  }
+}
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+  if ( bLockedByMe )
+  {
+    if ( dpExists(\"_CNS_General.NodeTypes\") )
+      dpSet(\"_CNS_General.NodeTypes:_lock._original._locked\", false);
+  } 
+}" 0
+ E E E 1 -1 -1 0  -4.74673 8
+""0  1
+E "mapping mSelectedType;
+bool bLockedByMe = false;
+string sOldNodeTypeText;
+int iOldNodeTypeValue;
+
+void selectionChanged()
+{
+  if (tab.selectLineN < 0)
+    return;
+  
+  string sSelectedId = tab.cellValueRC(tab.selectLineN, \"ID\");
+  
+  if (sSelectedId != \"dp\" && sSelectedId != \"struct\" && sSelectedId != \"kpi\")//do not allow to delete dp or empty type
+  {
+    tfNodeTypeID.enabled =  bLockedByMe;
+    btnViewDisplayNameEdit.enabled = bLockedByMe;
+    btnDelete.enabled = bLockedByMe;
+    tfNodeTypeValue.enabled = bLockedByMe;
+  }
+  else
+  {
+    tfNodeTypeID.enabled = false;
+    btnViewDisplayNameEdit.enabled = false;
+    btnDelete.enabled = false;
+    tfNodeTypeValue.enabled = false;
+  }
+  
+  dyn_string dsLine = tab.getLineN(tab.selectLineN);
+  
+  tfNodeTypeID.text = dsLine[2];
+  tfNodeTypeDisplayname.text = dsLine[3];
+  tfNodeTypeValue.text = dsLine[4];
+
+  if (dsLine[5] != \"\")
+  {
+    txtNodeDrop.visible = false;
+    recNodeDrop.fill(\"[pattern,[fit,any,\"+dsLine[5]+\"]]\");
+  }
+  else
+  {
+    txtNodeDrop.visible = true;
+    recNodeDrop.fill(\"[solid]\");
+  }
+  
+  mSelectedType[\"id\"]    = dsLine[2];
+  mSelectedType[\"name\"]  = cns_getNodeTypeDisplayName(dsLine[2]);
+  mSelectedType[\"value\"] = dsLine[4];
+  mSelectedType[\"icon\"]  = dsLine[5];
+}
+
+void setTypeID(string TypeID)
+{
+  int iReturn = cns_changeNodeTypeName(mSelectedType[\"id\"], TypeID);
+    
+  if ( iReturn == -2 && sOldNodeTypeText != TypeID )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeExist\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(TypeID), false, notificationBar_getUserDpName(), true);
+    tfNodeTypeID.text = sOldNodeTypeText;
+  }
+  else if ( iReturn >= 0 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeIdChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    mSelectedType[\"id\"] = TypeID;
+    sOldNodeTypeText = TypeID;
+  }
+}
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  unlockTypes();
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 75
+"txtNodeDrop"
+"WF"
+1 1220.8927 100 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1170 100 1272 148
+0 2 2 "0s" 0 0 0 193 0 0  1220.8927 100 3
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Drop node 
+LANG:10004 12 拖放节点
+LANG:10000 18 Nodetypeicon hier 
+LANG:10027 23 Удалить узел
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 icon here
+LANG:10004 21 图标到这个地方
+LANG:10000 10 reinziehen
+LANG:10027 23 значок здесь
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+25 0
+"tab"
+"WF"
+1 -67.3224 34.6958 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"selectionChangedCB" "synchronized main()
+{
+  selectionChanged();
+}"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  -2 32 562 530
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  this.sortOnClick(FALSE);
+  this.columnHeader(0, \" \");
+}
+
+
+
+
+
+" 0
+E 1 0 1 6 0 "ICONPREV" 1 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+25 "ID" 19 1 0 "s" 4
+LANG:10001 13 Node type IDs
+LANG:10004 20 节点类型全部ID
+LANG:10000 12 Nodetype IDs
+LANG:10027 26 ИД типов узлов
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "NAME" 30 1 0 "s" 4
+LANG:10001 15 Node type names
+LANG:10004 12 节点名称
+LANG:10000 13 Nodetypenamen
+LANG:10027 32 Имена типов узлов
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+279 "VALUE" 7 1 0 "s" 4
+LANG:10001 6 Values
+LANG:10004 6 数值
+LANG:10000 5 Werte
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+75 "ICON" 0 0 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "INDEX" 0 0 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+20 20 10 0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+6 30
+"tab_background"
+"WT"
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 2.347284107142857 0 1.0625 -140.8881375 -11.0625 1 E 60 10 299 42
+2 31
+"txt_tree_tab_name"
+"WT"
+1 14.9795 9 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  wf_shapes_init();
+}
+
+
+" 0
+ E 0 1 1 2 1 E U  0 E 14.9795 9 68 24
+0 2 2 "0s" 0 0 0 192 0 0  14.9795 9 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Node type
+LANG:10004 12 节点类型
+LANG:10000 7 Nodetyp
+LANG:10027 15 Тип узла
+6 39
+"recNodeDrop"
+"WF"
+1 280 200 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main()
+{
+  int iType;
+  cns_getNodeTypeIcon(iType);
+  
+  if ( bLockedByMe )
+  {
+    if ( cnsEditor_nodeTypeDeleteIcon(tfNodeTypeID.text) )
+    {
+      txtNodeDrop.visible = true;
+      this.fill(\"[solid]\");
+      notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeIconRemoved\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    }
+  }
+}
+
+" 0
+ E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+  if ( !bLockedByMe )
+    return;
+  
+  dyn_string dsPaths;
+  
+  for ( int i = 1; i <= SEARCH_PATH_LEN; i++)
+    dynAppend(dsPaths, getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i) + information);
+  
+  for ( int i = 1; i <= dynlen(dsPaths); i++ )
+  {
+    if ( access(dsPaths[i], F_OK) != -1 )
+    {
+      if ( cns_setNodeTypeIcon(tfNodeTypeID.text, information) != -1 )
+      {
+        notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeIconChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                               makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+        break;
+      }
+    }
+  }
+}
+
+
+
+
+
+
+"
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 1 1 E 1.816663613445379 0 1.817103277310925 -887.665811764706 48.57934453781504 1 E 1130 7 1190 67
+6 47
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_FrameDark" E N "WF_Frame" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.46189 0 0.9393940689655175 -33.6236 55.48478331034476 1 E 23 503 406 536
+13 48
+"btnCreate"
+"WF_Transparent"
+1 9 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+48 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 15 Create nodetype
+LANG:10004 18 创建节点类型
+LANG:10000 20 Nodetype hinzufügen
+LANG:10027 30 Создать тип узла
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  7 528 36 557
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+//   string s = cnsEditor_openCreateNodeTypeDialog();
+//   
+//   if ( s == \"\" )
+//     return;
+  
+  dyn_string dsTypeIds = tab.getColumnN(1);
+  dyn_int diTypeValues = tab.getColumnN(3);
+        
+  langString sNewNodeTypeName = wf_getCatStr(\"cnsEditor\", \"cnsEditor_newNodeType\");
+  string sNewNodeTypeId;
+        
+        
+  int i = 1;
+  while ( true )
+  {
+    sNewNodeTypeId = NEW_NODE_TYPE+i;
+
+    if ( !dynContains(dsTypeIds, sNewNodeTypeId) )
+    {
+      sNewNodeTypeName += \" \"+i;
+      break;
+    }
+    i++;
+  }
+  
+  int iNodeTypeValue;
+  
+  i = 501;
+  while ( true )
+  {
+    if ( !dynContains(diTypeValues, i) )
+    {
+      iNodeTypeValue = i;
+      break;
+    }
+    i++;
+  }
+  
+  cns_createNodeType(sNewNodeTypeId, sNewNodeTypeName, iNodeTypeValue, \"\");
+  delay(0,200);
+  tab.selectLineN(dynContains(tab.getColumnN(1),sNewNodeTypeId)-1);
+}
+
+
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+  // IM 118233
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/add.png\";
+  this.buttonDownPixmap = \"wf/buttons/add_pressed.png\";
+}
+" 0
+
+13 49
+"btnDelete"
+"WF_Transparent"
+1 34 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+49 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 15 Delete nodetype
+LANG:10004 18 删除节点类型
+LANG:10000 18 Knotentyp löschen
+LANG:10027 30 Удалить тип узла
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  32 528 61 557
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string dsLine = tab.getLineN(tab.selectLineN);
+    
+  if ( dynlen(dsLine) )
+    cnsEditor_openDeleteNodeTypeDialog(dsLine);
+}
+
+
+
+" 0
+ E E "main()
+{
+  // IM 118233
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/delete.png\";
+  this.buttonDownPixmap = \"wf/buttons/delete_pressed.png\";
+}
+" 0
+
+2 50
+"PRIMITIVE_TEXT1"
+"WT"
+1 571 246 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  wf_shapes_init();
+}
+
+
+" 0
+ E 0 1 1 2 1 E U  0 E 571 246 609 261
+0 2 2 "0s" 0 0 0 192 0 0  571 246 1
+4
+LANG:10001 30 Noto Sans,-1,13,5,75,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,13,5,75,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,13,5,75,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Icons
+LANG:10004 6 图标
+LANG:10000 6 Bilder
+LANG:10027 12 Значки
+14 51
+"tfNodeTypeValue"
+"WF"
+1 633 113 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+"main()
+{
+  iOldNodeTypeValue = this.text;
+}" 0
+ "main()
+{
+  if ( (int)this.text == iOldNodeTypeValue )
+    return;
+  
+  if ( (int)this.text < 501 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueWrong\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(this.text), false, notificationBar_getUserDpName(), true);
+    this.text = iOldNodeTypeValue;
+  }
+  
+  int iReturn = cns_setNodeTypeValue(mSelectedType[\"id\"], (int)this.text);
+    
+  if ( iReturn == -2 && iOldNodeTypeValue != this.text )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueExists\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(this.text), false, notificationBar_getUserDpName(), true);
+    this.text = iOldNodeTypeValue;
+  }
+  else if ( iReturn >= 0 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    mSelectedType[\"value\"] = this.text;
+    iOldNodeTypeValue = this.text;
+  }
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"hoverbclr" "N \"_Window\""
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  731 92 1099 121
+3 "0d" 0 0 0 0 0 -1  E E "main()
+{
+  if ( (int)this.text == iOldNodeTypeValue )
+    return;
+  
+  if ( (int)this.text < 501 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueWrong\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(this.text), false, notificationBar_getUserDpName(), true);
+    this.text = iOldNodeTypeValue;
+  }
+  
+  int iReturn = cns_setNodeTypeValue(mSelectedType[\"id\"], (int)this.text);
+    
+  if ( iReturn == -2 && iOldNodeTypeValue != this.text )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueExists\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+                           makeDynAnytype(this.text), false, notificationBar_getUserDpName(), true);
+    this.text = iOldNodeTypeValue;
+  }
+  else if ( iReturn >= 0 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeValueChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    mSelectedType[\"value\"] = this.text;
+    iOldNodeTypeValue = this.text;
+  }
+}" 0
+
+14 52
+"tfNodeTypeDisplayname"
+"WF"
+1 640.858407079646 83 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"hoverbclr" "N \"_Window\""
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  731 62 1074 91
+2 "0s" 0 0 0 0 0 -1  E E E
+2 53
+"txtNodeTypeValue"
+"WF"
+1 624.858407079646 99.5 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 624.858407079646 99.5 654 114
+0 2 2 "0s" 0 0 0 192 0 0  624.858407079646 99.5 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Value:
+LANG:10004 7 数值:
+LANG:10000 5 Wert:
+LANG:10027 17 Значение:
+2 54
+"txtNodeTypeDisplayname"
+"WF"
+1 624.858407079646 70.249 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 624.858407079646 70.249 713 84
+0 2 2 "0s" 0 0 0 192 0 0  624.858407079646 70.249 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Node type name:
+LANG:10004 19 节点类型名称:
+LANG:10000 13 Nodetypename:
+LANG:10027 25 Имя типа узла:
+13 55
+"btnViewDisplayNameEdit"
+"WF"
+1 1071.858407079646 64 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  1070 62 1099 91
+
+P 
+4294967295
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langString lsTemp = mSelectedType[\"name\"];
+
+  if ( lsTemp == \"\" )
+    lsTemp = tfNodeTypeID.text;
+  
+  langEditor(lsTemp);
+
+  if ( lsTemp == mSelectedType[\"name\"] )
+    return;  
+  
+  tfNodeTypeDisplayname.text = lsTemp;
+  
+
+  while ( cns_checkName(lsTemp) == -1 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkName\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    langEditor(lsTemp);
+    tfNodeTypeDisplayname.text = lsTemp;
+  }
+  
+  while ( lsTemp == \"\" )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkEmptyString\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    langEditor(lsTemp);
+    tfNodeTypeDisplayname.text = lsTemp;
+  }
+
+  if ( cns_setNodeTypeDisplayName(mSelectedType[\"id\"], lsTemp) >= 0 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_nodeTypeNameChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    tfNodeTypeDisplayname.text = lsTemp;
+    mSelectedType[\"name\"] = lsTemp;
+  }
+}
+
+
+
+
+
+
+" 0
+ E E E
+14 56
+"tfNodeTypeID"
+"WF"
+1 633 52.7488 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+56 0 0 0 0 0
+"main()
+{
+  sOldNodeTypeText = this.text;
+}
+" 0
+ "main()
+{
+  string text = this.text(); //current text in text field
+  langString lsTemp = mSelectedType[\"name\"];
+  if ( lsTemp == \"\" )
+    lsTemp = tfNodeTypeID.text; 
+  
+  if (cns_checkId(text) < 0 )//checs for incorrect charecters in the entered string
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkId\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    this.text = text;
+    setTypeID(text);
+  }
+  else if ( this.text == \"\" || lsTemp == \"\" )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkEmptyString\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+     this.text = sOldNodeTypeText;
+  }
+  else if ( cns_checkName(lsTemp) == -1 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkName\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    this.text = sOldNodeTypeText;
+  }
+  else
+  {
+    setTypeID(this.text);
+  }
+}" 0
+ E
+0
+4
+LANG:10001 78 Following characters are not allowed: 
+~ / \ ? < > * | : ; ' . , [ ] { } @ $ !
+LANG:10004 70 以下的字符禁止使用：
+~ / \ ? < > * | : ; ' . , [ ] { } @ $ !
+LANG:10000 77 Folgende Zeichen sind nicht erlaubt: 
+~ / \ ? < > * | : ; ' . , [ ] { } @ $ !
+LANG:10027 97 Следующие символы недопустимы:
+~ / \ ? < > * | : ; ' . , [ ] { } @ $ !
+
+2
+"hoverbclr" "N \"_Window\""
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  731 32 1099 61
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  string text = this.text(); //current text in text field
+  langString lsTemp = mSelectedType[\"name\"];
+  if ( lsTemp == \"\" )
+    lsTemp = tfNodeTypeID.text; 
+  
+  if (cns_checkId(text) < 0 )//checs for incorrect charecters in the entered string
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkId\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    this.text = text;
+    setTypeID(text);
+  }
+  else if ( this.text == \"\" || lsTemp == \"\" )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkEmptyString\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+     this.text = sOldNodeTypeText;
+  }
+  else if ( cns_checkName(lsTemp) == -1 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkName\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    this.text = sOldNodeTypeText;
+  }
+  else
+  {
+    setTypeID(this.text);
+  }
+}" 0
+
+2 57
+"txtNodeTypeID"
+"WF"
+1 624.858407079646 40.2488 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 624.858407079646 40.2488 696 54
+0 2 2 "0s" 0 0 0 192 0 0  624.858407079646 40.2488 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Node type ID:
+LANG:10004 15 节点类型ID:
+LANG:10000 12 Nodetype ID:
+LANG:10027 23 ИД типа узла:
+1 85 0 "" 0
+0
+6 65
+"recLocked"
+""
+1 30 30 E E E 1 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.406862745098039 0 1.412280701754386 556.7941176470588 -6.403312280701755 2  0 0  "pictures/cns/lock.png" 4294967295 E 30 30 5 5
+4 74
+"LINE1"
+""
+1 1160.8305 -12.36103 E E E 1 E 1 E N "WF_FrameDark" E N {255,255,255} E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  1161 -12 1161 248
+6 83
+"recWarning"
+""
+1 312 40 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 103 Please consider that changing the ID requires a manual update of the ID inside your scripts and panels!
+LANG:10004 58 请注意，ID需要手动更新脚本和面板中的ID！
+LANG:10000 144 Bitte beachten Sie, dass ein nachträgliches Ändern der ID die manuelle Anpassung auf die neue ID innerhalb ihrer Skripts und Panels erfordert!
+LANG:10027 157 Пожалуйста, учтите, что изменение ИД требует его ручного измения в скриптах и панелях!
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 1 1 E 0.76 0 0.857143 863.88 4.0714215 2  0 0  "pictures/Symple/invalid.png" 4294967295 E 312 40 335 59
+6 84
+"RECTANGLE1"
+""
+1 312 40 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 111 Please consider that changing the value requires a manual update of the values inside your scripts and panels!
+
+LANG:10004 67 请注意，更改值需要手动更新脚本和面板中的值！
+
+LANG:10000 150 Bitte beachten Sie, dass ein nachträgliches Ändern des Wertes die manuelle Anpassung an den neuen Wert innerhalb ihrer Skripts und Panels erfordert!
+LANG:10027 169 Пожалуйста, учтите, что изменение значения требует его ручного измения в скриптах и панелях!
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 1 1 E 0.76 0 0.857143 863.88 64.0714215 2  0 0  "pictures/Symple/invalid.png" 4294967295 E 312 40 335 59
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PictureFlow" -1
+"" ""
+"vision/wf/objects_parts/ref_pictureFlow.pnl" 560 215 T 58 1 0 1 0 21
+0
+0

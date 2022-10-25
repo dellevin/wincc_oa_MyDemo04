@@ -1,0 +1,3559 @@
+V 14
+4
+LANG:10001 32 OPCUA subscription configuration
+LANG:10004 17 OPCUA订阅配置
+LANG:10000 33 OPCUA Subscription Parametrierung
+LANG:10027 48 Конфигурация подписки OPC UA
+PANEL,-1 -1 582 778 N "_3DFace" 1
+"$SERVER_DP"
+"main()
+{
+  addOpcUaSubsGlobals();
+  initSubscriptions();
+}
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"opcuaDriver_plugin.ctl\"
+//mapping mDriverData;
+langString lsDescription;
+string sLastConn;
+dyn_string opcuaDriver_dsConnDpes;
+dyn_string opcuaDriver_dsConnDpesOld;
+
+// Both following dyns must have the same length ever!
+const dyn_string dsAlarmTypes = makeDynString(\"OffNormalAlarm\", \"WinCCOAContinuousAlarm\", \"WinCCOADiscreteAlarm\", \"ExclusiveLimitAlarm\", \"ExclusiveDeviationAlarm\", \"Manual ...\" );
+dyn_string dsNodeIds = makeDynString(\"ns=0;i=10637\", \"ns=2;i=1003\", \"ns=2;i=1002\", \"ns=0;i=9341\", \"ns=0;i=9764\", \"\");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void sendCommand(string sCommand)
+{
+  string sSubscription = cmbConnection.text;
+  anytype aValue;
+
+  if (sSubscription == \"\")
+    return;
+
+  switch (sCommand)
+  {
+    case \"GQ\":
+      aValue = (int)0;
+      break;
+    default:
+      DebugN(\"OPCUA Subscription Command: case not implemented!\",sCommand);
+      return;
+      break;
+  }
+  if ( dpExists(getSystemName() + OPCUADRIVER_sSubscriptionDpPrefix + sSubscription + \".Command.\"+sCommand) )
+  {
+    dpSet(getSystemName() + OPCUADRIVER_sSubscriptionDpPrefix + sSubscription + \".Command.\"+sCommand, aValue);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\", makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyBeforEditSubscr2\")));
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void loadSubscription(string sSubscription, bool bOnInit = 1)
+{
+  // tfs 55028 - call opcuaDriver_panelToMapping() on initalize only
+  if ( bOnInit )
+    opcuaDriver_panelToMapping(gOpcUaSubs_mData);
+
+  opcuaDriver_displaySubscription(gOpcUaSubs_mData[\"Subscription\"][sSubscription], sSubscription);
+
+  if (gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"hasRedu\"])
+    opcuaDriver_displaySubscription(gOpcUaSubs_mData[\"Subscription\"][sSubscription+\"_2\"], sSubscription, true);
+
+  sLastConn = sSubscription;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setSubscriptionType()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+
+  setMultiValue(\"grpDataVisible\", \"visible\", cmbSubscriptionType.selectedPos == 1,
+                \"grpDataInvisible\", \"visible\", cmbSubscriptionType.selectedPos == 3,
+                \"cbDiscardOldest\", \"visible\", cmbSubscriptionType.selectedPos == 1,
+                //\"ptInfo\", \"visible\", cmbSubscriptionType.selectedPos == 2);
+                \"ptEventTypeNodeId\", \"visible\", cmbSubscriptionType.selectedPos == 2,
+                \"tfEventTypeNodeId\", \"visible\", cmbSubscriptionType.selectedPos == 2);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setAlarmType()
+{
+  int i;
+  string sSubscription = cmbConnection.text, alarmType;
+
+  int index = dynContains(dsAlarmTypes, cbAlarmTypes.text);
+  if (index < 1) return;
+  // provide default values to mapping according to selected alarm type
+
+  // IM 101449
+  if (index > 0 && index <= dynlen(dsNodeIds))
+  {
+    gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmType\"] = dsNodeIds[index];
+    setValue(\"txtNodeId\", \"text\", gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmType\"]);
+  }
+
+  if (cbAlarmTypes.text == dsAlarmTypes[dynlen(dsAlarmTypes)])
+  {
+      gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmType\"] = dsNodeIds[dynlen(dsNodeIds)];
+  }
+
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, sSubscription);
+
+  // workaround:
+  // mappingToPanel() needs a parameter that specifies the initial subscription to show. This
+  // parameter is currently missing and always the first subscriptions is shown - what
+  // is probably the wrong one. Therefore UI adaptations are done here.
+
+  // IM 101449
+  for (i=1; i<=dynlen(dsNodeIds); i++)
+  {
+    if (txtNodeId.text == dsNodeIds[i]) cbAlarmTypes.text = dsAlarmTypes[i];
+  }
+// IM 103819  tblAlarmRanges.deleteAllLines();
+// IM 103819  tblAlarmRanges.appendLines(dynlen(gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmStates\"]), \"status\", gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmStates\"], \"alarmRange\", gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmRanges\"]);
+  setSubscriptionType();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableConnection(bool enable)
+{
+  setMultiValue(\"cbPublishingEnabled\", \"enabled\", enable,
+                \"spPubInterval\",       \"enabled\", enable,
+                \"spPriority\",          \"enabled\", enable,
+                \"spLifetime\",          \"enabled\", enable,
+                \"spKeepAlive\",         \"enabled\", enable,
+                \"spNotifications\",     \"enabled\", enable,
+                \"cbDiscardOldest\",     \"enabled\", enable,
+                \"grpDataVisible\",      \"enabled\", enable);
+
+  showTableAlarmRanges();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setAlarmTypeUi()
+{
+  bool quit = false;
+  int i;
+
+  // IM 101449
+  for ( i = 1; i <= dynlen(dsNodeIds); i++ )
+  {
+    if ( txtNodeId.text == dsNodeIds[i] )
+    {
+      cbAlarmTypes.text = dsAlarmTypes[i];
+      quit = true;
+      break;
+    }
+  }
+
+  if ( !quit )
+  {
+    cbAlarmTypes.text = dsAlarmTypes[dynlen(dsAlarmTypes)];
+  }
+
+  // IM 101449
+  enableNodeId();
+
+  // IM 103819 tblAlarmRanges.deleteAllLines();
+  // IM 103819 tblAlarmRanges.appendLines(dynlen(gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmStates\"]),\"status\", gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmStates\"], \"alarmRange\", gOpcUaSubs_mData[\"Subscription\"][sSubscription][\"AlarmRanges\"]);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableNodeId()
+{
+  // IM 101449
+  // set NodeId fields active for \"Manual ...\" alert type
+  if (cbAlarmTypes.text == dsAlarmTypes[dynlen(dsAlarmTypes)] && cmbSubscriptionType.selectedPos == 3)
+  {
+    txtNodeId.enabled = true;
+    primtextNodeId.enabled = true;
+  }
+  else
+  {
+    txtNodeId.enabled = false;
+    primtextNodeId.enabled = false;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setNodeIdNotEmpty()
+{
+  // IM 101449
+  // if the NodeId is set empty in \"Manual ...\" alert type, the \"OffNormalAlarm\" will be set on next start
+
+  int index = dynContains(dsNodeIds, txtNodeId.text);
+
+  if (txtNodeId.text == \"\" && cmbSubscriptionType.selectedPos == 3)
+  {
+    cbAlarmTypes.text = dsAlarmTypes[1];
+    gOpcUaSubs_mData[\"Subscription\"][cmbConnection.text][\"AlarmType\"] = dsNodeIds[1];
+    txtNodeId.text = dsNodeIds[1];
+    setAlarmTypeUi();
+  }
+
+  else if (index < 1 || index >= dynlen(dsNodeIds) && cmbSubscriptionType.selectedPos == 3)
+//   else if (txtNodeId.text != dsNodeIds[1] && txtNodeId.text != dsNodeIds[2] &&
+//            txtNodeId.text != dsNodeIds[3] && txtNodeId.text != dsNodeIds[4] &&
+//            txtNodeId.text != dsNodeIds[5] && cmbSubscriptionType.selectedPos == 3)
+  {
+    cbAlarmTypes.text = dsAlarmTypes[dynlen(dsAlarmTypes)];
+    dsNodeIds[dynlen(dsNodeIds)] = gOpcUaSubs_mData[\"Subscription\"][cmbConnection.text][\"AlarmType\"];
+    txtNodeId.text = dsNodeIds[dynlen(dsNodeIds)];
+    setAlarmTypeUi();
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void manualNodeIdToMapping()
+{
+  // IM 101449
+  if (cbAlarmTypes.selectedPos == dynlen(dsAlarmTypes))
+  {
+    gOpcUaSubs_mData[\"Subscription\"][cmbConnection.text][\"AlarmType\"] = dsNodeIds[dynlen(dsNodeIds)];
+    dsNodeIds[dynlen(dsAlarmTypes)] = dsNodeIds[dynlen(dsNodeIds)];
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showTableAlarmRanges()
+{
+  if (cmbSubscriptionType.selectedPos == 3 && cbAlarmTypes.selectedPos == 1)
+  {
+    setMultiValue(\"tblAlarmRanges\",  \"visible\", false,
+                  \"cmdInsertAfter\",  \"visible\", false,
+                  \"cmdInsertBefore\", \"visible\", false,
+                  \"cmdRemove\",       \"visible\", false);
+                  //\"cbAlarmFlags\",    \"visible\", false); // IM 105734 - always visible
+  }
+  else if (cmbSubscriptionType.selectedPos == 3 && cbAlarmTypes.selectedPos != 1)
+  {
+    setMultiValue(\"tblAlarmRanges\",  \"visible\", true,
+                  \"cmdInsertAfter\",  \"visible\", true,
+                  \"cmdInsertBefore\", \"visible\", true,
+                  \"cmdRemove\",       \"visible\", true);
+                  //\"cbAlarmFlags\",    \"visible\", true); // IM 105734 - always visible
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkSubscriptionDataSaved()
+{
+  if ( cmbConnection.text != \"\" && !dpExists(\"_\" + cmbConnection.text) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             \"\",
+                             makeDynString(\"$1:\" + getCatStr(\"opcua\", \"applyBeforEditSubscr2\")));
+    return 0;
+  }
+  else
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+initSubscriptions()
+{
+  gOpcUaSubs_mData = opcuaDriver_loadDataIntoMapping($SERVER_DP);
+  opcuaDriver_mappingToPanel(gOpcUaSubs_mData);
+
+  if ( isDollarDefined(\"$SUBSCRIPTION\") && getDollarValue(\"$SUBSCRIPTION\") )
+  {
+    setMultiValue(\"cmbConnection\", \"enabled\", false,
+                  \"cmdNewDp\", \"enabled\", false,
+                  \"cmdRemoveDp\", \"enabled\", false,
+                  \"cmbSubscriptionType\", \"enabled\", false);
+
+    loadSubscription(getDollarValue(\"$SUBSCRIPTION\"));
+  }
+
+  setValue(\"reduStatus\", \"enabled\", isRedundant());
+  //setValue(\"tfAssignedOPCUAServer_redu\", \"enabled\", FALSE);
+  //setValue(\"tfRevisedPublishingInterval_redu\", \"enabled\", FALSE);
+  //setValue(\"tfSubscriptionId_redu\", \"enabled\", FALSE);
+
+  enableConnection(cmbConnection.text != \"\");
+
+  setSubscriptionType();
+
+  cbAlarmTypes.deleteAllItems();
+  cbAlarmTypes.items = dsAlarmTypes;
+
+  // update combobox setting according to alarm type
+
+  // IM 101449
+  setNodeIdNotEmpty();
+
+  // IM 101449
+  for ( int i = 1; i <= dynlen(dsNodeIds); i++ )
+  {
+    if (txtNodeId.text == dsNodeIds[i]) cbAlarmTypes.text = dsAlarmTypes[i];
+  }
+
+  showTableAlarmRanges();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addOpcUaSubsGlobals()
+{
+  if ( !globalExists(\"gOpcUaSubs_mData\") )
+    addGlobal(\"gOpcUaSubs_mData\", MAPPING_VAR);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeOpcUaSubsGlobals()
+{
+  if ( globalExists(\"gOpcUaSubs_mData\") )
+    removeGlobal(\"gOpcUaSubs_mData\");
+}
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 237
+"tfEventTypeNodeId"
+""
+1 150.0000000000001 718.9994352517986 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+255 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 114 NodeId des Eventtyps zum filtern der Events im Server. Wenn das Feld leer ist wird kein Eventtypfilter angewendet.
+LANG:10001 145 Specify a node id of the event type, which the server shall apply for filtering of events. If the field is empty no event type filtering is done.
+LANG:10027 145 Specify a node id of the event type, which the server shall apply for filtering of events. If the field is empty no event type filtering is done.
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  193 247.9999999999999 517 272.9999999999999
+3 "0s" 0 0 0 0 0 -1  E E E
+14 217
+"tfRevisedLifetimeCount"
+""
+1 514.9999999999999 489.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+241 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Returned LifeTimeCount.
+LANG:10004 28 返回的运行时间计数.
+LANG:10000 33 Zurückgelieferter LifeTimeCount.
+LANG:10027 23 Returned LifeTimeCount.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 553 546 579
+2 "0s" 0 0 0 0 0 -1  E E E
+14 162
+"txtdpConnect"
+""
+1 380 25 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+195 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if ( dynlen(opcuaDriver_dsConnDpesOld) && dpExists(opcuaDriver_dsConnDpesOld[1]) )
+  {
+    dpDisconnect(\"opcuaSubscriptionStateWorkCB\", opcuaDriver_dsConnDpesOld);
+  }
+  if (dynlen(opcuaDriver_dsConnDpes))
+  {
+    dpConnect(\"opcuaSubscriptionStateWorkCB\", true, opcuaDriver_dsConnDpes);
+  }
+
+  opcuaDriver_dsConnDpesOld=opcuaDriver_dsConnDpes;
+  dynClear(opcuaDriver_dsConnDpes);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  378 23 542 47
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text=1;
+}" 0
+ E
+22 0
+"cmbConnection"
+""
+1 23.99999999999997 25.00056474820144 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select an equipment
+LANG:10004 18 选择一个设备
+LANG:10000 17 Gerät auswählen
+LANG:10027 35 Выбрать устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  21.99999999999999 24 270 50
+0
+
+E
+"main()
+{
+  enableConnection(cmbConnection.text != \"\");
+  string sSubscription = this.text;
+
+  if (sSubscription != \"\")
+  {
+    loadSubscription(sSubscription, 0);
+  }
+
+  setSubscriptionType();
+  setAlarmTypeUi();
+
+  // IM 101449
+  setNodeIdNotEmpty();
+  showTableAlarmRanges();
+}
+
+" 0
+
+E
+ 0 0
+30 1
+"frmSubscription"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9065921826923078 0 7.247342971231455 0.934078173076923 -357.3671485615728 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Subscription
+LANG:10004 6 订阅
+LANG:10000 12 Subscription
+LANG:10027 16 Подписка
+13 2
+"cmdNewDp"
+""
+1 361 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 Create a new subscription with default settings
+LANG:10004 30 创建默认配置的新订阅
+LANG:10000 50 Neue Subscription mit Grundeinstellungen erstellen
+LANG:10027 47 Create a new subscription with default settings
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  363.0000000000002 23 461.0000000000001 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  if ( !checkSubscriptionDataSaved() )
+    return;
+
+  opcuaDriver_checkUnsavedDps(cmbConnection.text, $SERVER_DP);
+  setSubscriptionType();
+
+  int i;
+  dyn_float df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/opcuaNewDp.pnl\",
+                                 getCatStr(\"da\", \"createdp\"),
+                                 makeDynString(getCatStr(\"para\", \"apc_inputdpname\"), \"\"), df, ds);
+
+  if ( dynlen(ds) != 1 || dynlen(df) != 1 )
+    return;
+
+  if ( dpExists(\"_\" + ds[1]) )
+  {
+    string msg;
+    sprintf(msg, getCatStr(\"opcua\",\"subscrAllreadyExists\"), \"_\" + ds[1]);
+
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+          getCatStr(\"para\",\"warning\"),
+          makeDynString(msg),df,ds);
+    return;
+  }
+
+  opcuaDriver_panelToMapping(gOpcUaSubs_mData); //save Data of old Subscription
+
+  opcuaDriver_createSubscription(ds[1], gOpcUaSubs_mData, isRedundant() && false, false);  //create a new Subscription
+//  if (isRedundant())
+//    opcuaDriver_createSubscription(ds[1]+\"_2\", gOpcUaSubs_mData, false, true);  //create a new Subscription
+
+  opcuaDriver_displaySubscription(gOpcUaSubs_mData[\"Subscription\"][ds[1]], ds[1]); //display new Subscription
+//  if (isRedundant())
+//    opcuaDriver_displaySubscription(gOpcUaSubs_mData[\"Subscription\"][ds[1]+\"_2\"], ds[1]+\"_2\", true); //display new Subscription
+
+  sLastConn = ds[1];
+
+  // check name
+  cmbConnection.text=ds[1];
+
+  // clear status fields
+  setMultiValue(\"tfSubscriptionId\",            \"text\", \"\",
+                \"tfRevisedPublishingInterval\", \"text\", \"\",
+                \"tfAssignedOPCUAServer\",       \"text\", \"\",
+                \"tfRevisedLifetimeCount\",      \"text\", \"\",
+                \"tfRevisedMaxKeepAliveCount\",  \"text\", \"\",
+
+                \"tfSubscriptionId_redu\",            \"text\", \"\",
+                \"tfRevisedPublishingInterval_redu\", \"text\", \"\",
+                \"tfAssignedOPCUAServer_redu\",       \"text\", \"\",
+                \"tfRevisedLifetimeCount_redu\",      \"text\", \"\",
+                \"tfRevisedMaxKeepAliveCount_redu\",  \"text\", \"\",
+
+                \"cmbSubscriptionType\", \"selectedPos\", df[1]);
+
+  if (df[1] == 3)
+  {
+    // initialize
+    txtNodeId.text = dsNodeIds[1];
+
+// IM 103819    tblAlarmRanges.deleteAllLines();
+// IM 103819    tblAlarmRanges.appendLines(dynlen(alarmStates), \"status\", alarmStates, \"alarmRange\", alarmRanges);
+
+// IM 101449
+    for (i=1; i<=dynlen(dsNodeIds); i++)
+    {
+      if (txtNodeId.text == dsNodeIds[i]) cbAlarmTypes.text = dsAlarmTypes[i];
+    }
+  }
+
+  setSubscriptionType();
+  enableConnection(cmbConnection.text != \"\");
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 3
+"cmdRemoveDp"
+""
+1 264.9999999999999 22 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Remove the subscription
+LANG:10004 12 删除订阅
+LANG:10000 22 Subscription entfernen
+LANG:10027 23 Remove the subscription
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  268 23 366 51
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  string sSubscriptionName = cmbConnection.text;
+  dyn_string dsAnswer;
+  dyn_float dfAnswer;
+
+  if ( sSubscriptionName == \"\" )
+    return;
+  else
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"general\", \"info\"),
+                                   makeDynString(getCatStr(\"opcua\", \"applyDeleteSub\"),
+                                                 getCatStr(\"general\", \"yes\"),
+                                                 getCatStr(\"general\", \"no\")),
+                                   dfAnswer, dsAnswer);
+
+    if (dynlen(dfAnswer) < 1 || dfAnswer[1] < 1 )
+      return;
+    else // todo
+    {
+      opcuaDriver_removeSubscription(sSubscriptionName, gOpcUaSubs_mData);
+      enableConnection(cmbConnection.text != \"\");
+      setSubscriptionType();
+
+      delay(0,500);
+
+      opcuaDriver_panelToMapping(gOpcUaSubs_mData);
+      opcuaDriver_saveDataFromMapping(gOpcUaSubs_mData, $SERVER_DP, cmbConnection.text);
+      showTableAlarmRanges();
+    }
+  }
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+14 4
+"txtDescription"
+""
+1 125 56 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E "main()
+{
+  if ( getNoOfLangs() == 1)
+  {
+    lsDescription=this.text;
+    opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+  }
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  123 54 522 80
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  string sSubscription = cmbConnection.text;
+
+  if ( getNoOfLangs() > 1)
+  {
+    langEditor(lsDescription);
+    opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+    this.text=lsDescription;
+  }
+}
+" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ E
+13 5
+"langedit1"
+""
+1 521.9999999999999 49 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  526 53 554 81
+
+P 
+4294967295
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if ( getNoOfLangs() > 1)
+  {
+    langEditor(lsDescription);
+    opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+    txtDescription.text=lsDescription;
+  }
+}
+" 0
+ E E "main()
+{
+  this.visible = getNoOfLangs() != 1;
+}" 0
+
+2 6
+"Text1"
+""
+1 -7 56 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -5 58 118 75
+0 2 0 "0s" 0 0 0 66 0 0  -5 58 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 7 描述:
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+30 23
+"frmState"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8583573023715415 0 0.9507768863636362 16.41642697628458 362.8756981818181 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+14 25
+"tfRevisedPublishingInterval"
+""
+1 514.9999999999999 464.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Returned publishing interval in milliseconds.
+LANG:10004 38 返回的发布数据周期（ms）。
+LANG:10000 57 Zurückgeliefertes Publishing-Intervall in Millisekunden.
+LANG:10027 45 Returned publishing interval in milliseconds.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 528 546 554
+2 "0s" 0 0 0 0 0 -1  E E E
+2 26
+"ptSubscriptionId"
+""
+1 47 573.0000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 30 573.0000000000001 165 590
+0 2 2 "0s" 0 0 0 66 0 0  30 573.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 ID:
+LANG:10004 3 ID:
+LANG:10000 3 ID:
+LANG:10027 3 ID:
+13 44
+"bGQ"
+""
+1 173.2635 742.9346352517987 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 General query
+LANG:10004 13 General query
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  173 742 271 770
+
+T 
+4
+LANG:10001 2 GQ
+LANG:10004 15 总召唤数值
+LANG:10000 2 GA
+LANG:10027 23 Общий запрос
+"main()
+{
+  sendCommand(\"GQ\");
+}" 0
+ E E E
+13 52
+"cmdApply"
+""
+1 375 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  373 742 471 770
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  opcuaDriver_panelToMapping(gOpcUaSubs_mData);
+  opcuaDriver_saveDataFromMapping(gOpcUaSubs_mData, $SERVER_DP, cmbConnection.text);
+  showTableAlarmRanges();
+}
+
+
+
+
+
+" 0
+ E E E
+13 53
+"cmdCancel"
+""
+1 475 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+86 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  473 742 571 770
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  //removeGlobals();
+
+  if ( !checkSubscriptionDataSaved() )
+    return;
+
+  opcuaDriver_checkUnsavedDps(cmbConnection.text, $SERVER_DP);
+  setSubscriptionType();
+
+  removeOpcUaSubsGlobals();
+  PanelOff();
+}
+" 0
+ E E E
+13 54
+"cmdHelp"
+""
+1 10 742 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 742 106 770
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"opcua_subscription\" ) ;  
+}
+
+" 0
+ E E E
+13 55
+"cmdOk"
+""
+1 275 744 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  273 742 371 770
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  opcuaDriver_panelToMapping(gOpcUaSubs_mData);
+  opcuaDriver_saveDataFromMapping(gOpcUaSubs_mData, $SERVER_DP, cmbConnection.text);
+  showTableAlarmRanges();
+  removeOpcUaSubsGlobals();
+  PanelOff();
+}
+
+
+
+" 0
+ E E E
+30 57
+"frmConfig"
+""
+1 10 282 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+90 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.699119130434784 0 6.624999999999996 -21.99119130434784 -1782.249999999999 0 E 10 282 124 347
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Configuration
+LANG:10004 6 配置
+LANG:10000 11 Einstellung
+LANG:10027 18 Настройки
+14 74
+"tfAssignedOPCUAServer"
+""
+1 220.0000000000001 468.9994352517986 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 64 Name of the OPC UA server to which the subscription is assigned.
+LANG:10004 48 已分配了订阅的OPC UA服务器的名称。
+LANG:10000 61 Name des OPC UA Servers, dem die Subscription zugewiesen ist.
+LANG:10027 64 Name of the OPC UA server to which the subscription is assigned.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  168 543 291 569
+2 "0s" 0 0 0 0 0 -1  E E E
+2 75
+"ptAssignedOPCUAServer"
+""
+1 80 548 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 29.99999999999999 548 165 566
+0 2 2 "0s" 0 0 0 66 0 0  29.99999999999999 548 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Assigned server:
+LANG:10004 22 已分配的服务器:
+LANG:10000 20 Zugewiesener Server:
+LANG:10027 36 Назначенный сервер:
+30 93
+"frmMonitored"
+""
+1 260 233 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+126 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.004025039984006 0 2.117036773071827 -481.0465103958417 -264.2695681257357 0 E 260 233 511 361
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Monitored Items
+LANG:10004 18 受监控的项目
+LANG:10000 15 Monitored Items
+LANG:10027 45 Контролируемые элементы
+14 113
+"tfSubscriptionId"
+""
+1 430.5652173913043 498.9994352517986 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+146 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 86 Internal identification number for every subscription. This is unique for each server.
+LANG:10004 53 订阅的内部ID号。每个服务器都是唯一的
+LANG:10000 85 Interne Identifikationsnummer für jede Subscription. Diese ist pro Server eindeutig.
+LANG:10027 86 Internal identification number for every subscription. This is unique for each server.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  168 568 291 594
+2 "0s" 0 0 0 0 0 -1  E E E
+2 114
+"ptRevisedPublishingInterval"
+""
+1 -21744.99999999997 1158.998870503596 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+147 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 533 460 550
+0 2 2 "0s" 0 0 0 66 0 0  325 533 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Publishing interval:
+LANG:10004 21 数据发布周期：
+LANG:10000 20 Publishing interval:
+LANG:10027 20 Publishing interval:
+22 119
+"cmbSubscriptionType"
+""
+1 162.0000000000001 135 E E E 0 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+152 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  388 102 541 128
+3
+4
+LANG:10001 4 Data
+LANG:10004 12 查询结果
+LANG:10000 5 Daten
+LANG:10027 12 Данные
+
+0
+4
+LANG:10001 6 Events
+LANG:10004 6 事件
+LANG:10000 10 Ereignisse
+LANG:10027 6 Events
+
+0
+4
+LANG:10001 19 Alarms & Conditions
+LANG:10004 15 报警和条件
+LANG:10000 18 Alarme & Zustände
+LANG:10027 33 Алармы & Состояния
+
+0
+
+E
+"main()
+{
+  setSubscriptionType();
+  showTableAlarmRanges();
+}
+
+" 0
+
+E
+ 0 0
+2 120
+"ptSubscriptionType"
+""
+1 261.5000000000001 107.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+153 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 261.5000000000001 107.5 376.4999999999999 124.5
+0 2 2 "0s" 0 0 0 66 0 0  261.5000000000001 107.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Subscription Type:
+LANG:10004 6 订阅
+LANG:10000 17 Subscription Typ:
+LANG:10027 24 Тип подписки:
+20 123
+"cbDiscardOldest"
+""
+1 50.00000000000011 248 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+156 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  48 246 451 270
+1
+T 
+4
+LANG:10001 34 delete oldest of queue on overflow
+LANG:10004 30 溢出时删除最旧的队列
+LANG:10000 40 bei Überlauf ältestes Element löschen
+LANG:10027 94 удалять старые элементы в очереди при переполнении
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+2 133
+"PRIMITIVE_TEXT25"
+""
+1 112.0000000000006 313.0006005860082 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 120.0000000000006 313.0006005860082 217.0000000000007 331.0006005860082
+0 2 2 "0s" 0 0 0 66 0 0  120.0000000000006 313.0006005860082 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Queue size:
+LANG:10004 13 队列大小:
+LANG:10000 14 Queue Größe:
+LANG:10027 25 Разм. очереди:
+14 134
+"tfQueueSize"
+""
+1 228.0000000000008 310.0005647482014 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+167 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+4
+LANG:10001 47 queue size for value changes until next publish
+LANG:10004 45 值的队列大小更改，直到下次发布
+LANG:10000 59 Queuegröße für Wertänderungen bis zum nächsten Publish
+LANG:10027 140 Размер очереди для хранения изменений значения до следующего опубликования
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  226 308 300 334
+3 "0d" 0 0 0 0 0 -1  E E E
+30 139
+"FRAME8"
+""
+1 260 233 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+172 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.88 0 0.9433642526777017 -428.8 145.1969481070157 0 E 260 233 511 361
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Data change filter
+LANG:10004 6 数据
+LANG:10000 18 Data change filter
+LANG:10027 44 Фильтр изменения данных
+21 143
+"spPriority"
+""
+1 169.9999999999999 169.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+176 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 priority of subscription (255 highest priority)
+LANG:10004 35 订阅优先级(最高优先级255)
+LANG:10000 53 Priorität der Subscription (255 höchste Priorität)
+LANG:10027 81 Приоритет подписки (255 - наивысший приоритет)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 167.5 232 193.5
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 0 255 1 0 1 1
+2 144
+"ptPriority"
+""
+1 30.49717251940962 173 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+177 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 30.49717251940962 173 165.8854965547227 190
+0 2 2 "0s" 0 0 0 66 0 0  30.49717251940962 173 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Priority:
+LANG:10004 15 报警等级：
+LANG:10000 11 Priorität:
+LANG:10027 12 Приор.:
+2 145
+"PRIMITIVE_TEXT30"
+""
+1 -30099.99999999998 1232.020204897437 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+178 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 1 -474.9999999999998 67 0 E 540 213 685 230
+0 2 2 "0s" 0 0 0 66 0 0  540 213 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 use Timestamp from:
+LANG:10004 28 使用时间戳起始时间:
+LANG:10000 24 benutze Zeitstempel von:
+LANG:10027 39 исп. метку времени от:
+22 146
+"cmbTimestampsToReturn"
+""
+1 228.0000000000011 279.0006005860082 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+179 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  226 278 410 304
+3
+4
+LANG:10001 6 Source
+LANG:10004 6 资源
+LANG:10000 6 Quelle
+LANG:10027 16 Источник
+
+0
+4
+LANG:10001 6 Server
+LANG:10004 9 服务器
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+
+0
+4
+LANG:10001 6 no one
+LANG:10004 15 一个都没有
+LANG:10000 6 keinem
+LANG:10027 14 никогда
+
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+
+
+" 0
+
+E
+ 0 0
+2 147
+"PRIMITIVE_TEXT31"
+""
+1 112.0000000000006 343.0006005860082 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+180 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 120.0000000000006 343.0006005860082 217.0000000000007 361.0006005860082
+0 2 2 "0s" 0 0 0 66 0 0  120.0000000000006 343.0006005860082 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Query interval:
+LANG:10004 13 查询间隔:
+LANG:10000 16 Abfrageinterval:
+LANG:10027 20 Инт опроса:
+14 148
+"tfSamplingInterval"
+""
+1 228.0000000000008 340.0005647482014 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+181 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+4
+LANG:10001 38 sampling interval for monitored items 
+LANG:10004 24 采样周期监控条目
+LANG:10000 41 Abfrageintervall für die Monitored Items
+LANG:10027 77 Интервал опроса контролируемых элементов
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  226 338 300 364
+3 "0d" 0 0 0 0 0 -1  E E E
+2 149
+"PRIMITIVE_TEXT32"
+""
+1 70.00000000000023 386 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+182 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 70.00000000000023 386 215.0000000000004 403
+0 2 2 "0s" 0 0 0 66 0 0  70.00000000000023 386 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Trigger:
+LANG:10004 7 触发:
+LANG:10000 10 Auslöser:
+LANG:10027 15 Триггер:
+22 150
+"cmbTrigger"
+""
+1 228.0000000000009 396.0005647482014 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+183 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  226 380 410 406
+3
+4
+LANG:10001 6 Status
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+
+0
+4
+LANG:10001 13 Status, Value
+LANG:10004 6 状态
+LANG:10000 12 Status, Wert
+LANG:10027 36 Состояние, Значение
+
+0
+4
+LANG:10001 24 Status, Value, Timestamp
+LANG:10004 23 状态,数值,时间戳
+LANG:10000 25 Status, Wert, Zeitstempel
+LANG:10027 63 Состояние, Значение, Метка времени
+
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+
+
+" 0
+
+E
+ 0 0
+2 151
+"PRIMITIVE_TEXT33"
+""
+1 70.00000000000023 418 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+184 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 70.00000000000023 418 215.0000000000004 435
+0 2 2 "0s" 0 0 0 66 0 0  70.00000000000023 418 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Deadband type:
+LANG:10004 13 死区类型:
+LANG:10000 12 Totband Typ:
+LANG:10027 34 Тип зоны нечувств.:
+22 152
+"cmbDeadbandType"
+""
+1 228.0000000000009 429.0005647482014 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+185 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  226 413 307 439
+3
+4
+LANG:10001 2 no
+LANG:10004 2 no
+LANG:10000 4 kein
+LANG:10027 14 никогда
+
+0
+4
+LANG:10001 8 absolute
+LANG:10004 8 absolute
+LANG:10000 7 absolut
+LANG:10027 18 абсолютно
+
+0
+4
+LANG:10001 7 percent
+LANG:10004 7 percent
+LANG:10000 7 prozent
+LANG:10027 14 процент
+
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+
+
+" 0
+
+E
+ 0 0
+2 153
+"PRIMITIVE_TEXT34"
+""
+1 110.0000000000003 453 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+186 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 110.0000000000003 453 214.9999999999997 470
+0 2 2 "0s" 0 0 0 66 0 0  110.0000000000003 453 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Deadband value:
+LANG:10004 10 死区值:
+LANG:10000 13 Totband Wert:
+LANG:10027 30 Знач.зон.нечувс.:
+14 154
+"tfDeadbandValue"
+""
+1 228.0000000000009 450.0005647482014 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+187 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  226 448 307 474
+3 "0.2f" 3 0 0 0 0 -1  E E E
+30 155
+"frmState_redu"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+188 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8583573023715415 0 0.9507768863636362 16.41642697628458 462.8756665828119 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 State Redundancy
+LANG:10004 6 状态
+LANG:10000 16 Status Redundanz
+LANG:10027 39 Состояние резервного
+14 156
+"tfSubscriptionId_redu"
+""
+1 405 593.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+189 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 86 Internal identification number for every subscription. This is unique for each server.
+LANG:10004 53 订阅的内部ID号。每个服务器都是唯一的
+LANG:10000 85 Interne Identifikationsnummer für jede Subscription. Diese ist pro Server eindeutig.
+LANG:10027 86 Internal identification number for every subscription. This is unique for each server.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  168 668 291 694
+2 "0s" 0 0 0 0 0 -1  E E E
+2 157
+"ptSubscriptionId_redu"
+""
+1 47 673 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+190 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 30 673 165 690.0005647482014
+0 2 2 "0s" 0 0 0 66 0 0  30 673 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 ID:
+LANG:10004 3 ID:
+LANG:10000 3 ID:
+LANG:10027 3 ID:
+14 158
+"tfAssignedOPCUAServer_redu"
+""
+1 220.0000000000001 564.9994352517986 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+191 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 64 Name of the OPC UA server to which the subscription is assigned.
+LANG:10004 48 已分配了订阅的OPC UA服务器的名称。
+LANG:10000 61 Name des OPC UA Servers, dem die Subscription zugewiesen ist.
+LANG:10027 64 Name of the OPC UA server to which the subscription is assigned.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  168 643 291 669
+2 "0s" 0 0 0 0 0 -1  E E E
+2 159
+"ptAssignedOPCUAServer_redu"
+""
+1 80 649 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+192 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 29.99999999999999 649 165 667
+0 2 2 "0s" 0 0 0 66 0 0  29.99999999999999 649 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Assigned server:
+LANG:10004 22 已分配的服务器:
+LANG:10000 20 Zugewiesener Server:
+LANG:10027 36 Назначенный сервер:
+14 160
+"tfRevisedPublishingInterval_redu"
+""
+1 540.5652173913045 553.9994352517986 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+193 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 Returned publishing interval in milliseconds
+LANG:10004 35 返回的发布数据周期（ms）
+LANG:10000 57 Zurückgeliefertes Publishing-Intervall in Millisekunden.
+LANG:10027 44 Returned publishing interval in milliseconds
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 628 546 654
+2 "0s" 0 0 0 0 0 -1  E E E
+2 161
+"ptRevisedPublishingInterval_redu"
+""
+1 -21706.99999999997 9520.998870503598 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+194 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 633 460 650
+0 2 2 "0s" 0 0 0 66 0 0  325 633 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Publishing interval:
+LANG:10004 21 数据发布周期：
+LANG:10000 20 Publishing interval:
+LANG:10027 20 Publishing interval:
+21 165
+"spLifetime"
+""
+1 469.4999999999999 144.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+198 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 120 Number of publishing intervals until the subscription is deleted by the server, if no publish request
+has been received.
+LANG:10004 85 如果未收到发布请求，则在服务器删除订阅之前的
+发布间隔数。
+LANG:10000 129 Anzahl an Publish-Intervallen, bis die Subscription gelöscht wird, wenn keine Publish Anforderungen vom Client empfangen werden.
+LANG:10027 120 Number of publishing intervals until the subscription is deleted by the server, if no publish request
+has been received.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  467.5 142.5 531.5 168.5
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 0 100000 1 0 1 1
+2 166
+"ptLifetime"
+""
+1 169.9999999999999 177 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+199 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.9810175145413065 0 1 239.1048058674256 -29.5 0 E 26.00000000000001 177 224.9999999999999 195
+0 2 2 "0s" 0 0 0 66 0 0  26.00000000000001 177 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Lifetime count:
+LANG:10004 21 运行时间统计：
+LANG:10000 15 Lifetime count:
+LANG:10027 15 Lifetime count:
+14 170
+"txtUnacknowledged"
+""
+1 208.2679738562092 388.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+203 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  383 446 517 472
+3 "0s" 0 0 0 0 0 -1  E E E
+14 178
+"txtAckedState"
+""
+1 208.2679738562092 318.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+211 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  383 376 517 402
+3 "0s" 0 0 0 0 0 -1  E E E
+14 179
+"txtAcknowledged"
+""
+1 208.2679738562092 348.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+212 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  383 406 517 432
+3 "0s" 0 0 0 0 0 -1  E E E
+2 180
+"PRIMITIVE_TEXT41"
+""
+1 273.9999999999999 380.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+213 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 281.9999999999999 380.0006005860082 378.9999999999999 398.0006005860082
+0 2 2 "0s" 0 0 0 66 0 0  281.9999999999999 380.0006005860082 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 AckedState:
+LANG:10004 6 状态
+LANG:10000 11 AckedState:
+LANG:10027 18 СостКвит.:
+2 181
+"PRIMITIVE_TEXT42"
+""
+1 273.9999999999999 410.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+214 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 281.9999999999999 410.0006005860082 378.9999999999999 428.0006005860082
+0 2 2 "0s" 0 0 0 66 0 0  281.9999999999999 410.0006005860082 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Acknowledged:
+LANG:10004 7 确认:
+LANG:10000 13 Acknowledged:
+LANG:10027 23 Квитировано:
+2 182
+"PRIMITIVE_TEXT43"
+""
+1 271 450 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+215 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 269 450 376 467
+0 2 2 "0s" 0 0 0 66 0 0  269 450 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Unacknowledged:
+LANG:10004 16 未确认报警:
+LANG:10000 15 Unacknowledged:
+LANG:10027 27 Неквитировано:
+2 183
+"ptInfo"
+""
+1 289.9999999999999 331.0006005860082 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+216 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 221 331.0006005860082 359 346
+0 2 2 "0s" 0 0 0 193 0 0  289.9999999999999 331.0006005860082 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 No parameters available
+LANG:10004 18 无可用的参数
+LANG:10000 26 Keine Parameter verfügbar
+LANG:10027 39 параметры недоступны
+1 234 5 "" 0
+0
+2 187
+"PRIMITIVE_TEXT39"
+""
+1 -10.27169880025112 76.15438921397501 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+221 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9900990099009901 0 1.023364485981309 0.1980198019801984 56.53738317757001 0 E 22 193 119 211
+0 2 2 "0s" 0 0 0 66 0 0  22 193 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Alarm type:
+LANG:10004 13 报警类型:
+LANG:10000 9 Alarmtyp:
+LANG:10027 19 Тип аларма
+14 188
+"txtAlarmtype"
+""
+1 146.980198019802 250.0472937201641 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+222 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  145 248 350 274
+3 "0s" 0 0 0 0 0 -1  E E E
+13 189
+"cmdBrowseAlarmtype"
+""
+1 341.9801980198018 250.0473069152154 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+223 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  340 248 374 272
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/address_opcua_server_items.pnl\",
+    \"OPCUA Server Items\", makeDynString(\"$SERVER:\" + substr($SERVER_DP, 1), \"$EVENT_SOURCE:FALSE\",
+                                        \"$VARIANT:0\", \"$ALARM_TYPES:TRUE\"), df, ds);
+  
+  if ( dynlen(ds) > 0 )
+  {
+    setValue(\"txtNodeId\", \"text\", ds[1]);
+  }
+}
+" 0
+ E E E
+22 190
+"cbAlarmTypes"
+""
+1 121.9801980198017 250.0472575183568 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+224 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  120 248 532 274
+0
+
+E
+"main()
+{
+  // IM 101449
+  manualNodeIdToMapping();
+  enableNodeId();
+  setAlarmType();
+  showTableAlarmRanges();
+}
+
+" 0
+
+E
+ 0 0
+14 193
+"txtNodeId"
+""
+1 106.0598000098518 330.0467289719626 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+225 0 0 0 0 0
+E "main()
+{
+  dsNodeIds[dynlen(dsNodeIds)] = this.text;
+  manualNodeIdToMapping();
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  120 278 444 303
+3 "0s" 0 0 0 0 0 -1  E E E
+2 197
+"primtextNodeId"
+""
+1 61.98019801980198 282.0467289719626 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+227 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 61.98019801980198 282.0467289719626 116.980198019802 302.0467289719626
+0 2 2 "0s" 0 0 0 64 0 0  61.98019801980198 282.0467289719626 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Node Id
+LANG:10004 8 节点ID
+LANG:10000 7 Node Id
+LANG:10027 11 ID узла
+25 200
+"tblAlarmRanges"
+""
+1 61.98157554885923 310.0467289719626 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+228 0 0 0 0 0
+E "main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  60 308 492 456
+"main()
+{
+  this.columnMovingEnabled = false;
+  this.tableMode = TABLE_SELECT_BROWSE;
+  this.selectByClick = TABLE_SELECT_LINE;
+}
+" 0
+E 1 0 1 2 1 "status" 35 1 1 "[0s,,,AlignLeft]" 4
+LANG:10001 6 Status
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+331 "alarmRange" 7 1 1 "[0d,False,False,AlignRight,False]" 4
+LANG:10001 5 Range
+LANG:10004 6 范围
+LANG:10000 5 Range
+LANG:10027 16 Диапазон
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+78 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+10 10
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+20 201
+"cbAlarmFlags"
+""
+1 59.99999999999999 468 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+229 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 101 Specifies if OPC UA severity is used for alert class mapping and if OPC UA server alarm text is used.
+LANG:10004 94 指定OPC UA严重性是否用于报警类映射以及是否使用OPC UA服务器报警文本.
+LANG:10000 133 Definiert ob OPC UA Severity benützt wird um die PVSS Alarmklasse zu bestimmen und ob der Alarmtext des OPC UA Servers benutzt wird.
+LANG:10027 214 Указывает используется ли критичность OPC UA для преобразования в класс аларма и используются ли серверные алармы OPC UA.
+
+2
+"layoutAlignment" "AlignCenter"
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  58 466 361 490
+2
+T 
+4
+LANG:10001 11 UA Severity
+LANG:10004 11 UA严重性
+LANG:10000 11 UA Severity
+LANG:10027 21 Приоритет UA
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 UA Alarm Text
+LANG:10004 14 UA报警文本
+LANG:10000 12 UA Alarmtext
+LANG:10027 26 Текст аларма UA
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+" 0
+13 204
+"cmdInsertAfter"
+""
+1 500.9999999999998 317.9585218684865 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+230 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 316 526 344
+
+P 
+4294967295
+"pictures/StandardIcons/Insert_after_20.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  dyn_int selected = tblAlarmRanges.getSelectedLines();
+  int index;
+  
+  if ( dynlen(selected) )
+    tblAlarmRanges.insertLineN(index = selected[1] + 1);
+  else
+    tblAlarmRanges.insertLineN(index = 0);
+
+  tblAlarmRanges.cellValueRC(index, \"alarmRange\", 0);
+}" 0
+ E E E
+13 205
+"cmdInsertBefore"
+""
+1 500.9999999999998 347.6594564479257 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+231 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 346 526 374
+
+P 
+4294967295
+"pictures/StandardIcons/Insert_before_20.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  dyn_int selected = tblAlarmRanges.getSelectedLines();
+  int index;
+  
+  if ( dynlen(selected) )
+    tblAlarmRanges.insertLineN(index = selected[1]);
+  else
+    tblAlarmRanges.insertLineN(index = 0);
+  
+  tblAlarmRanges.cellValueRC(index, \"alarmRange\", 0);
+}" 0
+ E E E
+13 206
+"cmdRemove"
+""
+1 500.9999999999998 378.360391027365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+232 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  498 376 526 404
+
+P 
+4294967295
+"pictures/StandardIcons/delete_20.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  dyn_int selected = tblAlarmRanges.getSelectedLines();
+  
+  if ( dynlen(selected) )
+    tblAlarmRanges.deleteLineN(selected[1]);
+}" 0
+ E E E
+21 209
+"spPubInterval"
+""
+1 169.9999999999999 144.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+233 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 94 In these intervals in milliseconds the values are read from the server's queues by the client.
+LANG:10004 69 在此毫秒间隔时间，客户端会从服务器更新这些数据
+LANG:10000 99 In diesen Abständen in Millisekunden werden die Werte vom Client aus den Queues am Server gelesen.
+LANG:10027 94 In these intervals in milliseconds the values are read from the server's queues by the client.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 142.5 232 168.5
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 0 10000 1 0 1 1
+2 210
+"ptPubInterval"
+""
+1 168.9999999999999 145.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+234 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.6777244417620264 0 1 13.07522160002893 2 0 E 25.00000000000001 145.5 223.9999999999999 163.5
+0 2 2 "0s" 0 0 0 66 0 0  25.00000000000001 145.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Publishing interval:
+LANG:10004 21 数据发布周期：
+LANG:10000 20 Publishing interval:
+LANG:10027 20 Publishing interval:
+21 211
+"spKeepAlive"
+""
+1 469.4999999999999 169.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+235 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 156 When the publishing timer in the server has expired this number of times without data to be sent,
+the subscription sends a keep-alive Message to the Client.
+LANG:10004 115 当服务器的发布时间到期而未收发数据，
+订阅发送一个保持连接的心跳信号到客户端。
+LANG:10000 126 Anzahl von Publish-Intervallen, wenn keine Daten zu schicken sind, bis der Server eine KeepAlive Nachricht zum Client schickt.
+LANG:10027 156 When the publishing timer in the server has expired this number of times without data to be sent,
+the subscription sends a keep-alive Message to the Client.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  467.5 167.5 531.5 193.5
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 0 100000 1 0 1 1
+2 212
+"ptKeepAlive"
+""
+1 169.9999999999999 177 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+236 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.9814592118896353 0 1 239.2447002780722 -4.5 0 E 26.00000000000001 177 224.9999999999999 195
+0 2 2 "0s" 0 0 0 66 0 0  26.00000000000001 177 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Max keep alive count:
+LANG:10004 33 最大的心跳保持的计数：
+LANG:10000 21 Max keep alive count:
+LANG:10027 21 Max keep alive count:
+21 213
+"spNotifications"
+""
+1 469.4999999999999 194.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+237 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 128 Configures the maximum number of notifications returned in one publish response. 
+The value 0 means that it is up to the server.
+LANG:10004 87 配置一个发布响应中返回的最大通知数。 
+值0表示由服务器决定。
+LANG:10000 166 Gibt die maximale Anzahl von Meldungen an, die in einem Publish Response von Server geschickt werden dürfen.
+Der Wert 0 bedeutet, dass der Client kein Limit vorgibt.
+LANG:10027 128 Configures the maximum number of notifications returned in one publish response. 
+The value 0 means that it is up to the server.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  467.5 192.5 531.5 218.5
+0
+
+E
+"main()
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+
+E
+
+N 0 100000 1 0 1 1
+2 214
+"ptNotifications"
+""
+1 169.9999999999999 177 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+238 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.9814592118896351 0 1 239.2447002780722 20.5 0 E 26.00000000000001 177 224.9999999999999 195
+0 2 2 "0s" 0 0 0 66 0 0  26.00000000000001 177 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 30 Max notifications per publish:
+LANG:10004 45 每次数据发布，最大的消息数量：
+LANG:10000 30 Max notifications per publish:
+LANG:10027 30 Max notifications per publish:
+2 218
+"ptRevisedLifetimeCount"
+""
+1 -21744.99999999997 1183.998870503596 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+242 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 558 460 575
+0 2 2 "0s" 0 0 0 66 0 0  325 558 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Lifetime count:
+LANG:10004 21 运行时间统计：
+LANG:10000 15 Lifetime count:
+LANG:10027 15 Lifetime count:
+14 219
+"tfRevisedMaxKeepAliveCount"
+""
+1 514.9999999999999 514.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+243 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Returned MaxKeepAliveCount.
+LANG:10004 27 返回的最大心跳计数
+LANG:10000 37 Zurückgelieferter MaxKeepAliveCount.
+LANG:10027 27 Returned MaxKeepAliveCount.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 578 546 604
+2 "0s" 0 0 0 0 0 -1  E E E
+2 220
+"ptRevisedMaxKeepAliveCount"
+""
+1 -21744.99999999997 1208.998870503596 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+244 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 583 460 600
+0 2 2 "0s" 0 0 0 66 0 0  325 583 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Max keep alive count:
+LANG:10004 33 最大的心跳保持的计数：
+LANG:10000 21 Max keep alive count:
+LANG:10027 21 Max keep alive count:
+14 221
+"tfRevisedLifetimeCount_redu"
+""
+1 514.9999999999999 589.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+245 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Returned LifeTimeCount.
+LANG:10004 28 返回的运行时间计数.
+LANG:10000 33 Zurückgelieferter LifeTimeCount.
+LANG:10027 23 Returned LifeTimeCount.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 653 546 679
+2 "0s" 0 0 0 0 0 -1  E E E
+2 222
+"ptRevisedLifetimeCount_redu"
+""
+1 -21744.99999999997 1283.998870503596 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+246 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 658 460 675
+0 2 2 "0s" 0 0 0 66 0 0  325 658 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Lifetime count:
+LANG:10004 21 运行时间统计：
+LANG:10000 15 Lifetime count:
+LANG:10027 15 Lifetime count:
+14 223
+"tfRevisedMaxKeepAliveCount_redu"
+""
+1 514.9999999999999 614.9997352517985 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+247 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Returned MaxKeepAliveCount.
+LANG:10004 27 返回的最大心跳计数
+LANG:10000 37 Zurückgelieferter MaxKeepAliveCount.
+LANG:10027 27 Returned MaxKeepAliveCount.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  463 678 546 704
+2 "0s" 0 0 0 0 0 -1  E E E
+2 224
+"ptRevisedMaxKeepAliveCount_redu"
+""
+1 -21744.99999999997 1308.998870503596 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+248 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  1 E 325 683 460 700
+0 2 2 "0s" 0 0 0 66 0 0  325 683 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Max keep alive count:
+LANG:10004 33 最大的心跳保持的计数：
+LANG:10000 21 Max keep alive count:
+LANG:10027 21 Max keep alive count:
+30 226
+"frmAdvanced"
+""
+1 260 233 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+250 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.004025039984006 0 0.7401574803149606 -481.0465103958418 -42.45669291338585 0 E 260 233 511 361
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 Advanced configuration
+LANG:10004 12 高级配置
+LANG:10000 24 Erweiterte Konfiguration
+LANG:10027 22 Advanced configuration
+20 229
+"cbPersistent"
+""
+1 172.0000000000001 246.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 86 This subscription is stored and reused after client restart or connection reactivation
+LANG:10004 84 客户端重新启动或重新激活连接后，此预订将被存储并重新使用
+LANG:10000 123 Diese Subscription wird zwischengespeichert und nach Neustart des Clients oder Reaktivierung der Verbindung wiederverwendet
+LANG:10027 86 This subscription is stored and reused after client restart or connection reactivation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 192.5 194 218.5
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+2 230
+"ptPersistent"
+""
+1 30.49717251940962 198 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+252 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 30.49717251940962 198 165.8854965547227 215
+0 2 2 "0s" 0 0 0 66 0 0  30.49717251940962 198 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Persistent:
+LANG:10004 7 持续:
+LANG:10000 11 Persistent:
+LANG:10027 11 Persistent:
+13 233
+"bUnused"
+""
+1 429.2635000000002 446.668951306165 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+253 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 51 Add and assign unused subscriptions to a connection
+LANG:10004 48 配置连接，添加和分配未使用的订阅
+LANG:10000 73 Nicht verwendete Subscriptions einer Verbindung hinzufügen bzw. zuweisen
+LANG:10027 51 Add and assign unused subscriptions to a connection
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  458 23 556 51
+
+T 
+4
+LANG:10001 10 Add unused
+LANG:10004 18 添加未使用的
+LANG:10000 11 Hinzufügen
+LANG:10027 10 Add unused
+"main()
+{
+  string sServerDp = $SERVER_DP;
+
+  if ( sServerDp == \"\" )
+    return;
+
+  dyn_float df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/opcuaAssignSubs.pnl\",
+                                 \"OPCUA assign subscriptions\",
+                                 makeDynString(\"$conn:\" + sServerDp),
+                                 df, ds);
+
+  if ( dynlen(df) && df[1] == 1 )
+    initSubscriptions();
+}
+" 0
+ E E E
+2 236
+"ptEventTypeNodeId"
+""
+1 168.9999999999999 145.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+254 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 0.6777244417620264 0 1 32.83427616178204 107.9999999999999 0 E 25.00000000000001 145.5 223.9999999999999 163.5
+0 2 2 "0s" 0 0 0 66 0 0  25.00000000000001 145.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Event type node ID:
+LANG:10004 0 
+LANG:10000 18 Event Typ Node ID:
+LANG:10027 19 Event type node ID:
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 58
+"cbPublishingEnabled"
+""
+1 39.99999999999996 106 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  38 104 162 128
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  opcuaDriver_setSubscriptionModified(gOpcUaSubs_mData, cmbConnection.text);
+}
+
+" 0
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 5 "PANEL_REF5" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 30 700 T 220 1.164328657314629 0 1 -34.92985971943887 34.00000000000006
+0
+1 6 "grpDataInvisible" 7
+3 0 
+188 189 190 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+1 7 "grpDataInvisible" 9
+3 1 
+187 197 193 
+6 
+"layoutAlignment" "AlignCenter"
+"" ""
+1 8 "SHAPE_GROUP8" -1
+3 0 
+119 120 58 
+
+"layoutAlignment" "AlignCenter"
+"" ""
+1 9 "grpDataInvisible" 10
+1 1 
+200 
+7 
+"layoutAlignment" "AlignCenter"
+"" ""
+1 10 "grpDataInvisible" -1
+4 1 
+201 204 205 206 
+9 
+"layoutAlignment" "AlignCenter"
+"" ""
+1 11 "grpDataVisible" -1
+13 0 
+146 145 133 134 147 148 139 149 150 151 152 153 154 
+
+"layoutAlignment" "AlignNone"
+"" ""
+1 12 "reduStatus" -1
+10 0 
+160 156 157 158 159 161 222 221 223 224 
+
+"layoutAlignment" "AlignNone"
+"" ""
+0

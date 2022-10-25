@@ -1,0 +1,907 @@
+V 14
+4
+LANG:10001 15 System overview
+LANG:10004 12 系统总览
+LANG:10000 16 Systemübersicht
+LANG:10027 25 Обзор системы
+PANEL,-1 -1 1005 665 N "_3DFace" 0
+"dyn_string dsRegisterdPanels;
+bool bShowOnlyOneSystem;
+time tRemoveDouble;
+dyn_int diShownSystems;
+dyn_int diAlreadyAddedSystems;
+
+main()
+{
+  initHosts();
+
+  int manId = convManIdToInt(EVENT_MAN, 0);
+  int manId_2 = convManIdToInt(EVENT_MAN, 0, 0, 2);
+  bool bEventConnection = isConnOpen(manId);
+  bool bEventConnection_2 = isConnOpen(manId_2);
+  string panel;
+
+  if (!isDistributed())
+  {
+    if (isRedundant())
+      panel = \"vision/SystemOverviewRedundant.pnl\";
+    else
+      panel = \"vision/SystemOverviewNonRedundant.pnl\";
+
+    addSymbol(myModuleName(), myPanelName(), panel, \"test\", makeDynString(\"$System:\" + getSystemName()), 15, 30, 0, 1, 1);
+  }
+  else
+  {
+    diAlreadyAddedSystems = makeDynInt(0);
+    bool bSplitMode;
+
+    if (isRedundant())
+    {
+      // IM 111221, TFS 48067: removed dead code
+      isSplitModeActive(bSplitMode);
+    }
+
+    if (!isRedundant()) // IM 107496, 111221
+    {
+      // not redundant
+      dpConnect(\"workCB\", TRUE, \"_DistManager.State.SystemNums:_online.._value\",
+                                \"_DistManager.State.SystemNums:_online.._stime\",
+                                \"_Connections.Dist.ManNums:_online.._value\",
+                                \"_ReduManager.EvStatus:_online.._value\");
+    }
+    else if (!bSplitMode) // IM111221
+    {
+      // really redundant (REDU project but not in split mode)
+      dpConnect(\"workCBredu\", TRUE, \"_DistManager.State.SystemNums:_online.._value\",
+                                    \"_DistManager.State.SystemNums:_online.._stime\",
+                                    \"_Connections.Dist.ManNums:_online.._value\",
+                                    \"_ReduManager.EvStatus:_online.._value\",
+                                    \"_ReduManager.PeerAlive.Link0:_online.._value\",
+                                    \"_ReduManager.PeerErrorStatus:_online.._value\",
+
+                                    \"_DistManager_2.State.SystemNums:_online.._value\",
+                                    \"_DistManager_2.State.SystemNums:_online.._stime\",
+                                    \"_Connections_2.Dist.ManNums:_online.._value\",
+                                    \"_ReduManager_2.EvStatus:_online.._value\",
+                                    \"_ReduManager_2.PeerAlive.Link0:_online.._value\",
+                                    \"_ReduManager_2.PeerErrorStatus:_online.._value\");
+    }
+    else // IM111221
+    {
+      bool bEventConnection = isConnOpen(convManIdToInt(EVENT_MAN, 0));
+      bool bEventConnection_2 = isConnOpen(convManIdToInt(EVENT_MAN, 0, 0, 2));
+
+      if (bEventConnection && bEventConnection_2)
+      {
+        // connection to both EMs --> use left
+        dpConnect(\"workCB\", TRUE, \"_DistManager.State.SystemNums:_online.._value\",
+                                  \"_DistManager.State.SystemNums:_online.._stime\",
+                                  \"_Connections.Dist.ManNums:_online.._value\",
+                                  \"_ReduManager.EvStatus:_online.._value\");
+      }
+      else if (bEventConnection && !bEventConnection_2)
+      {
+        // connection to left EM --> use left
+        dpConnect(\"workCB\", TRUE, \"_DistManager.State.SystemNums:_online.._value\",
+                                  \"_DistManager.State.SystemNums:_online.._stime\",
+                                  \"_Connections.Dist.ManNums:_online.._value\",
+                                  \"_ReduManager.EvStatus:_online.._value\");
+      }
+      else if (!bEventConnection && bEventConnection_2)
+      {
+        // connection to right EM --> use right
+        dpConnect(\"workCB\", TRUE, \"_DistManager_2.State.SystemNums:_online.._value\",
+                                  \"_DistManager_2.State.SystemNums:_online.._stime\",
+                                  \"_Connections_2.Dist.ManNums:_online.._value\",
+                                  \"_ReduManager_2.EvStatus:_online.._value\");
+      }
+    }
+  }
+}
+
+//IM 107496
+workCBredu(string dp, dyn_int di, string dp2, time t, string dp3, dyn_int diDistManagers, string dp4, bool bEMIsActive, string dp5, bool bPeerAlive, string dp6, int iPeerErrorStatus,
+           string dp_2, dyn_int di_2, string dp2_2, time t_2, string dp3_2, dyn_int diDistManagers_2, string dp4_2, bool bEMIsActive_2, string dp5_2, bool bPeerAlive_2, string dp6_2, int iPeerErrorStatus_2)
+{
+  // TFS 48067
+  g_workCBSecondCall = false;
+
+  // TFS 13895
+  int reduActiveAnswer;
+  reduActive(reduActiveAnswer);
+
+  // IM 112143
+  if (reduActiveAnswer == 1 && bPeerAlive == 0 && iPeerErrorStatus == -1)
+  {
+    // no connection to server 2
+    workCB(dp, di, dp2, t, dp3, diDistManagers, dp4, bEMIsActive);
+  }
+  else if (reduActiveAnswer == 2 &&  bPeerAlive_2 == 0 && iPeerErrorStatus_2 == -1)
+  {
+    // no connection to server 1
+    workCB(dp_2, di_2, dp2_2, t_2, dp3_2, diDistManagers_2, dp4_2, bEMIsActive_2);
+  }
+  else // redundant servers have connection
+  {
+    if (bEMIsActive) // server 1 is active
+    {
+      workCB(dp, di, dp2, t, dp3, diDistManagers, dp4, bEMIsActive);
+
+      // TFS 48067
+      g_workCBSecondCall = true;
+
+      workCB(dp_2, di_2, dp2_2, t_2, dp3_2, diDistManagers_2, dp4_2, bEMIsActive);
+    }
+    else if (bEMIsActive_2)
+    {
+      workCB(dp, di, dp2, t, dp3, diDistManagers, dp4, bEMIsActive_2);
+
+      // TFS 48067
+      g_workCBSecondCall = true;
+
+      workCB(dp_2, di_2, dp2_2, t_2, dp3_2, diDistManagers_2, dp4_2, bEMIsActive_2);
+    }
+  }
+
+  g_workCBSecondCall = false;
+}
+
+void workCB(string dp, dyn_int di, string dp2, time t, string dp3, dyn_int diDistManagers, string dp4, bool bEMIsActive)
+{
+  dyn_string dsSystemNames;
+  dyn_uint duiSystemIds;
+  dyn_string dsSystemNamesAll;
+  dyn_uint duiSystemIdsAll;
+  int iAdd = 0;
+  string s;
+  bool bVisible;
+  string panel;
+  string header;
+  int iSystemRedundancy;
+  dyn_string dsRegisterdPanels_old = dsRegisterdPanels;
+  int pos;
+
+  int manId = convManIdToInt(EVENT_MAN, 0);
+  int manId_2 = convManIdToInt(EVENT_MAN, 0, 0, 2);
+
+  bool bEventConnection = isConnOpen(manId);
+  bool bEventConnection_2 = isConnOpen(manId_2);
+
+  bool bDoNotShowOtherSystems;
+
+  bool bUseSys1;
+  bool bIs2x2 = FALSE;
+
+  mutexLock(\"SÜP\"); // IM 97571
+
+  if (dpExists(getSystemName() + \"_2x2Redu\"))
+  {
+    if (dpExists(getSystemName() + \"_SysMgm_Redu2x2\"))
+    {
+      if (Systemoverview.registerHeader(0) != g_2x2Redundancy) // add 2x2Redu register first time only
+      {
+        dpGet(getSystemName() + \"_SysMgm_Redu2x2.Title:_original.._value\", g_2x2Redundancy);
+        setValue(\"Systemoverview\", \"insertRegister\", 0);
+        setValue(\"Systemoverview\", \"registerName\", 0, \"2x2_Redu\"); // IM 99432: Added default-registername to prevent the register from being set invisible cause of registerName = \"\"
+        Systemoverview.registerHeader(0, g_2x2Redundancy);
+        setValue(\"Systemoverview\", \"registerPanel\", 0, \"para/archive/RDB/sync/disRecSystem_Overview.pnl\", makeDynString());
+        setValue(\"Systemoverview\", \"registerVisible\", 1, FALSE);
+      }
+      iAdd = 1;
+      bIs2x2 = TRUE;
+    }
+  }
+
+  int iTabRegs = Systemoverview.registerCount();
+
+  if (isDistributed() && dynlen(diDistManagers) == 0)
+  {
+    if ((!isRedundant() && !isReduDp(dp3)) || (isRedundant() /* && isReduDp(dp3) */))
+    {
+      bDoNotShowOtherSystems = TRUE;
+
+      for (int i = dynlen(gdiRegisterdSystems);i > 0; i--)
+      {
+        if (gdiRegisterdSystems[i] == getSystemId())
+          continue;
+
+        panel = \"vision/SystemOverviewMissing.pnl\";
+        header = getSystemName(gdiRegisterdSystems[i]);
+        if (iTabRegs > (iAdd + gdiRegisterdSystems[i] - 1))
+          setValue(\"Systemoverview\", \"registerPanel\", (iAdd + gdiRegisterdSystems[i] - 1), panel, makeDynString(\"$System:\" + getSystemName(gdiRegisterdSystems[i])));
+
+        pos = dynContains(gdiRegisterdSystems, gdiRegisterdSystems[i]);
+        if (pos > 0)
+        {
+          dynRemove(gdiRegisterdSystems, pos);
+        }
+      }
+
+      if (! g_workCBSecondCall)
+      {
+        // Since this callback is called twice in \"redunant case\" (for xxx and xxx_2 DPs) we should not clear
+        // these globals for the seconds call
+        dynClear(gdiSystemIds);
+        dynClear(diShownSystems);
+      }
+    }
+  }
+
+  if (di == diShownSystems && dynlen(di) > 0 && dynContains(diShownSystems, getSystemId()) > 0)
+    return; // double -> cancel but di has to have at least one entry
+
+  diShownSystems = di;
+
+  dynAppend(di, getSystemId());
+  dynSortAsc(di);
+  dynUnique(di);
+  getSystemNames(dsSystemNamesAll, duiSystemIdsAll);
+
+  if (dynlen(di) > dynlen(dsSystemNamesAll))
+  {
+    Systemoverview.visible = FALSE;
+    Error.visible = TRUE;
+    return;
+  }
+
+  if (!bDoNotShowOtherSystems)
+  {
+    gdiSystemIds = di;
+  }
+
+  for (int i = 1; i <= dynlen(di); i++)
+  {
+    dsSystemNames[i] = getSystemName(di[i]);
+    strreplace(dsSystemNames[i], \":\", \"\");
+  }
+
+  dyn_int diSystemsToDelete = gdiRegisterdSystems;
+  int iActiveSystem;
+  int iSheetSystemNumber;
+  int pos;
+
+  if (Systemoverview.visible == FALSE)
+    iActiveSystem = getSystemId();
+  else
+    iActiveSystem = Systemoverview.activeRegister() + 1 - iAdd; // IM108262
+
+  // find out witch systems ar on display but not any more in the connection list
+  for (int i = 1; i <= dynlen(dsSystemNames); i++)
+  {
+    iSheetSystemNumber = getSystemId(dsSystemNames[i] + \":\");
+    pos = dynContains(diSystemsToDelete, iSheetSystemNumber);
+
+    if (pos > 0)
+      dynRemove(diSystemsToDelete, pos);
+  }
+
+  // replace registers system with noc contact with SystemOverviewMissing
+  for (int i = 1; i <= dynlen(diSystemsToDelete); i++)
+  {
+    panel = \"vision/SystemOverviewMissing.pnl\";
+    header = getSystemName(diSystemsToDelete[i]);
+
+    if (iTabRegs > (iAdd + diSystemsToDelete[i] - 1))
+      setValue(\"Systemoverview\", \"registerPanel\", (iAdd + diSystemsToDelete[i] - 1), panel, makeDynString(\"$System:\" + getSystemName(diSystemsToDelete[i])));
+
+    pos = dynContains(gdiRegisterdSystems, diSystemsToDelete[i]);
+    if (pos > 0)
+    {
+      dynRemove(gdiRegisterdSystems, pos);
+    }
+  }
+
+  for (int i = 1; i <= dynlen(dsSystemNamesAll); i++)
+  {
+    int iSearch = (int)getSystemId(dsSystemNamesAll[i] + \":\") - 1;
+    if (iSearch == 0)
+      bUseSys1 = TRUE;
+
+    if (iSearch > dynMax(diAlreadyAddedSystems) + 1) // WORKAROUND !!! TO BE REMOVED !!!!
+    {
+      for (int i = dynMax(diAlreadyAddedSystems) + 1; i <= iSearch - 1; i++)
+      {
+        setValue(\"Systemoverview\", \"insertRegister\", iAdd + i);
+        setValue(\"Systemoverview\", \"registerVisible\", iAdd + i, FALSE); // set visibility of sheet
+        dynAppend(diAlreadyAddedSystems, i);
+      }
+    }
+
+    if (dynContains(diAlreadyAddedSystems, iSearch) <= 0)
+    {
+      setValue(\"Systemoverview\", \"insertRegister\", iAdd + getSystemId(dsSystemNamesAll[i] + \":\") - 1);
+      dynAppend(diAlreadyAddedSystems, getSystemId(dsSystemNamesAll[i] + \":\") - 1);
+    }
+
+    string sName;
+
+    iTabRegs = Systemoverview.registerCount();
+    header = dsSystemNamesAll[i];
+    sprintf(sName, \"#%d\", getSystemId(dsSystemNamesAll[i] + \":\"));
+
+    if (iTabRegs > (iAdd + getSystemId(dsSystemNamesAll[i] + \":\") - 1))
+    {
+      Systemoverview.registerHeader(iAdd + getSystemId(dsSystemNamesAll[i] + \":\") - 1, header);
+      setValue(\"Systemoverview\", \"registerName\", iAdd + getSystemId(dsSystemNamesAll[i] + \":\") - 1, dsSystemNamesAll[i] + \":\");
+      setValue(\"Systemoverview\", \"registerVisible\", iAdd + (getSystemId(dsSystemNamesAll[i] + \":\") - 1), TRUE);         // set visibility of sheet
+    }
+  }
+
+  if (!bUseSys1)
+  {
+    if (iTabRegs > iAdd)
+      setValue(\"Systemoverview\", \"registerVisible\", iAdd, FALSE); // set visibility of sheet for sys1
+  }
+
+  if (dynlen(diDistManagers) > 0)
+  {
+    Error.visible = FALSE;
+    Systemoverview.visible = TRUE;
+  }
+
+  pos = dynContains(gdiRegisterdSystems, iActiveSystem);
+  if (pos > 0)
+    return; // nothing to do
+
+  if (!dynContains(gdiRegisterdSystems, iActiveSystem) && (dynContains(diSystemsToDelete, iActiveSystem) <= 0) && iActiveSystem > 0) // IM108262: only for real systems and not for 2x2
+  {
+    isRemoteSystemRedundant(iSystemRedundancy, getSystemName(iActiveSystem));
+
+    if ((iSystemRedundancy > 0))
+      panel = \"vision/SystemOverviewRedundant.pnl\";
+    else
+      panel = \"vision/SystemOverviewNonRedundant.pnl\";
+
+    if (bDoNotShowOtherSystems && iActiveSystem != getSystemId())
+    {
+      panel = \"vision/SystemOverviewMissing.pnl\";
+    }
+    else
+      dynAppend(gdiRegisterdSystems, iActiveSystem);
+
+    header = getSystemName(iActiveSystem);
+
+    if (header == \"\") // no valid system name --> probably no dist connection
+      panel = \"vision/SystemOverviewMissing.pnl\";
+
+    if (iTabRegs > (iAdd + iActiveSystem - 1))
+      setValue(\"Systemoverview\", \"registerPanel\", iAdd + (iActiveSystem - 1), panel, makeDynString(\"$System:\" + getSystemName(iActiveSystem)));
+  }
+
+  if (iTabRegs > (iAdd + iActiveSystem - 1))
+  {
+    Systemoverview.registerVisible(iAdd + iActiveSystem - 1) = TRUE;
+    Systemoverview.activeRegister(iAdd + iActiveSystem - 1);
+  }
+
+  checkSystemVisibility();
+
+  Systemoverview.visible = !Error.visible;
+}
+" 0
+ E E E E 1 -1 -1 0  460 40
+"refFileName"0  1
+E "#uses \"CtrlMutex\"
+
+dyn_int gdiRegisterdSystems;
+dyn_int gdiSystemIds;
+bool bBlock;
+langString g_2x2Redundancy;
+bool g_workCBSecondCall = false;
+
+checkSystemVisibility()
+{
+  for (int i = 0; i < Systemoverview.registerCount(); i++)
+  {
+    if (Systemoverview.registerName(i) == \"??\" || Systemoverview.registerName(i) == \"\")  // IM 99432: Non-used system-tabs have registerName \"\"
+      Systemoverview.registerVisible(i, FALSE);
+  }
+}
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"LangSwitchMode" "1"
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 253
+"Error"
+""
+1 50 260 E E E 1 E 0 E N {255,0,0} E N "_Transparent" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 52 262 768 288
+0 2 0 "0s" 0 0 0 64 0 0  52 262 1
+4
+LANG:10001 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,40,0,0,0,0,0
+0 4
+LANG:10001 49 Error: Please check DISTmanager of active system!
+LANG:10004 49 错误：请检查激活的主机的DIST管理器
+LANG:10000 68 Fehler: Bitte überprüfen Sie den DISTManager des aktiven Systemes!
+LANG:10027 87 Ошибка: проверьте DIST-менеджер активной системы!
+2 262
+"currentUser"
+""
+1 10 628.6666666666666 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 12 630.6666666666666 86 645
+0 2 0 "0s" 0 0 0 192 0 0  12 630.6666666666666 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 Current user:
+LANG:10004 12 当前用户
+LANG:10000 19 aktueller Benutzer:
+LANG:10027 50         Активный пользователь:
+13 255
+"close"
+""
+1 906 615 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Close systemoverview
+LANG:10004 18 关闭系统总览
+LANG:10000 27 Systemübersicht schließen
+LANG:10027 40 Закрыть обзор системы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  903 628 991 656
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+PanelOff();
+}" 0
+ E E E
+13 256
+"cmdHelp"
+""
+1 10 615 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+96 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Online help [F1]
+LANG:10004 16 在线帮助[F1]
+LANG:10000 17 Online Hilfe [F1]
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 628 96 656
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"systemoverview\");
+}
+" 0
+ E E "main()
+{
+  if ( !isMotif() ) return;
+  
+  string s = this.toolTipText;
+  
+  s = substr(s, 0, strpos(s, \"[\"));
+  this.toolTipText = s;
+}" 0
+
+15 259
+"Clock1"
+""
+1 57.19999999999999 469.2000000000001 E E E 1 E 1 E N "Schwarz" E N "_ButtonBarBackground" E E
+ E E
+97 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  271 631 499 653
+E 1 1 "%X" "%A %d.%m.%Y"
+1 1 0 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 
+14 260
+"TextField1"
+""
+1 530 610.2 E E E 1 E 1 E N "_WindowText" E N "_ButtonBarBackground" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  503 629 847 655
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+  if ( isRedundant())           // possible splitmode
+  {
+     dpConnect(\"setText\", \"_ReduManager.SplitMode:_online.._value\", \"_ReduManager_2.SplitMode:_online.._value\", \"_Managers.Refresh:_online.._value\", \"_Managers_2.Refresh:_online.._value\");
+  }
+  else
+  {
+     setText(\"Dummy\", TRUE, \"Dummy\", TRUE, \"Dummy\", TRUE, \"Dummy\", TRUE);
+  }
+
+
+}
+
+setText(string dp1, bool b1, string dp2, bool b2, string dp3, bool b3, string dp4, bool b4)
+{
+  string sSystem=  getSystemName();
+  string sUi;
+  bool bAnswer;
+  string sAddHost;
+
+
+
+  if (!isDistributed() && sSystem == \"System1:\")  // NoCheckWarning
+    sSystem = \"\";
+  else
+    sSystem = \", \"+sSystem;
+    
+    
+  sUi = getCatStr(\"managers\", getComponentName(UI_COMPONENT));
+
+  if ( isRedundant())
+  {
+     isSplitModeActive( bAnswer, getSystemName());
+     if ( bAnswer )
+     {
+		    bool bEvStatus, bEvStatus_2;
+		    dyn_int diDistMan, diDistMan_2;
+		    int manId = convManIdToInt(EVENT_MAN,0);
+		    int manId_2 = convManIdToInt(EVENT_MAN,0,0,2);
+		       
+		    bool bEventConnection = isConnActive(manId);    
+		    bool bEventConnection_2 = isConnActive(manId_2);         
+       
+       if ( bEventConnection  && !bEventConnection_2 )   
+       {
+          sAddHost = \" - \"+host1;
+       }
+       else  if ( !bEventConnection  && bEventConnection_2 )   
+       {
+          sAddHost = \" - \"+host2;
+       }
+       else
+       {
+          sAddHost = \" - both? -> error\";
+       }
+     }     
+  }
+   
+  this.text	= sUi +\" #\"+myUiNumber()+ \" (\"+myDisplayName()+\")\"+ sSystem + sAddHost;
+
+}
+
+
+
+
+
+
+
+
+" 0
+ E
+14 261
+"TextField2"
+""
+1 140 610 E E E 1 E 1 E N "_WindowText" E N "_ButtonBarBackground" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  103 628 267 654
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+STD_showUser();
+} " 0
+ E
+28 264
+"Systemoverview"
+""
+1 17 33 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selchangedcb" "main()
+{
+  int iActiveSystem; // count starts at zero
+
+  if (Systemoverview.visible == FALSE)
+    iActiveSystem = getSystemId() - 1;
+  else
+    iActiveSystem = Systemoverview.activeRegister();
+
+  langString firstRegisterHeader;
+
+  getValue(\"Systemoverview\", \"registerHeader\", 0, firstRegisterHeader);
+
+  if (firstRegisterHeader == g_2x2Redundancy)
+    if (iActiveSystem)
+      iActiveSystem--; // first register is not a system but 2x2Redu overview
+
+  iActiveSystem++;
+
+  int iSystemRedundancy;
+  int pos = dynContains(gdiRegisterdSystems, iActiveSystem);
+  string header, panel;
+
+  if (this.visible == FALSE)
+    return;
+
+  if (pos > 0 || bBlock)
+    return; // nothing to do
+
+  if (!dynContains(gdiRegisterdSystems, iActiveSystem))
+  {
+    if (dynContains(gdiSystemIds, iActiveSystem) > 0) // SystemId is in actual connected Systems
+    {
+      isRemoteSystemRedundant(iSystemRedundancy, getSystemName(iActiveSystem));
+
+      if (iSystemRedundancy > 0)
+        panel = \"vision/SystemOverviewRedundant.pnl\";
+      else
+        panel = \"vision/SystemOverviewNonRedundant.pnl\";
+
+      dynAppend(gdiRegisterdSystems, iActiveSystem);
+      bBlock = FALSE;
+    }
+    else
+    {
+      panel = \"vision/SystemOverviewMissing.pnl\";
+      bBlock = TRUE;
+    }
+
+    int iRegisterOfSystem = iActiveSystem - 1;
+
+    if (firstRegisterHeader == g_2x2Redundancy)
+      iRegisterOfSystem++;
+
+    if (Systemoverview.registerCount() > iRegisterOfSystem)
+    {
+      setValue(\"Systemoverview\", \"registerPanel\", iRegisterOfSystem, panel, makeDynString(\"$System:\" + getSystemName(iActiveSystem)));
+      setValue(\"Systemoverview\", \"registerVisible\", iRegisterOfSystem, TRUE);
+    }
+    checkSystemVisibility();
+  }
+
+  if (bBlock)
+    startThread(\"resetbBlock\");
+}
+
+resetbBlock()
+{
+  delay(0,100);
+  bBlock = FALSE;
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 18 997 617
+E1 "??" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+0
+
+13 266
+"Button2"
+""
+1 0 630 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ "main()
+{
+  Systemoverview.visible	= TRUE;
+}" 0
+ E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  868 628 896 656
+
+T 
+4
+LANG:10001 7 Button2
+LANG:10004 7 Button2
+LANG:10000 7 Button2
+LANG:10027 7 Button2
+"main()
+{
+  DebugN(\"gdiRegisterdSystems=\", gdiRegisterdSystems ); 
+}" 0
+ E E "main()
+{
+  this.visible = (myDisplayName() == \"EIWRK138\");
+  
+}
+" 0
+
+1 267 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 620 T 102 2.009214743589743 0 1 0 0
+0
+0

@@ -1,0 +1,1053 @@
+V 14
+4
+LANG:10001 21 S7+ advanced settings
+LANG:10004 16 S7+ 高级设置
+LANG:10000 28 S7+ Erweiterte Einstellungen
+LANG:10027 45 Расширенные настройки S7+
+PANEL,-1 -1 650 360 N "_3DFace" 0
+"main()
+{
+  initLanguageMibList();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// s7+ driver - advanced seettings
+
+string sCFG = \".Config.\";
+
+string sConn;
+
+dyn_string dsLangs;
+dyn_int diLangIds;
+dyn_uint duiLangMibs, duiLangMibsUnique;
+dyn_string dsLangNames;
+dyn_string dsLangCodes, dsLangCodesUnique;
+
+uint uiUtf8 = 106;
+string sUtf8 = \"utf8\";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+checkTSM()
+{
+  uint uiTSM;
+  bool bUseUTC;
+
+  dyn_string dsShapesTz = makeDynString(\"txtTimezone\", \"sbTimezone\", \"txtTimezoneMin\"),
+             dsShapesTi = makeDynString(\"txtTSI\", \"sbTSI\", \"txtTSISec\");
+
+  getMultiValue(\"cbTSM\",    \"state\", 0, uiTSM,
+                \"cbUseUTC\", \"state\", 0, bUseUTC);
+
+  if ( uiTSM == 1 )
+    for ( int i = 1; i <= dynlen(dsShapesTz); i++ )
+      setMultiValue(dsShapesTz[i], \"enabled\", FALSE,
+                    dsShapesTi[i], \"enabled\", FALSE);
+  else
+    for ( int i = 1; i <= dynlen(dsShapesTz); i++ )
+      setMultiValue(dsShapesTz[i], \"enabled\", !bUseUTC,
+                    dsShapesTi[i], \"enabled\", TRUE);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkSwitchCondition()
+{
+  int iPosSwitch;
+  bool bReduConn, bReduDevice;
+
+  dyn_string dsSwitchConditions = makeDynString(getCatStr(\"s7plus\", \"s7plusSwitchCond0\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond1\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond2\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond3\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond4\"));
+
+  if ( !dynlen(cmbSwitchCond.items()) )
+    setValue(\"cmbSwitchCond\", \"items\", dsSwitchConditions);
+
+  getMultiValue(paS7PlusGetRootShapeValue(\"cbReduConn\"),   \"state\", 0,    bReduConn,
+                paS7PlusGetRootShapeValue(\"cbReduDevice\"), \"state\", 0,    bReduDevice,
+                \"cmbSwitchCond\",                           \"selectedPos\", iPosSwitch);
+
+  setValue(\"cmdSwitchTag\", \"enabled\", ((bReduConn || bReduDevice) && iPosSwitch == 5));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+int getLanguageData(dyn_string &langs, dyn_int &langids, dyn_int &langmibs, dyn_string &langnames, dyn_string &langcodes)
+{
+  int    err = 0, langid, langmib;
+  string langname, rec;
+  file   fd = fopen(WINCCOA_PATH + \"nls/lang.dir\", \"r\");
+
+  langs = makeDynString();
+  langids = makeDynInt();
+  langmibs = makeDynInt();
+
+  if ( fd == 0 )
+  {
+    err = -1;
+    return(err);
+  }
+
+  while ( !feof(fd) )
+  {
+    fgets(rec, 65535, fd);
+    strreplace(rec, \"\\n\", \"\");
+    if ( strltrim(strrtrim(rec)) == \"\" || rec[0] == \"#\")
+      continue;
+
+    sscanf(rec, \"%d%s%d\", langid, langname, langmib);
+    if ( langid == 254 || langid == 255 || langid == 65535 )
+      continue;
+
+    dynAppend(langs, langname);
+    dynAppend(langids, langid);
+    dynAppend(langmibs, langmib);
+
+    if ( dynlen(strsplit(langname, \".\")) > 1 )
+    {
+      dynAppend(langnames, strsplit(langname, \".\")[1]);
+      dynAppend(langcodes, strsplit(langname, \".\")[2]);
+    }
+  }
+
+  fclose(fd);
+
+  return(err);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+initLanguageMibList()
+{
+  getLanguageData(dsLangs, diLangIds, duiLangMibs, dsLangNames, dsLangCodes);
+
+  duiLangMibsUnique = duiLangMibs;
+  dsLangCodesUnique = dsLangCodes;
+
+  dynUnique(duiLangMibsUnique);
+  dynUnique(dsLangCodesUnique);
+
+  dynRemove(dsLangCodesUnique, dynContains(dsLangCodesUnique, sUtf8));
+  dynRemove(duiLangMibsUnique, dynContains(duiLangMibsUnique, uiUtf8));
+
+  for ( int i = 1; i <= dynlen(dsLangCodesUnique); i++ )
+    dsLangCodesUnique[i] = strtoupper(dsLangCodesUnique[i]);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+getLangsToMib(uint uiMib)
+{
+  string sLangToMib = \"\";
+  string sTemp;
+
+  dyn_uint duiLangMibsSorted = duiLangMibs;
+  dynSort(duiLangMibsSorted);
+
+  int iDynOcc = dynOcc(duiLangMibsSorted, uiMib);
+
+  if ( iDynOcc > 0 )
+  {
+    for ( int i = 1; i <= dynlen(dsLangNames); i++ )
+      if ( duiLangMibs[i] == uiMib )
+        sTemp += dsLangNames[i] + \",\";
+
+    dyn_string dsSplitTemp = strsplit(sTemp, \",\");
+
+    for ( int i = 1; i <= iDynOcc; i++ )
+    {
+      if ( i < iDynOcc )
+        sLangToMib += dsSplitTemp[i] + \", \";
+      else
+        sLangToMib += dsSplitTemp[i];
+    }
+  }
+  else
+    sLangToMib = getCatStr(\"s7plus\", \"s7plusNoLangFound\");
+
+  cmbCodepage.toolTipText = sLangToMib;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int dynOcc(dyn_anytype dynField, anytype element)
+{
+  int pos = dynContains(dynField, element);
+  int occ = (pos)?1:0;
+
+  if ( pos > 0 )
+  {
+    pos++;
+    while ( pos <= dynlen(dynField) && dynField[pos] == element )
+    {
+      occ++;
+      pos++;
+    }
+  }
+
+  return occ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+20 45
+"cbReadOpState"
+""
+1 216.2852725164282 47.99999999999989 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Activate PLC monitoring
+LANG:10004 15 激活PLC监控
+LANG:10000 27 SPS Überwachung aktivieren
+LANG:10027 52 Активировать мониторинг ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 33 261 59
+1
+T 
+4
+LANG:10001 24 Read PLC operating state
+LANG:10004 21 读取PLC运行状态
+LANG:10000 25 SPS-Betriebszustand lesen
+LANG:10027 55 Чтение рабочего состояния ПЛК
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  sConn = paS7PlusConnName(g_s7p_conn, \"cmbPlc\");
+  dpSetWait(S7PLUS_INOA + sConn + sCFG + \"ReadOpState\", state);
+}
+
+
+
+
+
+
+
+
+" 0
+30 73
+"frmAdvanced"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+247 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5446900278127204 0 1.822784810126582 4.553099721872798 -8.227848101265842 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 Advanced configuration
+LANG:10004 12 高级配置
+LANG:10000 24 Erweiterte Konfiguration
+LANG:10027 41 Расширенные настройки
+20 115
+"cbInvalidBit"
+""
+1 30 65 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Set invalid bit
+LANG:10004 15 设置无效位
+LANG:10000 18 Invalid Bit setzen
+LANG:10027 58 Установить бит недостоверности
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 63 261 89
+1
+T 
+4
+LANG:10001 15 Set invalid bit
+LANG:10004 15 设置无效位
+LANG:10000 17 Setze Invalid-Bit
+LANG:10027 58 Установить бит недостоверности
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  
+}
+" 0
+20 145
+"cbAVOC"
+""
+1 29.74086430394534 95.02314814814821 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+172 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 General query on PLC connect
+LANG:10004 28 General query on PLC connect
+LANG:10000 44 Generalabfrage bei Verbindungsaufbau der SPS
+LANG:10027 63 Общий запрос при подключении к ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 93 261 119
+1
+T 
+4
+LANG:10001 17 GQ on PLC connect
+LANG:10004 36 PLC建立连接立即总召唤数据
+LANG:10000 28 GA bei SPS-Verbindungsaufbau
+LANG:10027 52 Общий запрос при подкл. к ПЛК
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  
+}
+" 0
+14 214
+"tfPw"
+""
+1 104.5921121593292 198.25 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+423 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Enter password
+LANG:10004 14 Enter password
+LANG:10000 17 Password eingeben
+LANG:10027 27 Введите пароль
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  168 223 296 249
+3 "0S" 0 0 0 0 0 -1  E E E
+2 216
+"ptPw"
+""
+1 35.25 221.25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+425 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.007518796992481 0 1.013333333333333 -5.24812030075188 5.799999999999978 0 E 35.25 221.25 98 236
+0 2 2 "0s" 0 0 0 192 0 0  35.25 221.25 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Password:
+LANG:10004 7 密码:
+LANG:10000 9 Passwort:
+LANG:10027 13 Пароль:
+22 221
+"cmbSwitchCond"
+""
+1 -52 32.25 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+430 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Switch condition for redundancy switch over
+LANG:10004 43 Switch condition for redundancy switch over
+LANG:10000 43 Switch-Bedingung für Redundanz-Umschaltung
+LANG:10027 98 Условие переключения в резервированной конфигурации
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  468 34.5 616 60.5
+0
+
+E
+"main()
+{
+  checkSwitchCondition();
+}
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+14 222
+"tfSwitchTag"
+""
+1 597.2958579881657 -23 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+431 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 271 A redundant connection switch can be forced by the "Do Switchover" command or using the "Switch Tag" of the redundant connection configuration. A switch is enforced by changing the value (TRUE -> FALSE or FALSE -> TRUE) of the particular PLC variable given by switch tag.
+LANG:10004 242 可以通过“Do Switchover”命令或使用冗余连接配置的“Switch Tag”来强制进行冗余连接切换。 通过更改由 switch 标记给出的特定 PLC 变量的值（TRUE -> FALSE 或 FALSE -> TRUE）来强制执行切换。
+LANG:10000 239 Eine redundante Verbindungsumschaltung kann über den "Switch over" Befehl oder über die "Switch Tag" Redundanz-Einstellung gesetzt. Eine Umschaltung erfolgt wenn der Wert des Switch Tags geändert wird (TRUE -> FALSE oder FALSE -> TRUE).
+LANG:10027 338 Переключение между резервированными подключениями может быть инициировано либо командой "Переключить", либо изменением "Тэга переключения" (см. "Настройки резервирования") 1 -> 0 или 0 -> 1.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  348 103 616 129
+3 "0s" 0 0 0 0 0 -1  E E E
+30 223
+"frmReduCfg"
+""
+1 195 33 E E E 0 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+432 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.980392156862746 0 2.4 -251.1764705882353 -69.1999999999999 0 E 195 33 298 94
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 24 Redundancy configuration
+LANG:10004 12 冗余配置
+LANG:10000 23 Redundanz-Einstellungen
+LANG:10027 47 Настройки резервирования
+2 224
+"ptSwitchCond"
+""
+1 350 40 E E E 0 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+433 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 350 40 451 55
+0 2 2 "0s" 0 0 0 192 0 0  350 40 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Switch condition:
+LANG:10004 15 切换条件：
+LANG:10000 17 Switch-Bedingung:
+LANG:10027 33 Условие переключ.:
+2 225
+"ptSwitchTag"
+""
+1 350 75 E E E 0 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+434 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 350 75 417 90
+0 2 2 "0s" 0 0 0 192 0 0  350 75 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Switch tag:
+LANG:10004 12 切换Tag：
+LANG:10000 11 Switch-Tag:
+LANG:10027 32 Тег переключения:
+13 226
+"cmdSwitchTag"
+""
+1 780 -89.5 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+435 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Symbolic selection
+LANG:10004 18 Symbolic selection
+LANG:10000 19 Symbolische Auswahl
+LANG:10027 56 Выбор символической адресации
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  468 68.5 616 96.5
+
+T 
+4
+LANG:10001 6 Select
+LANG:10004 6 Select
+LANG:10000 11 Selektieren
+LANG:10027 6 Select
+"main()
+{
+  sConn = paS7PlusConnName(g_s7p_conn, \"cmbPlc\");
+
+  string sStation;
+  uint uiDrvNum;
+
+  dpGet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation,
+        S7PLUS_INOA + sConn + sCFG + \"DrvNumber\"  , uiDrvNum);
+
+  if ( sStation == \"\" )
+  {
+    ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                               getCatStr(\"para\",\"warning\"),
+                               makeDynString(getCatStr(\"s7plus\", \"tiaNoProjLoaded1\")));
+    return;
+  }
+
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if (  !dynContains(drvRunning, uiDrvNum) )
+  {
+    string sSymMsg = getCatStr(\"s7plus\", \"tiaDrvNumForSym\");
+    strreplace(sSymMsg, \"$1\", uiDrvNum);
+
+    ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                               getCatStr(\"para\",\"warning\"),
+                               makeDynString(sSymMsg));
+    return;
+  }
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+
+    return;
+  }
+
+  dyn_string ds;
+  dyn_float df;
+
+
+  ChildPanelOnCentralModalReturn(\"para/address_s7plus_symbolic.pnl\",
+                                 \"S7Plus symbolic\",
+                                 makeDynString(\"$SERVER:\"  + sConn,
+                                               \"$STATION:\" + sStation),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+  if ( dynlen(ds) > 0 )
+    setValue(\"tfSwitchTag\", \"text\", ds[1]);
+}
+
+
+
+
+" 0
+ E E E
+20 230
+"cbEnableStats"
+""
+1 459 378 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+439 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Activate statistics
+LANG:10004 12 激活统计
+LANG:10000 22 Statistiken aktivieren
+LANG:10027 75 Активировать сбор статистических данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 123 261 149
+1
+T 
+4
+LANG:10001 17 Enable statistics
+LANG:10004 18 激活统计功能
+LANG:10000 22 Statistiken aktivieren
+LANG:10027 55 Активировать сбор стат.данных
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE22 231
+"cmbLegLevel"
+""
+1 -279.5000000000001 186 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+440 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 TLS encryption not supported by hardware!
+LANG:10004 27 硬件不支持 TLS 加密!
+LANG:10000 53 TLS Verschlüsselung von Hardware nicht unterstützt!
+LANG:10027 41 TLS encryption not supported by hardware!
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  168 188.25 296 214.25
+0
+
+E
+E
+E
+ 0 0
+30 232
+"frmSecurity"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+441 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5428743943866781 0 1.253164556962025 5.051375851619593 152.4683544303798 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Security
+LANG:10004 6 安全
+LANG:10000 10 Sicherheit
+LANG:10027 24 Безопасность
+2 233
+"ptLegLevel"
+""
+1 30 195 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+442 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 67 Communication is TLS encrypted. Has to be supported by the S7+ PLC.
+LANG:10004 59 通信经过TLS加密。 需在S7+ 系列PLC一侧支持。
+LANG:10000 86 Kommunikation wird über TLS verschlüsselt. Muss von der S7+ PLC unterstützt werden.
+LANG:10027 201 Шифрование передаваемых данных с использованием TLS. Шифрование также должно поддерживаться со стороны ПЛК S7+.
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 30 195 123 210
+0 2 2 "0s" 0 0 0 192 0 0  30 195 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 TLS encryption:
+LANG:10004 11 TLS 加密:
+LANG:10000 21 TLS Verschlüsselung:
+LANG:10027 25 Шифрование TLS:
+30 234
+"frmCodepage"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+443 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.5428743943866781 0 1.253164556962025 325.0513758516196 152.4683544303798 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Character set
+LANG:10004 15 字符集设置
+LANG:10000 11 Zeichensatz
+LANG:10027 13 Character set
+22 235
+"cmbCodepage"
+""
+1 -52 225.75 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+444 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 MIB values
+LANG:10004 10 MIB values
+LANG:10000 9 MIB Werte
+LANG:10027 10 MIB values
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  468 228 616 254
+0
+
+E
+"main()
+{
+  getLangsToMib(duiLangMibsUnique[dynContains(dsLangCodesUnique, (cmbCodepage.selectedText))]);
+}
+" 0
+
+E
+ 0 0
+19 238
+"rbCodepage"
+""
+1 65.95959595959596 140 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+447 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  343 183 432 256
+3
+T 
+4
+LANG:10001 8 Disabled
+LANG:10004 6 禁用
+LANG:10000 11 Deaktiviert
+LANG:10027 8 Disabled
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 5 UTF-8
+LANG:10004 5 UTF-8
+LANG:10000 5 UTF-8
+LANG:10027 5 UTF-8
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Others
+LANG:10004 6 其他
+LANG:10000 6 Andere
+LANG:10027 12 другие
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  setValue(\"cmbCodepage\", \"enabled\", (button == 2));
+}
+" 0
+
+2 239
+"ptCodepage"
+""
+1 470 185 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+448 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.490212607602828 0 1.957094800388456 -260.6279655425256 -171.6500654748989 0 E 470 185 601 218
+0 2 2 "0s" 0 0 0 192 0 0  470 185 2
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 < server setting only >
+LANG:10004 25 < 仅服务器端设置 >
+LANG:10000 23 < server setting only >
+LANG:10027 23 < server setting only >
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

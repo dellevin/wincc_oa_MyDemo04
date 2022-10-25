@@ -1,0 +1,1020 @@
+V 14
+4
+LANG:10001 32 IEC 61850/61400 engineering tool
+LANG:10004 27 IEC 61850/61400工程工具
+LANG:10000 32 IEC 61850/61400 engineering tool
+LANG:10027 53 Средство разработки IEC 61850/61400
+PANEL,-1 -1 1240 720 N "_3DFace" 0
+"main()
+{
+  // check for SCL directory whether created in this project or not
+  int value = iec61850_check_SCL_Directory();
+
+  if ( value != 0 )
+    if ( !iec61850_create_SCL_Directory(value) )
+      iec61850_throwErrorMessage(\"iec61850_error\", PRIO_SEVERE, ERR_CONTROL, 00002);
+
+  generalTabName  = getCatStr(\"iec61850\", \"TabGeneralSettings\");
+  tagsTabName     = getCatStr(\"iec61850\", \"TabTagsName\");
+  datasetsTabName = getCatStr(\"iec61850\", \"TabDatasets\");
+  rcbTabName      = getCatStr(\"iec61850\", \"TabRCB\");
+  dataTreeTabName = getCatStr(\"iec61850\", \"TabDataTree\");
+  commandTabName  = getCatStr(\"iec61850\", \"TabCommand\");
+
+  sclPanelAdded = false;
+  dynClear(addedTabsList);
+  sclPanelAdded = iec61850_ETool_initialize_Panel(addedTabsList);
+
+  dpQueryConnectSingle(\"UpdateCtlModel\",
+                       true,
+                       \"userDataCtlModel\",
+                       \"SELECT '_online.._value' FROM '*.State.ConnState' WHERE _DPT = \\\"\" + IEC61850_DPT_NAME + \"\\\"\");
+}
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  80 130
+""0  1
+E "#uses \"iec61850_plugin.ctl\"
+#uses \"CtrlCNS\"
+
+bool DeviceBrowsed, isGenPnlUptd, isImportPnlUptd, isRCBPnlUptd, isDatSetPnlUptd, isCommandPnlUptd, deviceChanged, sclPanelAdded;
+string tabDevName, prevDeviceName, filterHotLinkDev;
+dyn_dyn_string treeElementsList, ldLnList;
+dyn_string itemsLocList, addedTabsList;
+
+string generalTabName  = getCatStr(\"iec61850\", \"TabGeneralSettings\");
+string tagsTabName     = getCatStr(\"iec61850\", \"TabTagsName\");
+string datasetsTabName = getCatStr(\"iec61850\", \"TabDatasets\");
+string rcbTabName      = getCatStr(\"iec61850\", \"TabRCB\");
+string dataTreeTabName = getCatStr(\"iec61850\", \"TabDataTree\");
+string commandTabName  = getCatStr(\"iec61850\", \"TabCommand\");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void UpdateCtlModel(string sUserData, dyn_dyn_anytype ddaResult)
+{
+  if ( dynlen(ddaResult) > 1 )
+  {
+    for ( int i = 2; i <= dynlen(ddaResult); i++ )
+    {
+      string sIed = substr(dpSubStr(ddaResult[i][1], DPSUB_DP), strlen(IEC61850_INOA));
+      uint uiConnState = ddaResult[i][2];
+
+      iec61850_getCtlModelForCommandObjects(sIed, uiConnState);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//function to update filter values onto filter update
+void UpdateFilterSettingsTab(string dpName, string sValue)
+{
+  dyn_string dsTempList, dsLocationList, dsVoltageLevList, dsTypeList, tempList;
+  string sLocation, sVoltage, sType;
+  int iPos;
+  iec61850_getFilterSettingsInfo(dsLocationList, dsVoltageLevList, dsTypeList);
+
+  //Populate Filter tab for Voltage
+  sLocation = cbFilterLocation.text;
+  dsTempList = makeDynString();
+
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextAll\"));
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextUnallocated\"));
+  dynAppend(dsTempList, dsLocationList);
+  dynUnique(dsTempList);
+
+  cbFilterLocation.items() = dsTempList;
+  iPos = dynContains(dsTempList, sLocation);
+
+  if ( iPos > 0 )
+    cbFilterLocation.selectedPos(iPos);
+  else
+    cbFilterLocation.selectedPos(1);
+
+  //Populate Filter tab for IED
+  sType = cbFilterIEDType.text;
+  dsTempList = makeDynString();
+
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextAll\"));
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextUnallocated\"));
+  dynAppend(dsTempList, dsTypeList);
+  dynUnique(dsTempList);
+
+  cbFilterIEDType.items() = dsTempList;
+  iPos = dynContains(dsTempList, sType);
+
+  if ( iPos > 0 )
+    cbFilterIEDType.selectedPos(iPos);
+  else
+    cbFilterIEDType.selectedPos(1);
+
+  //Populate Filter tab  for Voltage
+  sVoltage = cbFilterVoltage.text;
+  dsTempList = makeDynString();
+
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextAll\"));
+  dynAppend(dsTempList, getCatStr(\"iec61850\", \"FilterTextUnallocated\"));
+  dynAppend(dsTempList, dsVoltageLevList);
+  dynUnique(dsTempList);
+
+  cbFilterVoltage.items() = dsTempList;
+  iPos = dynContains(dsTempList, sVoltage);
+
+  if ( iPos > 0 )
+    cbFilterVoltage.selectedPos(iPos);
+  else
+    cbFilterVoltage.selectedPos(1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SCL Tree Tab Update
+void UpdateSCLTreeTab(string dp1, uint uiBrowseSource)
+{
+  setConfigDataInfo(uiBrowseSource);
+
+  if ( dynContains(addedTabsList, tagsTabName) < 1 )
+    return;
+
+  // IM 117521: save device name earlier
+  string sDeviceText;
+  getValue(\"txtDevice\", \"text\", sDeviceText);
+
+  if ( tabSCL.activeRegister == 1 )
+  {
+    isImportPnlUptd = true;
+    SCLTreeView.clear();
+    txtSCLTreeDevName.text = sDeviceText;
+  }
+  else
+  {
+    isImportPnlUptd = false;
+    DeviceBrowsed = true;
+  }
+
+  isDatSetPnlUptd = false;
+  isRCBPnlUptd = false;
+  isCommandPnlUptd = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Datasets Tab Update
+void UpdateDatasetsTab(string dp1, string sValue1)
+{
+  if ( dynContains(addedTabsList, datasetsTabName) < 1)
+    return;
+
+  // IM 117521: save device name earlier
+  string sDeviceText;
+  getValue(\"txtDevice\", \"text\", sDeviceText);
+
+  if ( tabSCL.activeRegister == 2 )
+  {
+    isDatSetPnlUptd = true;
+    iec61850_DatasetPnl_initializePanel();
+    txtDatasetDevName.text = \"\";
+    txtDatasetDevName.text = sDeviceText;
+  }
+  else
+  {
+    isDatSetPnlUptd = false;
+    DeviceBrowsed = true;
+  }
+
+  isImportPnlUptd  = false;
+  isRCBPnlUptd     = false;
+  isCommandPnlUptd = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// RCBs Tab Update
+void UpdateRCBTab(string dp1, string sValue1)
+{
+  if ( dynContains(addedTabsList, rcbTabName) < 1 )
+    return;
+
+  if ( tabSCL.activeRegister == 3 )
+  {
+    isRCBPnlUptd = true;
+    iec61850_RCBPnl_initialize();
+    txtRCBPnlDevName.text = \"\";
+    txtRCBPnlDevName.text = txtDevice.text;
+  }
+  else
+  {
+    isRCBPnlUptd = false;
+    DeviceBrowsed = true;
+  }
+
+  isImportPnlUptd = false;
+  isDatSetPnlUptd = false;
+  isCommandPnlUptd = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// command configuration tab update
+void UpdateCommandTab(string dp1, uint uiConnState)
+{
+  if ( dynContains(addedTabsList, commandTabName) < 1)
+    return;
+
+  string sDeviceText;
+  getValue(\"txtDevice\", \"text\", sDeviceText);
+
+  if ( tabSCL.activeRegister == 4 )
+  {
+    isCommandPnlUptd = true;
+    //iec61850_CommandPnl_initializePanel();
+    txtCommandDevName.text = \"\";
+    txtCommandDevName.text = sDeviceText;
+  }
+  else
+  {
+    isCommandPnlUptd = false;
+    DeviceBrowsed = true;
+  }
+
+  isImportPnlUptd = false;
+  isDatSetPnlUptd = false;
+  isRCBPnlUptd = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+setConfigDataInfo(uint uiBrowseSource)
+{
+  string sText;
+
+  if ( uiBrowseSource == 1 )
+    sText = getCatStr(\"iec61850\", \"ConfigDataFile\");
+  else if ( uiBrowseSource == 2 )
+    sText = getCatStr(\"iec61850\", \"ConfigDataDevice\");
+  else
+    sText = \"\";
+
+  ptSelDevData.text = sText;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(780, 545);
+  dyn_int diBcPos  = makeDynInt(415,  95); //415,  95
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(630, 300); //630, 300
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+28 69
+"tabSCL"
+""
+1 405 59.83711256717957 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selchangedcb" "main()
+{
+  string devName;
+  bool genState, importState, rcbState, datsetState, dataTreeState;
+  int selectedPos = tabSCL.activeRegister;
+  string selectedTabName, DatasetName, deviceName;
+  dyn_string datasetMembersList, configuredRCBList, configuredRCBDpNamesList;
+
+  if ( selectedPos >= 0 )
+    selectedTabName = addedTabsList[selectedPos+1];
+
+  switch ( selectedTabName )
+  {
+    case generalTabName: // populate General Tab
+      if((DeviceBrowsed && !isGenPnlUptd) || (deviceChanged && !isGenPnlUptd))
+      {
+        //txtGenDeviceName.text = \"\";
+        txtGenDeviceName.text = txtDevice.text;
+        isGenPnlUptd = true;
+      }
+    break;
+    case tagsTabName: // populate SCL tree Tab
+      if((DeviceBrowsed && !isImportPnlUptd) || (deviceChanged && !isImportPnlUptd))
+      {
+        isImportPnlUptd = true;
+        //txtSCLTreeDevName.text = \"\";
+        txtSCLTreeDevName.text = txtDevice.text;
+      }
+    break;
+    case datasetsTabName: // populate Dataset Tab
+      if((DeviceBrowsed && !isDatSetPnlUptd) || (deviceChanged && !isDatSetPnlUptd))
+      {
+        isDatSetPnlUptd = true;
+        iec61850_DatasetPnl_initializePanel();
+        txtDatasetDevName.text = \"\";
+        txtDatasetDevName.text = txtDevice.text;
+      }
+      else if ( isDatSetPnlUptd )
+      {
+        DatasetName = cbDataSetNameList.text;
+
+        if(iec61850_Dataset_getDatasetMembersList( txtDevice.text, DatasetName, datasetMembersList ))//if datasets exists
+          DATASET_TAGS_LIST.items = datasetMembersList;
+        else
+          DATASET_TAGS_LIST.deleteAllItems();
+
+        iec61850_Dataset_getConfiguredRCBsList( txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList );
+        list_RCBNames.items = configuredRCBList;
+        list_rcbDpNames.items = configuredRCBDpNamesList;
+      }
+
+      if ( cbDataSetNameList.text == \"\" )
+      {
+        DatasetName = cbDataSetNameList.text;
+
+        if(iec61850_Dataset_getDatasetMembersList( txtDevice.text, DatasetName, datasetMembersList ))//if datasets exists
+          DATASET_TAGS_LIST.items = datasetMembersList;
+        else
+          DATASET_TAGS_LIST.deleteAllItems();
+
+        iec61850_Dataset_getConfiguredRCBsList( txtDatasetDevName.text, cbDataSetNameList.text, configuredRCBList, configuredRCBDpNamesList );
+        list_RCBNames.items = configuredRCBList;
+        list_rcbDpNames.items = configuredRCBDpNamesList;
+      }
+    break;
+    case rcbTabName://populate RCB Tab
+      if ( (DeviceBrowsed && !isRCBPnlUptd) || (deviceChanged && !isRCBPnlUptd) )
+      {
+        isRCBPnlUptd = true;
+        //txtRCBPnlDevName.text = \"\";
+        txtRCBPnlDevName.text = txtDevice.text;
+      }
+    break;
+    case commandTabName: // populate command Tab
+      if ( (DeviceBrowsed && !isCommandPnlUptd) || (deviceChanged && !isCommandPnlUptd) )
+      {
+        isCommandPnlUptd = true;
+        //iec61850_CommmandPnl_initializePanel();
+        txtCommandDevName.text = \"\";
+        txtCommandDevName.text = txtDevice.text;
+      }
+    default:
+    break;
+  }
+
+  int iActReg = tabSCL.activeRegister();
+  tfActRegDs.text  = (iActReg == 2) ? 2 : -1;
+  tfActRegCmd.text = (iActReg == 4) ? 4 : -1;
+
+}
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  403 58 1211 656
+E1 "1" 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+0
+
+1 83 0 "" 0
+0
+13 13
+"btnHelp"
+""
+1 15 685 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  13 685 111 713
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"engg_tool_new\", true, \"WinCC_OA_IEC61850.chm\");
+}
+" 0
+ E E E
+13 16
+"btnClose"
+""
+1 885 684 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 11 Close panel
+LANG:10004 12 选择面板
+LANG:10000 16 Panel schließen
+LANG:10027 27 Закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1128 685 1226 713
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+28 36
+"tabDevice"
+""
+1 3 41.15570934256054 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selchangedcb" "main()
+{
+  string sFilterSettings, filterTxtUnAssigned = getCatStr(\"iec61850\",\"FilterTextUnallocated\");
+  
+  if ( tabDevice.activeRegister == 1 )
+    UpdateFilterSettingsTab(\"\", \"\");
+  
+  //Append various filter criteria
+  if ( txtFilterActive.text != \"\" )
+  {
+    if ( cbFilterLocation.text != filterTxtUnAssigned )
+      sFilterSettings = cbFilterLocation.text;
+    else
+      sFilterSettings = \"\";
+    
+    if ( cbFilterVoltage.text != filterTxtUnAssigned )
+      sFilterSettings = sFilterSettings+\"|\"+cbFilterVoltage.text;
+    else
+      sFilterSettings = sFilterSettings+\"|\"+\"\";
+    
+    if ( cbFilterIEDType.text != filterTxtUnAssigned )
+      sFilterSettings = sFilterSettings+\"|\"+cbFilterIEDType.text;
+    else
+      sFilterSettings = sFilterSettings+\"|\"+\"\";
+    
+    txtFilterSettings.text = sFilterSettings;
+    txtFilterActive.text = \"\";
+  }
+}
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 58 361 656
+E2 "Device" 4
+LANG:10001 11 Device list
+LANG:10004 12 设备列表
+LANG:10000 12 Geräteliste
+LANG:10027 31 Список устройств
+1 "para/iec61850Client_DeviceTab.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Filter settings" 4
+LANG:10001 15 Filter settings
+LANG:10004 12 过滤设置
+LANG:10000 19 Filtereinstellungen
+LANG:10027 33 Настройки фильтра
+1 "para/iec61850Client_FilterSettings.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+14 60
+"txtDevice"
+""
+1 264.9999999999999 19.5 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Currently selected device
+LANG:10004 21 目前选择的设备
+LANG:10000 25 Aktuell gewähltes Gerät
+LANG:10027 74 В настоящий момент выбранное устройство
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  int selectedPos = tabSCL.activeRegister;
+  string selectedTabName, sDeviceName;
+
+  if ( selectedPos >= 0 )
+    selectedTabName = addedTabsList[selectedPos+1];
+
+  deviceChanged = true;
+
+  if ( prevDeviceName == \"\" || prevDeviceName != newText )//Check no device is selected @ start
+  {
+    // removing previous device parameters on new device selection
+    if((prevDeviceName != \"\") && (prevDeviceName == filterHotLinkDev) && (dpExists(iec61850_getIedDpName(prevDeviceName))))
+    {
+      sDeviceName = prevDeviceName;
+      dpDisconnect(\"UpdateFilterSettingsTab\", iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_FILTER_IEDTYPE);
+      dpDisconnect(\"UpdateSCLTreeTab\",        iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_BROWSE_SOURCE );
+      dpDisconnect(\"UpdateDatasetsTab\",       iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_DATASETS      );
+      dpDisconnect(\"UpdateRCBTab\",            iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_RCB_NAMES     );
+      dpDisconnect(\"UpdateCommandTab\",        iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_DEVICE_STATE  );
+      prevDeviceName = \"\";
+    }
+
+    sDeviceName = newText;
+
+    // updating various tab on new device selection
+    if ( sDeviceName != \"\" )
+    {
+      dpConnect(\"UpdateFilterSettingsTab\", false, iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_FILTER_IEDTYPE);
+      dpConnect(\"UpdateSCLTreeTab\",        false, iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_BROWSE_SOURCE );
+      dpConnect(\"UpdateDatasetsTab\",       false, iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_DATASETS      );
+      dpConnect(\"UpdateRCBTab\",            false, iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_RCB_NAMES     );
+      dpConnect(\"UpdateCommandTab\",        false, iec61850_getIedDpName(sDeviceName) + IEC61850_DPE_IDP_DEVICE_STATE  );
+      prevDeviceName = newText;
+      filterHotLinkDev = sDeviceName;
+    }
+  }
+
+  isGenPnlUptd = true;
+  isImportPnlUptd = true;
+  isDatSetPnlUptd = true;
+  isRCBPnlUptd = true;
+  isCommandPnlUptd = true;
+  deviceChanged = true;
+
+  if ( newText == \"\" )
+  {
+    for ( int i = 1; i <= dynlen(addedTabsList); i++ )
+    {
+      switch(addedTabsList[i])
+      {
+        case generalTabName:
+          txtGenDeviceName.text = newText;
+          break;
+        case tagsTabName:
+          txtSCLTreeDevName.text = newText;
+          break;
+        case datasetsTabName:
+          txtDatasetDevName.text = newText;
+          break;
+        case rcbTabName:
+          txtRCBPnlDevName.text = newText;
+          break;
+        case commandTabName:
+          txtCommandDevName.text = newText;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  else
+  {
+    isGenPnlUptd = false;
+    isImportPnlUptd = false;
+    isDatSetPnlUptd = false;
+    isRCBPnlUptd = false;
+    isCommandPnlUptd = false;
+    deviceChanged = true;
+
+    switch(selectedTabName)
+    {
+      // General settings tab
+      case generalTabName:
+        isGenPnlUptd = true;
+        txtGenDeviceName.text = newText;
+      break;
+      // SCL tab
+      case tagsTabName:
+        isImportPnlUptd = true;
+        txtSCLTreeDevName.text = newText;
+      break;
+      // Datasets tab
+      case datasetsTabName:
+        isDatSetPnlUptd = true;
+        txtDatasetDevName.text = newText;
+      break;
+      // Report control blocks tab
+      case rcbTabName:
+        isRCBPnlUptd = true;
+        txtRCBPnlDevName.text = newText;
+      break;
+      case commandTabName:
+        isCommandPnlUptd = true;
+        txtCommandDevName.text = newText;
+      break;
+      default:
+      break;
+    }
+  }
+
+  setMultiValue(\"ptSelDevName\", \"visible\", newText != \"\",
+                \"ptSelDevData\", \"visible\", newText != \"\");
+
+  if ( newText != \"\" )
+  {
+    uint uiBrowseSource;
+    dpGet(iec61850_getIedDpName(newText) + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource);
+    setConfigDataInfo(uiBrowseSource);
+  }
+
+  string sMsgSelDev = getCatStr(\"iec61850\", \"EngSelDevice\") + newText;
+  //strreplace(sMsgSelDev, \"$1\", newText);
+
+  setValue(\"ptSelDevName\", \"text\", sMsgSelDev);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  262.9999999999999 18 290.9999999999999 46
+2 "0s" 0 0 0 0 0 -1  E E E
+30 61
+"frmDevMngnt"
+""
+1 448 720 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+42 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 7.295956928078017 0 10.62903225806454 -2878.588703778952 -7647.903225806467 0 E 448 720 564 783
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Device settings
+LANG:10004 12 设备设置
+LANG:10000 21 Geräte-Einstellungen
+LANG:10027 37 Настройки устройств
+30 62
+"frmDevSel"
+""
+1 248 723 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+43 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.233294197410415 0 12.20370370370371 -543.8569609577829 -8818.277777777783 0 E 248 723 412 778
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Device selection
+LANG:10004 12 设备选择
+LANG:10000 14 Gerät wählen
+LANG:10027 29 Выбор устройств
+14 72
+"txtProgress"
+""
+1 289.9999999999999 24 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  bool bProgress = ( newText == \"1\" );
+
+  setMultiValue(\"ProcessBar\",   \"visible\", bProgress,
+                \"tabDevice\",    \"enabled\", !bProgress,
+                \"tabSCL\",       \"enabled\", !bProgress,
+                \"ptCfgDevNum\",  \"enabled\", !bProgress,
+                \"ptSelDevName\", \"enabled\", !bProgress);
+
+  //showWaitModule(bProgress);
+
+//   if ( newText == \"1\" )
+//   {
+//     ProcessBar.visible = true;
+//     tabDevice.enabled = false;
+//     tabSCL.enabled = false;
+//     ptCfgDevNum.enabled = false;
+//     ptSelDevName.enabled = false;
+//   }
+//   else
+//   {
+//     ProcessBar.visible = false;
+//     tabDevice.enabled = true;
+//     tabSCL.enabled = true;
+//     ptCfgDevNum.enabled = true;
+//     ptSelDevName.enabled = true;
+//   }
+}
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  287.9999999999999 18 315.9999999999999 46
+2 "0s" 0 0 0 0 0 -1  E E E
+6 66
+"ProcessBar"
+""
+1 306 77 E E E 1 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.4155844155844155 0 0.653061224489796 192.8311688311689 -25.28571428571433 2  0 0  "pictures/Animation/control_loop_black_ani.gif" 4294967295 E 306 77 383 126
+2 76
+"ptCfgDevNum"
+""
+1 25 29.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 29.5 212 45
+0 2 2 "0s" 0 0 0 192 0 0  25 29.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 30 <Number of configured devices>
+LANG:10004 23 <配置的设备数量>
+LANG:10000 35 <Anzahl der konfigurierten Geräte>
+LANG:10027 55 <Кол-во настроенных устройств>
+2 79
+"ptSelDevName"
+""
+1 274.9999999999999 30 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 405 30 564 45
+0 2 2 "0s" 0 0 0 192 0 0  405 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 25 <Name of selected device>
+LANG:10004 23 <选择的设备名称>
+LANG:10000 31 <Name des selektierten Geräts>
+LANG:10027 50 <Имя выбранного устройства>
+2 82
+"ptSelDevData"
+""
+1 1077 30 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 1049 30 1207 45
+0 2 2 "0s" 0 0 0 194 0 0  1207 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 28 <Data source: device / file>
+LANG:10004 28 <数据源: 设备 / 文件>
+LANG:10000 29 <Datenquelle: Gerät / Datei>
+LANG:10027 28 <Data source: device / file>
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 505 T 11 2.482965931863727 0 1 0 170
+0
+0

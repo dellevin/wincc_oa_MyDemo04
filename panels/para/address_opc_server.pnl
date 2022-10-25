@@ -1,0 +1,1927 @@
+V 14
+4
+LANG:10001 20 Periphery OPC Server
+LANG:10004 18 外围OPC服务器
+LANG:10000 21 Peripherie OPC Server
+LANG:10027 29 Периферия OPC Server
+PANEL,-1 -1 660 670 N "_3DFace" 1
+"$1"
+"main()
+{
+  int        i,j=0;
+  bool       root=( rootPanel()==myPanelName() &&
+                    strpos(myModuleName(),\"paraPanel\")<0 );
+  string     server ,old;
+  dyn_string servers, ds = dpNames(\"*\", \"_OPCServer\");
+
+  buDelete.visible = _WIN32; // IM 105251 Buttons nur unter Windows sichtbar
+  create.visible = _WIN32;
+
+  tabStateDetails.registerPanel(0, \"para/address_opc_server_statedetails.pnl\", makeDynString(\"$host:\" + 1));
+  tabStateDetails.registerPanel(1, \"para/address_opc_server_statedetails.pnl\", makeDynString(\"$host:\" + 2));
+  tabStateDetails.namedRegisterEnabled(\"#2\", isRedundant());
+  sgStateH2.enabled = isRedundant();
+
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if ((!isReduDp(ds[i])) && (strpos(ds[i],\"_\")==0))
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  if ( root )
+  {
+    setMultiValue(\"servername\", \"enabled\", true,
+                  \"servername\", \"backCol\", \"_Window\",
+                  \"buDelete\",   \"visible\", true,
+                  \"modify\",     \"visible\", true);
+
+    setValue(\"servername\", \"text\",  (dynlen(servers)>0)?servers[1]:\"\",
+                           \"items\", servers);
+
+    getValue(\"servername\", \"text\", server);
+    server = strltrim(strrtrim(server));
+
+    while ( true )
+    {
+      ds=dpNames(\"*\",\"_OPCServer\"); j=0; servers=makeDynString();
+      for (i=1;i<=dynlen(ds);i++)
+      {
+        ds[i]=dpSubStr(ds[i],DPSUB_DP);
+        if ((!isReduDp(ds[i])) && (strpos(ds[i],\"_\")==0))
+        {
+          j++;
+          servers[j]=strltrim(ds[i],\"_\");
+        }
+      }
+      getMultiValue(\"servername\",\"text\",server,
+                    \"oldname\",\"text\",old);
+      if ( (server!=\"\" && !dynContains(servers,server)) || server==old )
+      {
+        delay(0,500);
+        continue;
+      }
+      setValue(\"servername\",\"text\",server,
+                            \"items\",servers);
+      if (server!=old)
+        connectDisconnectOPC(server,old);
+
+      delay(0,500);
+    }
+  }
+  else
+  {
+    server=$1;
+    setMultiValue(\"servername\",\"enabled\",false,
+                  \"servername\",\"backCol\",\"_3DFace\",
+                  \"servername\",\"text\",server,
+                  \"ga\",\"position\",150,350,
+                  \"ok\",\"position\",400,420,
+                  \"modify\",\"visible\",false,
+                  \"buDelete\",\"visible\",false);
+    while (true)
+    {
+      getMultiValue(\"servername\",\"text\",server,
+                    \"oldname\",\"text\",old);
+      if (server==old)
+      {
+        delay(0,500);
+        continue;
+      }
+      setValue(\"servername\",\"text\",server,
+                            \"items\",servers);
+      if (server!=old)
+        connectDisconnectOPC(server,old);
+      delay(0,500);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+connectDisconnectOPC(string server, string old)
+{
+  int      statetimer,reconnecttimer;
+  unsigned qualinfo,qualinfodetail,quality,userbit;
+  bool     invalidmapping;
+  dyn_uint du;
+
+  setValue(\"oldname\", \"text\", server);
+
+  if ( old != \"\" )
+  {
+    paErrorHandlingOpc(\"disconnect\",
+                       dpDisconnect(\"connectOpcCB\", \"_\"+old+\".StartTime:_online.._value\",
+                                                    \"_\"+old+\".CurrentTimeBias:_online.._value\",
+                                                    \"_\"+old+\".ServerState:_online.._value\",
+                                                    \"_\"+old+\".ServerStateTxt:_online.._value\",
+                                                    \"_\"+old+\".VendorInfo:_online.._value\",
+                                                    \"_\"+old+\".MajorVersion:_online.._value\",
+                                                    \"_\"+old+\".MinorVersion:_online.._value\",
+                                                    \"_\"+old+\".BuildNumber:_online.._value\",
+                                                    \"_\"+old+\".BandWidth:_online.._value\",
+                                                    \"_\"+old+\".GroupCount:_online.._value\",
+                                                    \"_\"+old+\".LastUpdateTime:_online.._value\",
+                                                    \"_\"+old+\".Connected:_online.._value\") );
+
+
+    if ( isRedundant() )
+      paErrorHandlingOpc(\"disconnect\",
+                         dpDisconnect(\"connectOpcCBRedu\", \"_\"+old+\"_2.StartTime:_online.._value\",
+                                                          \"_\"+old+\"_2.CurrentTimeBias:_online.._value\",
+                                                          \"_\"+old+\"_2.ServerState:_online.._value\",
+                                                          \"_\"+old+\"_2.ServerStateTxt:_online.._value\",
+                                                          \"_\"+old+\"_2.VendorInfo:_online.._value\",
+                                                          \"_\"+old+\"_2.MajorVersion:_online.._value\",
+                                                          \"_\"+old+\"_2.MinorVersion:_online.._value\",
+                                                          \"_\"+old+\"_2.BuildNumber:_online.._value\",
+                                                          \"_\"+old+\"_2.BandWidth:_online.._value\",
+                                                          \"_\"+old+\"_2.GroupCount:_online.._value\",
+                                                          \"_\"+old+\"_2.LastUpdateTime:_online.._value\",
+                                                          \"_\"+old+\"_2.Connected:_online.._value\") );
+
+    delay(0,200);
+  }
+
+  if ( server == \"\" )
+    return;
+
+  dpGet(\"_\"+server+\".StateTimer:_online.._value\",                    statetimer,
+        \"_\"+server+\".ReconnectTimer:_online.._value\",                reconnecttimer,
+        \"_\"+server+\".QualInfoFilter.QualInfo:_online.._value\",       qualinfo,
+        \"_\"+server+\".QualInfoFilter.QualInfoDetail:_online.._value\", qualinfodetail,
+        \"_\"+server+\".InvalidMapping:_online.._value\",                invalidmapping);
+
+  if (qualinfodetail>7 && qualinfodetail<11)
+  {
+    quality=1;
+    du=makeDynUInt(1,2,3);
+    userbit=qualinfodetail-7;
+  }
+  else
+  if (qualinfodetail>15 && qualinfodetail<23)
+  {
+    quality=3;
+    du=makeDynUInt(1,2,3,4,5,6,7);
+    userbit=qualinfodetail-15;
+  }
+  else
+  if (qualinfodetail>31 && qualinfodetail<37)
+  {
+    quality=2;
+    du=makeDynUInt(1,2,3,4,5);
+    userbit=qualinfodetail-31;
+  }
+  else
+  {
+    quality=0;
+    du=makeDynUInt(1,2,3);
+    userbit=1;
+  }
+
+  setMultiValue(\"statetimer\",     \"text\",     statetimer,
+                \"reconnecttimer\", \"text\",     reconnecttimer,
+                \"bits\",           \"number\",   qualinfo,
+                \"quality\",        \"enabled\",  (qualinfo==1),
+                \"quality\",        \"number\",   quality,
+                \"userbits\",       \"enabled\",  (quality>0 && qualinfodetail>0),
+                \"userbits_txt\",   \"enabled\",  (quality>0 && qualinfodetail>0),
+                \"userbits\",       \"text\",     userbit,
+                \"userbits\",       \"items\",    du,
+                \"invalidmapping\", \"state\", 0, invalidmapping);
+
+  paErrorHandlingOpc(\"connect\",
+                     dpConnect(\"connectOpcCB\", \"_\"+server+\".StartTime:_online.._value\",
+                                               \"_\"+server+\".CurrentTimeBias:_online.._value\",
+                                               \"_\"+server+\".ServerState:_online.._value\",
+                                               \"_\"+server+\".ServerStateTxt:_online.._value\",
+                                               \"_\"+server+\".VendorInfo:_online.._value\",
+                                               \"_\"+server+\".MajorVersion:_online.._value\",
+                                               \"_\"+server+\".MinorVersion:_online.._value\",
+                                               \"_\"+server+\".BuildNumber:_online.._value\",
+                                               \"_\"+server+\".BandWidth:_online.._value\",
+                                               \"_\"+server+\".GroupCount:_online.._value\",
+                                               \"_\"+server+\".LastUpdateTime:_online.._value\",
+                                               \"_\"+server+\".Connected:_online.._value\") );
+
+  if ( isRedundant() )
+    paErrorHandlingOpc(\"connect\",
+                       dpConnect(\"connectOpcCBRedu\", \"_\"+server+\"_2.StartTime:_online.._value\",
+                                                     \"_\"+server+\"_2.CurrentTimeBias:_online.._value\",
+                                                     \"_\"+server+\"_2.ServerState:_online.._value\",
+                                                     \"_\"+server+\"_2.ServerStateTxt:_online.._value\",
+                                                     \"_\"+server+\"_2.VendorInfo:_online.._value\",
+                                                     \"_\"+server+\"_2.MajorVersion:_online.._value\",
+                                                     \"_\"+server+\"_2.MinorVersion:_online.._value\",
+                                                     \"_\"+server+\"_2.BuildNumber:_online.._value\",
+                                                     \"_\"+server+\"_2.BandWidth:_online.._value\",
+                                                     \"_\"+server+\"_2.GroupCount:_online.._value\",
+                                                     \"_\"+server+\"_2.LastUpdateTime:_online.._value\",
+                                                     \"_\"+server+\"_2.Connected:_online.._value\") );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+connectOpcCB(string dp3,  time     starttime,
+             string dp4,  unsigned currenttimebias,
+             string dp5,  unsigned serverstate,
+             string dp6,  string   serverstatetxt,
+             string dp7,  string   vendorinfo,
+             string dp8,  unsigned majorversion,
+             string dp9,  unsigned minorversion,
+             string dp10, unsigned buildnumber,
+             string dp11, unsigned bandwidth,
+             string dp12, unsigned groupcount,
+             string dp13, time     lastupdatetime,
+             string dp16, bool     connected)
+{
+  setMultiValue(\"starttime\",       \"text\", starttime,
+                \"currenttimebias\", \"text\", currenttimebias,
+                \"serverstate\",     \"text\", serverstate,
+                \"serverstatetxt\",  \"text\", serverstatetxt,
+                \"vendorinfo\",      \"text\", vendorinfo,
+                \"majorversion\",    \"text\", majorversion,
+                \"minorversion\",    \"text\", minorversion,
+                \"buildnumber\",     \"text\", buildnumber,
+                \"bandwidth\",       \"text\", bandwidth,
+                \"groupcount\",      \"text\", groupcount,
+                \"lastupdate\",      \"text\", lastupdatetime,
+                \"connected\",       \"text\", getCatStr(\"OpcServer\", \"opcConnState\" + (int)connected));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+connectOpcCBRedu(string dp3,  time     starttime,
+                 string dp4,  unsigned currenttimebias,
+                 string dp5,  unsigned serverstate,
+                 string dp6,  string   serverstatetxt,
+                 string dp7,  string   vendorinfo,
+                 string dp8,  unsigned majorversion,
+                 string dp9,  unsigned minorversion,
+                 string dp10, unsigned buildnumber,
+                 string dp11, unsigned bandwidth,
+                 string dp12, unsigned groupcount,
+                 string dp13, time     lastupdatetime,
+                 string dp16, bool     connected)
+{
+  setMultiValue(\"starttimeRedu\",       \"text\", starttime,
+                \"currenttimebiasRedu\", \"text\", currenttimebias,
+                \"serverstateRedu\",     \"text\", serverstate,
+                \"serverstatetxtRedu\",  \"text\", serverstatetxt,
+                \"vendorinfoRedu\",      \"text\", vendorinfo,
+                \"majorversionRedu\",    \"text\", majorversion,
+                \"minorversionRedu\",    \"text\", minorversion,
+                \"buildnumberRedu\",     \"text\", buildnumber,
+                \"bandwidthRedu\",       \"text\", bandwidth,
+                \"groupcountRedu\",      \"text\", groupcount,
+                \"lastupdateRedu\",      \"text\", lastupdatetime,
+                \"connectedRedu\",       \"text\", getCatStr(\"OpcServer\", \"opcConnState\" + (int)connected));
+}
+
+" 0
+ E E E E 1 -1 -1 0  160 60
+""0  1
+E E 3
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 70
+"Text16"
+""
+1 10 67 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+67 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.617721518987342 0 1.229166666666667 -6.17721518987319 -7.35416666666667 0 E 10 67 406 116
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Timer settings
+LANG:10004 15 定时器设置
+LANG:10000 19 Timer-Einstellungen
+LANG:10027 33 Настройки таймера
+2 18
+"ptStateSt"
+""
+1 20.27974598930467 344.5000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20.27974598930467 344.5000000000001 121 360
+0 0 0 "0s" 0 0 0 192 0 0  20.27974598930467 344.5000000000001 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Server state text:
+LANG:10004 22 服务器状态文本:
+LANG:10000 17 Serverstatustext:
+LANG:10027 30 Текст состояния:
+2 20
+"ptStateSs"
+""
+1 20.13987299465234 375 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20.13987299465234 375 95 390
+0 0 0 "0s" 0 0 0 192 0 0  20.13987299465234 375 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Server state:
+LANG:10004 16 服务器状态:
+LANG:10000 13 Serverstatus:
+LANG:10027 34 Состояние сервера:
+2 40
+"Text17"
+""
+1 350 99.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 350 99.5 466 115
+0 0 0 "0s" 0 0 0 192 0 0  350 99.5 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 19 Reconnect timer [s]
+LANG:10004 24 重新连接定时器[s]
+LANG:10000 19 Reconnect Timer [s]
+LANG:10027 36 Таймер восст. соед-я
+2 42
+"userbits_txt"
+""
+1 494.6830923468324 174.6666666666667 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 494.6830923468324 174.6666666666667 575 190
+0 0 0 "0s" 0 0 0 192 0 0  494.6830923468324 174.6666666666667 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Start user bit:
+LANG:10004 16 启动用户bit:
+LANG:10000 17 Start-Benutzerbit
+LANG:10027 37 Стартовый бит польз.
+22 44
+"servername"
+""
+1 55.43085230137941 21 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 28 447 54
+0
+
+E
+E
+E
+ 0 0
+14 7
+"statetimer"
+""
+1 172.2678977495491 63 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  172.7721712538226 93 275.7721712538226 119
+3 "23d" 23 0 0 0 0 -1  E E E
+14 9
+"reconnecttimer"
+""
+1 478.3160374695818 63 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  477.7262938798382 93 580.7262938798383 119
+3 "23d" 23 0 0 0 0 -1  E E E
+20 31
+"invalidmapping"
+""
+1 -22.25 33.99999999999997 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  17.75 163 190.75 191
+1
+T 
+4
+LANG:10001 13 Uncertain/bad
+LANG:10004 16 不确定/异常
+LANG:10000 13 Uncertain/bad
+LANG:10027 41 Неопределенный/плохой
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE19 32
+"bits"
+""
+1 423 163 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 193 201 271
+3
+T 
+4
+LANG:10001 4 None
+LANG:10004 3 无
+LANG:10000 4 None
+LANG:10027 6 Нет
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Standard bits
+LANG:10004 9 标准位
+LANG:10000 13 Standard bits
+LANG:10027 31 Стандартные биты
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Server-specific bits
+LANG:10004 24 特定于服务器的位
+LANG:10000 20 Server specific bits
+LANG:10027 37 Спец. серверные биты
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  unsigned bits,quality;
+  dyn_string du=makeDynString(1,2,3);
+
+  getMultiValue(\"bits\",\"number\",bits,
+                \"quality\",\"number\",quality);
+
+  if (bits==1 && quality==2)
+  {
+    du=makeDynString(1,2,3,4,5);
+  }
+  else
+  if (bits==1 && quality==3)
+  {
+    du=makeDynString(1,2,3,4,5,6,7);
+  }
+
+  setValue(\"userbits\", \"items\", du);
+  setMultiValue(\"quality\",      \"enabled\", (bits==1),
+                \"userbits\",     \"enabled\", (bits==1 && quality>0),
+                \"userbits_txt\", \"enabled\", (bits==1 && quality>0),
+                \"userbits\",     \"text\",    1);
+}
+" 0
+
+19 33
+"quality"
+""
+1 433.7797459893047 225.0000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  237.7797459893047 163.0000000000001 450.7797459893047 266.0000000000001
+4
+T 
+4
+LANG:10001 29 Quality, substatus and limits
+LANG:10004 13 质量,质量
+LANG:10000 29 Quality, substatus and limits
+LANG:10027 53 Качество, подкатегория, пред.
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 18 Quality, substatus
+LANG:10004 13 质量,质量
+LANG:10000 18 Quality, substatus
+LANG:10027 42 Качество, подкатегория
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 9 Substatus
+LANG:10004 9 子状态
+LANG:10000 9 Substatus
+LANG:10027 24 Подкатегория
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Limits
+LANG:10004 6 范围
+LANG:10000 6 Limits
+LANG:10027 14 Пределы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  unsigned bits, quality;
+  dyn_string du = makeDynString(1,2,3);
+
+  getMultiValue(\"bits\",    \"number\", bits,
+                \"quality\", \"number\", quality);
+
+  if (bits==1 && quality==2)
+  {
+    du = makeDynString(1,2,3,4,5);
+  }
+  else
+  if (bits==1 && quality==3)
+  {
+    du = makeDynString(1,2,3,4,5,6,7);
+  }
+
+  setValue(\"userbits\", \"items\", du);
+  setMultiValue(\"quality\",      \"enabled\", (bits==1),
+                \"userbits\",     \"enabled\", (bits==1 && quality>0),
+                \"userbits_txt\", \"enabled\", (bits==1 && quality>0),
+                \"userbits\",     \"text\",    1);
+}
+" 0
+
+22 41
+"userbits"
+""
+1 491.9469907088152 197.5000000000001 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  493 198 581 224
+0
+
+E
+E
+E
+ 0 0
+13 43
+"Button2"
+""
+1 198.9999999999999 608 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  203 633 291 661
+
+T 
+4
+LANG:10001 5 Items
+LANG:10004 6 条目
+LANG:10000 5 Items
+LANG:10027 16 Элементы
+"main()
+{
+  int        i,j=0;
+  string     server;
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCServer\");
+
+  for ( i = 1; i <= dynlen(ds); i++ )
+  {
+    ds[i] = dpSubStr(ds[i], DPSUB_DP);
+    if ( (!isReduDp(ds[i])) && (strpos(ds[i],\"_\") == 0) )
+    {
+      j++;
+      servers[j] = strltrim(ds[i], \"_\");
+    }
+  }
+
+  getValue(\"servername\", \"text\", server);
+  if (dynContains(servers, server))
+    ChildPanelOnCentralModal(\"para/address_opc_server_items_new.pnl\",
+                             \"OPC Server Items\", makeDynString(server, \"false\"));
+}
+" 0
+ E E E
+13 36
+"buDelete"
+""
+1 448.9999999999999 3 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  453 28 541 56
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        i,j=0,ok;
+  string     server, sText;
+  dyn_float  df;
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCServer\"),
+             sPara;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  for ( i = 1; i <= dynlen(ds); i++ )
+  {
+    ds[i] = dpSubStr(ds[i], DPSUB_DP);
+    if ( (!isReduDp(ds[i])) && (strpos(ds[i],\"_\") == 0) )
+    {
+      j++;
+      servers[j] = strltrim(ds[i], \"_\");
+    }
+  }
+
+  getValue(\"servername\", \"text\", server);
+
+  if ( server == \"\" || !dynContains(servers, server) )
+  {
+    sPara = makeDynString(paGetCatStr(\"para\", \"dpnotexists\"));
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             paGetCatStr(\"para\",\"warning\"),
+                             sPara);
+    return;
+  }
+
+  sPara = makeDynString(paGetCatStr(\"para\", \"areyousure\"),
+                        paGetCatStr(\"para\", \"yes\"),
+                        paGetCatStr(\"para\", \"no\"));
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 paGetCatStr(\"para\", \"deletedp\"),
+                                 sPara,
+                                 df, ds);
+
+  if ( df[1] == 0 )
+    return;
+
+  setValue(\"servername\", \"text\", \"\");
+  delay(0,500);
+
+  if ( dpExists(\"_\"+server+\"_2\") )
+  {
+    dpSetWait(\"_\"+server+\"_2\"+\".DeleteServer:_original.._value\",1);
+    dpDelete(\"_\"+server+\"_2\");
+  }
+
+  dpSetWait(\"_\"+server+\".DeleteServer:_original.._value\",1);
+  dpDelete(\"_\"+server);
+
+  delay(0, 500);
+
+  ds = dpNames(\"*\",\"_OPCServer\");
+  j=0;
+  servers=makeDynString();
+
+  for ( i = 1; i <= dynlen(ds); i++ )
+  {
+    ds[i] = dpSubStr(ds[i], DPSUB_DP);
+
+    if ( (!isReduDp(ds[i])) && (strpos(ds[i],\"_\") == 0) )
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+
+  setMultiValue(\"servername\", \"items\", servers,
+                \"oldname\",    \"text\",  \"\",
+                \"vendorinfo\", \"text\",  \"\");
+
+  sText = getCatStr(\"para\", \"removeopcserver\");
+  strreplace(sText, \"%server\", server);
+
+  ChildPanelOnCentralModal(\"para/mp_messageInfo.pnl\",
+                           getCatStr(\"para\", \"information\"),
+                           makeDynString(sText));
+}
+
+" 0
+ E E E
+13 4
+"ga"
+""
+1 288.9999999999999 608 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  293 633 381 661
+
+T 
+4
+LANG:10001 2 GQ
+LANG:10004 15 总召唤数值
+LANG:10000 2 GA
+LANG:10027 16 Общ.Запр.
+"main()
+{
+  int        i;
+  string     server;
+  dyn_string servers = dpNames(\"*\",\"_OPCServer\");
+
+  for (i=1;i<=dynlen(servers);i++)
+    servers[i]=dpSubStr(servers[i],DPSUB_DP);
+
+  getValue(\"servername\", \"text\", server);
+  server = \"_\"+server;
+
+  if ( dynContains(servers, server) )
+  {
+    paErrorHandlingOpc(\"set\",
+                       dpSetWait(server+\".ServerGA:_original.._value\",1) );
+  }
+}
+" 0
+ E E E
+13 3
+"ok"
+""
+1 378.9999999999999 608 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  383 633 471 661
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  int        i,j=0,von,bis;
+  bool       invalidmapping;
+  unsigned   statetimer,reconnecttimer,qualinfo,qualinfodetail,quality,userbit;
+  string     server,s,serverstatetxt,vendorinfo;
+  dyn_float  df=makeDynFloat(1);
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCServer\"),
+             dss;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if ((!isReduDp(ds[i])) && (strpos(ds[i],\"_\")==0))
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  getMultiValue(\"servername\",     \"text\",     server,
+                \"statetimer\",     \"text\",     statetimer,
+                \"reconnecttimer\", \"text\",     reconnecttimer,
+                \"bits\",           \"number\",   qualinfo,
+                \"quality\",        \"number\",   quality,
+                \"userbits\",       \"text\",     userbit,
+                \"invalidmapping\", \"state\", 0, invalidmapping);
+
+  if (strltrim(strrtrim(server))==\"\")
+  {
+    PanelOff();
+    return;
+  }
+
+  if (statetimer<0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             paGetCatStr(\"para\",\"warning\"),
+                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nStateTimer\"));
+      return;
+  }
+  if (reconnecttimer<0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             paGetCatStr(\"para\",\"warning\"),
+                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nReconnectTimer\"));
+      return;
+  }
+
+  if (qualinfo==1)
+  {
+    if (quality==1)
+    {
+      von=1;bis=3;
+    }
+    if (quality==2)
+    {
+      von=1;bis=5;
+    }
+    if (quality==3)
+    {
+      von=1;bis=7;
+    }
+    if ( (quality==1 && (userbit<1 || userbit>3)) ||
+         (quality==2 && (userbit<1 || userbit>5)) ||
+         (quality==3 && (userbit<1 || userbit>7)) )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               paGetCatStr(\"para\",\"warning\"),
+                               makeDynString(paGetCatStr(\"para\",\"wronguserbit\")+\" \"+von+\"-\"+bis));
+      return;
+    }
+    if (quality==1)
+      quality=userbit+7;
+    if (quality==3)
+      quality=userbit+15;
+    if (quality==2)
+      quality=userbit+31;
+  }
+  if (!dynContains(servers,server))
+  {
+    dynAppend(servers,server);
+    paErrorHandlingOpc(\"create\", dpCreate(\"_\"+server,\"_OPCServer\") );
+  }
+
+  paErrorHandlingOpc(\"set\",
+                     dpSetWait(\"_\"+server+\".StateTimer:_original.._value\",statetimer,
+                               \"_\"+server+\".ReconnectTimer:_original.._value\",reconnecttimer,
+                               \"_\"+server+\".QualInfoFilter.QualInfo:_original.._value\",qualinfo,
+                               \"_\"+server+\".QualInfoFilter.QualInfoDetail:_original.._value\",quality,
+                               \"_\"+server+\".InvalidMapping:_original.._value\",invalidmapping) );
+
+  PanelOff();
+}
+" 0
+ E E E
+13 2
+"cancel"
+""
+1 558.9999999999999 608 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  563 633 651 661
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 6
+"modify"
+""
+1 468.9999999999999 608 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  473 633 561 661
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  int        i,j=0,von,bis;
+  bool       invalidmapping;
+  unsigned   statetimer,reconnecttimer,qualinfo,qualinfodetail,quality,userbit;
+  string     server,s,serverstatetxt,vendorinfo;
+  dyn_float  df=makeDynFloat(1);
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCServer\"),
+             dss;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if ((!isReduDp(ds[i])) && (strpos(ds[i],\"_\")==0))
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  getMultiValue(\"servername\",     \"text\",     server,
+                \"statetimer\",     \"text\",     statetimer,
+                \"reconnecttimer\", \"text\",     reconnecttimer,
+                \"bits\",           \"number\",   qualinfo,
+                \"quality\",        \"number\",   quality,
+                \"userbits\",       \"text\",     userbit,
+                \"invalidmapping\", \"state\", 0, invalidmapping);
+
+  if (strltrim(strrtrim(server))==\"\")
+    return;
+
+  if (statetimer<0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             paGetCatStr(\"para\",\"warning\"),
+                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nStateTimer\"));
+      return;
+  }
+  if (reconnecttimer<0)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             paGetCatStr(\"para\",\"warning\"),
+                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nReconnectTimer\"));
+      return;
+  }
+
+  if (qualinfo==1)
+  {
+    if (quality==1)
+    {
+      von=1;bis=3;
+    }
+    if (quality==2)
+    {
+      von=1;bis=5;
+    }
+    if (quality==3)
+    {
+      von=1;bis=7;
+    }
+    if ( (quality==1 && (userbit<1 || userbit>3)) ||
+         (quality==2 && (userbit<1 || userbit>5)) ||
+         (quality==3 && (userbit<1 || userbit>7)) )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               paGetCatStr(\"para\",\"warning\"),
+                               makeDynString(paGetCatStr(\"para\",\"wronguserbit\")+\" \"+von+\"-\"+bis));
+      return;
+    }
+    if (quality==1)
+      quality=userbit+7;
+    if (quality==3)
+      quality=userbit+15;
+    if (quality==2)
+      quality=userbit+31;
+  }
+
+  if (!dynContains(servers,server))
+  {
+    dynAppend(servers,server);
+    paErrorHandlingOpc(\"create\", dpCreate(\"_\"+server,\"_OPCServer\") );
+  }
+
+  paErrorHandlingOpc(\"set\",
+                     dpSetWait(\"_\"+server+\".StateTimer:_original.._value\",statetimer,
+                               \"_\"+server+\".ReconnectTimer:_original.._value\",reconnecttimer,
+                               \"_\"+server+\".QualInfoFilter.QualInfo:_original.._value\",qualinfo,
+                               \"_\"+server+\".QualInfoFilter.QualInfoDetail:_original.._value\",quality,
+                               \"_\"+server+\".InvalidMapping:_original.._value\",invalidmapping) );
+}
+" 0
+ E E E
+14 5
+"oldname"
+""
+1 568 3 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  173 633 201 661
+2 "0s" 0 0 0 0 0 -1  E E E
+14 17
+"serverstatetxt"
+""
+1 16.19432764067389 301.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  123 338 316 364
+2 "0s" 0 0 0 0 0 -1  E E E
+14 19
+"serverstate"
+""
+1 -31 361.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  123 368 316 394
+2 "0s" 0 0 0 0 0 -1  E E E
+13 55
+"help"
+""
+1 950.9999999999999 1454 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+56 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 633 96 661
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"address_opc_server\" );
+}" 0
+ E E E
+13 52
+"create"
+""
+1 575 21 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  543 28 631 56
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i, j=0;
+  string     server, s, serverstatetxt, vendorinfo, sText;
+  dyn_float  dfAnswer;
+  dyn_string servers = servername.items, ds=dpNames(\"*\",\"_OPCServer\"), dsAnswer;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/opc_newServer.pnl\",
+                                 \"OPC Server\",
+                                 makeDynString(),
+                                 dfAnswer, dsAnswer);
+
+  if ( dfAnswer[1] )
+  {
+    dynAppend(servers,dsAnswer[1]);
+    servername.items = servers;
+    servername.text = dsAnswer[1];
+
+    setValue(\"vendorinfo\", \"text\", \"\");
+
+    paErrorHandlingOpc(\"create\", dpCreate(\"_\" + dsAnswer[1], \"_OPCServer\") );
+    paErrorHandlingOpc(\"create\", dpCreate(\"_\" + dsAnswer[1]+\"_2\", \"_OPCServer\") );
+
+    dpSet(\"_\" + dsAnswer[1] + \".StateTimer:_original.._value\", 10,
+          \"_\" + dsAnswer[1] + \".ReconnectTimer:_original.._value\", 10,
+          \"_\" + dsAnswer[1] + \"_2.StateTimer:_original.._value\", 10,
+          \"_\" + dsAnswer[1] + \"_2.ReconnectTimer:_original.._value\", 10);
+
+    statetimer.text = 10;
+    reconnecttimer.text = 10;
+    sText = getCatStr(\"para\",\"newopcserver\");
+    strreplace(sText, \"%server\", dsAnswer[1]);
+
+    if ( dsAnswer[4] == \"\" )
+      strreplace(sText, \"%progID\", dsAnswer[2]);
+    else
+      strreplace(sText, \"%progID\", dsAnswer[4] + \"/\" + dsAnswer[2]);
+
+    ChildPanelOnCentralModal(\"para/mp_messageInfo.pnl\",
+                             getCatStr(\"para\",\"information\"),
+                             makeDynString(sText));
+  }
+}
+" 0
+ E E E
+1 127 0 "" 0
+0
+30 69
+"Text20"
+""
+1 10 7 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+66 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.014285714285715 0 1.113207547169812 -0.1428571428571472 2.207547169811318 0 E 10 7 641 61
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Server name
+LANG:10004 15 服务器名称
+LANG:10000 10 Servername
+LANG:10027 21 Имя сервера
+30 84
+"frmBits"
+""
+1 420 67 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+77 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.734303278688524 0 1.418367346938775 -1978.40737704918 44.96938775510205 0 E 420 67 556 166
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 26 OPC bits --> WinCC OA bits
+LANG:10004 22 OPC位 - > WinCC OA位
+LANG:10000 26 OPC Bits --> WinCC OA Bits
+LANG:10027 34 Биты OPC --> Биты WinCC OA
+2 89
+"PRIMITIVE_TEXT1"
+""
+1 49.77217125382258 99.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 49.77217125382258 99.5 130 115
+0 0 0 "0s" 0 0 0 192 0 0  49.77217125382258 99.5 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 15 Alive timer [s]
+LANG:10004 15 在线时间[s]
+LANG:10000 15 Alive Timer [s]
+LANG:10027 39 Таймер контроля сост.
+2 91
+"ptStateConn"
+""
+1 20.24565405811998 314.7500000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20.24565405811998 314.7500000000001 124 330
+0 0 0 "0s" 0 0 0 192 0 0  20.24565405811998 314.7500000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Connection state:
+LANG:10004 13 连接状态:
+LANG:10000 17 Verbindungstatus:
+LANG:10027 24 Сост-е соед-я:
+14 92
+"connected"
+""
+1 -390.9924252645179 277 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  123 308 316 334
+2 "0s" 0 0 0 0 0 -1  E E E
+30 118
+"frmStateHost1"
+""
+1 10 67 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+109 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.7945897385349662 0 2.479166666666667 2.191155893338714 118.8958333333333 0 E 10 67 406 116
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 State - Host 1
+LANG:10004 15 状态 - Host 1
+LANG:10000 15 Status - Host 1
+LANG:10027 31 Состояние - Хост 1
+28 119
+"tabStateDetails"
+""
+1 10 360 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 413 651 616
+E2 "#1" 4
+LANG:10001 22 State details - Host 1
+LANG:10004 22 状态详细 - Host 1 
+LANG:10000 22 Statusdetails - Host 1
+LANG:10027 44 Детали состояния - Хост 1
+0
+"#2" 4
+LANG:10001 22 State details - Host 2
+LANG:10004 21 状态详细 - Host 2
+LANG:10000 22 Statusdetails - Host 2
+LANG:10027 44 Детали состояния - Хост 2
+0
+
+2 120
+"ptStateStRedu"
+""
+1 345.2797459893047 344.5000000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 345.2797459893047 344.5000000000001 446 360
+0 0 0 "0s" 0 0 0 192 0 0  345.2797459893047 344.5000000000001 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Server state text:
+LANG:10004 22 服务器状态文本:
+LANG:10000 17 Serverstatustext:
+LANG:10027 30 Текст состояния:
+2 121
+"ptStateSsRedu"
+""
+1 345.1398729946524 375 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 345.1398729946524 375 420 390
+0 0 0 "0s" 0 0 0 192 0 0  345.1398729946524 375 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Server state:
+LANG:10004 16 服务器状态:
+LANG:10000 13 Serverstatus:
+LANG:10027 34 Состояние сервера:
+14 122
+"serverstatetxtRedu"
+""
+1 348.1943276406739 302 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 338 641 364
+2 "0s" 0 0 0 0 0 -1  E E E
+14 123
+"serverstateRedu"
+""
+1 300.7278287461774 362 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 368 641 394
+2 "0s" 0 0 0 0 0 -1  E E E
+2 124
+"ptStateConnRedu"
+""
+1 344.7456540581201 314.7500000000001 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 344.7456540581201 314.7500000000001 448 330
+0 0 0 "0s" 0 0 0 192 0 0  344.7456540581201 314.7500000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Connection state:
+LANG:10004 13 连接状态:
+LANG:10000 17 Verbindungstatus:
+LANG:10027 24 Сост-е соед-я:
+14 125
+"connectedRedu"
+""
+1 -86.77217125382253 277 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 308 641 334
+2 "0s" 0 0 0 0 0 -1  E E E
+30 126
+"frmStateHost2"
+""
+1 10 67 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+117 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.7946114241803282 0 2.479166666666667 327.182373206967 118.8958333333333 0 E 10 67 406 116
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 State - Host 2
+LANG:10004 15 状态 - Host 2
+LANG:10000 15 Status - Host 2
+LANG:10027 31 Состояние - Хост 2
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF1" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 10 340 T 57 1.321524064171123 0 0.9925925925925924 -12.93549465240656 287.6814814814816
+0
+1 1 "sgStateH2" -1
+7 0 
+120 121 122 123 124 125 126 
+
+"layoutAlignment" "AlignNone"
+"" ""
+0

@@ -1,0 +1,673 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1369 560 N "_3DFace" 1
+"$SYSTEMS"
+"main()
+{
+  distsync_ConnectOnDistSystems(); //Connect on connected dist systems -> can be queried with [dyn_string] distsync_getConnectedSystems()
+  
+  while(!g_bConnectionInitialized)
+  {
+    delay(1);
+  }
+  
+  g_iNoOfChecked = 0;
+  dyn_string dsColors = makeDynString(\"{147,205,221,75}\" ,\"white\");
+  
+  tblSystems.alternatingRowColors(dsColors);
+  
+  tblSystems.selectByClick(TABLE_SELECT_LINE_COLUMN);
+  tblSystems.tableMode(TABLE_SELECT_MULTIPLE);
+  
+  if(isDollarDefined(\"$SYSTEMS\"))
+    g_dsSystems = stringToDynString($SYSTEMS);
+  
+  
+  
+  writeSystemsToTable();
+}
+
+" 0
+ E E E E 1 -1 -1 0  52 76
+""0  1
+E "dyn_string g_dsSystems;
+int g_iNoOfChecked;
+
+void writeSystemsToTable()
+{
+  tblSystems.deleteAllLines();
+  dyn_bool dbChecked;
+  
+  dynSort(g_dsSystems);
+  
+  for(int i = 1; i <= dynlen(g_dsSystems); i++)
+    dynAppend(dbChecked, TRUE);
+  
+  tblSystems.appendLines(dynlen(g_dsSystems), \"Systemname\", g_dsSystems, \"Checked\", dbChecked);
+  
+  g_iNoOfChecked = dynlen(g_dsSystems);
+  
+  compareSystems();
+}
+
+void compareSystems(bool bOnlySelected = FALSE)
+{
+  mapping mSourceAlertClasses, mSourceDpGroups, mSourceAESConfig, mSourceTrendConfig, mSourceUserDefGroup, mSourceUsers, mDestination;
+  string sUserDefGroup;
+  
+  dpGet(DISTSYNC_BASE_DP + \".Config.SyncData.UserDefDpGroup\", sUserDefGroup);
+  
+  distsync_getAlertClasses(getSystemName(), mSourceAlertClasses);
+  distsync_getDPGroupParameters(getSystemName(), mSourceDpGroups);
+  distsync_getAESConfig(getSystemName(), mSourceAESConfig);
+  distsync_getTrendConfig(getSystemName(), mSourceTrendConfig);
+  distsync_getUserGroupConfig(getSystemName(), mSourceUserDefGroup, sUserDefGroup);
+  distsync_getUsers(getSystemName(), mSourceUsers);
+  
+  for(int i = 0; i <= tblSystems.lineCount() - 1; i++)
+  {
+    dyn_int diClientSyncData, diBaseConfig;
+    dyn_bool dbBaseConfig;
+    
+    if(bOnlySelected && !tblSystems.cellValueRC(i, \"Checked\"))
+      continue;
+    
+    dpGet(distsync_getDistSyncDP(tblSystems.cellValueRC(i, \"Systemname\")) + \".Config.ClientSyncData\", diClientSyncData);
+    
+    if(dynlen(diClientSyncData) == 1 && diClientSyncData[1] == -1)
+    {
+      dpGet(DISTSYNC_BASE_DP + \".Config.SyncData.IDs\", diBaseConfig,
+            DISTSYNC_BASE_DP + \".Config.SyncData.Active\", dbBaseConfig);
+      
+      dynClear(diClientSyncData);
+      
+      for(int j = 1; j <= dynlen(diBaseConfig); j++)
+      {
+        if(dynlen(dbBaseConfig) >= j)
+        {
+          if(dbBaseConfig[j])
+          {
+            dynAppend(diClientSyncData, diBaseConfig[j]);
+          }
+        }
+      }
+    }
+    
+    if(dynContains(diClientSyncData, 1))
+    {
+      distsync_getAlertClasses(tblSystems.cellValueRC(i, \"Systemname\"), mDestination);
+      markCell(i, \"AlertClasses\", distsync_compAlertClasses(mSourceAlertClasses, mDestination), \"SyncData_1\");
+    }
+    else
+      markCell(i, \"AlertClasses\", FALSE, \"SyncData_1\", TRUE);
+    
+    if(dynContains(diClientSyncData, 2))
+    {
+      distsync_getDPGroupParameters(tblSystems.cellValueRC(i, \"Systemname\"), mDestination);
+      markCell(i, \"DP-Groups\", distsync_compDPGroupParameters(mSourceDpGroups, mDestination), \"SyncData_2\");
+    }
+    else
+      markCell(i, \"DP-Groups\", FALSE, \"SyncData_2\", TRUE);
+      
+    if(dynContains(diClientSyncData, 3))
+    {
+      distsync_getAESConfig(tblSystems.cellValueRC(i, \"Systemname\"), mDestination);
+      markCell(i, \"AES-Configuration\", distsync_compAESConfig(mSourceAESConfig, mDestination), \"SyncData_3\");
+    }
+    else
+      markCell(i, \"AES-Configuration\", FALSE, \"SyncData_3\", TRUE);
+      
+    if(dynContains(diClientSyncData, 4))
+    {
+      distsync_getTrendConfig(tblSystems.cellValueRC(i, \"Systemname\"), mDestination);
+      markCell(i, \"Trend-Configuration\", distsync_compTrendConfig(mSourceTrendConfig, mDestination), \"SyncData_4\");
+    }
+    else
+      markCell(i, \"Trend-Configuration\", FALSE, \"SyncData_4\", TRUE);
+      
+    if(dynContains(diClientSyncData, 6))
+    {
+      distsync_getUserGroupConfig(tblSystems.cellValueRC(i, \"Systemname\"), mDestination, sUserDefGroup);
+      markCell(i, \"Userdefined-DP-Group\", distsync_compUserGroupConfig(mSourceUserDefGroup, mDestination), \"SyncData_6\");
+    }
+    else
+      markCell(i, \"Userdefined-DP-Group\", FALSE, \"SyncData_6\", TRUE);
+      
+    if(dynContains(diClientSyncData, 5))
+    {
+      distsync_getUsers(tblSystems.cellValueRC(i, \"Systemname\"), mDestination);
+      markCell(i, \"Users\", distsync_compUsers(mSourceUsers, mDestination), \"SyncData_5\");
+    }
+    else
+      markCell(i, \"Users\", FALSE, \"SyncData_5\", TRUE);
+  }
+}
+
+void markCell(int row,string column, bool bEqual, string sType, bool bDontSync = FALSE)
+{
+  string sColor = bEqual ? \"distsync_OK\" : \"distsync_NOK\";
+  sColor = bDontSync ? \"distsync_dontsync\" : sColor;
+  
+  string sToolTip = getCatStr(\"distsync\", bEqual ? \"equal\" : \"unequal\");
+  sToolTip = bDontSync ? getCatStr(\"distsync\", \"dontsync\") : sToolTip;
+  
+  strreplace(sToolTip, \"%s\", getCatStr(\"distsync\", sType));
+  
+  tblSystems.cellBackColRC(row,column, sColor);
+  tblSystems.cellForeColRC(row,column, \"_Transparent\");
+  tblSystems.cellValueRC(row,column, \"  \");
+  tblSystems.cellToolTipRC(row, column, sToolTip);
+}
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"tblSystems"
+""
+1 24.0000000000002 157.8295527670528 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  22 156 1327 486
+E"main(int row, string column, string value)
+{
+  if(column != \"Checked\")
+    return;
+
+  tblSystems.cellValueRC(row, column, !value);
+  
+  if(value)
+    g_iNoOfChecked--;
+  else
+    g_iNoOfChecked++;
+  
+  if(g_iNoOfChecked == tblSystems.lineCount())
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"unselectAll\"));
+    chbSelectAll.state(0) = TRUE;
+  }
+  else
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"selectAll\"));
+    chbSelectAll.state(0) = FALSE;
+  }
+}
+" 0
+ 1 0 1 8 0 "Checked" 1 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "Systemname" 12 1 0 "s" 4
+LANG:10001 11 System name
+LANG:10004 12 系统名称
+LANG:10000 10 Systemname
+LANG:10027 21 Имя системы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "AlertClasses" 12 1 0 "s" 4
+LANG:10001 13 Alert classes
+LANG:10004 9 报警类
+LANG:10000 12 Alarmklassen
+LANG:10027 27 Классы алармов
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "DP-Groups" 12 1 0 "s" 4
+LANG:10001 9 DP-groups
+LANG:10004 6 DP-组
+LANG:10000 10 DP-Gruppen
+LANG:10027 15 DP-группа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "AES-Configuration" 22 1 0 "s" 4
+LANG:10001 17 AES-configuration
+LANG:10004 10 AES-配置
+LANG:10000 17 AES-Konfiguration
+LANG:10027 70 Конфигурация экрана алармов и событий
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+260 "Trend-Configuration" 12 1 0 "s" 4
+LANG:10001 19 Trend configuration
+LANG:10004 12 趋势配置
+LANG:10000 19 Trend Konfiguration
+LANG:10027 37 Конфигурация тренда
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Userdefined-DP-Group" 23 1 0 "s" 4
+LANG:10001 20 Userdefined DP-group
+LANG:10004 24 用户自定义的DP-组
+LANG:10000 22 Benutzerdef. DP-Gruppe
+LANG:10027 67 Определенные пользователем DP-группы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+270 "Users" 12 1 0 "s" 4
+LANG:10001 5 Users
+LANG:10004 6 用户
+LANG:10000 8 Benutzer
+LANG:10027 24 Пользователь
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 
+20 20 10 0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+6 5
+"RECTANGLE3"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.627946733762516 0 1.083774038461538 -23 7.188701923076899 1 E 0 80 880 -50
+2 7
+"PRIMITIVE_TEXT5"
+""
+1 16 5.999999999999957 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 16 5.999999999999957 411 35.99999999999997
+0 2 2 "0s" 0 0 0 64 0 0  16 5.999999999999957 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 34 Data comparison for client systems
+LANG:10004 30 客户端系统的数据比较
+LANG:10000 32 Datenvergleich der Clientsysteme
+LANG:10027 72 Сравнение данных для клиентских систем
+2 8
+"shortdesc"
+""
+1 44 25.99999999999997 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 44 25.99999999999997 642 109
+0 1 1 "0s" 0 0 0 192 0 0  44 25.99999999999997 5
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 92 In this table the data comparison between the client systems and the master system is shown.
+LANG:10004 75 在该表中，显示了客户端系统和主系统之间的数据比较。
+LANG:10000 88 In der Tabelle wird der Datenvergleich der Clientsysteme mit dem Mastersystem angezeigt.
+LANG:10027 167 В этой таблице отображены различия в данных между клиентскими системами и мастер-системой.
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 60 Client systems can be selected for the next synchronization.
+LANG:10004 51 可以选择客户端系统进行下一次同步。
+LANG:10000 72 Ausgewählte Clientsysteme können für den Abgleich übernommen werden.
+LANG:10027 128 Клиентские системы могут быть выбраны для последующей синхронизации.
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 51 0 "" 0
+0
+13 13
+"cmdHelp"
+""
+1 8 524.4373164648101 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 524 96 552
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"distsync_compare\");
+}" 0
+ E E E
+13 14
+"cmdCancel"
+""
+1 1258.950495049505 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  1258 524 1346 552
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+//   RootPanelOn(\"vision/distsync/Overview.pnl\", \"distsync\", makeDynString());
+//   while(!isPanelOpen(ModuleOpen(\"distSync\")))
+//     delay(0,500);
+  
+  PanelOff();
+}" 0
+ E E E
+30 27
+"FRAME3"
+""
+1 86 107 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 7.481117050424508 0 1.308768526286354 -633.1395262752998 -28.23284928986549 0 E 86 107 266 404
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 25 Integrated client systems
+LANG:10004 21 集成客户端系统
+LANG:10000 27  Eingebundene Clientsysteme
+LANG:10027 66 Интегрированные клиентские системы
+20 28
+"chbSelectAll"
+""
+1 24 133 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  22 131 198 160
+1
+T 
+4
+LANG:10001 12 Unselect all
+LANG:10004 18 全部取消选择
+LANG:10000 14 Alle abwählen
+LANG:10027 37 Снять выбор для всех
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  for(int i = 0; i < tblSystems.lineCount(); i++)
+    tblSystems.cellValueRC(i, \"Checked\", (bool)state);
+  
+  if(!state)
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"selectAll\"));
+    g_iNoOfChecked = 0;
+  }
+  else
+  {
+    chbSelectAll.text(0, getCatStr(DISTSYNC_MSGCAT, \"unselectAll\"));
+    g_iNoOfChecked = tblSystems.lineCount();
+  }
+}
+" 0
+13 50
+"cmdApply"
+""
+1 1158.333139196272 525 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 29 Apply changes and close panel
+LANG:10004 6 应用
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 68 Применить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  1158 524 1246 552
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  dyn_string dsSystems;
+  
+  for(int i = 0; i < tblSystems.lineCount(); i++)
+  {
+    if(tblSystems.cellValueRC(i, \"Checked\"))
+      dynAppend(dsSystems, tblSystems.cellValueRC(i, \"Systemname\"));
+  }
+  
+  PanelOffReturn(makeDynFloat(), dsSystems);
+}" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 515 T 9 2.842396434687851 0 1 -42.63594652031779 -1.4210854715202e-014
+0
+0

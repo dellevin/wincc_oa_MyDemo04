@@ -1,0 +1,1082 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 731 462 N "_3DFace" 3
+"$FIRST"
+"$System"
+"$manager"
+E E E E E 1 -1 -1 0  20 30
+""0  1
+E "string g_sMyHost;
+
+save(dyn_string dsSysNum, dyn_string dsSchema)
+{
+  string dpRDB = $System+$manager + ($FIRST?\"\":\"_2\");
+  dyn_string ds;
+  
+  for (int i=1; i<=dynlen(dsSysNum); i++)
+    ds[i] = dsSysNum[i]+\":\"+dsSchema[i];
+  
+  dynSortAsc(ds);
+  
+  dpSet(dpRDB+\".schema\", ds);
+}
+
+enableObjects(bool enable)
+{
+  buUpdate.enabled = enable;
+  buDel.enabled = enable;
+}
+
+//IM105825 fkopecky
+createDbLink(string schema)
+{ 
+  if (strpos(schema,\"@\")>-1)
+  {
+    //split the schema and create a db link
+    dyn_string split,splitHelp;
+    dyn_string ds;
+    dyn_float  df;
+    string     s;
+  
+    ChildPanelOnCentralModalReturn(\"para/archive/RDB/RDBArchive_Password.pnl\",
+                                 getCatStr(\"RDBArchive\",\"HeadLinePassword\"), makeDynString(), df, ds);
+    if (df[1] == -1)    
+      return;
+    
+    string sPwd=ds[1];
+    
+    if (sPwd!=\"\")
+    {
+      split=strsplit(schema,\"@\");   
+   
+      if (strpos(split[1],\":\")>-1)
+      {
+        splitHelp=strsplit(split[1],\":\");
+        split[1]=splitHelp[2];
+      }
+      else 
+        DebugTN(\"Systemname is missing!\");
+        
+      string message=\"CREATE DATABASE LINK \"+split[2]+\" CONNECT TO \"+split[1]+\" IDENTIFIED BY \\\"\"+sPwd+\"\\\" USING '\"+txtHostName.text+\"'\";   
+      //DebugTN(\"message:\",message);
+      runRealSQL(message);
+      DebugTN(\"DBLink created!\");
+    }
+    else
+      DebugTN(\"Couldn't create DBLink. PW is missing!\");
+    uneditableHost();
+  } 
+}
+
+//IM105825 fkopecky
+deleteDbLink(string schema)
+{
+  if (strpos(schema,\"@\")>-1)
+  {
+    //split the schema and create a db link
+    dyn_string split,splitHelp;
+    
+    split=strsplit(schema,\"@\"); 
+
+    string message=\"DROP DATABASE LINK \"+split[2];   
+    //DebugTN(\"message:\",message);
+    runRealSQL(message);
+    DebugTN(\"DBLink deleted!\");
+    uneditableHost();
+  }
+}
+
+//IM105825 fkopecky
+uneditableHost()
+{
+      txtHostName.editable=0;
+      txtHostName.backCol=\"_3DFace\";
+      txtHostName.text=\"\";
+ }
+
+//IM108849 rheiss
+setDataSource()
+{
+  //DebugN(\"9\", txtDbUser.text);  
+  string mySysName=getSystemName();
+  string myHost;
+  string sHost = txtHostName.text;
+ // DebugN(\"10\", txtDbUser.text);  
+  string sSysName = txtSysName.text;
+
+  buUpdate.enabled(true);
+  //DebugN(\"11\", txtDbUser.text);  
+  
+  dpGet(mySysName+\"_RDBArchive.db.host:_online.._value\", myHost); 
+  //DebugN(\"12\", myHost);  
+  //DebugN(\"7\", txtDbUser.text);  
+  //DebugN(\"13\", txtDbUser.text);  
+  txtSchema.text = sSysName + txtDbUser.text;
+  
+  if (sHost != \"\" && myHost != \"\" && myHost != sHost)
+  {
+    if (dpExists(sSysName+\"_2x2Redu.settings.PSS_System\") && dpExists(sSysName+\"_2x2Redu.settings.SSS_System\"))
+    {
+      string sPSSName,sSSSName;
+       
+      dpGet(sSysName+\"_2x2Redu.settings.PSS_System:_online.._value\",sPSSName);
+      dpGet(sSysName+\"_2x2Redu.settings.SSS_System:_online.._value\",sSSSName);
+        
+      if ((mySysName==sPSSName)||(mySysName==sSSSName))
+      {
+         //set the schema field with dblink for DRS
+         txtSchema.text = txtSchema.text + \"@DB2X2LINK\";
+         //DebugN(\"8\", txtDbUser.text);  
+      }
+      else
+      {
+        if (strpos(sHost, \"@\") < 0)
+          txtSchema.text = txtSchema.text + \"@\"+sHost+\"LINK\";
+        else
+          txtSchema.text = txtSchema.text + sHost;        
+        //DebugN(\"9\", txtDbUser.text);  
+      }
+    }
+    else
+    {
+      if (strpos(sHost, \"@\") < 0)
+        txtSchema.text = txtSchema.text + \"@\"+sHost+\"LINK\";
+      else
+        txtSchema.text = txtSchema.text + sHost;        
+    }
+    buUpdate.enabled(false);
+  }
+  
+  
+}
+
+sysNumChanged(bool fromSelection=false)
+{
+  //IM105825 fkopecky
+  string sSysName=\"\",sUser,sHost,mySysName;
+  dyn_string dsSystemName;
+  dyn_uint duiSystemNumber; 
+  
+  int iText = (int)sbSysnum.text;
+   
+  getSystemNames(dsSystemName, duiSystemNumber);
+  mySysName=getSystemName();
+  dpGet(mySysName+\"_RDBArchive.db.host:_online.._value\",sHost); 
+  
+
+  string schema;
+  string sysnum; 
+  dyn_string dsSysNum, dsSchema;
+    
+  //Auslesen
+  dsSysNum = cbSysnum.items;
+  dsSchema = cbSchema.items;
+  sysnum = sbSysnum.text;
+  schema = txtSchema.text;
+  buDel.enabled(true);
+  
+  //Sysnum darf nur einmal vorkommen
+  if (dynContains(dsSysNum, iText)>=1)
+  {
+    schema = dsSchema[dynContains(dsSysNum, iText)];    
+    if (!fromSelection)
+      tabSchema.selectLineN(dynContains(dsSysNum, iText)-1);
+    //DebugN(\"1\", sHost, schema);
+    if (strpos(schema, \"@\", 0) > 0)
+    {
+      sHost = substr(schema, strpos(schema, \"@\"), strlen(schema)- strpos(schema, \"@\"));
+      schema = substr(schema, 0, strpos(schema, \"@\"));
+      buUpdate.enabled(false);
+      //DebugN(\"2\", sHost, schema);
+    }
+    else
+    {
+      string mySysName = getSystemName();
+      dpGet(mySysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+      //DebugN(\"3\", sHost, schema);
+    }
+  
+    sSysName = substr(schema, 0, strpos(schema, \":\") + 1);
+    schema = substr(schema, strpos(schema, \":\") + 1 , strlen(schema)-strpos(schema, \":\"));
+    //DebugN(\"4\", sHost, schema);
+    
+    txtHostName.text = sHost; 
+    txtSysName.text = sSysName;
+    //DebugN(\"6\", sHost, schema, sSysName);
+    txtDbUser.text = schema;
+    
+  } 
+  else if ((dynContains(duiSystemNumber,iText))>0)  
+  {
+    //DebugTN(\"Automatic is on!\");
+    sSysName=getSystemName(iText);
+    txtSysName.text = sSysName;
+          
+    dpGet(sSysName+\"_RDBArchive.db.user:_online.._value\",sUser);
+    txtDbUser.text = sUser;
+    dpGet(sSysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+    txtHostName.text = sHost; 
+  }
+  else
+  {
+    txtSchema.text=\"\";
+    txtHostName.text=\"\";    
+    txtHostName.editable=1;
+    txtHostName.backCol=\"_Window\";
+    txtSysName.text = \"\";  
+    txtDbUser.text =  \"\";
+  }
+  setDataSource();
+}
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 22
+"Text12"
+""
+1 16 312 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0  
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 18 314 114 328
+0 2 0 "0s" 0 0 0 192 0 0  18 314 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Systemnumber:
+LANG:10004 27 系统号(System number)：
+LANG:10000 13 Systemnummer:
+LANG:10027 26 Номер системы:
+25 48
+"tabSchema"
+""
+1 8 8 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"selectionChangedCB" "synchronized main()
+{
+  string schema,sSysName,sHost=\"\";
+  int sysnum;
+  dyn_int lines;
+  int row;
+  dyn_anytype lineRes;
+
+  getValue(\"\", \"getSelectedLines\", lines);
+  if (dynlen(lines) == 0)
+    return;
+  
+  row = lines[1];
+  getValue(\"\", \"getLineN\", row, lineRes);
+  sysnum = lineRes[1];
+  schema = lineRes[2];
+  
+  enableObjects(true);
+  sbSysnum.text = sysnum;
+  //txtSchema.text = schema;
+  buUpdate.enabled(true);
+    
+  /*//IM105825 fkopecky
+  sSysName=getSystemName(sysnum);
+  if (sSysName!=\"\")
+  {
+    dpGet(sSysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+    DebugN(\"1\", sHost, schema);
+  }
+  else
+  {
+    if (strpos(schema, \"@\", 0) > 0)
+    {
+      sHost = substr(schema, strpos(schema, \"@\"), strlen(schema)- strpos(schema, \"@\"));
+      schema = substr(schema, 0, strpos(schema, \"@\"));
+      buUpdate.enabled(false);
+      DebugN(\"2\", sHost, schema);
+    }
+    else
+    {
+      string mySysName = getSystemName();
+      dpGet(mySysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+      DebugN(\"3\", sHost, schema);
+    }
+  }
+  
+  sSysName = substr(schema, 0, strpos(schema, \":\") + 1);
+  schema = substr(schema, strpos(schema, \":\") + 1 , strlen(schema)-strpos(schema, \":\"));
+    
+  
+  txtHostName.text = sHost; 
+  txtSysName.text = sSysName;
+  txtDbUser.text = schema;
+  */
+  sysNumChanged(true);
+  
+  
+  
+}"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  6 6 714 306
+"main()
+{
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+}" 0
+"main(int row, string column, string value)
+{
+}
+/*main(int row, string column, string value)
+{
+  string schema,sSysName,sHost=\"\";
+  int sysnum;
+  
+  sysnum = this.cellValueRC(row, \"sysnum\");
+  schema = this.cellValueRC(row, \"schema\");
+  
+  enableObjects(true);
+  sbSysnum.text = sysnum;
+  txtSchema.text = schema;
+  buAdd.enabled(true);
+    
+  //IM105825 fkopecky
+  sSysName=getSystemName(sysnum);
+  if (sSysName!=\"\")
+  {
+    dpGet(sSysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+    //DebugN(\"1\", sHost, schema);
+  }
+  else
+  {
+    if (strpos(schema, \"@\", 0) > 0)
+    {
+      sHost = substr(schema, strpos(schema, \"@\"), strlen(schema)- strpos(schema, \"@\"));
+      schema = substr(schema, 0, strpos(schema, \"@\"));
+      buUpdate.enabled(false);
+      //DebugN(\"2\", sHost, schema);
+    }
+    else
+    {
+      string mySysName = getSystemName();
+      dpGet(mySysName+\"_RDBArchive.db.host:_online.._value\",sHost);
+      //DebugN(\"3\", sHost, schema);
+    }
+  }
+  
+  sSysName = substr(schema, 0, strpos(schema, \":\") + 1);
+  schema = substr(schema, strpos(schema, \":\") + 1 , strlen(schema)-strpos(schema, \":\"));
+    
+  
+  txtHostName.text = sHost; 
+  txtSysName.text = sSysName;
+  txtDbUser.text = schema;
+  
+  
+  
+  
+}
+*/" 0
+ 1 0 1 2 0 "sysnum" 2 1 0 "s" 4
+LANG:10001 1 #
+LANG:10004 1 #
+LANG:10000 1 #
+LANG:10027 1 #
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+30 "schema" 71 1 0 "s" 4
+LANG:10001 11 Data source
+LANG:10004 9 数据源
+LANG:10000 11 Datenquelle
+LANG:10027 29 Источник данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+655 
+20 20 10 10
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+2 49
+"PRIMITIVE_TEXT1"
+""
+1 13 380 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 382 118 396
+0 2 0 "0s" 0 0 0 192 0 0  15 382 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Data source:
+LANG:10004 10 数据源:
+LANG:10000 12 Datenquelle:
+LANG:10027 30 Источник данных:
+14 50
+"txtSchema"
+""
+1 122 382 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 SysName:User@DBLinkName
+LANG:10004 23 SysName:User@DBLinkName
+LANG:10000 24 SysName:User@DBLinkName
+
+LANG:10027 23 SysName:User@DBLinkName
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  120 380 572 405
+3 "0s" 0 0 0 0 0 -1  E E E
+13 51
+"buAdd"
+""
+1 580 380 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  578 378 614 407
+
+P 
+4294967295
+"pictures/append.xpm"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  string schema;
+  string sysnum; 
+  dyn_string dsSysNum, dsSchema;
+    
+  //Auslesen
+  dsSysNum = cbSysnum.items;
+  dsSchema = cbSchema.items;
+  sysnum = sbSysnum.text;
+  schema = txtSchema.text;
+  
+  //Sysnum darf nur einmal vorkommen
+  if (dynContains(dsSysNum, sysnum)>=1)
+  {
+    //DebugN(\"Kommt bereits vor\", iSelect, sysnum);
+    ChildPanelOnCentral(\"vision/MessageWarning\", 
+                        getCatStr(\"general\",\"warning\"), 
+                        makeDynString(getCatStr(\"RDBArchive\",\"sysnuminlist\")));
+    return;
+  }
+  
+  //Ãndern
+  dynAppend(dsSysNum, sysnum);  //Zur sortierten Liste hinzufÃ¼gen
+  dynSortAsc(dsSysNum);   //Sortieren
+  dynInsertAt(dsSchema, schema, dynContains(dsSysNum, sysnum));  //schema an gleichen Position einfÃ¼gen
+  
+  //IM105825 fkopecky
+  //create DB link
+  createDbLink(schema);
+  
+  //Schreiben
+  sbSysnum.text = 1;
+  txtSchema.text = \"\";
+  //enableObjects(false);
+  
+  //Speichern
+  save(dsSysNum, dsSchema);
+  sysNumChanged();
+  
+}
+" 0
+ E E E
+13 52
+"buUpdate"
+""
+1 621 378 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  619 376 655 405
+
+P 
+4294967295
+"pictures/apply_en.gif"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  string schema;
+  string sysnum, sysnumSelected,schemaSelected;
+  dyn_string dsSysNum, dsSchema;
+  dyn_int di;
+  int iSelect;
+  
+  //Selektierte Zeile ermitteln
+  di = tabSchema.getSelectedLines();
+  if (dynlen(di)>=1)
+    iSelect = di[1];
+  sysnumSelected = tabSchema.cellValueRC(iSelect, \"sysnum\");
+  schemaSelected = tabSchema.cellValueRC(iSelect, \"schema\");
+  
+  //Auslesen
+  dsSysNum = cbSysnum.items;
+  dsSchema = cbSchema.items;
+  sysnum = sbSysnum.text;
+  schema = txtSchema.text;
+  
+  //Sysnum darf nur einmal vorkommen
+  if (dynContains(dsSysNum, sysnum)>=1 && sysnum!=sysnumSelected)
+  {
+    //DebugN(\"Kommt bereits vor\", iSelect, sysnum);
+    ChildPanelOnCentral(\"vision/MessageWarning\", 
+                        getCatStr(\"general\",\"warning\"), 
+                        makeDynString(getCatStr(\"RDBArchive\",\"sysnuminlist\")));
+    return;
+  }
+  
+  //Ãndern
+  dsSysNum[iSelect+1] = sysnum;
+  dsSchema[iSelect+1] = schema;
+  
+  //IM105825 fkopecky
+  //create DB link
+  deleteDbLink(schemaSelected);
+  createDbLink(schema);
+  
+  //Speichern
+  save(dsSysNum, dsSchema);
+  sysNumChanged();
+}
+" 0
+ E E E
+21 53
+"sbSysnum"
+""
+1 122 314 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  120 312 204 337
+0
+
+E
+"main()
+{
+  sysNumChanged();
+}
+  
+" 0
+
+E
+
+N 1 2048 1 0 1 1
+13 56
+"buDel"
+""
+1 661 378 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  659 376 695 405
+
+P 
+4294967295
+"pictures/del_en.gif"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  string schema;
+  string sysnum, sysnumSelected;
+  dyn_string dsSysNum, dsSchema;
+  dyn_int di;
+  int iSelect;
+  
+  //Selektierte Zeile ermitteln
+  di = tabSchema.getSelectedLines();
+  if (dynlen(di)>=1)
+    iSelect = di[1];
+  
+  //Auslesen
+  dsSysNum = cbSysnum.items;
+  dsSchema = cbSchema.items;
+  
+  //Ãndern
+  dynRemove(dsSysNum, iSelect+1);
+  dynRemove(dsSchema, iSelect+1);
+  
+  //IM105825 fkopecky
+  //cdelete DB link
+  deleteDbLink(txtSchema.text);
+  
+  //Schreiben
+/*  sbSysnum.text = 1;
+  txtSchema.text = \"\";
+  enableObjects(false);
+*/
+  
+  
+  //Speichern
+  save(dsSysNum, dsSchema);
+  sysNumChanged();
+}
+" 0
+ E E E
+2 57
+"txtFieldHostName"
+""
+1 234 349 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 236 351 289 366
+0 2 0 "0s" 0 0 0 192 0 0  236 351 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 DB name:
+LANG:10004 11 DB名称：
+LANG:10000 8 DB-Name:
+LANG:10027 12 Имя БД:
+2 63
+"SystemName"
+""
+1 220 313 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 222 315 304 329
+0 2 0 "0s" 0 0 0 192 0 0  222 315 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Systemname:
+LANG:10004 23 系统名(System name):
+LANG:10000 11 Systemname:
+LANG:10027 22 Имя системы:
+14 64
+"txtSysName"
+""
+1 309 313 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E "main()
+{
+  if (strlen(txtSysName.text) > 0 && strpos(txtSysName.text, \":\", 0) == -1)
+  {
+    txtSysName.text = txtSysName.text + \":\";
+  }
+  
+  setDataSource();
+}" 0
+ E
+0
+4
+LANG:10001 23 SysName:User@DBLinkName
+LANG:10004 23 SysName:User@DBLinkName
+LANG:10000 24 SysName:User@DBLinkName
+
+LANG:10027 23 SysName:User@DBLinkName
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  307 311 451 336
+3 "0s" 0 0 0 0 0 -1  E E E
+14 65
+"txtHostName"
+""
+1 369 350 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E "main()
+{
+  setDataSource();
+}" 0
+ E
+0
+4
+LANG:10001 23 SysName:User@DBLinkName
+LANG:10004 23 SysName:User@DBLinkName
+LANG:10000 24 SysName:User@DBLinkName
+
+LANG:10027 23 SysName:User@DBLinkName
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  367 348 512 373
+3 "0s" 0 0 0 0 0 -1  E E E
+2 66
+"txtFieldDbUser"
+""
+1 3 348 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 5 350 120 365
+0 2 0 "0s" 0 0 0 192 0 0  5 350 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 DB user:
+LANG:10004 14 DB用户名：
+LANG:10000 8 DB-User:
+LANG:10027 32 Имя пользователя:
+14 67
+"txtDbUser"
+""
+1 121 347 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E "main()
+{
+  setDataSource();
+}" 0
+ E
+0
+4
+LANG:10001 23 SysName:User@DBLinkName
+LANG:10004 23 SysName:User@DBLinkName
+LANG:10000 24 SysName:User@DBLinkName
+
+LANG:10027 23 SysName:User@DBLinkName
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  119 345 222 370
+3 "0s" 0 0 0 0 0 -1  E E E
+2 68
+"Text15"
+""
+1 490 321 E E E 1 E 0 E N {0,0,0} E N {255,255,255} E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0  
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{ 
+  string dpRDB = $System+$manager + ($FIRST?\"\":\"_2\");
+  string dpRDBControl = $System+$manager + \"Control\"+($FIRST?\"\":\"_2\");
+  
+  dpConnect(\"work\", dpRDB+\".schema:_online.._value\"); 
+}
+work (string dp, dyn_string schema)
+{
+  dyn_string dsSchema, dsSysNum;
+  
+  for (int i=dynlen(schema); i>=1; i--)
+  {
+    dyn_string ds = strsplit(schema[i], \":\");
+    if (dynlen(ds)>=1)
+    {
+      string s;
+      
+      dynInsertAt(dsSysNum, ds[1], 1);
+      for (int x=2; x<=dynlen(ds); x++)
+        s+=ds[x]+((x<dynlen(ds))?\":\":\"\");
+      dynInsertAt(dsSchema, s, 1);
+    }
+    else
+    {
+      //Ungültiger Wert am DP
+      dynRemove(schema, i);
+    }
+  }
+  tabSchema.deleteAllLines();
+  enableObjects(false);
+  tabSchema.appendLines(dynlen(dsSchema),\"sysnum\", dsSysNum, \"schema\", dsSchema);
+  cbSysnum.items = dsSysNum;
+  cbSchema.items = dsSchema;
+}" 0
+ E 0 1 1 0 1 E U  1 E 492 323 540 337
+1 2 0 "0s" 0 0 0 192 0 0  492 323 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Initscript
+LANG:10004 12 启动脚本
+LANG:10000 10 InitScript
+LANG:10027 10 Initscript
+22 69
+"cbSysnum"
+""
+1 554 320 E E E 1 E 0 E N "_WindowText" E N "Red" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  552 318 620 345
+0
+
+E
+E
+E
+ 1 0
+22 70
+"cbSchema"
+""
+1 625 320 E E E 1 E 0 E N "_WindowText" E N "Red" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  623 318 691 345
+0
+
+E
+E
+E
+ 1 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

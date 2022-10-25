@@ -1,0 +1,1367 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 652 502 N "_3DFace" 1
+"$DP"
+"#uses \"sdScriptWizard.ctl\"
+main()
+{
+  string sDP,sTreeSelected=TREE.selectedItem();
+  string sItem;
+  dyn_string dsShortNames,dsFileNames;
+  dyn_string dsDollars,dsDollarValues;
+  dyn_string dsTableDollars,dsTableDollarValues;
+  int pos;
+  string sWork;
+  sDP=$DP;
+  
+  Text_Description.Text=getCatStr(\"SimpleSymbols\",\"DescriptionText\");
+  TABLE1.tableMode(TABLE_SELECT_BROWSE);
+  TABLE1.selectByClick(TABLE_SELECT_LINE);
+  
+//   DebugN(\"$DP:\"+sDP);
+  DPTTREE.addColumn(\"ITEM\");        // Add just one column
+  DPTTREE.showHeader(false);         // and we need no header
+  if (sDP==\"\")// If no Symbol is selected an empty one is shown therefore no need to fill in the fields.
+  {
+    
+    string sId=TREE.selectedItem();
+    strreplace(sId,\"SYMBOLSNODE|\",\"\");
+    DPTTREE.clear();
+    DPTTREE.appendItemNC(\"\",\"TYPE|\"+sId,sId);
+    DPTTREE.setIcon(\"TYPE|\"+sId,0,\"dptree/dptype.png\");
+    DPTTREE.setExpandable(\"TYPE|\"+sId,TRUE);
+    DPTTREE.setOpen(\"TYPE|\"+sId,TRUE);
+    DPTTREE.setDragEnabled(\"TYPE|\"+sId,TRUE);
+    return;
+  }
+  
+  strreplace(sDP,\"_mp_\",\"\");
+  sDP=\"_objwSymbolsPerType_\"+sDP;
+  dpGet(sDP+\".ShortNames\",dsShortNames,
+        sDP+\".FileNames\",dsFileNames,
+        sDP+\".Dollars\",dsDollars,
+        sDP+\".DollarValues\",dsDollarValues);
+  
+  dyn_string dsSplit=strsplit(sTreeSelected,\";\");
+  if (dynlen(dsSplit)==2)
+  {
+    sItem=dsSplit[2];//Shortname
+    DPTTREE.clear();
+    string sDPType=dsSplit[1];
+    strreplace(sDPType,\"SYMBOLS|\",\"\");
+    DPTTREE.appendItemNC(\"\",\"TYPE|\"+sDPType,sDPType);
+    DPTTREE.setIcon(\"TYPE|\"+sDPType,0,\"dptree/dptype.png\");
+    DPTTREE.setExpandable(\"TYPE|\"+sDPType,TRUE);
+    DPTTREE.setOpen(\"TYPE|\"+sDPType,TRUE);
+    
+    dyn_string dsDPNames = dpNames(\"*\",sDPType);
+    if (dynlen(dsDPNames)>0)
+    {
+      if (dpElementType(dsDPNames[1]+\".\")!=DPEL_STRUCT)// it s not a Struct at the beginning the
+      {
+        DPTTREE.setDragEnabled(\"TYPE|\"+sDPType,TRUE);
+      }
+    }
+    
+    SHORT.text=sItem;
+    SHORT1.text=sItem;
+    pos=dynContains(dsShortNames,sItem);
+    if (dynlen(dsFileNames)>=pos)
+    {
+      FILE.text=dsFileNames[pos];
+      FILE1.text=dsFileNames[pos];
+    }
+    else
+    {
+      FILE.text=\"\";
+      FILE1.text=\"\";
+    }
+  }
+  for (int i=1;i<=dynlen(dsDollars);i++)
+  {
+    dyn_string dsSplit=strsplit(dsDollars[i],\"|\");
+    if (dynlen(dsSplit)>=2)
+    {
+      if (dsSplit[1]==sItem)
+      {
+        sWork=dsDollars[i];
+        strreplace(sWork,sItem+\"|\",\"\");
+        //DebugN(\"dsDollars[i]\"+dsDollars[i]+\"strreplace:\"+strreplace(dsDollars[i],sItem+\"|\",\"\"));
+        dynAppend(dsTableDollars,sWork);
+        dynAppend(dsTableDollarValues,(dynlen(dsDollarValues) >= i)?dsDollarValues[i]:\"\");      
+      }
+    }
+  }
+  //DebugN(\"bhör Table fill: Dollar:\",dsTableDollars+\"\\ndsTAbleDollarValues\",dsTableDollarValues);
+  string sFileName;
+  if (dynlen(dsFileNames)>=pos)
+  {
+    sFileName=dsFileNames[pos];
+  }
+  else
+  {
+    return;
+  }
+  if (isfile(getPath(PANELS_REL_PATH,sFileName)))
+  {
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(dsFileNames[pos]);
+//     DebugN(\"bhoer Dollarsfile:\",dsDollarsFile+\"\\n Dollars:\",dsTableDollars);
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+    dyn_string dsTemp1 = dsTableDollars;
+    dyn_string dsTemp2 = dsDollarsFile;
+    
+    dynSort(dsTemp1);
+    dynSort(dsTemp2);
+    
+    if (dsTemp1 == dsTemp2)
+    {
+      TABLE1.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);
+      TABLE2.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);
+    }
+    else
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+                    getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+      df,ds);
+      if (dynlen(df)<1)//X Close
+      { 
+        return; 
+      }
+      else if (df[1]!=1)//No
+      {
+        TABLE1.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);
+//         TABLE2.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);
+        return;
+      }
+      else if (df[1]==1)//Yes
+      {
+        dyn_string dsUpdatedTableDollarValues;
+        
+        if (dynContains(dsDollarsFile,\"$DP\")>0)
+        {
+          dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+        }
+        if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+        {
+          dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+        }
+        if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+        {
+          dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+        }
+        
+        for(int i = 1; i <= dynlen(dsDollarsFile); i++)
+        {
+          int iPos = 0;
+          
+          if(i <= dynlen(dsDollarsFile))
+            iPos = dynContains(dsTableDollars, dsDollarsFile[i]);
+     
+          if(iPos > 0)
+            dynAppend(dsUpdatedTableDollarValues, dsTableDollarValues[iPos]);
+          else
+            dynAppend(dsUpdatedTableDollarValues, \"\");
+        }
+        TABLE1.appendLines(dynlen(dsDollarsFile),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsUpdatedTableDollarValues);
+//         TABLE2.appendLines(dynlen(dsDollarsFile),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsTableDollarValues);
+        
+        // IM 116929 - if there are more $-params configured in file than saved on dpe
+        if ( dynlen(dsTemp1) < dynlen(dsTemp2) )
+        {
+          dyn_string dsCorrectedDollars;
+          for ( int i = 1; i <= dynlen(dsDollarsFile); i++ )
+            dsCorrectedDollars[i] = sItem + \"|\" + dsDollarsFile[i];
+          
+          dpSet(sDP + \".Dollars\",      dsCorrectedDollars,
+                sDP + \".DollarValues\", dsTableDollarValues);
+        }
+      }
+    }
+  }
+  else
+  {
+    if (FILE.text!=\"\")
+    {
+      dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+    }
+  }
+  
+  updateSymbolPreview(FILE.text());
+
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "void objwFileSelection(dyn_string dsDollarsFile)
+{
+  string sDP,sTreeSelected=TREE.selectedItem();
+  string sItem;
+  dyn_string dsShortNames,dsFileNames;
+  dyn_string dsDollars,dsDollarValues;
+  dyn_string dsTableDollars,dsTableDollarValues;
+  int pos;
+  string sWork;
+  sDP=$DP;
+
+//   DebugN(\"$DP\"+$DP);
+  strreplace(sDP,\"_mp_\",\"\");
+  sDP=\"_objwSymbolsPerType_\"+sDP;
+  if(dpExists(sDP))
+  {
+    dpGet(sDP+\".ShortNames\",dsShortNames,
+          sDP+\".FileNames\",dsFileNames,
+          sDP+\".Dollars\",dsDollars,
+          sDP+\".DollarValues\",dsDollarValues);  
+  }
+  
+    for (int i=0;i<TABLE1.lineCount();i++)
+    {
+      dynAppend(dsTableDollars,TABLE1.cellValueRC(i,\"DOLLAR\"));
+      dynAppend(dsTableDollarValues,TABLE1.cellValueRC(i,\"VALUE\"));
+    }
+    
+    if (dsTableDollars==dsDollarsFile)
+    {
+      //DebugN(\"Update Table with the same dsDollarsFile:\",dsDollarsFile);
+      TABLE1.deleteAllLines();
+      TABLE1.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsTableDollarValues);
+//       TABLE2.deleteAllLines();
+//       TABLE2.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsTableDollarValues);
+    }
+    else
+    {
+      //DebugN(\"New Table dsDollarsFile:\",dsDollarsFile);
+      dyn_string ds;
+      dyn_float df;
+//       DebugN(\"Tablecount\"+TABLE1.lineCount());
+      if (TABLE1.lineCount()>0)
+      {
+        ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsDollarWrong\"),
+                      getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")), 
+        df,ds);
+      }
+      else
+      {
+        dynClear(df);
+        df=makeDynFloat(1);
+      }
+      if (dynlen(df)<1)//X Close
+      { 
+        return; 
+      }
+      else if (df[1]!=1)//No
+      {
+        TABLE1.deleteAllLines();
+        TABLE1.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);
+//         TABLE2.deleteAllLines();
+//         TABLE2.appendLines(dynlen(dsTableDollars),\"DOLLAR\",dsTableDollars,\"VALUE\",dsTableDollarValues);        
+        return;
+      }
+      else if (df[1]==1)//Yes
+      {
+        TABLE1.deleteAllLines();
+        TABLE1.appendLines(dynlen(dsDollarsFile),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsTableDollarValues);    
+//         TABLE2.deleteAllLines();
+//         TABLE2.appendLines(dynlen(dsDollarsFile),\"DOLLAR\",dsDollarsFile,\"VALUE\",dsTableDollarValues);          
+      }
+    }
+}
+
+
+void updateSymbolPreview(string sFile)
+{
+  float fFactor = 1;
+  anytype aImage;
+  
+  if(isfile(getPath(PANELS_REL_PATH, sFile)))
+  {
+    dyn_int di = getPanelSize(sFile);
+    float fTemp1 = 1, fTemp2 = 1;
+        
+    if(di[1] > 86)
+      fTemp1 = (float)86/(float)di[1];
+        
+    if(di[2] > 65)
+      fTemp2 = (float)65/(float)di[2];
+
+    if(fTemp1 < fTemp2)
+      fFactor = fTemp1;
+    else
+      fFactor = fTemp2;
+      
+    Preview.size((di[1] > 86)?86:di[1]*fFactor, (di[2] > 65)?65:di[2]*fFactor);
+        
+    getPanelPreview(aImage,sFile,fFactor);
+    imageToFile(aImage,\"SimpleSymbolsPreviewTemp\");
+      
+    delay(0,10);
+    Preview.fill(\"[pattern,[fit,png,SimpleSymbolsPreviewTemp.png]]\");
+    Preview.visible(true);
+  }
+  else
+  {
+    Preview.visible(false);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 0
+"ShortName"
+""
+1 -10 25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E -10 25 90.00000000000004 45
+0 2 2 "0s" 0 0 0 66 0 0  -10 25 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Short name:
+LANG:10004 7 简称:
+LANG:10000 9 Kurzname:
+LANG:10027 15 Кор. имя:
+2 1
+"FileName"
+""
+1 -10 55 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E -10 55 90.00000000000004 75
+0 2 2 "0s" 0 0 0 66 0 0  -10 55 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 File name:
+LANG:10004 9 文件名
+LANG:10000 10 Dateiname:
+LANG:10027 18 Имя файла:
+14 2
+"SHORT"
+""
+1 100.0000000000002 19.99999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  bSettingsChanged=true;
+}
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  98 18 422 46
+3 "0s" 0 0 0 0 0 -1  E E E
+30 3
+"FRAME1"
+""
+1 0 2 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+3 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.644736842105263 0 2.192982456140351 10 -4.385964912280702 0 E 0 2 381 231
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Properties of symbol
+LANG:10004 15 符号的属性
+LANG:10000 25 Eigenschaften des Symbols
+LANG:10027 31 Свойства символа
+14 4
+"FILE"
+""
+1 98.99999999999999 49.99999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E "main()
+{
+  if (isfile(getPath(PANELS_REL_PATH,FILE.text())))
+  {
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(FILE.text());
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+    dyn_string dsSplitFile=strsplit(FILE.text(),\".\");
+    if (dsSplitFile[dynlen(dsSplitFile)]!=\"xml\") 
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      updateSymbolPreview(FILE.text());
+      return;
+    }    
+    objwFileSelection(dsDollarsFile);
+  }
+  else
+  {
+    if (FILE.text()!=\"\")
+    {
+      dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+    }
+  }
+  updateSymbolPreview(FILE.text());
+}
+
+
+
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  bSettingsChanged=true;
+}
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  97 48 480 76
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  if (isfile(getPath(PANELS_REL_PATH,FILE.text())))
+  {
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(FILE.text());
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+    dyn_string dsSplitFile=strsplit(FILE.text(),\".\");
+    if (dsSplitFile[dynlen(dsSplitFile)]!=\"xml\") 
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      updateSymbolPreview(FILE.text());
+      return;
+    }       
+    objwFileSelection(dsDollarsFile);
+  }
+  else
+  {
+    if (FILE.text()!=\"\")
+    {
+      dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+    }
+  }
+  updateSymbolPreview(FILE.text());
+}
+
+
+
+
+
+" 0
+
+25 5
+"TABLE1"
+""
+1 189.7185628742516 90.00000000000003 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  bSettingsChanged=true;
+  
+  if (strpos(information,\"TYPE|\")==0)
+  {
+    if (row!=-1)
+    {
+      this.cellValueRC(row,\"VALUE\")=\".\";
+    }
+  }
+  else
+  {  
+    if (row!=-1)
+    {
+      this.cellValueRC( row, \"VALUE\" ) = \"\\\"\"+ information+\"\\\"\";
+    }
+  }
+}
+
+
+
+
+
+
+
+"
+"selectionChangedCB" "synchronized main()
+{
+  int iLine=TABLE1.selectLineN();
+  if (isfile(getPath(PANELS_REL_PATH,FILE.text())))
+  { 
+    if (iLine!=-1)
+    {
+      string sDescription=sdGetDollarDescription(FILE.text(),TABLE1.cellValueRC(iLine,\"DOLLAR\"));
+      
+      if( sDescription == \"\" )
+        sDescription = sdGetDollarDescriptionConnect(FILE.text(),TABLE1.cellValueRC(iLine,\"DOLLAR\"));
+      
+      if (sDescription!=\"\")
+      {
+        Text_Description.Text=sDescription;
+      }
+      else
+      {
+        Text_Description.Text=getCatStr(\"SimpleSymbols\",\"NoDescription\");
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  242 88 616 440
+"main()
+{
+}
+" 0
+E 1 0 1 2 0 "DOLLAR" 16 1 0 "s" 4
+LANG:10001 11 $-Parameter
+LANG:10004 8 $-参数
+LANG:10000 11 $-Parameter
+LANG:10027 18 $-Параметр
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+186 "VALUE" 15 1 1 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+181 
+18 18 10 10
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 6
+"Button_FileSelector"
+""
+1 258.0000000000001 39.99999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 42 Open the fileselector to select the symbol
+LANG:10004 36 打开文件选择器以选择符号
+LANG:10000 42 Fileselector öffnen um Symbol festzulegen
+LANG:10027 23 Открыть файл
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  486 48 514 76
+
+P 
+4294967295
+"pictures/StandardIcons/Open_20.png"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 12 PUSH_BUTTON5
+LANG:10027 3 ...
+"main()
+{
+  string fileName;
+  
+  fileSelector( fileName, getPath( PANELS_REL_PATH ),true,\"*.xml\");
+  
+  if( strlen( fileName ))
+  {
+    
+    int pos = strpos( fileName, \"/panels/\" );
+    
+    // The file name will be absolute, but we only 
+    // want a relative path.
+    // This is why we only take the part after the \".../panels/\"
+    if( pos )
+    {  
+      fileName = substr( fileName, pos + 8 );
+    }
+    
+    FILE.text = fileName;
+    bSettingsChanged=true;
+    // We have just selecteda panel
+    // lets get and display the corresponding dollars
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(fileName);
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+
+  objwFileSelection(dsDollarsFile);
+  }
+  updateSymbolPreview(FILE.text());
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+29 8
+"DPTTREE"
+""
+1 28 90.99999999999993 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+12
+"DragStart" "main(int keys, string id)
+{
+  
+  if (strpos(id,\"TYPE|\")==0)
+  {
+    dragStart(\"TYPE|\");
+  }
+  strreplace(id,\"DPE|\",\"\");
+  dyn_string dsDPE=strsplit(id,\".\");
+  string information;
+
+  for (int i=2;i<=dynlen(dsDPE);i++)
+  {
+    information=information+\".\"+dsDPE[i];
+  }
+  dragStart(information);
+}
+
+
+
+
+
+"
+"vScrollBarMode" "enum 0"
+"frameShape" "enum 6"
+"defaultRenameAction" "enum 0"
+"layoutDirection" "enum 0"
+"frameShadow" "enum 48"
+"resizePolicy" "enum 1"
+"resizeMode" "enum 0"
+"selectionMode" "enum 0"
+"contextMenuPolicy" "enum 1"
+"inputMethodHints" "enum 0"
+"hScrollBarMode" "enum 0"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  28 91 229 480
+10 TreeWidget
+1
+0 "expanded" "(string id)"
+"  dyn_string dsChilds=this.children(id);
+//   DebugN(\"Childs:\"+dsChilds); 
+  if (dynlen(dsChilds)==0)
+  {
+    string sWork=id;
+    if (strpos(id,\"TYPE|\")==0)
+    {
+      strreplace(sWork,\"DP|\",\"\"); // sWork is the DPT we want to add the DPS's
+//       string sType=this.parent(id);
+      string sType=sWork;
+      strreplace(sType,\"TYPE|\",\"\"); // sWork is the DPT we want to add the DPS's      
+                //######################################################################################
+//       Add Structure of the DP
+      dyn_dyn_int ddiTypes;
+      dyn_dyn_string ddsElements;
+      dyn_dyn_anytype daType;
+      dpTypeGet(sType,ddsElements,ddiTypes, TRUE);
+//       ddsElements[1][1]=sWork; // Exchange the Typename with the DP NAme to get that into the Path
+
+      for (int k=2;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        if (ddiTypes[k][dynlen(ddiTypes[k])]==DPEL_TYPEREF)
+        {
+          dynRemove(ddsElements[k],dynlen(ddsElements[k])); // cut out the Typeref ref
+        }
+      }
+      for (int k=2;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        for (int j=1;j<=dynlen(ddsElements[k]);j++)// go through columns
+        {
+          if (ddsElements[k][j]==\"\"&&ddiTypes[k-1][j]!=DPEL_TYPEREF) // if it is a typeref than dont copy it down as a node
+          {
+            ddsElements[k][j]=ddsElements[k-1][j];
+          }
+        }
+      }   
+      dyn_int diFound;
+      for (int k=1;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        if (ddiTypes[k][dynlen(ddiTypes[k])]==DPEL_TYPEREF)
+        {
+          dynAppend(diFound,k);
+        }
+      }  
+      for (int j=dynlen(diFound);j>0;j--)
+      {
+        dynRemove(ddiTypes,diFound[j]);
+        dynRemove(ddsElements,diFound[j]);
+      }
+      for (int k=1;k<=dynlen(ddsElements);k++)// go through lines
+      {
+        dynAppend(daType,makeDynAnytype(ddsElements[k][1],(int)0) );
+        daType[k]=ddsElements[k][1];
+        for (int j=2;j<=dynlen(ddsElements[k]);j++)// go through columns
+        {
+          daType[k][1]=daType[k][1]+\".\"+ddsElements[k][j];
+        }
+        daType[k][2]=(int)ddiTypes[k][dynlen(ddiTypes[k])];
+        dynAppend(daType[k],ddiTypes[k][dynlen(ddiTypes[k])]);
+      }      
+      for (int k=1;k<=dynlen(daType);k++)//if typerefs has been in there than \"..\" is a deliminater and we replace that with \".\"
+      {
+        strreplace(daType[k][1],\"..\",\".\");
+      }
+      for (int k=2;k<=dynlen(daType);k++)// now appedn to the tree
+      {
+        dyn_string dsSplit3=strsplit(daType[k][1],\".\");
+        if (dynlen(dsSplit3)==2)
+        {
+//           this.appendItem(\"DP|\"+sWork,\"DPE|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          this.appendItem(sWork,\"DPE|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          this.setIcon(\"DPE|\"+daType[k][1],0,objwGetTreeIcon(daType[k][2]));
+          this.setOpen(\"DPE|\"+daType[k][1],TRUE);
+          if (daType[k][2]!=DPEL_STRUCT)
+          {
+            this.setDragEnabled(\"DPE|\"+daType[k][1],TRUE);           
+          }
+        }
+        if (dynlen(dsSplit3)>2)
+        {
+          string parent, sSearch;
+          parent=daType[k][1];
+          dyn_string dsSplit23=strsplit(parent,\".\");
+          sSearch=\".\"+dsSplit23[dynlen(dsSplit23)];
+          parent = dsSplit23[1];
+          for (int ii=2; ii< dynlen(dsSplit23);ii++)
+          {
+            parent=parent+\".\"+dsSplit23[ii];
+          }
+//           this.appendItem(\"DPE|\"+parent,\"DPE|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          this.appendItem(\"DPE|\"+parent,\"DPE|\"+daType[k][1],dsSplit3[dynlen(dsSplit3)]);
+          this.setIcon(\"DPE|\"+daType[k][1],0,objwGetTreeIcon(daType[k][2]));
+          this.setOpen(\"DPE|\"+daType[k][1],TRUE);
+          if (daType[k][2]!=DPEL_STRUCT)
+          {
+            this.setDragEnabled(\"DPE|\"+daType[k][1],TRUE);
+          }          
+        }
+      }
+    }
+  }
+"
+"main()
+{
+  this.showHeader(false);
+}" 0
+29 9
+"Text_Description"
+""
+1 244 445 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"text" "string "
+"readOnly" "bool TRUE"
+"currentFont" "font Arial,10,-1,5,50,0,0,0,0,0"
+4
+LANG:10001 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10004 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  244 445 614 480
+15 PVSS.TextEdit.1
+0
+"main()
+{
+}
+
+" 0
+6 10
+"Preview"
+""
+1 570.0823529411764 48 E E E 1 E 1 E N "_Transparent" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 3 0 1 E 0.8585858585858587 0 1 78.53535353535352 0 1 E 520 15 619 79
+2 11
+"PRIMITIVE_TEXT1"
+""
+1 465 20 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 465 20 521 33
+0 2 2 "0s" 0 0 0 192 0 0  465 20 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 25 Arial,8,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Preview:
+LANG:10004 7 预览:
+LANG:10000 8 Preview:
+LANG:10027 17 Просмотр:
+25 12
+"TABLE2"
+""
+1 646.7185628742516 197 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+}
+
+
+
+
+
+"
+"selectionChangedCB" "synchronized main()
+{
+}
+
+
+
+
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  699 195 1073 547
+"main()
+{
+}
+" 0
+E 1 0 1 2 0 "DOLLAR" 16 1 0 "s" 4
+LANG:10001 11 $-Parameter
+LANG:10004 8 $-参数
+LANG:10000 11 $-Parameter
+LANG:10027 18 $-Параметр
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+186 "VALUE" 15 1 1 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+181 
+18 18 10 10
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+14 13
+"FILE1"
+""
+1 668 194 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E "main()
+{
+  if (isfile(getPath(PANELS_REL_PATH,FILE.text())))
+  {
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(FILE.text());
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+    dyn_string dsSplitFile=strsplit(FILE.text(),\".\");
+    if (dsSplitFile[dynlen(dsSplitFile)]!=\"xml\") 
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      updateSymbolPreview(FILE.text());
+      return;
+    }    
+    objwFileSelection(dsDollarsFile);
+  }
+  else
+  {
+    if (FILE.text()!=\"\")
+    {
+      dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+    }
+  }
+  updateSymbolPreview(FILE.text());
+}
+
+
+
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  bSettingsChanged=true;
+}
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  666 192 1049 220
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  if (isfile(getPath(PANELS_REL_PATH,FILE.text())))
+  {
+    dyn_string dsDollarsFile = getDollarParamsFromPanel(FILE.text());
+    if (dynContains(dsDollarsFile,\"$DP\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$DP\"));    
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FACEPLATE_CONFIG\"));   
+    }
+    if (dynContains(dsDollarsFile,\"$SYMBOL_FILE\")>0)
+    {
+      dynRemove(dsDollarsFile,dynContains(dsDollarsFile,\"$SYMBOL_FILE\"));      
+    }
+    dyn_string dsSplitFile=strsplit(FILE.text(),\".\");
+    if (dsSplitFile[dynlen(dsSplitFile)]!=\"xml\") 
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+      makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                    getCatStr(\"para\",\"close\")), 
+      df,ds);
+      updateSymbolPreview(FILE.text());
+      return;
+    }       
+    objwFileSelection(dsDollarsFile);
+  }
+  else
+  {
+    if (FILE.text()!=\"\")
+    {
+      dyn_string ds;
+        dyn_float df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+        makeDynString(getCatStr(\"SimpleSymbols\",\"SymbolsFileDoesNotExist\"),
+                      getCatStr(\"para\",\"close\")), 
+        df,ds);
+    }
+  }
+  updateSymbolPreview(FILE.text());
+}
+
+
+
+
+
+" 0
+
+14 14
+"SHORT1"
+""
+1 668.0000000000002 161 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  bSettingsChanged=true;
+}
+"
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  666 159 990 187
+3 "0s" 0 0 0 0 0 -1  E E E
+6 16
+"RECTANGLE2"
+""
+1 520 16 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 1 2.999999999999943 0 1 E 520 16 608 80
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

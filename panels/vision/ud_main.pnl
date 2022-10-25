@@ -1,0 +1,3656 @@
+V 14
+4
+LANG:10001 19 User administration
+LANG:10004 12 管理用户
+LANG:10000 18 Benutzerverwaltung
+LANG:10027 49 Управление пользователями
+PANEL,-1 -1 834 620 N "_3DFace" 0
+"main()
+{
+  authMethodInitialize();
+
+  m_um = UserManagement::getInstance();
+
+  setFirstRowBitsVisible(true);  //display bits 1-16
+
+  if ( !getUserPermission(4) )
+  {
+    RootPanelOn(\"vision/MessageWarning\",
+      getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"pt\", \"error-12\")));
+  }
+
+  cmdActivateUser.enabled = getUserPermission(4);
+
+  UserPermissionsTable.sortOnClick(false);
+  UserPermissionsTable.selectColors (\"_ButtonShadow\", \"_Window\");
+  AreaPermissionsTable.sortOnClick(false);
+  AreaPermissionsTable.selectColors (\"_ButtonShadow\", \"_Window\");
+
+  if (distsync_amIClientSystem())
+  {
+    distsync_ShowLocalMessage(DISTSYNC_USER);
+  }
+
+  dpConnect(\"work\",1,\"_Users.UserName:_online.._value\",
+                     \"_Users.UserId:_online.._value\",
+                     \"_Users.GroupIds:_online.._value\",
+                     \"_Groups.UserId:_online.._value\",
+                     \"_Groups.UserName:_online.._value\",
+                     \"_Groups.FullName:_online.._value\",
+                     \"_Users.Language:_online.._value\",
+                     \"_Users.Enabled:_online.._value\");
+}
+
+void authMethodInitialize()
+{
+  // Retrieve a list of available authentication methods
+  OaAuthFactory factory;
+  registeredAuthNames = factory.listAuths();
+  dyn_string list;
+
+  // Translate the auth names
+  for (int i = 1; i <= dynlen(registeredAuthNames); ++i)
+  {
+    dyn_errClass err;
+    string translatedName = getCatStr(\"OaLogin\", registeredAuthNames[i]);
+    err = getLastError();
+    if (dynlen(err) > 0)
+    {
+      translatedName = registeredAuthNames[i];
+    }
+
+    dynAppend(list, translatedName);
+  }
+
+  AUTHS.items   = list;
+  AUTHS.enabled = dynlen(list) > 0;
+
+  // Get the current authentication method
+  mixed authMethod = factory.getAuth();
+  isOSAuthentication = authMethod.getAuthType() == OaAuthenticationType::AD;
+  string name = authMethod.getAuthName();
+  currentAuthName = name;
+
+  // Select the current method
+  resetCurrentSelection();
+
+  // Show the current authentication method also here in the 'Users' frame
+  txtWin.text = \"(\" + getCatStr(\"OaLogin\", name) + \")\";
+
+  // TFS 118199 - only let user root change the authentication method
+  if (getUserId() != 0)
+  {
+    AUTHS.enabled = false;
+    AUTHS.toolTipText = getCatStr(\"OaLogin\", \"auth_method_info\");
+  }
+}
+
+void work(string dp1, dyn_string user,
+          string dp2, dyn_int uid,
+          string dp3, dyn_string groups,
+          string dp4, dyn_string groupId,
+          string dp5, dyn_string groupName,
+          string dp6, dyn_string groupFullname,
+          string dp7, dyn_string language,
+          string dp8, dyn_bool   enabled)
+{
+  dyn_string dsUsers, dsGruppe, dsLanguage;
+  dyn_int    diID;
+  dyn_bool   dbEnable;
+
+  int row = UserOverviewTable.selectLineN();
+  UserOverviewTable.deleteAllLines();
+
+  for (int x = 1; x <= dynlen(user); x++)
+  {
+    if ( !enabled[x] )
+    {
+      continue;
+    }
+
+    string groupString = getGroupStringForUser(groups[x], groupId, groupName, groupFullname);
+
+    dynAppend(dsUsers, user[x]);
+    dynAppend(dsGruppe, groupString);
+    dynAppend(diID, uid[x]);
+    dynAppend(dsLanguage, language[x]);
+    dynAppend(dbEnable, enabled[x]);
+  }
+
+  setValue(\"UserOverviewTable\", \"appendLines\", dynlen(dsUsers),
+           \"name\", dsUsers,
+           \"gruppe\", dsGruppe,
+           \"id\", diID,
+           \"sprache\", dsLanguage,
+           \"enabled\", dbEnable);
+
+  if(row <= UserOverviewTable.lineCount())
+  {
+    setValue(\"UserOverviewTable\", \"lineVisible\", row);
+  }
+
+  UserPermissionsTable.deleteAllLines();
+  AreaPermissionsTable.deleteAllLines();
+}
+
+string getGroupStringForUser(string groups, dyn_int groupId, dyn_string groupName, dyn_string groupFullname)
+{
+  dyn_string dsGroups = strsplit(groups, \";\");
+  string groupString = \"\";
+
+  for (int i = 1; i <= dynlen(dsGroups); i++)
+  {
+    int pos = dynContains(groupId, dsGroups[i]);
+    if ( pos > 0)
+    {
+      if ( groupString != \"\" )
+      {
+        groupString += \"; \";
+      }
+
+      if ( strrtrim(strltrim(groupFullname[pos])) == \"\" )
+      {
+        groupString += groupName[pos];
+      }
+      else
+      {
+        groupString += groupFullname[pos];
+      }
+    }
+  }
+
+  return groupString;
+}
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  42 14
+"refFileName"0  1
+E "#uses \"classes/auth/OaAuthFactory\"
+#uses \"classes/userManagement/UserManagement\"
+#uses \"distsync.ctl\"
+
+dyn_string registeredAuthNames;
+string currentAuthName;
+shared_ptr<UserManagement> m_um;
+bool isOSAuthentication;
+
+void setFirstRowBitsVisible(bool visible)
+{
+  setMultiValue(\"txtBit1\", \"visible\", visible,
+                 \"txtBit2\", \"visible\", visible,
+                 \"txtBit3\", \"visible\", visible,
+                 \"txtBit4\", \"visible\", visible,
+                 \"txtBit5\", \"visible\", visible,
+                 \"txtBit6\", \"visible\", visible,
+                 \"txtBit7\", \"visible\", visible,
+                 \"txtBit8\", \"visible\", visible,
+                 \"txtBit9\", \"visible\", visible,
+                 \"txtBit10_1\", \"visible\", visible,
+                 \"txtBit10_0\", \"visible\", visible,
+                 \"txtBit11\", \"visible\", visible,
+                 \"txtBit12\", \"visible\", visible,
+                 \"txtBit13\", \"visible\", visible,
+                 \"txtBit14\", \"visible\", visible,
+                 \"txtBit15\", \"visible\", visible,
+                 \"txtBit16_1\", \"visible\", visible,
+                 \"txtBit16_6\", \"visible\", visible,
+                 \"txtBit17_1\", \"visible\", !visible,
+                 \"txtBit17_7\", \"visible\", !visible,
+                 \"txtBit18\", \"visible\", !visible,
+                 \"txtBit19\", \"visible\", !visible,
+                 \"txtBit20_2\", \"visible\", !visible,
+                 \"txtBit20_0\", \"visible\", !visible,
+                 \"txtBit21\", \"visible\", !visible,
+                 \"txtBit22\", \"visible\", !visible,
+                 \"txtBit23\", \"visible\", !visible,
+                 \"txtBit24\", \"visible\", !visible,
+                 \"txtBit25\", \"visible\", !visible,
+                 \"txtBit26\", \"visible\", !visible,
+                 \"txtBit27\", \"visible\", !visible,
+                 \"txtBit28\", \"visible\", !visible,
+                 \"txtBit29\", \"visible\", !visible,
+                 \"txtBit30_3\", \"visible\", !visible,
+                 \"txtBit30_0\", \"visible\", !visible,
+                 \"txtBit31\", \"visible\", !visible,
+                 \"txtBit32_3\", \"visible\", !visible,
+                 \"txtBit32_2\", \"visible\", !visible);
+}
+
+void resetCurrentSelection()
+{
+  int index = dynContains(registeredAuthNames, currentAuthName);
+  if (index > 0)
+  {
+    AUTHS.selectedPos = index;
+  }
+}
+
+void openGroupsPanel()
+{
+  selectNoUser();
+
+  dyn_float df;
+  dyn_string ds;
+  ChildPanelOnCentralModalReturn(\"vision/ud_groups.pnl\", \"Groups\", makeDynString(\"\"), df, ds);
+}
+
+void selectNoUser()
+{
+  UserOverviewTable.selectLineN(-1);
+  AreaPermissionsTable.deleteAllLines();
+  UserPermissionsTable.deleteAllLines();
+  changeUser.enabled(false);
+  cmdDisableUser.enabled(false);
+  cmdDelUser.enabled(false);
+}
+" 0
+ 4
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 33
+"Frame1"
+""
+1 670 220 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7537688442211056 0 1.288187277162695 164.9748743718592 -22.11301369863018 0 E 670 73 870 220
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 7  Users 
+LANG:10004 6 用户
+LANG:10000 10  Benutzer 
+LANG:10027 16  Пользов.
+30 34
+"Frame2"
+""
+1 670 285 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7537688442211056 0 1 166.6794198264046 39 0 E 670 225 870 285
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Groups
+LANG:10004 3 组
+LANG:10000 7 Gruppen
+LANG:10027 12 Группы
+30 35
+"Frame3"
+""
+1 670 352 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7537688442211056 0 1 166.6794198264046 37 0 E 670 292 870 352
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Areas
+LANG:10004 6 区域
+LANG:10000 8 Bereiche
+LANG:10027 14 Участки
+30 36
+"Frame4"
+""
+1 670 450 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7537688442211056 0 1 166.6794198264046 34 0 E 670 360 870 450
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Authorizations
+LANG:10004 6 权限
+LANG:10000 14 Berechtigungen
+LANG:10027 20 Полномочия
+30 37
+"frmWin"
+""
+1 670 65 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7537688442211056 0 1.119540873460246 164.9748743718592 -5.554031354983199 0 E 670 13 870 65
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 User Administration
+LANG:10004 12 用户管理
+LANG:10000 18 Benutzerverwaltung
+LANG:10027 49 Управление пользователями
+30 43
+"Frame5"
+""
+1 10 550 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.038327526132404 5 -12.04181184668987 0 E 10 262 650 550
+4
+LANG:10001 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 16  Authorizations 
+LANG:10004 6 权限
+LANG:10000 16  Berechtigungen 
+LANG:10027 21  Полномочия
+2 48
+"Text2"
+""
+1 25 323 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 27 324 110 338
+0 2 2 "0s" 0 0 0 192 0 0  27 324 1
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Groups / Areas
+LANG:10004 10 组/区域
+LANG:10000 18 Gruppen / Bereiche
+LANG:10027 29 Группы / Участки
+2 49
+"Text3"
+""
+1 25 279 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 27 280 56 294
+0 2 2 "0s" 0 0 0 192 0 0  27 280 1
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 User
+LANG:10004 6 用户
+LANG:10000 9 Benutzer:
+LANG:10027 25 Пользователь:
+2 39
+"txtWin"
+""
+1 738 71 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 740 73 746 87
+0 2 0 "0s" 0 0 0 192 0 0  740 73 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 1 (
+LANG:10004 1 (
+LANG:10000 1 (
+LANG:10027 1 (
+13 12
+"cmdClose"
+""
+1 733 583 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 59 Закрыть без выполнения операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  733 583 821 611
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 19
+"cmdHelp"
+""
+1 13 583 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  13 583 101 611
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"ud_main\");
+}" 0
+ E E E
+13 10
+"cmdWorkstationAuth"
+""
+1 697.7045454545454 442 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  697.7045454545454 442 795.7045454545454 470
+
+T 
+4
+LANG:10001 11 Workstation
+LANG:10004 9 工作站
+LANG:10000 12 Arbeitsplatz
+LANG:10027 6 АРМ
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ud_workstperm.pnl\",\"\",makeDynString(\"\"));
+}
+" 0
+ E E E
+13 5
+"cmdAuthLevels"
+""
+1 697.7045454545454 412 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  697.7045454545454 412 795.7045454545454 440
+
+T 
+4
+LANG:10001 6 Levels
+LANG:10004 6 层级
+LANG:10000 6 Stufen
+LANG:10027 12 Уровни
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ud_permdes.pnl\",\"\",makeDynString(\"\"));
+}
+" 0
+ E E E
+13 6
+"cmdGroupAdmin"
+""
+1 697.7045454545454 282 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  697.7045454545454 282 795.7045454545454 310
+
+T 
+4
+LANG:10001 12 Administrate
+LANG:10004 6 管理
+LANG:10000 9 Verwalten
+LANG:10027 20 Управление
+"main()
+{
+  openGroupsPanel();
+}" 0
+ E E E
+13 2
+"cmdDisableUser"
+""
+1 696 159 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  696 159 794 187
+
+T 
+4
+LANG:10001 10 Deactivate
+LANG:10004 6 禁用
+LANG:10000 12 Deaktivieren
+LANG:10027 19 Деактивир.
+"main()
+{
+  int        err;
+  string     info;
+  dyn_float  df;
+  dyn_string ds;
+
+  int pos = UserOverviewTable.selectLineN();
+  string user = UserOverviewTable.cellValueRC(pos, \"name\");
+
+  if ( user == \"root\" )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(\"Root cannot be deleted!\"));
+    cmdDisableUser.enabled = user != \"root\";
+    return;
+  }
+
+  info = getCatStr(\"userMan\",\"suretodeactivateuser\");
+  strreplace(info, \"%user\", user);
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"general\", \"information\"),
+                                 makeDynString(info, getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")), df, ds);
+
+  if ( dynlen(df) > 0 && df[1] > 0 )
+  {
+    disableUser(user, err);
+
+    selectNoUser();
+  }
+}
+" 0
+ E E E
+13 13
+"changeUser"
+""
+1 696 188 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  696 188 794 216
+
+T 
+4
+LANG:10001 6 Change
+LANG:10004 6 更改
+LANG:10000 7 Ändern
+LANG:10027 16 Изменить
+"main()
+{
+  int pos = UserOverviewTable.selectLineN();
+  string userName = UserOverviewTable.cellValueRC(pos, \"name\");
+
+  ChildPanelOnCentralModal(\"vision/ud_users.pnl\", \"\",
+                           makeDynString(userName, \"mod\", myPanelName())); // mod = modify
+}
+" 0
+ E E E
+13 1
+"cmdAddUser"
+""
+1 696 100 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  696 100 794 128
+
+T 
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 16 Добавить
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ud_users.pnl\", \"\",
+                           makeDynString(\"\", \"new\", myPanelName()));
+
+  selectNoUser();
+}
+" 0
+ E E E
+13 23
+"Button1"
+""
+1 697.7045454545454 350 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  697.7045454545454 350 795.7045454545454 378
+
+T 
+4
+LANG:10001 12 Administrate
+LANG:10004 6 管理
+LANG:10000 9 Verwalten
+LANG:10027 20 Управление
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ud_areas.pnl\", \"\", makeDynString(\"\"));
+
+  selectNoUser();
+}
+" 0
+ E E E
+25 58
+"UserPermissionsTable"
+""
+1 27 299 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  25 298 635 323
+EE 0 0 1 33 1 "#1" 23 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+219 "#2" 1 1 0 "s" 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#3" 1 1 0 "s" 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#4" 1 1 0 "s" 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#5" 1 1 0 "s" 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#6" 1 1 0 "s" 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#7" 1 1 0 "s" 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#8" 1 1 0 "s" 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#9" 1 1 0 "s" 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#10" 1 1 0 "s" 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#11" 1 1 0 "s" 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#12" 1 1 0 "s" 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#13" 1 1 0 "s" 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#14" 1 1 0 "s" 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#15" 1 1 0 "s" 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#16" 1 1 0 "s" 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#17" 1 1 0 "s" 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#18" 1 0 0 "s" 4
+LANG:10001 1 x
+LANG:10004 1 x
+LANG:10000 3 #18
+LANG:10027 3 #18
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#19" 1 0 0 "s" 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#20" 1 0 0 "s" 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#21" 1 0 0 "s" 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#22" 1 0 0 "s" 4
+LANG:10001 3 #22
+LANG:10004 3 #22
+LANG:10000 3 #22
+LANG:10027 3 #22
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#23" 1 0 0 "s" 4
+LANG:10001 3 #23
+LANG:10004 3 #23
+LANG:10000 3 #23
+LANG:10027 3 #23
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#24" 1 0 0 "s" 4
+LANG:10001 3 #24
+LANG:10004 3 #24
+LANG:10000 3 #24
+LANG:10027 3 #24
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#25" 1 0 0 "s" 4
+LANG:10001 3 #25
+LANG:10004 3 #25
+LANG:10000 3 #25
+LANG:10027 3 #25
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#26" 1 0 0 "s" 4
+LANG:10001 3 #26
+LANG:10004 3 #26
+LANG:10000 3 #26
+LANG:10027 3 #26
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#27" 1 0 0 "s" 4
+LANG:10001 3 #27
+LANG:10004 3 #27
+LANG:10000 3 #27
+LANG:10027 3 #27
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#28" 1 0 0 "s" 4
+LANG:10001 3 #28
+LANG:10004 3 #28
+LANG:10000 3 #28
+LANG:10027 3 #28
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#29" 1 0 0 "s" 4
+LANG:10001 3 #29
+LANG:10004 3 #29
+LANG:10000 3 #29
+LANG:10027 3 #29
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#30" 1 0 0 "s" 4
+LANG:10001 3 #30
+LANG:10004 3 #30
+LANG:10000 3 #30
+LANG:10027 3 #30
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#31" 1 0 0 "s" 4
+LANG:10001 3 #31
+LANG:10004 3 #31
+LANG:10000 3 #31
+LANG:10027 3 #31
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#32" 1 0 0 "s" 4
+LANG:10001 3 #32
+LANG:10004 3 #32
+LANG:10000 3 #32
+LANG:10027 3 #32
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#33" 1 0 0 "s" 4
+LANG:10001 3 #33
+LANG:10004 3 #33
+LANG:10000 3 #33
+LANG:10027 3 #33
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 72
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 0 0 0 1 7
+1 0
+13 50
+"left"
+""
+1 245 520 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  243 518 272 545
+
+P 
+13160660
+"pictures/StandardIcons/arrow_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  for (int i = 1; i < 17; i++ )
+  {
+    UserPermissionsTable.columnVisibility(i + 16, false);
+    UserPermissionsTable.columnVisibility(i, true);
+    AreaPermissionsTable.columnVisibility(i + 16, false);
+    AreaPermissionsTable.columnVisibility(i, true);
+  }
+  setFirstRowBitsVisible(true);
+
+  left.visible = false;
+  right.visible = true;
+}
+" 0
+ E E E
+13 51
+"right"
+""
+1 595 520 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  593 518 622 545
+
+P 
+13160660
+"pictures/StandardIcons/arrow_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  for (int i = 1; i < 17; i++ )
+  {
+    UserPermissionsTable.columnVisibility(i, false);
+    UserPermissionsTable.columnVisibility(i + 16, true);
+    AreaPermissionsTable.columnVisibility(i, false);
+    AreaPermissionsTable.columnVisibility(i + 16, true);
+  }
+  setFirstRowBitsVisible(false);
+
+  left.visible = true;
+  right.visible = false;
+}
+" 0
+ E E E
+13 54
+"cmdActivateUser"
+""
+1 698 130 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Activate user
+LANG:10004 12 激活用户
+LANG:10000 19 Benutzer aktivieren
+LANG:10027 49 Активировать пользователя
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  696 130 794 158
+
+T 
+4
+LANG:10001 8 Activate
+LANG:10004 6 激活
+LANG:10000 10 Aktivieren
+LANG:10027 15 Активир.
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ud_activateUsers.pnl\", \"\", makeDynString());
+
+  selectNoUser();
+}
+" 0
+ E E E
+25 59
+"AreaPermissionsTable"
+""
+1 25 344 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  25 342 652 511
+EE 0 0 1 33 9 "#1" 23 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+220 "#2" 1 1 0 "s" 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#3" 1 1 0 "s" 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#4" 1 1 0 "s" 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#5" 1 1 0 "s" 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#6" 1 1 0 "s" 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#7" 1 1 0 "s" 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#8" 1 1 0 "s" 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#9" 1 1 0 "s" 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#10" 1 1 0 "s" 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#11" 1 1 0 "s" 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#12" 1 1 0 "s" 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#13" 1 1 0 "s" 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#14" 1 1 0 "s" 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#15" 1 1 0 "s" 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#16" 1 1 0 "s" 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#17" 1 1 0 "s" 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#18" 1 0 0 "s" 4
+LANG:10001 1 x
+LANG:10004 1 x
+LANG:10000 3 #18
+LANG:10027 3 #18
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#19" 1 0 0 "s" 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#20" 1 0 0 "s" 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#21" 1 0 0 "s" 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#22" 1 0 0 "s" 4
+LANG:10001 3 #22
+LANG:10004 3 #22
+LANG:10000 3 #22
+LANG:10027 3 #22
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#23" 1 0 0 "s" 4
+LANG:10001 3 #23
+LANG:10004 3 #23
+LANG:10000 3 #23
+LANG:10027 3 #23
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#24" 1 0 0 "s" 4
+LANG:10001 3 #24
+LANG:10004 3 #24
+LANG:10000 3 #24
+LANG:10027 3 #24
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#25" 1 0 0 "s" 4
+LANG:10001 3 #25
+LANG:10004 3 #25
+LANG:10000 3 #25
+LANG:10027 3 #25
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#26" 1 0 0 "s" 4
+LANG:10001 3 #26
+LANG:10004 3 #26
+LANG:10000 3 #26
+LANG:10027 3 #26
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#27" 1 0 0 "s" 4
+LANG:10001 3 #27
+LANG:10004 3 #27
+LANG:10000 3 #27
+LANG:10027 3 #27
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#28" 1 0 0 "s" 4
+LANG:10001 3 #28
+LANG:10004 3 #28
+LANG:10000 3 #28
+LANG:10027 3 #28
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#29" 1 0 0 "s" 4
+LANG:10001 3 #29
+LANG:10004 3 #29
+LANG:10000 3 #29
+LANG:10027 3 #29
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#30" 1 0 0 "s" 4
+LANG:10001 3 #30
+LANG:10004 3 #30
+LANG:10000 3 #30
+LANG:10027 3 #30
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#31" 1 0 0 "s" 4
+LANG:10001 3 #31
+LANG:10004 3 #31
+LANG:10000 3 #31
+LANG:10027 3 #31
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#32" 1 0 0 "s" 4
+LANG:10001 3 #32
+LANG:10004 3 #32
+LANG:10000 3 #32
+LANG:10027 3 #32
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "#33" 1 0 0 "s" 4
+LANG:10001 3 #33
+LANG:10004 3 #33
+LANG:10000 3 #33
+LANG:10027 3 #33
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+8 72
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 106
+"cmdDefineSettings"
+""
+1 59 518 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+132 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  183 518 211 546
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/uss_defineSettings.pnl\", \"\", makeDynString(\"$s_settingsType:_uss\"));
+}
+" 0
+ E E E
+1 123 0 "" 0
+0
+2 109
+"PRIMITIVE_TEXT1"
+""
+1 175 523 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+134 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"_WindowText\""
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 0 1 2 1 E U  0 E 36 523 175 538
+0 2 2 "0s" 0 0 0 194 0 0  175 523 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 Settings management...
+LANG:10004 12 管理设置
+LANG:10000 25 Einstellungsverwaltung...
+LANG:10027 40 Управл.инд.свойствами
+22 113
+"AUTHS"
+""
+1 680 34 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+136 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  678 28 812 55
+0
+
+E
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  int userManagementPermissionLevel;
+
+  dpGet(\"_System.Auth.UserManagement\", userManagementPermissionLevel);
+
+  if ( !getUserPermission(userManagementPermissionLevel) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"userMan\", \"noPermission\")));
+    return;
+  }
+
+  int newAuthPos = this.selectedPos();
+  string newAuth = registeredAuthNames[newAuthPos];
+  string msgKeyTitle;
+  string msgKeySure;
+  string helpKeyword = \"\";
+
+  OaAuthFactory factory;
+  mixed auth = factory.getAuthByName(newAuth);
+
+  if (auth.getAuthName() == currentAuthName)
+  {
+    // the user selected the currently active method -> do nothing
+    return;
+  }
+
+  switch (auth.getAuthType())
+  {
+    case OaAuthenticationType::Standard:
+      msgKeyTitle = \"switchtopvss\";
+      msgKeySure  = \"suretoswitchpvss\";
+      break;
+    case OaAuthenticationType::AD:
+      msgKeyTitle = \"switchtowin\";
+      msgKeySure  = \"suretoswitchwin\";
+      break;
+    case OaAuthenticationType::Userdefined:
+      msgKeyTitle = \"switchtoext\";
+      msgKeySure  = \"suretoswitchext\";
+      break;
+    case OaAuthenticationType::None:
+    default:
+      resetCurrentSelection();
+      return;
+  }
+
+  string title = getCatStr(\"userMan\", msgKeyTitle);
+  string text  = getCatStr(\"userMan\", msgKeySure);
+
+  // Are you sure to use the <...> user management?
+  // OA --> WIN: This configuration changes the security settings. For further information see the online help. Do you want to continue?
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 title,
+                                 makeDynString(text, getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\"), helpKeyword),
+                                 df, ds);
+  if (dynlen(df) < 1 || df[1] == 0)
+  {
+    resetCurrentSelection();
+    return;
+  }
+
+  // Switching to <...> user management?
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 title,
+                                 makeDynString(getCatStr(\"userMan\", msgKeyTitle + \"2\"), getCatStr(\"para\",\"yes\"), getCatStr(\"para\",\"no\")),
+                                 df, ds);
+
+
+  if (dynlen(df) < 1 || df[1] == 0)
+  {
+    resetCurrentSelection();
+    return;
+  }
+
+  bool standardAuth = auth.getAuthType() == OaAuthenticationType::Standard;
+  isOSAuthentication = auth.getAuthType() == OaAuthenticationType::AD;
+
+  if (auth.deleteUsersOnActivate())
+  {
+    deleteLocalUsers();
+    deleteLocalGroups();
+  }
+  else
+  {
+    resetUserOSIDs();
+  }
+
+  dpSet(\"_WinUserAdmin.Windows:_original.._value\", isOSAuthentication,
+        \"_WinUserAdmin.External:_original.._value\", auth.getAuthName());
+
+  cmdDisableUser.enabled = standardAuth;
+  cmdActivateUser.enabled = standardAuth && getUserPermission(userManagementPermissionLevel);
+
+  currentAuthName = auth.getAuthName();
+
+  if (!standardAuth) // User defined or Active Directory
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"general\", \"warning\"),
+                                   makeDynString(getCatStr(\"userMan\", \"switchdone\"),
+                                                           getCatStr(\"general\", \"yes\"),
+                                                           getCatStr(\"general\", \"no\")),
+                                   df, ds);
+
+    if (dynlen(df) > 0 && df[1] != 0)
+    {
+      // Let user select groups
+      openGroupsPanel();
+    }
+  }
+}
+
+void deleteLocalUsers()
+{
+  dyn_anytype users = m_um.getAllSavedUsers();
+  int numberOfUsers = dynlen(users);
+
+  for (int i = 1; i <= numberOfUsers; ++i)
+  {
+    anytype user = users[i];
+
+    if (user.getId() != 0)
+    {
+      user.remove();
+    }
+    else
+    {
+      // Also remove the external id of the root user
+      user.setOSID(\"\");
+    }
+  }
+
+  m_um.saveChanges();
+}
+
+void deleteLocalGroups()
+{
+  dyn_anytype groups = m_um.getAllGroups();
+
+  for(int i = 1; i <= dynlen(groups); i++)
+  {
+    anytype group = groups[i];
+    if(group.getName() != \"root\" && group.getOSID() == \"\") //all local groups should be removed except root
+    {
+      group.remove();
+    }
+  }
+
+  m_um.saveChanges();
+}
+
+void resetUserOSIDs()
+{
+  dyn_anytype users = m_um.getAllSavedUsers();
+  int numberOfUsers = dynlen(users);
+
+  for (int i = 1; i <= numberOfUsers; ++i)
+  {
+    anytype user = users[i];
+    user.setOSID(\"\");
+  }
+
+  m_um.saveChanges();
+}
+" 0
+
+E
+ 0 0
+13 122
+"cmdDelUser"
+""
+1 720 212 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+139 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 44 MS Shell Dlg 2,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10004 44 MS Shell Dlg 2,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10000 44 MS Shell Dlg 2,-1,12,5,50,0,0,0,0,0,Standard
+LANG:10027 44 MS Shell Dlg 2,-1,12,5,50,0,0,0,0,0,Standard
+0  696 217 794 245
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"
+main(mapping event)
+{
+  int row = UserOverviewTable.selectLineN();
+
+  if (row < 0)
+  {
+    return; // no valid selection
+  }
+
+  string userName = UserOverviewTable.cellValueRC(row, \"name\");
+
+  if (userName == \"root\")
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"userMan\", \"cannotdelete\")));
+    return;
+  }
+
+  string question = getCatStr(\"userMan\", \"suredeleteuser\");
+  dyn_float  resultFloats;
+  dyn_string resultStrings;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"general\", \"information\"),
+                                 makeDynString(question, getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")),
+                                 resultFloats, resultStrings);
+
+  if (dynlen(resultStrings) > 0 && resultStrings[1] == \"true\")
+  {
+    shared_ptr<UserManagementUser> user = m_um.getUserByName(userName);
+
+    if (user != nullptr)
+    {
+      user.remove();
+      dyn_string errorList;
+      if (! m_um.saveChangesError(errorList))
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                 getCatStr(\"para\", \"warning\"),
+                                 makeDynString(getCatStr(\"userMan\", \"cannotdelete\") + \"\\n\" + strjoin(errorList, \"\\n\")));
+      }
+    }
+    else
+    {
+      string additionalErrorMessage = \"Error, user \" + userName + \" not found\";
+
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               getCatStr(\"para\", \"warning\"),
+                               makeDynString(getCatStr(\"userMan\",\"cannotdelete\") + additionalErrorMessage));
+    }
+  }
+}
+" 0
+ E E E
+25 0
+"UserOverviewTable"
+""
+1 13 15 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E "main()
+{
+string user;
+int    pos;
+bool   ena;
+
+  getValue( \"UserOverviewTable\", \"getSelectedLines\", pos );
+  getValue( \"UserOverviewTable\", \"cellValueRC\", pos, \"name\", user,
+                                 \"cellValueRC\", pos, \"enabled\", ena);
+
+  if ( !ena )
+  {
+    //User is inactive
+    return;
+  }
+
+  ChildPanelOnCentralModal(\"vision/ud_users.pnl\", \"\" ,makeDynString(user, \"mod\", myPanelName()));
+}
+" 0
+
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  string         sBit, sCol;
+  int row = this.selectLineN;
+
+  if (row == -1)
+  {
+    return;
+  }
+  string userName = this.cellValueRC(row, \"name\");
+  bool isUserEnabled = this.cellValueRC(row, \"enabled\");
+
+  if (!isUserEnabled)
+  {
+    return;
+  }
+
+  shared_ptr<UserManagementUser> user = m_um.getUserByName(userName);
+
+  if (user == nullptr)
+  {
+    return;
+  }
+
+  // user permissions
+  UserPermissionsTable.deleteAllLines();
+
+  string userFullName = user.getFullName(); // langString --> string
+
+  if (strrtrim(strltrim(userFullName)) == \"\")
+  {
+    UserPermissionsTable.appendLine(\"#1\", user.getName());
+  }
+  else
+  {
+    UserPermissionsTable.appendLine(\"#1\", userFullName);
+  }
+
+  addPermissionToTable(getShape(\"UserPermissionsTable\"), 0, user.getPermissionSet());
+
+  // group / area permissions
+  dyn_int userGroupIDs = user.getGroupIds();
+  dyn_anytype userGroups = user.getGroups(m_um);
+  AreaPermissionsTable.deleteAllLines();
+
+  for (int g = 1; g <= dynlen(userGroups); g++)
+  {
+    shared_ptr<UserManagementGroup> group = userGroups[g];
+    string groupFullName = group.getFullName();
+    string friendlyGroupName = (strrtrim(strltrim(groupFullName)) == \"\") ? group.getName() : groupFullName;
+
+    dyn_anytype groupAreas = group.getAreas(m_um);
+
+    for (int a = 1; a <= dynlen(groupAreas); a++)
+    {
+      shared_ptr<UserManagementArea> area = groupAreas[a];
+
+      if (area == nullptr)
+      {
+        // for groups, not separated int areas - dyn of length 1 is returned but with a null pointer
+        continue;
+      }
+
+      string friendlyAreaName = area.getFullName() != \"\" ? area.getFullName() : area.getName();
+      AreaPermissionsTable.appendLine(\"#1\", friendlyGroupName + \" / \" + friendlyAreaName);
+
+      int line = AreaPermissionsTable.lineCount() - 1;
+
+      addPermissionToTable(getShape(\"AreaPermissionsTable\"), line, group.getAreaPermissionBits(area));
+    }
+  }
+
+  int userManagementPermissionLevel;
+  dpGet(\"_System.Auth.UserManagement\", userManagementPermissionLevel);
+
+  changeUser.enabled(true);
+  cmdDisableUser.enabled(getUserPermission(userManagementPermissionLevel));
+  cmdDelUser.enabled(getUserPermission(userManagementPermissionLevel));
+}
+
+void addPermissionToTable(shape table, int line, bit32 permissions)
+{
+  dyn_langString permissionDescriptions = m_um.getAllPermissionDescriptions();
+
+  for (int i = 0; i < 32; i++)
+  {
+    int column = i + 2;
+    string sCol = \"#\" + column;
+    string sBit = (getBit(permissions, i)) ? 1 : 0;
+    table.cellValueRC(line, sCol, sBit);
+
+    langString toolTipText = getToolTipText(permissionDescriptions, i + 1);
+    table.columnToolTipText(column - 1, toolTipText);
+  }
+}
+
+private langString getToolTipText(dyn_langString texts, int index)
+{
+  langString result;
+
+  if (index > dynlen(texts))
+  {
+    return result + \"(\" + index + \")\";
+  }
+
+  result = texts[index] + \" (\" + index + \")\";
+  return result;
+}"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  13 13 652 254
+"main()
+{
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);  
+  this.selectColors (\"_ButtonShadow\", \"_Window\");
+}
+" 0
+E 1 0 1 5 12 "name" 21 1 0 "s" 4
+LANG:10001 9 User name
+LANG:10004 9 用户名
+LANG:10000 12 Benutzername
+LANG:10027 31 Имя пользователя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+204 "gruppe" 22 1 0 "s" 4
+LANG:10001 6 Groups
+LANG:10004 3 组
+LANG:10000 7 Gruppen
+LANG:10027 12 Группы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+208 "id" 4 1 0 "s" 4
+LANG:10001 2 ID
+LANG:10004 2 ID
+LANG:10000 2 ID
+LANG:10027 4 ИД
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+44 "sprache" 16 1 0 "s" 4
+LANG:10001 13 User language
+LANG:10004 12 用户语言
+LANG:10000 15 Benutzersprache
+LANG:10027 29 Язык интерфейса
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+160 "enabled" 4 0 0 "s" 4
+LANG:10001 7 Enabled
+LANG:10004 9 已启用
+LANG:10000 7 Enabled
+LANG:10027 18 Разрешено
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+48 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 72
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+2 63
+"txtBit1"
+""
+1 255 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 255 286 264 301
+0 2 2 "0s" 0 0 0 192 0 0  255 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 65
+"txtBit2"
+""
+1 280 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 280 286 289 301
+0 2 2 "0s" 0 0 0 192 0 0  280 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 66
+"txtBit3"
+""
+1 304 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 304 286 313 301
+0 2 2 "0s" 0 0 0 192 0 0  304 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 67
+"txtBit4"
+""
+1 328 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 328 286 337 301
+0 2 2 "0s" 0 0 0 192 0 0  328 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 68
+"txtBit5"
+""
+1 352 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 352 286 361 301
+0 2 2 "0s" 0 0 0 192 0 0  352 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 69
+"txtBit6"
+""
+1 376 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 376 286 385 301
+0 2 2 "0s" 0 0 0 192 0 0  376 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 70
+"txtBit7"
+""
+1 400 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 400 286 409 301
+0 2 2 "0s" 0 0 0 192 0 0  400 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+2 71
+"txtBit8"
+""
+1 424 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 424 286 433 301
+0 2 2 "0s" 0 0 0 192 0 0  424 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 72
+"txtBit9"
+""
+1 448 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 448 286 457 301
+0 2 2 "0s" 0 0 0 192 0 0  448 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 75
+"txtBit10_0"
+""
+1 472 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 472 286 481 301
+0 2 2 "0s" 0 0 0 192 0 0  472 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 74
+"txtBit10_1"
+""
+1 472 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 472 272 481 287
+0 2 2 "0s" 0 0 0 192 0 0  472 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 76
+"txtBit11"
+""
+1 496 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 496 286 505 301
+0 2 2 "0s" 0 0 0 192 0 0  496 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 77
+"txtBit12"
+""
+1 520 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 520 286 529 301
+0 2 2 "0s" 0 0 0 192 0 0  520 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 78
+"txtBit13"
+""
+1 545 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 545 286 554 301
+0 2 2 "0s" 0 0 0 192 0 0  545 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 79
+"txtBit14"
+""
+1 568 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 568 286 577 301
+0 2 2 "0s" 0 0 0 192 0 0  568 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 80
+"txtBit15"
+""
+1 592 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 592 286 601 301
+0 2 2 "0s" 0 0 0 192 0 0  592 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 81
+"txtBit16_6"
+""
+1 616 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 616 286 625 301
+0 2 2 "0s" 0 0 0 192 0 0  616 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 82
+"txtBit16_1"
+""
+1 616 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 616 272 625 287
+0 2 2 "0s" 0 0 0 192 0 0  616 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+2 83
+"txtBit17_7"
+""
+1 255 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 255 286 264 301
+0 2 2 "0s" 0 0 0 192 0 0  255 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+2 84
+"txtBit18"
+""
+1 280 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 280 286 289 301
+0 2 2 "0s" 0 0 0 192 0 0  280 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 85
+"txtBit19"
+""
+1 304 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 304 286 313 301
+0 2 2 "0s" 0 0 0 192 0 0  304 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 86
+"txtBit20_0"
+""
+1 328 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 328 286 337 301
+0 2 2 "0s" 0 0 0 192 0 0  328 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 87
+"txtBit21"
+""
+1 352 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 352 286 361 301
+0 2 2 "0s" 0 0 0 192 0 0  352 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 88
+"txtBit22"
+""
+1 376 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 376 286 385 301
+0 2 2 "0s" 0 0 0 192 0 0  376 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 89
+"txtBit23"
+""
+1 400 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 400 286 409 301
+0 2 2 "0s" 0 0 0 192 0 0  400 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 90
+"txtBit28"
+""
+1 520 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 520 286 529 301
+0 2 2 "0s" 0 0 0 192 0 0  520 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+2 91
+"txtBit29"
+""
+1 544 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 544 286 553 301
+0 2 2 "0s" 0 0 0 192 0 0  544 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+2 92
+"txtBit30_3"
+""
+1 568 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 568 272 577 287
+0 2 2 "0s" 0 0 0 192 0 0  568 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 93
+"txtBit30_0"
+""
+1 568 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 568 286 577 301
+0 2 2 "0s" 0 0 0 192 0 0  568 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+2 94
+"txtBit31"
+""
+1 592 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 592 286 601 301
+0 2 2 "0s" 0 0 0 192 0 0  592 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 95
+"txtBit32_2"
+""
+1 616 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 616 286 625 301
+0 2 2 "0s" 0 0 0 192 0 0  616 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 97
+"txtBit24"
+""
+1 424 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 424 286 433 301
+0 2 2 "0s" 0 0 0 192 0 0  424 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+2 98
+"txtBit25"
+""
+1 448 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 448 286 457 301
+0 2 2 "0s" 0 0 0 192 0 0  448 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+2 99
+"txtBit26"
+""
+1 472 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 472 286 481 301
+0 2 2 "0s" 0 0 0 192 0 0  472 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+2 100
+"txtBit32_3"
+""
+1 616 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+123 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 616 272 625 287
+0 2 2 "0s" 0 0 0 192 0 0  616 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+2 102
+"txtBit17_1"
+""
+1 255 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+127 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 255 272 264 287
+0 2 2 "0s" 0 0 0 192 0 0  255 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+2 103
+"txtBit20_2"
+""
+1 328 272 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+129 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 328 272 337 287
+0 2 2 "0s" 0 0 0 192 0 0  328 272 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+2 101
+"txtBit27"
+""
+1 496 286 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+125 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 496 286 505 301
+0 2 2 "0s" 0 0 0 192 0 0  496 286 1
+4
+LANG:10001 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10004 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10000 30 Helvetica,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 55 575 T 133 1.763527054108216 0 1 -96.99398797595188 0
+0
+0

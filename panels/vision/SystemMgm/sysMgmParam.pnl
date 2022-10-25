@@ -1,0 +1,807 @@
+V 13
+4
+LANG:10001 33 System management parametrization
+LANG:10004 18 系统管理参数
+LANG:10000 31 Systemmanagement Parametrierung
+LANG:10027 56 Настройка управления системой
+PANEL,-1 -1 385 645 N "_3DFace" 0
+E E E E E 1 -1 -1 0  0 0
+""0  1
+E "
+smSaveParam()
+{
+  dyn_string rootIds;
+  dyn_string dpsSaved;
+  dyn_string dpsDb;
+  
+  rootIds = smDbGetRootIdents();
+  
+  for (int i=1; i<=dynlen(rootIds); i++)
+  {
+    langString title, description;
+    string icon, dp;
+    unsigned permission;
+    int index;
+    dyn_langString titles, descriptions;
+    dyn_string iconsSmalle, iconsLarge, filenames, viewPermissionsOwn, runPermissionsOwn, actionScripts, dollars;
+    dyn_uint viewPermissions, runPermissions;
+    dyn_bool ownActionScripts;
+    dyn_anytype valuesGet, valuesSet;
+    dyn_string dpes;
+    string rootId = rootIds[i];
+    dyn_string items;
+  
+    dp = smDbGetRootSetting(rootId, COLUMN_DP);
+    title = smDbGetRootSetting(rootId, COLUMN_TITLE);
+    description = smDbGetRootSetting(rootId, COLUMN_DESCRIPTION);
+    permission = smDbGetRootSetting(rootId, COLUMN_VIEW_PERMISSION);
+    icon = smDbGetRootSetting(rootId, COLUMN_ICON_SMALL);
+    items = smDbGetRootSetting(rootId, COLUMN_ITEMS);
+    // TFS 8263
+    index = smDbGetRootSetting(rootId, COLUMN_INDEX);
+    
+    //Datenpunkt merken um später entscheiden zu können ob welche gelöscht wurden
+    dynAppend(dpsSaved, dp);
+    
+    for (int i=1; i<=dynlen(items); i++)
+    {
+      string ident = items[i];
+      
+      //dp                    = smDbGetItemSetting(ident, COLUMN_DP);
+      titles[i]             = smDbGetItemSetting(ident, COLUMN_TITLE);
+      descriptions[i]       = smDbGetItemSetting(ident, COLUMN_DESCRIPTION);
+      iconsSmalle[i]        = smDbGetItemSetting(ident, COLUMN_ICON_SMALL);
+      iconsLarge[i]         = smDbGetItemSetting(ident, COLUMN_ICON_LARGE);
+      ownActionScripts[i]   = smDbGetItemSetting(ident, COLUMN_OWNACTION);
+      filenames[i]          = smDbGetItemSetting(ident, COLUMN_FILENAME);
+      actionScripts[i]      = smDbGetItemSetting(ident, COLUMN_ACTIONSCRIPT);
+      dollars[i]            = smDbGetItemSetting(ident, COLUMN_DOLLAR);
+      viewPermissions[i]    = smDbGetItemSetting(ident, COLUMN_VIEW_PERMISSION);
+      viewPermissionsOwn[i] = smDbGetItemSetting(ident, COLUMN_VIEW_PERMISSION_OWN);
+      runPermissions[i]     = smDbGetItemSetting(ident, COLUMN_RUN_PERMISSION);
+      runPermissionsOwn[i]  = smDbGetItemSetting(ident, COLUMN_RUN_PERMISSION_OWN);
+    }
+    
+    dynAppend(dpes, dp+\".Title\");
+    dynAppend(dpes, dp+\".Description\");
+    dynAppend(dpes, dp+\".ViewPermission\");
+    dynAppend(dpes, dp+\".Icon\");
+    // TFS 8263
+    dynAppend(dpes, dp+\".Index\");
+    dynAppend(dpes, dp+\".Items.Titles\");
+    dynAppend(dpes, dp+\".Items.Descriptions\");
+    dynAppend(dpes, dp+\".Items.IconsSmall\");
+    dynAppend(dpes, dp+\".Items.IconsLarge\");
+    dynAppend(dpes, dp+\".Items.OwnActionScripts\");
+    dynAppend(dpes, dp+\".Items.Filenames\");
+    dynAppend(dpes, dp+\".Items.ActionScripts\");
+    dynAppend(dpes, dp+\".Items.Dollars\");
+    dynAppend(dpes, dp+\".Items.ViewPermissions\");
+    dynAppend(dpes, dp+\".Items.RunPermissions\");
+    dynAppend(dpes, dp+\".Items.ViewPermissionsOwn\");
+    dynAppend(dpes, dp+\".Items.RunPermissionsOwn\");
+    
+    valuesSet[dynlen(valuesSet)+1] = title;
+    valuesSet[dynlen(valuesSet)+1] = description;
+    valuesSet[dynlen(valuesSet)+1] = permission;
+    valuesSet[dynlen(valuesSet)+1] = icon;
+    // TFS 8263
+    valuesSet[dynlen(valuesSet)+1] = index;
+    valuesSet[dynlen(valuesSet)+1] = titles;
+    valuesSet[dynlen(valuesSet)+1] = descriptions;
+    valuesSet[dynlen(valuesSet)+1] = iconsSmalle;
+    valuesSet[dynlen(valuesSet)+1] = iconsLarge;
+    valuesSet[dynlen(valuesSet)+1] = ownActionScripts;
+    valuesSet[dynlen(valuesSet)+1] = filenames;
+    valuesSet[dynlen(valuesSet)+1] = actionScripts;
+    valuesSet[dynlen(valuesSet)+1] = dollars;
+    valuesSet[dynlen(valuesSet)+1] = viewPermissions;
+    valuesSet[dynlen(valuesSet)+1] = runPermissions;
+    valuesSet[dynlen(valuesSet)+1] = viewPermissionsOwn;
+    valuesSet[dynlen(valuesSet)+1] = runPermissionsOwn;
+    
+    //Momentanwerte holen um später Vergleich durchführen zu können
+    if (dpExists(dp))
+      dpGet(dpes, valuesGet);
+    
+    if (!dpExists(dp))  //Neue Kategorie
+    {
+      dyn_string ds;
+      string systemName, dpName;
+      ds = strsplit(dp, \":\");
+      if (dynlen(ds)>=2)
+      {
+        systemName = ds[1]+\":\";
+        dpName = ds[2];
+      }
+      else
+      {
+        systemName = getSystemName();
+        dpName = dp;
+      }
+      dpCreate(dpName, \"_SysMgm\", getSystemId(systemName));
+    }
+    
+    if (valuesGet!=valuesSet)  //Werte haben sich geändert
+    {
+      /*DebugN(dp+\" hat sich geändert\");
+      for (int i=1; i<=dynlen(dpes); i++)
+      {
+        if (dynlen(valuesGet)>=i && dynlen(valuesSet)>=i && valuesGet[i]!=valuesSet[i])
+          DebugN(dpes[i], (string)valuesGet[i], (string)valuesSet[i]);
+      }*/
+      dpSetWait(dpes, valuesSet);
+    }
+  }
+  
+  //Datenpunkte die nicht mehr in der Liste sind ermitteln
+  dpsDb = smGetDps(true);
+  dynSortAsc(dpsSaved);
+  for (int i=dynlen(dpsSaved); i>=1; i--)
+  {
+    int n = dynContains(dpsDb, dpsSaved[i]);
+    if (n>=1) dynRemove(dpsDb, n);
+  }
+  
+  //Datenpunkte löschen
+  for (int i=1; i<=dynlen(dpsDb); i++)
+    dpDelete(dpsDb[i]);
+}
+
+smCloseParam()
+{
+  //Wenn sich was geändert hat nachfragen ob verwerfen
+  if (smIsParamChanged())
+  {
+    dyn_string ds;
+    dyn_float df;
+    ChildPanelOnCentralReturn(\"vision/MessageInfo3\", 
+                              getCatStr(\"SysMgm\",\"realyDelete\"), 
+                              makeDynString(getCatStr(\"SysMgm\",\"saveChanges\"),
+                                            getCatStr(\"general\", \"yes\"), 
+                                            getCatStr(\"general\", \"no\"), 
+                                            getCatStr(\"general\", \"cancel\")), 
+                              df, ds);
+    //Wenn Abbrechen gedrückt wurde
+    if (dynlen(df)<1 || df[1]==2)
+      return;
+    else if (df[1]==1) //Es wurde Ja gedrück
+    {
+      //Speichern der Änderungen
+      smSaveParam();
+    }
+    else  //Es wurde nein gedrückt
+    {
+      //Verwerfen der Änderungen
+    }
+  }
+  
+  smDbClear();
+  smDbRemoveIdLock();
+  
+  //Panel schließen
+  PanelOff();
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  smCloseParam();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1 27 0 "" 0
+0
+13 5
+"cmdNewGroupe"
+""
+1 345 45 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Add new category ...
+LANG:10004 15 添加新目录
+LANG:10000 30 Neue Kategorie hinzufügen ...
+LANG:10027 51 Добавить новую категорию ....
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  343 43 371 71
+
+P 
+4294967295
+"pictures/StandardIcons/add_folder_20.png"
+4
+LANG:10001 12 PUSH_BUTTON3
+LANG:10004 12 PUSH_BUTTON3
+LANG:10000 12 PUSH_BUTTON3
+LANG:10027 12 PUSH_BUTTON3
+"main()
+{
+  smParamAddRoot();
+}
+" 0
+ E E E
+13 7
+"cmdAddBrotherAfter"
+""
+1 345 150 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Append item ...
+LANG:10004 12 添加条目
+LANG:10000 17 Item anfügen ...
+LANG:10027 33 Добавить объект ...
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 148 371 176
+
+P 
+13421772
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  smParamAddItem(sysMgmTree.selectedItem(), 3);
+}" 0
+ E E E
+13 8
+"cmdAddChild"
+""
+1 345 90 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Insert child item ...
+LANG:10004 19 插入子项目 ...
+LANG:10000 22 Unteritem anfügen ...
+LANG:10027 46 Вставить дочерний объект
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 88 371 116
+
+P 
+13421772
+"pictures/StandardIcons/Append_child_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  smParamAddItem(sysMgmTree.selectedItem(), 1);
+}
+" 0
+ E E E
+13 9
+"cmdAddBrotherBefore"
+""
+1 345 120 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Insert item ...
+LANG:10004 15 插入条目...
+LANG:10000 18 Item einfügen ...
+LANG:10027 33 Вставить объект ...
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 118 371 146
+
+P 
+13421772
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  smParamAddItem(sysMgmTree.selectedItem(), 2);
+}" 0
+ E E E
+13 10
+"cmdUp"
+""
+1 345 195 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Move item up
+LANG:10004 18 向上移动条目
+LANG:10000 26 Item nach oben verschieben
+LANG:10027 38 Поднять объект вверх
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 193 371 221
+
+P 
+10040064
+"pictures/StandardIcons/arrow_top_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  // TFS 8263
+  string id = sysMgmTree.selectedItem();
+  bool enable = false, root = false;
+  
+  if ( strpos(id, \"root\") == 0 )
+    root = true;
+  
+  if ( root )
+  {
+    smParamMoveRoot(id, true);
+  
+    if ( dynlen(sysMgmTree.selectedItems())>=1 )
+    {
+      string idAbove = sysMgmTree.itemAbove(id);
+      if ( idAbove == \"\" )
+        enable = true;
+    }
+  }
+  else
+  {
+    smParamMoveItem(id, true);
+  
+    if ( dynlen(sysMgmTree.selectedItems())>=1 )
+    {
+      string idAbove = sysMgmTree.itemAbove(id);
+      if (!(strpos(idAbove, \"root\")==0))
+        enable = true;
+    }
+  }
+  
+  cmdUp.enabled(enable);
+  cmdDown.enabled(true);
+}
+
+
+" 0
+ E E E
+13 11
+"cmdDown"
+""
+1 345 225 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Move item down
+LANG:10004 18 向下移动条目
+LANG:10000 27 Item nach unten verschieben
+LANG:10027 38 Опустить объект вниз
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 223 371 251
+
+P 
+10040064
+"pictures/StandardIcons/arrow_bottom_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  // TFS 8263
+  string id = sysMgmTree.selectedItem();
+  bool enable = false, root = false;
+  
+  if ( strpos(id, \"root\") == 0 )
+    root = true;
+  
+  if ( root )
+  {
+    smParamMoveRoot(id, false);
+    
+    if ( dynlen(sysMgmTree.selectedItems())>=1 )
+    {
+      string idBelow = sysMgmTree.itemBelow(id);
+      if ( idBelow == \"\" )
+        enable = true;
+    }
+  }
+  else
+  {
+    smParamMoveItem(id, false);
+    
+    if ( dynlen(sysMgmTree.selectedItems())>=1 )
+    {
+      string idBelow = sysMgmTree.itemBelow(id);
+      if (!(strpos(idBelow, \"root\")==0 || idBelow==\"\"))
+        enable = true;
+    }
+  }
+  
+  cmdDown.enabled(enable);
+  cmdUp.enabled(true);
+}
+
+
+" 0
+ E E E
+13 12
+"cmdDelete"
+""
+1 345 270 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  343 268 371 296
+
+P 
+4294967295
+"pictures/StandardIcons/delete_20.png"
+4
+LANG:10001 12 PUSH_BUTTON3
+LANG:10004 12 PUSH_BUTTON3
+LANG:10000 12 PUSH_BUTTON3
+LANG:10027 12 PUSH_BUTTON3
+"main()
+{
+  smParamDelete(sysMgmTree.selectedItem());
+}" 0
+ E E E
+13 13
+"cmdEdit"
+""
+1 345 15 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 Edit ...
+LANG:10004 9 编辑...
+LANG:10000 14 Bearbeiten ...
+LANG:10027 20 Изменить ...
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  343 13 371 41
+
+P 
+4294967295
+"pictures/StandardIcons/Config_params_20.png"
+4
+LANG:10001 12 PUSH_BUTTON3
+LANG:10004 12 PUSH_BUTTON3
+LANG:10000 12 PUSH_BUTTON3
+LANG:10027 12 PUSH_BUTTON3
+"main()
+{
+  smOpenParamPanel(sysMgmTree.selectedItem());
+}
+" 0
+ E E E
+13 14
+"cmdExport"
+""
+1 345 315 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Export
+LANG:10004 6 导出
+LANG:10000 11 Exportieren
+LANG:10027 14 Экспорт
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  343 313 371 341
+
+P 
+4294967295
+"pictures/StandardIcons/arrow_right_20.png"
+4
+LANG:10001 12 PUSH_BUTTON3
+LANG:10004 12 PUSH_BUTTON3
+LANG:10000 12 PUSH_BUTTON3
+LANG:10027 12 PUSH_BUTTON3
+E E E E
+2 15
+"ptxtIsPara"
+""
+1 330 520 E E E 1 E 0 E N "_WindowText" E N {110,255,26} E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 330 520 369 535
+0 2 2 "0s" 0 0 0 192 0 0  330 520 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 isPara
+LANG:10004 6 isPara
+LANG:10000 6 isPara
+LANG:10027 6 isPara
+13 17
+"cmdSave"
+""
+1 195 590 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  193 608 281 636
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Сохранить
+"main()
+{
+  //Speichern
+  smSaveParam();
+  
+  //Grafische Änderungen durchführen
+  smSetParamChanged(false);
+}" 0
+ E E E
+13 18
+"cmdCancel"
+""
+1 276 595 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 30 放弃修改的数值并关闭
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  283 608 371 636
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  smCloseParam();
+}" 0
+ E E E
+13 16
+"cmdOK"
+""
+1 100 585 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 21 接受更改并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  103 608 191 636
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  //Wenn sich was geändert hat speichern
+  if (smIsParamChanged())
+    smSaveParam();
+  
+  smDbClear();
+  smDbRemoveIdLock();
+  
+  //Panel Schließen
+  PanelOff();
+}" 0
+ E E E
+1 28 1 "" 0
+0
+13 22
+"cmdHelp"
+""
+1 25 625 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 608 101 636
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"sysmgmsettings\");
+}" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF1" -1
+"" ""
+"vision/SystemMgm/sysMgm_Tree.pnl" 35 28 T 6 1 0 1.003521126760564 -5 -8.08098591549297
+0
+3 1 "PANEL_REF1" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 5 600 T 32 0.7695390781563125 0 1 -3.847695390781563 0
+0
+0

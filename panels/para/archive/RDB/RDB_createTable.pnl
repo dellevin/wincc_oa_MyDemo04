@@ -1,0 +1,516 @@
+V 13
+4
+LANG:10001 15 Table structure
+LANG:10004 3 表
+LANG:10000 16 Tabellenstruktur
+LANG:10027 33 Структура таблицы
+PANEL,-1 -1 740 445 N "_3DFace" 1
+"$1"
+"main()
+{
+  int        i, iErr;
+  string     sDp = dpSubStr($1, DPSUB_DP), sName;
+  string     group, properties, storageclause, indices, storageclauseidx;
+  dyn_string dsTables, ds;
+  dyn_float  df;
+
+  addGlobal(\"g_ImpExpColumn\", DYN_STRING_VAR);
+  addGlobal(\"g_ImpExpColumnType\", DYN_STRING_VAR);
+  addGlobal(\"g_ImpExpColumnDefault\", DYN_STRING_VAR);
+  addGlobal(\"g_ImpExpColumnLength\", DYN_INT_VAR);
+  addGlobal(\"g_ImpExpColumnIsPrimarykey\", DYN_BOOL_VAR);
+  addGlobal(\"g_ImpExpColumnNotNull\", DYN_BOOL_VAR);
+  addGlobal(\"g_ImpExpIndex\", DYN_STRING_VAR);
+  
+  dpGet($1 + \".groupName:_online.._value\", sName);
+
+  getImpExpTables(dsTables);
+  
+  for ( i = dynlen(dsTables); i > 0; i-- )
+  {
+    iErr = getImpExpTable(dsTables[i], group, properties, storageclause, indices, storageclauseidx);
+    if ( iErr < 0 || group != sName )
+    {
+      dynRemove(dsTables, i);
+      continue;
+    }
+  }
+  
+  cboTables.items = dsTables;
+  if ( dynlen(dsTables) < 1 )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"NoTablesForGroupDefined\")),
+      df, ds);
+    PanelOff();
+    return;
+  }
+
+  cboTables.selectedPos = 1;
+  
+//  txtGroupName.text = sName;
+//  txtGroupDp.text = sDp;
+  updateFields(dsTables[1]);
+}" 0
+ E E E E 1 -1 -1 0  20 41
+""0  1
+E "void updateFields(string sTable)
+{
+  int i, pos, iErr;
+  string group, properties, storageclause, indices, storageclauseidx;
+  dyn_string ds, dsProps, dsTemp, dsTemp2, dsPrimary;
+  string sTemp;
+  dyn_float  dfReturn;
+  dyn_string dsReturn;
+  
+  shape lbColumns = getShape(\"lbColumns\");
+  shape txtColumn = getShape(\"txtColumn\");
+  shape txtType = getShape(\"txtType\");
+  shape txtLength = getShape(\"txtLength\");
+  shape txtDefault = getShape(\"txtDefault\");
+  shape chkNotNull = getShape(\"chkNotNull\");
+  shape chkIsPrimarykey = getShape(\"chkIsPrimarykey\");
+  shape txtStorageClause = getShape(\"txtStorageClause\");
+  shape lbIndices = getShape(\"lbIndices\");
+  shape txtStorageClauseIdx = getShape(\"txtStorageClauseIdx\");
+  
+  iErr = getImpExpTable(sTable, group, properties, storageclause, indices, storageclauseidx);
+
+  if ( iErr < 0 )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"ErrorReadingDatabase\")), dfReturn, dsReturn);
+    return;
+  }
+
+  txtGroup.text = group;
+  txtStorageClause.text = storageclause;
+  txtStorageClauseIdx.text = storageclauseidx;
+  
+  // get rid of needless spaces between properties and put them into a dyn_string
+  ds = strsplit(properties, \" \");
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    if (ds[i] == \"\")
+      dynRemove(ds, i--);
+  }
+  
+  // extract properties from dyn_string
+  sTemp = \"\";
+  for (i=1;i<=dynlen(ds);i++)
+  { 
+    pos = strpos(ds[i], \",\");
+    if (pos != -1)
+    {
+      dsTemp = strsplit(ds[i], \",\");
+      sTemp = sTemp + dsTemp[1];
+      dynAppend(dsProps, sTemp);
+        
+      if (pos == strlen(ds[i])-1)
+        break; // here we have the primary key statement
+      else
+        sTemp = dsTemp[2] + \" \";
+    }
+    else
+      sTemp = sTemp + ds[i] + \" \";
+  }
+  
+  // extract primary key from dyn_string
+  sTemp = \"\";
+  for (i++;i<=dynlen(ds);i++)
+    sTemp = sTemp + ds[i] + \" \";
+  sTemp = strrtrim(sTemp, \" \");
+  
+  //DebugN(dsProps); // columns
+  //DebugN(sTemp); // primary key statement
+  
+  sTemp = substr(sTemp, strpos(sTemp, \"(\")+1, strpos(sTemp, \")\") - strpos(sTemp, \"(\") - 1);
+  dsPrimary = strsplit(sTemp, \",\");
+  
+  dynClear(g_ImpExpColumn);
+  dynClear(g_ImpExpColumnType);
+  dynClear(g_ImpExpColumnLength);
+  dynClear(g_ImpExpColumnIsPrimarykey);
+  dynClear(g_ImpExpColumnNotNull);
+  dynClear(g_ImpExpColumnDefault);
+  dynClear(g_ImpExpIndex);
+  
+  for (i=1;i<=dynlen(dsProps);i++)
+  {
+    dsTemp = strsplit(dsProps[i], \" \");
+    dynAppend(g_ImpExpColumn, dsTemp[1]);
+    
+    dsTemp2 = strsplit(dsTemp[2], \"(\");
+    dynAppend(g_ImpExpColumnType, dsTemp2[1]);
+    if (dynlen(dsTemp2)>1)
+      dynAppend(g_ImpExpColumnLength, substr(dsTemp2[2], 0, strlen(dsTemp2[2])-1));
+    else
+      dynAppend(g_ImpExpColumnLength, 0);
+    
+    if (dynlen(dsTemp)>2)
+    {
+      if (dsTemp[3] == \"NOT\")
+      {
+        dynAppend(g_ImpExpColumnNotNull, true);
+        dynAppend(g_ImpExpColumnDefault, \"\");
+      }
+      else
+        dynAppend(g_ImpExpColumnNotNull, false);
+        
+      if (dsTemp[3] == \"DEFAULT\")
+        dynAppend(g_ImpExpColumnDefault, dsTemp[4]);
+    }
+    else
+    {
+      dynAppend(g_ImpExpColumnNotNull, false);
+      dynAppend(g_ImpExpColumnDefault, \"\");
+    }
+    
+    if (dynContains(dsPrimary, dsTemp[1]) != 0)
+      dynAppend(g_ImpExpColumnIsPrimarykey, true);
+    else
+      dynAppend(g_ImpExpColumnIsPrimarykey, false);
+  }
+  
+  ds = strsplit(indices, \" \");
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    dynAppend(g_ImpExpIndex, substr(ds[i], 1, strlen(ds[i])-2));
+  }
+  lbIndices.items = g_ImpExpIndex;
+  lbIndices.selectedPos = 1;
+  
+  
+  lbColumns.items = g_ImpExpColumn;
+  lbColumns.selectedPos = 1;
+  
+  if (dynlen(g_ImpExpColumn) > 0)
+  {
+    txtColumn.text = g_ImpExpColumn[1];
+    txtType.text = g_ImpExpColumnType[1];
+    if (g_ImpExpColumnLength[1] != 0)
+      txtLength.text = g_ImpExpColumnLength[1];
+    else
+      txtLength.text = \"\";
+    txtDefault.text = g_ImpExpColumnDefault[1];
+    chkNotNull.state(0) = g_ImpExpColumnNotNull[1];
+    chkIsPrimarykey.state(0) = g_ImpExpColumnIsPrimarykey[1];
+  }
+}" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 0
+"Text1"
+""
+1 260 30 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 262 32 293 47
+0 2 0 "0s" 0 0 0 192 0 0  262 32 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Name:
+LANG:10004 7 名称:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+30 25
+"Frame2"
+""
+1 10 70 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 10 730 70
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7  Table 
+LANG:10004 3 表
+LANG:10000 9  Tabelle 
+LANG:10027 15  Таблица
+2 42
+"Text12"
+""
+1 360 30 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 362 32 443 45
+0 2 0 "0s" 0 0 0 192 0 0  362 32 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Archive group:
+LANG:10004 10 归档组:
+LANG:10000 13 Archivgruppe:
+LANG:10027 30 Архивная группа:
+28 39
+"Tab"
+""
+1 522 506 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 78 732 402
+E2 "Columns" 4
+LANG:10001 7 Columns
+LANG:10004 3 列
+LANG:10000 7 Spalten
+LANG:10027 14 Столбцы
+1 "para\\archive\\RDB\\RDB_CTColumns.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Indices" 4
+LANG:10001 7 Indices
+LANG:10004 6 索引
+LANG:10000 7 Indizes
+LANG:10027 14 Индексы
+1 "para\\archive\\RDB\\RDB_CTIndices.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+14 49
+"txtGroup"
+""
+1 450 30 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 28 692 55
+2 "0s" 0 0 0 0 0 -1  E E E
+13 50
+"Button6"
+""
+1 630 410 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  628 408 732 437
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+14 51
+"txtGroupName"
+""
+1 320 30 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  318 28 362 55
+2 "0s" 0 0 0 0 0 -1  E E E
+14 53
+"txtGroupDp"
+""
+1 690 30 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  688 28 732 55
+2 "0s" 0 0 0 0 0 -1  E E E
+22 40
+"cboTables"
+""
+1 20 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 28 342 55
+0
+
+E
+"main()
+{
+  updateFields(cboTables.text);
+}" 0
+
+E
+ 0 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

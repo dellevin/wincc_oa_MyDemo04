@@ -1,0 +1,962 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"main()
+{
+  fixedLicenses.loadFromDp();
+
+  txtSplitMode.visible(false);
+  txtSplitMode.text(getCatStr(\"deviceManager\", \"deviceManager_splitmode\"));
+
+  if ( isRedundant() )
+  {
+    dpConnect(\"cbCheckSplitMode\", TRUE, \"_ReduManager.SplitMode:_online.._value\",
+                                        \"_ReduManager_2.SplitMode:_online.._value\",
+                                        \"_ReduManager.EvStatus:_online.._value\",
+                                        \"_ReduManager_2.EvStatus:_online.._value\");
+  }
+}
+
+void cbCheckSplitMode(string dp1_RM_SplitMode, bool bSplitmodeActive,
+                      string dp2_RM_2_SplitMode, bool bSplitmodeActive_2,
+                      string dp3_RM_EvStatus, bool bActiveEvent,
+                      string dp4_RM_2_EvStatus, bool bActiveEvent_2)
+{
+  if ( (bSplitmodeActive && bActiveEvent) || (bSplitmodeActive_2 && bActiveEvent_2) )
+  {
+    // SplitMode active
+    devicetable.enabled(false);
+    txtSplitMode.visible(true);
+  }
+  else
+  {
+    devicetable.enabled(true);
+    txtSplitMode.visible(false);
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  40 30
+""0  1
+E "#uses \"dpDyn\"
+#uses \"wizardFramework\"
+#uses \"deviceManager\"
+#uses \"classes/FixedLicense\"
+
+int count, iUUIDCount;
+string sDpe = \"_UiDevices\";
+FixedLicenseList fixedLicenses;
+
+bool isCodeMeterUsed()
+{
+  mapping details;
+  checkLicenseOption(\"ui\", details);
+
+  return details[\"used\"] >= 0;
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 1
+"devicetable"
+"WF"
+1 25.99999999999997 110 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E "main()
+{
+  dm_saveTabletoDatapoints();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"snapMode" "Line"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23.99999999999991 108 1248 505
+"main()
+{
+
+  //Settings Table
+  this.tableMode(TABLE_SELECT_MULTIPLE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  this.columnHeaderIcon(6, \"lock_open_24.png\");
+  this.columnHeader (6, \" \");
+  this.columnHeader (0, \" \");
+  this.columnEditable (10, isCodeMeterUsed());
+
+
+  //Connect functions
+  dpConnect(\"tableinit\", \"_UiDevices.UUID\");
+  dpConnect(\"setCounters_work1\", FALSE, \"_UiDevices.Unlocked\", \"_Connections.Ui.ManNums\");
+  dpQueryConnectSingle(\"setCounters_work2\", TRUE, \"\", \"SELECT '_original.._value' FROM '_Ui_*.DisplayName' WHERE _DPT= \\\"_Ui\\\" \");
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+tableinit(string userData, dyn_string val)
+{
+  dyn_string dsUUID, dsArguments, dsDeviceClass, dsModel, dsName, dsComboBox, dsDeviceClasses, dsAppVersion, dsUniqueUUID;
+  dyn_bool dbAutologin, dbLocked;
+  dyn_int diManagerNum;
+
+  dpGet(sDpe + \".UUID\", dsUUID);
+
+  if ( dynlen(val) == dynlen(dsUUID) )
+  {
+
+    dpGet(sDpe + \".DisplayName\", dsName,
+          sDpe + \".ProductModel\", dsModel,
+          sDpe + \".DeviceClass\", dsDeviceClass,
+        //      sDpe + \".AutoLogin\", dbAutolog
+          sDpe + \".Unlocked\", dbLocked,
+          sDpe + \".ManagerNumber\", diManagerNum,
+          sDpe + \".AppVersion\", dsAppVersion);
+
+    dsComboBox = makeDynString(\"\");
+
+    dpGet(\"_UiDeviceMgmt.Name\", dsDeviceClasses);
+
+    dynAppend(dsComboBox, dsDeviceClasses);
+    dynAppend(dsComboBox, \"\");
+
+    this.deleteAllLines();
+
+    //Add Information to the table
+    for (int i = 1; i <= dynlen(dsName); i++)
+    {
+      FixedLicenseType licenseType = (dsModel[i] == \"desktop\") ? FixedLicenseType::UI : FixedLicenseType::MOBILE;
+      bool bHasFixedLicense = fixedLicenses.getCount(licenseType, dsUUID[i]) > 0;
+
+      this.appendLine(\"Name\", dsName[i],
+                      \"UUID\", dsUUID[i],
+                      \"Model\", dm_changeModeltoReadableText(dsModel[i]),
+                      \"Klasse\", dsDeviceClass[i],
+                      \"ManagerNum\", diManagerNum[i] == -1 ? \"-5\" : diManagerNum[i],
+//                        \"AutoLogin\", dbAutologin[i],
+                      \"Unlock\", dbLocked[i],
+                      \"Version\", dsAppVersion[i],
+                      \"FixedLicense\", bHasFixedLicense);
+
+      this.cellFillRC(i-1, \"uiType\", dsModel[i] == \"desktop\" ? \"[pattern,[center,any,wf/icons/desktop_icon_24.png]]\" : \"[pattern,[center,any,wf/icons/tablet_portrait_icon_24.png]]\");
+
+      this.cellWidgetRC(i-1, \"Klasse\", \"ComboBox\", dsComboBox);
+    }
+
+    setCounters();
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+dyn_int setStatus(string userData = \"\", dyn_anytype value = makeDynInt())
+{
+  dyn_int diDeviceManagerNum, diManagerNum;
+  dyn_string dsModel, uuid, displayNames;
+  dyn_dyn_anytype data;
+  int iPos, mobileCount = 0, uiCount = 0, UiNumber = myUiNumber();
+
+
+  //Get UUIDs from all Ui dps
+  dpQuery(\"SELECT '_original.._value' FROM '_Ui_*.DisplayName' WHERE _DPT= \\\"_Ui\\\" \", data);
+  dpGet(\"_UiDevices.UUID\", uuid,
+        \"_UiDevices.ProductModel\", dsModel,
+        \"_UiDevices.ManagerNumber\", diDeviceManagerNum,
+        \"_Connections.Ui.ManNums\", diManagerNum );
+
+  uiCount = dynlen(diManagerNum);
+
+  for (int i = 2; i <= dynlen(data); i++)
+  {
+    if ( strpos((string)data[i][1], \"_Ui_\" + UiNumber + \".DisplayName\", 0) == -1 )
+    {
+      mapping mTemp = jsonDecode(data[i][2]);
+      if ( mappingHasKey(mTemp, \"id\") )
+      {
+        dynAppend(displayNames, mTemp[\"id\"]);
+      }
+    }
+  }
+
+  //check if device is connected
+  if( this.lineCount() ==  dynlen(uuid) )
+  {
+    for (int i = 1; i <= dynlen(uuid); i++)
+    {
+      if (dsModel[i] == \"desktop\")
+        iPos = dynContains(displayNames, uuid[i]);
+      else
+        iPos = dynContains(diManagerNum, diDeviceManagerNum[i]);
+
+      if ( iPos > 0 )
+      {
+        this.cellFillRC(i-1, \"Status\", \"[pattern,[center,any,StandardIcons/plc_connected_20.png]]\");
+
+        if ( dsModel[i] != \"desktop\" )
+          mobileCount++;
+      }
+      else
+        this.cellFillRC(i-1, \"Status\", \"[pattern,[center,any,StandardIcons/plc_disconnected_20.png]]\");
+    }
+  }
+
+  return makeDynInt(mobileCount, (uiCount - mobileCount));
+
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+setCounters()
+{
+  dyn_bool dbLocked;
+  dyn_string dsModel;
+  dyn_int temp;
+  int iConnected, countUITotal, countMobileTotal,
+                countUIConnected, countMobileConnected;
+
+  dpGet(sDpe + \".Unlocked\", dbLocked,
+        sDpe + \".ProductModel\", dsModel);
+
+  //get connected devices
+  temp = setStatus();
+  countMobileConnected = temp[1];
+  countUIConnected = temp[2];
+
+  //read max connections
+  mapping details;
+  checkLicenseOption(\"ui\", details);
+  if (details[\"used\"] >= 0) // CodeMeter is used
+  {
+    countUITotal = details[\"free\"] + countUIConnected;
+  }
+  else
+  {
+    countUITotal = details[\"all\"];
+  }
+
+  checkLicenseOption(\"mobile_ui\", details);
+  if (details[\"used\"] >= 0) // CodeMeter is used
+  {
+    countMobileTotal = details[\"free\"] + countMobileConnected;
+  }
+  else
+  {
+    countMobileTotal = details[\"all\"];
+  }
+
+  wf_ref_infoDisplay_setProperties(\"connected_ui\",
+                                   makeDynString(\"Number\", \"DetailText\"),
+                                   makeDynAnytype(countUIConnected + \"/\" + countUITotal, getCatStr(\"deviceManager\", \"deviceManager_connectedUis\")));
+
+  wf_ref_infoDisplay_setProperties(\"unlocked\",
+                                   makeDynString(\"Number\", \"DetailText\"),
+                                   makeDynAnytype(dynCount(dbLocked, TRUE) + \"/\" + dynlen(dbLocked), getCatStr(\"deviceManager\", \"deviceManager_unlocked\")));
+
+  wf_ref_infoDisplay_setProperties(\"connected_mobile\",
+                                   makeDynString(\"Number\", \"DetailText\"),
+                                   makeDynAnytype(countMobileConnected + \"/\" + countMobileTotal, getCatStr(\"deviceManager\", \"deviceManager_connectedMobileUi\")));
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+setCounters_work1(string userData = \"\", dyn_bool value2 = makeDynBool())
+{
+  setCounters();
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+setCounters_work2(anytype userData = \"\", dyn_dyn_anytype value2 = makeDynAnytype())
+{
+  setCounters();
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+" 0
+"main(int row, string column, string value)
+{
+  dm_saveTabletoDatapoints();
+  fixedLicenses.loadFromDp();
+}
+" 0
+ 1 0 1 11 1 "Status" 4 1 0 "[0s,,,AlignHCenter]" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+40 "Name" 18 1 1 "[0s,,,AlignHCenter]" 4
+LANG:10001 18 Name of the device
+LANG:10004 12 设备名称
+LANG:10000 17 Name des Gerätes
+LANG:10027 27 Имя устройства
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+210 "UUID" 20 1 0 "[5s,,,AlignLeft]" 4
+LANG:10001 4 UUID
+LANG:10004 4 UUID
+LANG:10000 4 UUID
+LANG:10027 4 UUID
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+258 "Model" 16 1 0 "[5s,,,AlignHCenter]" 4
+LANG:10001 19 Name of the Product
+LANG:10004 12 产品名称
+LANG:10000 18 Name des Produktes
+LANG:10027 23 Имя продукта
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "Klasse" 12 1 1 "[30s,,,AlignHCenter]" 4
+LANG:10001 11 Deviceclass
+LANG:10004 9 设备类
+LANG:10000 13 Geräteklasse
+LANG:10027 29 Класс утройства
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "ManagerNum" 7 1 0 "[5d,True,False,AlignHCenter,False]" 4
+LANG:10001 10 Manager ID
+LANG:10004 11 管理器ID
+LANG:10000 10 Manager ID
+LANG:10027 21 ID менеджера
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "Unlock" 2 1 1 "[5s,,,AlignHCenter]" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+30 "AutoLogin" 0 0 1 "[5s,,,AlignHCenter]" 4
+LANG:10001 10 Auto Login
+LANG:10004 12 自动登录
+LANG:10000 10 Auto Login
+LANG:10027 19 Авто-логин
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6 "uiType" 3 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "Version" 8 1 0 "[0s,,,AlignHCenter]" 4
+LANG:10001 11 App Version
+LANG:10004 12 应用版本
+LANG:10000 11 App Version
+LANG:10027 12 Версия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "FixedLicense" 7 1 1 "[0s,,,AlignHCenter]" 4
+LANG:10001 13 Fixed License
+LANG:10004 15 固定许可证
+LANG:10000 13 Fixed License
+LANG:10027 26 Фикс. лицензия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+95 
+24 24 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+6 6
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_FrameDark" E N "WF_Frame" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.185378590078329 0 1.090909220480669 -47.26370757180156 -46.72733790177645 1 E 23 503 406 536
+13 4
+"PUSH_BUTTON2"
+""
+1 1172 522.5000021379311 E E E 1 E 1 E N "_ButtonText" E N "_Transparent" E E
+ E E
+3 0 0 0 16777219 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1206 503.5000021379311 1239 536.5000021379311
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+
+  dyn_string dsAnswer;
+  dyn_float dfAnswer;
+  dyn_int diLines;
+
+  getValue(\"devicetable\", \"getSelectedLines\", diLines);
+
+  if ( dynlen(diLines) <= 0 )
+  {
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_notselctedDevice\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+    return;
+  }
+
+  wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Warning\", getCatStr(\"deviceManager\", \"delte_device\"),
+                       dsAnswer, dfAnswer);
+
+
+  if ( dsAnswer == \"TRUE\" )
+  {
+    dm_deleteSelectedLines();
+    wf_bottomBar_reload();
+    fixedLicenses.loadFromDp();
+  }
+}
+
+" 0
+ E E E
+20 7
+"CHECK_BOX1"
+"WF"
+1 245 504.0000021379312 E E E 1 E 1 E N "WF_Text" E N "WF_Frame" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  243 503.0000021379312 261 537.0000021379312
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  bool bUnlocked;
+  
+  dpGet(\"_UiDeviceMgmt.AutoValidationEnabled\", bUnlocked);
+      
+  this.state(0, bUnlocked);
+}
+
+
+" 0
+"main(int button, bool state)
+{
+  if ( state )
+    dpSet(\"_UiDeviceMgmt.AutoValidationEnabled\", TRUE);
+  else
+    dpSet(\"_UiDeviceMgmt.AutoValidationEnabled\", FALSE);
+  
+}
+
+
+" 0
+1 153 0 "" 0
+0
+1 156 0 "" 6
+2 "visible" 0 0 0
+0
+1 163 2 "" 0
+0
+1 166 2 "" 6
+2 "visible" 0 0 0
+0
+2 23
+"PRIMITIVE_TEXT1"
+""
+1 219 512.6250032068966 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 35 512.6250032068966 219 528
+0 2 2 "0s" 0 0 0 194 0 0  219 512.6250032068966 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Automatic unlock for:
+LANG:10004 12 自动解锁
+LANG:10000 32 Automatisches Freischalten für:
+LANG:10027 43 Авто-разблокировка для:
+20 24
+"CHECK_BOX2"
+"WF"
+1 308 504.0000021379311 E E E 1 E 1 E N "WF_Text" E N "WF_Frame" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  306 503.0000021379311 323 537.0000021379311
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  bool bUnlocked;
+  
+  dpGet(\"_UiDeviceMgmt.AutoRuntimeValidationEnabled\", bUnlocked);
+      
+  this.state(0, bUnlocked);
+}
+
+" 0
+"main(int button, bool state)
+{
+  if ( state )
+    dpSet(\"_UiDeviceMgmt.AutoRuntimeValidationEnabled\", TRUE);
+  else
+    dpSet(\"_UiDeviceMgmt.AutoRuntimeValidationEnabled\", FALSE);
+  
+}
+
+
+" 0
+20 86
+"filter_show"
+"WF"
+1 1194.677419354839 507.0000021379311 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"horizontal" ""
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1072 506.0000021379311 1205 534.0000021379311
+2
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  bool mobile, runtime;
+  
+  mobile = this.state(0);
+  runtime = this.state(1);
+  
+  if ( mobile && runtime )
+  {
+    devicetable.filterRows(\"Model\", \"*\", TRUE);
+  }
+  else if ( mobile )
+  {
+    devicetable.filterRows(\"Model\", dm_changeModeltoReadableText(\"desktop\"), FALSE);
+  }
+  else if ( runtime )
+  {
+    devicetable.filterRows(\"Model\", dm_changeModeltoReadableText(\"desktop\"), TRUE);
+  }
+  else
+  {
+    devicetable.filterRows(\"Model\", \"*\", FALSE);
+  }
+}
+
+" 0
+4 90
+"LINE2"
+""
+1 1198.999999999993 503.75 E E E 1 E 1 E N "WF_FrameDark" E N {255,255,255} E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 3 2 1 E  1198.999999999993 503.75 1198.999999999993 538.75
+2 106
+"PRIMITIVE_TEXT2"
+""
+1 1046 512.6562540754312 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 965 512.6562540754312 1046 528
+0 2 2 "0s" 0 0 0 194 0 0  1046 512.6562540754312 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Show:
+LANG:10004 9 显示：
+LANG:10000 13 Anzeigen von:
+LANG:10027 17 Просмотр:
+6 127
+"RECTANGLE1"
+""
+1 650 510 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 0.9347825157421252 -371 33.76091910944725 2  1 0  "pictures/wf/icons/desktop_icon_24.png" 4294967295 E 650 510 673 533
+6 128
+"RECTANGLE2"
+""
+1 650 510 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 1 -431 -1.499997862068824 2  1 0  "pictures/wf/icons/tablet_portrait_icon_24.png" 4294967295 E 650 510 673 533
+6 133
+"RECTANGLE6"
+""
+1 650 510 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 1 398 -1.499997862068881 2  1 0  "pictures/wf/icons/tablet_portrait_icon_24.png" 4294967295 E 650 510 673 533
+6 134
+"RECTANGLE7"
+""
+1 650 510 E E E 1 E 1 E N "_Transparent" E N {255,255,255} E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 1 459.9999999999999 -1.499997862068881 2  1 0  "pictures/wf/icons/desktop_icon_24.png" 4294967295 E 650 510 673 533
+1 158 1 "" 0
+0
+1 161 1 "" 6
+2 "visible" 0 0 0
+0
+2 152
+"txtSplitMode"
+""
+1 650 512.7421905565734 E E E 1 E 1 E N "red" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 610 512.7421905565734 690 528
+0 2 2 "0s" 0 0 0 193 0 0  650 512.7421905565734 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 SPLIT-MODE
+LANG:10004 10 SPLIT-MODE
+LANG:10000 10 SPLIT-MODE
+LANG:10027 33 РАЗДЕЛЁННЫЙ РЕЖИМ
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "connected_mobile" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/devicemanager/ref_information_display.pnl" 440 10 T 9 1 0 1 455.9704433497537 0
+0
+3 1 "connected_ui" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/devicemanager/ref_information_display.pnl" 440 10 T 10 1 0 1 -415.0000000000001 0
+0
+3 2 "unlocked" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"vision/devicemanager/ref_information_display.pnl" 440 10 T 11 1 0 1 18.49999999999988 0
+0
+0

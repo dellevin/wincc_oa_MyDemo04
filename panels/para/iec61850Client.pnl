@@ -1,0 +1,1680 @@
+V 14
+4
+LANG:10001 22 IEC 61850/61400 client
+LANG:10004 24 IEC 61850/61400客户端
+LANG:10000 22 IEC 61850/61400 Client
+LANG:10027 22 IEC 61850/61400 Client
+PANEL,-1 -1 680 695 N "_3DFace" 1
+"$Ied"
+"main()
+{
+  // Initialize device panel
+  iec61850_DevicePnl_initialize();
+
+  // ETM: correct sorting and go to first IED (alphabetical)
+  dyn_string dsIeds = dispIED.items();
+  if ( dynlen(dsIeds) )
+    dispIED.text = dsIeds[1];
+
+  // ETM: if opened to edit from eng tool
+  string sIedFromEngTool;
+  if ( isDollarDefined(\"$Ied\") )
+    sIedFromEngTool = $Ied;
+  if ( sIedFromEngTool != \"\" )
+    dispIED.text = sIedFromEngTool;
+
+  // for getting the selected text from drop down list
+  string sSelIed = dispIED.text;
+
+  // ETM: update of connection settings moved to connect function
+  //iec61850_DevicePnl_updateConnectionSettingsInformation(sSelIed, sPrevIedAdvSettings, sOldIed);
+
+  while(1)
+  {
+    sSelIed = dispIED.text;
+
+    if ( sSelIed != \"\" )
+      connectDisconnectDPE(sSelIed);
+
+    delay(0, 501);
+
+    //bool bNew = FALSE;
+    //if ( isDollarDefined(\"$New\") )
+    //  bNew = $New;
+    //if ( bNew )
+    //  createIecIedDp();
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  116 65
+""0  1
+E "#uses \"para.ctl\"
+
+string sOldIed, sPrevIed, sPrevIedAdvSettings;
+dyn_string dsIPAddressList;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void ConnState(string sDp1, int iConnState,
+               string sDp2, int iConnStatePrimary,
+               string sDp3, int iConnStateSecondary,
+               string sDp4, bool bActive,
+               string sDp5, bool bConnPass,
+               string sDp6, uint uActiveDevice,
+               string sDp7, uint uIedHealthPrimary,
+               string sDp8, uint uIedHealthSecondary,
+               string sDp9, bool bIsMasterPrimary,
+               string sDp10,bool bIsMasterSecondary)
+{
+  string sSys = getSystemName();
+
+  string sIed = dispIED.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+  string sDpeName = sSys + sIedDp + IEC61850_DPE_IDP_DEVICE_STATE;
+
+  int iAnswer;
+  reduActive(iAnswer, sSys);
+
+  if ( sDpeName == dpSubStr(sDp1, DPSUB_SYS_DP_EL) )
+  {
+    if ( bActive && iConnState )
+      txt_state1.text = getCatStr(\"iec61850\", \"ConnState\"+iConnState);
+    else if ( bActive && !iConnState )
+      txt_state1.text = getCatStr(\"iec61850\", \"ConnState\"+iConnState);
+    else
+      txt_state1.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+    chkActive.state(0) = bActive;
+
+    if (iAnswer == 2) //Host2 active -> don't set status for Host1
+      return;
+
+    // IEC61850 device redundancy status panel
+    if ( bActive && iConnStatePrimary )
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStatePrimary);
+    else if ( bActive && !iConnStatePrimary )
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStatePrimary);
+    else
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+    if ( bActive && iConnStateSecondary )
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStateSecondary);
+    else if ( bActive && !iConnStateSecondary )
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStateSecondary);
+    else
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+
+
+    if ((uActiveDevice & 0x01) != 0) //bit for primary device is set
+    {
+      txt_RedundancyState.text = getCatStr(\"iec61850\", \"IEDActive\");
+      txt_RedundancyStateRedu.text = getCatStr(\"iec61850\", \"IEDPassive\");
+    }
+    else if ((uActiveDevice & 0x02) != 0) //bit for secondary device is set
+    {
+      txt_RedundancyState.text = getCatStr(\"iec61850\", \"IEDPassive\");
+      txt_RedundancyStateRedu.text = getCatStr(\"iec61850\", \"IEDActive\");
+    }
+    else
+    {
+      txt_RedundancyState.text = \"\";
+      txt_RedundancyStateRedu.text = \"\";
+      cmdSwitchOver.enabled = FALSE;
+    }
+
+    //0..connected, 2..inactive
+    if ((iConnStatePrimary == 0 || iConnStatePrimary == 2) ||
+        (iConnStateSecondary == 0 || iConnStateSecondary == 2))
+      cmdSwitchOver.enabled = FALSE;
+    else
+      cmdSwitchOver.enabled = TRUE;
+
+    txt_IEDHealth.text = uIedHealthPrimary;
+    txt_IEDHealthRedu.text = uIedHealthSecondary;
+    txt_IsMaster.text = bIsMasterPrimary;
+    txt_IsMasterRedu.text = bIsMasterSecondary;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void ConnState_2(string sDp1, int iConnState,
+                 string sDp2, int iConnState_2,
+                 string sDp3, int iConnStatePrimary,
+                 string sDp4, int iConnStatePrimary_2,
+                 string sDp5, int iConnStateSecondary,
+                 string sDp6, int iConnStateSecondary_2,
+                 string sDp7, bool bActive,
+                 string sDp8, bool bConnPass,
+                 string sDp9, bool bConnPass_2,
+                 string sDp10,uint uActiveDevice,
+                 string sDp11,uint uActiveDevice_2,
+                 string sDp12,uint uIedHealthPrimary,
+                 string sDp13,uint uIedHealthPrimary_2,
+                 string sDp14,uint uIedHealthSecondary,
+                 string sDp15,uint uIedHealthSecondary_2,
+                 string sDp16,bool bIsMasterPrimary,
+                 string sDp17,bool bIsMasterPrimary_2,
+                 string sDp18,bool bIsMasterSecondary,
+                 string sDp19,bool bIsMasterSecondary_2)
+{
+  string sSys = getSystemName();
+  string sIed = dispIED.text;
+  string sIedDp = iec61850_getIedDpName(sIed) + IEC61850_2;
+  string sDpeName = sSys + sIedDp + IEC61850_DPE_IDP_DEVICE_STATE;
+
+  int iAnswer;
+  reduActive(iAnswer, sSys);
+
+  if ( sDpeName == dpSubStr(sDp2, DPSUB_SYS_DP_EL) )
+  {
+    if ( bActive && iConnState_2 )
+      txt_state2.text = getCatStr(\"iec61850\", \"ConnState\"+iConnState_2);
+    else if ( bActive && !iConnState_2 )
+      txt_state2.text = getCatStr(\"iec61850\", \"ConnState\"+iConnState_2);
+    else
+      txt_state2.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+    chkActive.state(0) = bActive;
+
+    if (iAnswer != 2) //Host1 active -> don't set status for Host2
+      return;
+
+    // IEC61850 device redundancy status panel
+    if ( bActive && iConnStatePrimary_2 )
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStatePrimary_2);
+    else if ( bActive && !iConnStatePrimary_2 )
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStatePrimary_2);
+    else
+      txt_DeviceState.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+    if ( bActive && iConnStateSecondary_2 )
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStateSecondary_2);
+    else if ( bActive && !iConnStateSecondary_2 )
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState\"+iConnStateSecondary_2);
+    else
+      txt_DeviceStateRedu.text = getCatStr(\"iec61850\", \"ConnState2\");
+
+
+
+    if ((uActiveDevice_2 & 0x01) != 0) //bit for primary device is set
+    {
+      txt_RedundancyState.text = getCatStr(\"iec61850\", \"IEDActive\");
+      txt_RedundancyStateRedu.text = getCatStr(\"iec61850\", \"IEDPassive\");
+    }
+    else if ((uActiveDevice_2 & 0x02) != 0) //bit for secondary device is set
+    {
+      txt_RedundancyState.text = getCatStr(\"iec61850\", \"IEDPassive\");
+      txt_RedundancyStateRedu.text = getCatStr(\"iec61850\", \"IEDActive\");
+    }
+    else
+    {
+      txt_RedundancyState.text = \"\";
+      txt_RedundancyStateRedu.text = \"\";
+      cmdSwitchOver.enabled = FALSE;
+    }
+
+    //0..connected, 2..inactive
+    if ((iConnStatePrimary_2 == 0 || iConnStatePrimary_2 == 2) ||
+        (iConnStateSecondary_2 == 0 || iConnStateSecondary_2 == 2))
+      cmdSwitchOver.enabled = FALSE;
+    else
+      cmdSwitchOver.enabled = TRUE;
+
+    txt_IEDHealth.text = uIedHealthPrimary_2;
+    txt_IEDHealthRedu.text = uIedHealthSecondary_2;
+    txt_IsMaster.text = bIsMasterPrimary_2;
+    txt_IsMasterRedu.text = bIsMasterSecondary_2;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectDisconnectDPE(string sNewIed)
+{
+  if ( sPrevIed == sNewIed )
+    return;
+
+  string sSys = getSystemName();
+  string sNewIedDp = sSys + iec61850_getIedDpName(sNewIed);
+  string sPrevIedDp = sSys + iec61850_getIedDpName(sPrevIed);
+
+  if ( sPrevIed != \"\" && dpExists(sPrevIedDp) )
+  {
+    dpDisconnect(\"ConnState\", sPrevIedDp + IEC61850_DPE_IDP_DEVICE_STATE,
+                              sPrevIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                              sPrevIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                              sPrevIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE,
+                              sPrevIedDp + IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                              sPrevIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                              sPrevIedDp + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                              sPrevIedDp + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                              sPrevIedDp + IEC61850_DPE_IDP_STATE_ISMASTER,
+                              sPrevIedDp + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER);
+    if ( isRedundant() )
+      dpDisconnect(\"ConnState_2\", sPrevIedDp +              IEC61850_DPE_IDP_DEVICE_STATE,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICE_STATE,
+                                  sPrevIedDp +              IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                                  sPrevIedDp +              IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                                  sPrevIedDp +              IEC61850_DPE_IDP_CONFIG_ACTIVE,
+                                  // ETM: also get state of \"connect passive\"
+                                  sPrevIedDp +              IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                                  sPrevIedDp              + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                                  sPrevIedDp              + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                                  sPrevIedDp              + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                                  sPrevIedDp              + IEC61850_DPE_IDP_STATE_ISMASTER,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_STATE_ISMASTER,
+                                  sPrevIedDp              + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER,
+                                  sPrevIedDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER);
+  }
+
+  if ( sNewIed != \"\" )
+  {
+    dpConnect(\"ConnState\", sNewIedDp + IEC61850_DPE_IDP_DEVICE_STATE,
+                           sNewIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                           sNewIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                           sNewIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE,
+                           sNewIedDp + IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                           sNewIedDp + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                           sNewIedDp + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                           sNewIedDp + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                           sNewIedDp + IEC61850_DPE_IDP_STATE_ISMASTER,
+                           sNewIedDp + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER);
+
+    if ( isRedundant() )
+      dpConnect(\"ConnState_2\", sNewIedDp +              IEC61850_DPE_IDP_DEVICE_STATE,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICE_STATE,
+                               sNewIedDp +              IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_PRIMARY,
+                               sNewIedDp +              IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_CONNSTATE_SECONDARY,
+                               sNewIedDp +              IEC61850_DPE_IDP_CONFIG_ACTIVE,
+                               // ETM: also get state of \"connect passive\"
+                               sNewIedDp +              IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_CONNPASSIVE,
+                               sNewIedDp              + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_DEVICEREDU_STATE_ACTIVEDEVICE,
+                               sNewIedDp              + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_STATE_IEDHEALTH,
+                               sNewIedDp              + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_STATE_IEDHEALTH,
+                               sNewIedDp              + IEC61850_DPE_IDP_STATE_ISMASTER,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_STATE_ISMASTER,
+                               sNewIedDp              + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER,
+                               sNewIedDp + IEC61850_2 + IEC61850_DPE_IDP_SECONDARY_STATE_ISMASTER);
+
+    // ETM: connect changes
+    iec61850_DevicePnl_updateConnectionSettingsInformation(sNewIed, sPrevIedAdvSettings, sOldIed);
+
+    sPrevIed = sNewIed;
+  }
+
+  //save infomation of the actual device for the switchover button
+  txtSwitchoverDeviceName.text = sNewIed;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void updateIecIedDpsCB(anytype userData, dyn_dyn_anytype dda)
+{
+  // ETM: update of device list if added/removed from engineering tool
+  dyn_string dsIeds = iec61850_get_update_ConfiguredDevicesList();
+
+  for ( int i = 2; i <= dynlen(dda); i++ )
+  {
+    string sDp = dpSubStr(dda[i][1], DPSUB_SYS_DP)+\".\";
+    bool bEnabled = dda[i][3];
+
+    // ETM: check if dp exists
+    if ( dpExists(sDp) )
+    {
+      dpGet(sDp + \":_general.._bool_01\", bEnabled);
+      strreplace(sDp, \".\", \"\");
+
+      sDp = dpSubStr(sDp, DPSUB_DP);
+      sDp = substr(sDp, strlen(IEC61850_INOA));
+      //sDp = substr(sDp, strlen(IEC61850_INOA), strlen(sDp)-strlen(IEC61850_INOA));
+
+      if ( !dynContains(dispIED.items, sDp) && bEnabled )
+      {
+        dispIED.appendItem = sDp;
+        dispIED.selectedPos = dynContains(dispIED.items, sDp);
+
+        if ( !dynContains(dsIeds, sDp) )
+          dynAppend(dsIeds, sDp);
+      }
+      else if ( dynContains(dispIED.items, sDp) && !bEnabled )
+      {
+        dispIED.deletePos(dynContains(dispIED.items, sDp));
+
+        if ( dynContains(dsIeds, sDp) )
+          dynRemove(dsIeds, dynContains(dsIeds, sDp));
+      }
+
+      dispIED.items = dsIeds;
+      //iec61850_DevicePnl_updateConnectionSettingsInformation(sDp, sPrevIedAdvSettings, sOldIed);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void createIecIedDp()
+{
+  int          iConnState, iConnState_2, iDrvNum, iPos, iRet;
+  string       sIed = dispIED.text, sNewIed = \"\", sDrvNum, sMessage;
+  dyn_float    df;
+  dyn_string   dsIED = dispIED.items, ds, dsReturn, dsList, list, dsTemp, dsTempList;
+  string       sPSEL, sSSEL, sTSEL;
+
+  // Checking for user permissions
+  if ( !IEC61850_USER_PERMIT )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  list = dpNames(\"*\", IEC61850_CLIENT_DPT_NAME);
+
+  for ( int nLoop = 1; nLoop <= dynlen(list); nLoop++ )
+  {
+    dpGet(list[nLoop] + IEC61850_CLIENT_IDP_IEDLIST, dsTemp);
+    dynAppend(dsTempList, dsTemp);
+  }
+
+  dynSortAsc(dsTempList);
+
+  iPos = dynContains(dsTempList, sIedDp);
+
+  if ( iPos == 0 && dsIED != \"\" )
+  {
+    ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"iec61850\",\"SaveDevice\")));
+    return;
+  }
+  else
+  {
+    ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                   getCatStr(\"da\",\"createdp\"),
+                                   makeDynString(getCatStr(\"iec61850\",\"CreateDevice\"), sNewIed),
+                                   df, ds);
+
+    if ( dynlen(df) < 1 || df[1] == 0 )
+       return;
+
+    sIed = dynlen(ds)?ds[1]:\"\";
+
+    if ( dpExists(iec61850_getIedDpName(sIed)) )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               getCatStr(\"para\", \"warning\"),
+                               makeDynString(getCatStr(\"iec61850\", \"dpExists\")));
+      return;
+    }
+
+    // IM 113470
+    if ( nameCheck(sIed) == -1 )
+    {
+      dyn_string dsCheck;
+      dyn_float dfCheck;
+
+      string sMsg = getCatStr(\"general\", \"invalidcharacter\");
+      sMsg += \"\\n\" + getCatStr(\"iec\", \"Invalid_DPName\");
+
+      strreplace(sMsg, \"§1\", sIed);
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                                     getCatStr(\"para\",\"warning\"),
+                                     makeDynString(sMsg,
+                                                   getCatStr(\"general\", \"yes\"),
+                                                   getCatStr(\"general\", \"no\")),
+                                     dfCheck, dsCheck);
+
+      if ( dynlen(dfCheck) > 0 && dfCheck[1] == 0 )
+        return;
+    }
+
+
+    iRet = iec61850_DevicePnl_checkDeviceName(sIed);
+
+    if ( iRet > 0 )
+    {
+      switch (iRet)
+      {
+        case 1:
+          sprintf(sMessage, getCatStr(\"ud_settings\", \"illegalDPName\"), sIed);
+        break;
+
+        case 2:
+          sMessage = getCatStr(\"iec61850\", \"dpEmpty\");
+        break;
+
+        case 3:
+          sMessage = getCatStr(\"iec61850\", \"DeviceExists\");
+        break;
+
+        //case 4:
+        //  sMessage = getCatStr(\"iec61850\", \"EToolDPExists\");
+        //break;
+
+        default:
+          sprintf(sMessage, getCatStr(\"ud_settings\", \"illegalDPName\"), sIed);
+        break;
+      }
+
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               getCatStr(\"para\",\"warning\"),
+                               makeDynString(sMessage));
+
+      return;
+    }
+
+
+    DrvNum.enabled = TRUE;
+    chkActive.enabled = TRUE;
+    txt_IP.enabled = TRUE;
+    btnGenQ.enabled = TRUE;
+
+    // Create data points for the device
+    if ( iec61850_DevicePnl_createDevice(sIed) != TRUE )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               getCatStr(\"para\", \"warning\"),
+                               makeDynString(getCatStr(\"iec61850\", \"DeviceCreateFailed\")));
+      return;
+    }
+
+    sIedDp = iec61850_getIedDpName(sIed);
+
+    sOldIed = dispIED.text;
+    cmdRemoveDp1.enabled = TRUE;
+    dynAppend(dsIED, sIed);
+    dynSortAsc(dsIED);
+    dispIED.items = dsIED;
+
+    // Initialize advanced settings with default values
+    if(!iec61850_DevicePnl_initAdvancedSettings(sIedDp))
+    {
+      // Failed to save settings
+       ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                                 getCatStr(\"para\",\"warning\"),
+                                 makeDynString(getCatStr(\"iec61850\",\"AdvSettingsInitFailed\")));
+       return;
+    }
+
+    dispIED.selectedPos = dynContains(dsIED, sIed);
+
+    // Initialize advanced settings panel
+    iec61850_DevicePnl_updateAdvancedSettingsPanel(sIed);
+
+    //to set initialize state        //edited by sahaj
+    txt_IP.text = \"\";
+    chkActive.state(0,0);
+
+    if ( isRedundant() )
+    {
+      iConnState = 2;
+      iConnState_2 = 2;
+      ptxtStateHost2.enabled = TRUE;
+      txt_state1.text = getCatStr(\"iec61850\", \"ConnState\" + iConnState);
+      txt_state2.text = getCatStr(\"iec61850\", \"ConnState\" + iConnState_2);
+    }
+    else
+    {
+      ptxtStateHost2.enabled = FALSE;
+      iConnState = 2;
+      txt_state1.text = getCatStr(\"iec61850\", \"ConnState\" + iConnState);
+    }
+  }
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+28 0
+"TAB1"
+""
+1 39.7409010828527 90 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selchangedcb" "main()
+{
+  if ( this.activeRegister == 1 )
+  {
+    if ( sPrevIedAdvSettings != dispIED.text )
+    {
+      iec61850_DevicePnl_updateAdvancedSettingsPanel(dispIED.text);
+      sPrevIedAdvSettings = dispIED.text;
+    }
+  }
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  7.240901082852702 186 671.2409010828527 499
+E5 "Connections" 4
+LANG:10001 7 Devices
+LANG:10004 6 设备
+LANG:10000 7 Geräte
+LANG:10027 20 Устройства
+1 "para/iec61850Client_Connections.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Settings IED" 4
+LANG:10001 21 Advanced settings IED
+LANG:10004 15 高级设置IED
+LANG:10000 21 Erweiterte Param. IED
+LANG:10027 30 Доп. настройки IED
+1 "para/iec61850Client_AdvancedSettings_Server.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1
+"$isReduConn""false"
+
+"Settings redundant IED" 4
+LANG:10001 23 Advanced settings IED 2
+LANG:10004 17 高级设置IED 2
+LANG:10000 23 Erweiterte Param. IED 2
+LANG:10027 32 Доп. настройки IED 2
+1 "para/iec61850Client_AdvancedSettings_Server.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1
+"$isReduConn""true"
+
+"Settings client" 4
+LANG:10001 15 Settings client
+LANG:10004 15 设置客户端
+LANG:10000 20 Einstellungen Client
+LANG:10027 58 Расширенные настройки — клиент
+1 "para/iec61850Client_AdvancedSettings_Client.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Device redundancy" 4
+LANG:10001 17 Device redundancy
+LANG:10004 12 设备冗余
+LANG:10000 16 Geräteredundanz
+LANG:10027 49 Резервирование устройства
+1 "para/iec61850Client_RedundancyStates.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+1 66 0 "" 0
+0
+13 3
+"btnHelp"
+""
+1 10 658 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 658 106 686
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"config_1\", TRUE, \"WinCC_OA_IEC61850.chm\");
+}
+" 0
+ E E E
+13 4
+"btnCancel"
+""
+1 575 660 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 27 Закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  573 658 671 686
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  string sIed = dispIED.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  dyn_string dsDevList = iec61850_get_update_ConfiguredDevicesList();
+
+  if ( !dynContains(dsDevList, sIed) && dpExists(sIedDp) )
+  {
+    dpDelete(sIedDp);
+
+    if ( isRedundant() && dpExists(sIedDp + IEC61850_2) )
+      dpDelete(sIedDp + IEC61850_2);
+  }
+
+  PanelOff();
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 5
+"btnApply"
+""
+1 602 499 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  468 658 566 686
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( iec61850_DevicePnl_saveConnectionSettingsinformation(dispIED.text) )
+    if ( sPrevIedAdvSettings == dispIED.text )
+      if ( iec61850_DevicePnl_saveAdvancedSettingsInformation(dispIED.text) )
+        iec61850_DevicePnl_saveRedundantIEDSettingsInformation(dispIED.text);
+}
+
+" 0
+ E E E
+13 6
+"btnOK"
+""
+1 365 558 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  362 658 460 686
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( iec61850_DevicePnl_saveConnectionSettingsinformation(dispIED.text) )
+  {
+    if ( sPrevIedAdvSettings == dispIED.text )
+    {
+      if ( iec61850_DevicePnl_saveAdvancedSettingsInformation(dispIED.text) )
+        if ( iec61850_DevicePnl_saveRedundantIEDSettingsInformation(dispIED.text) )
+          PanelOff();
+    }
+    else
+      PanelOff();
+  }
+}
+
+
+" 0
+ E E E
+22 15
+"dispIED"
+""
+1 30 23.02724038126743 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 List of created devices
+LANG:10004 24 已创建设备的列表
+LANG:10000 28 Liste der erstellten Geräte
+LANG:10027 50 Список созданных устройств
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  28 29 551 55
+0
+
+"main()
+{
+  dpQueryConnectSingle(\"updateIecIedDpsCB\",
+                       true,
+                       \"userDataIecIedDps\",
+                       \"SELECT '_general.._type', '_general.._bool_01' FROM '*' WHERE '_general.._type' == \" + DPCONFIG_GENERAL + \"  AND  _DPT LIKE \\\"\" + IEC61850_DPT_NAME + \"\\\"\");
+}
+
+
+" 0
+
+"main()
+{
+  dyn_string list, dsTemp, dsTempList;
+  string sSelIed;
+  int iPos;
+  string sSys = getSystemName();
+
+  getValue(\"\", \"selectedText\", sSelIed);
+
+  if ( sOldIed == sSelIed )
+    return;
+  else
+  {
+    list = dpNames(\"*\", IEC61850_CLIENT_DPT_NAME);
+
+    for ( int nLoop = 1; nLoop <= dynlen(list); nLoop++ )
+    {
+      dpGet(list[nLoop] + IEC61850_CLIENT_IDP_IEDLIST, dsTemp);
+      dynAppend(dsTempList, dsTemp);
+    }
+
+    dynSortAsc(dsTempList);
+
+    if ( sOldIed != \"\" )
+      iPos = dynContains(dsTempList, iec61850_getIedDpName(sOldIed));
+    else
+      iPos = dynContains(dsTempList, iec61850_getIedDpName(sSelIed));
+
+    if ( iPos == 0 )
+    {
+      if ( dpExists(sSys + iec61850_getIedDpName(sOldIed)) )
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                  getCatStr(\"para\",\"warning\"),
+                                  makeDynString(getCatStr(\"iec61850\",\"SaveDevice\")));
+
+        dispIED.text = sOldIed;
+        return;
+      }
+    }
+  }
+
+  sOldIed = sSelIed;
+  iec61850_DevicePnl_updateConnectionSettingsInformation(sSelIed, sPrevIedAdvSettings, sOldIed);
+}
+
+" 0
+
+E
+ 0 0
+13 16
+"cmdNewDp"
+""
+1 559.6232910156245 30.01816025417829 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Create new device
+LANG:10004 6 创建
+LANG:10000 22 Neues Gerät erstellen
+LANG:10027 46 Создать новое устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 28 656 56
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"//-------------------------------------------------------------------------------------------------
+// Creator: Chandrashekar
+// Date:    28-03-2013
+// Version: v1.0
+// Purpose: To create new device
+//-------------------------------------------------------------------------------------------------
+
+main()
+{
+  createIecIedDp();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 17
+"cmdRemoveDp1"
+""
+1 559.6232910156245 64.72326082107446 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Remove device
+LANG:10004 6 删除
+LANG:10000 16 Gerät entfernen
+LANG:10027 35 Удалить устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 63 656 91
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"//-------------------------------------------------------------------------------------------------
+// Creator: Chandrashekar
+// Date:    24-03-2013
+// Version: v1.0
+// Purpose: To remove the selected device
+//-------------------------------------------------------------------------------------------------
+
+main()
+{
+  // Checking for user permissions
+  if ( !IEC61850_USER_PERMIT )
+  {
+    ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                              getCatStr(\"para\",\"warning\"),
+                              makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  if ( dispIED.text == \"\" )
+    return;
+
+  bool   active;
+  string sIed = dispIED.text;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  if ( !dpExists(sIedDp) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"iec61850\", \"DeviceNotFound\")));
+    return;
+  }
+
+  //for checking the active state
+  dpGet(getSystemName() + sIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE, active);
+
+  if ( active == 1 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceDeactivate\"));
+    return;
+  }
+  else
+    if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeleteSingleDevice\")) )
+      return;
+
+  // removing RCB internal datapoints
+  iec61850_clearRCBElements(sIed);
+
+  // delete command object datapoints
+  iec61850_deleteCommandObjectDps(sIed);
+
+  dpSet(getSystemName() + sIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+  if ( isRedundant() )
+    dpSet(getSystemName() + sIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+  // Delete device data points
+  iec61850_DevicePnl_deleteDevice(sIedDp);
+
+  // ETM: moved to scope lib
+  //dispIED.deletePos(dispIED.selectedPos());
+  sIed = dispIED.text;
+  sPrevIed = \"\";
+  iec61850_DevicePnl_updateConnectionSettingsInformation(sIed, sPrevIedAdvSettings, sOldIed);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+30 19
+"frmDev"
+""
+1 44 409 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+16 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.078864353312304 0 1.287671232876712 -81.47003154574136 -521.657534246575 0 E 44 409 362 483
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 20 Соединение
+13 20
+"btnGenQ"
+""
+1 749.4800100486366 456 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Trigger general query
+LANG:10004 21 触发总召唤数值
+LANG:10000 25 Generalabfrage ausführen
+LANG:10027 42 Запустить общий запрос
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 597 656 625
+
+T 
+4
+LANG:10001 2 GQ
+LANG:10004 15 总召唤数值
+LANG:10000 2 GA
+LANG:10027 16 Общ.Запр.
+"main()
+{
+  string sIed, sSys = getSystemName();
+
+  getValue(\"dispIED\", \"selectedText\", sIed);
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  if ( sIed != \"\" )
+  {
+    if ( isRedundant() )
+      dpSet(sSys + sIedDp +              IEC61850_DPE_IDP_COMMAND_GQ, 1,
+            sSys + sIedDp + IEC61850_2 + IEC61850_DPE_IDP_COMMAND_GQ, 1);
+    else
+      dpSet(sSys + sIedDp +              IEC61850_DPE_IDP_COMMAND_GQ, 1);
+  }
+}
+" 0
+ E E E
+13 23
+"btnSCDDevices"
+""
+1 155.6294663393438 68.46114423746559 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 32 Create new devices from SCL file
+LANG:10004 6 创建
+LANG:10000 36 Neues Gerät aus SCL-Datei erstellen
+LANG:10027 66 Создать новое устройство из файла SCL
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  453 63 551 91
+
+T 
+4
+LANG:10001 10 Browse SCL
+LANG:10004 9 浏览SCL
+LANG:10000 12 SCL einlesen
+LANG:10027 20 Просмотр SCL
+"main()
+{
+  // checking for user permissions
+  if ( !IEC61850_USER_PERMIT )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  string sIed = dispIED.text;
+  dyn_string dsParams = makeDynString();
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  if ( sIed != \"\" )
+  {
+    string sSclPath;
+    dpGet(sIedDp + IEC61850_DPE_IDP_SCLFILEPATH, sSclPath);
+
+    if ( sSclPath != \"\" )
+      dsParams = makeDynString(\"$sclpath:\" + sSclPath,
+                               \"$selied:\"  + sIed);
+  }
+
+  string sSelIed, sTemp;
+  dyn_float df;
+  dyn_string ds;
+
+  // Open SCL Browse panel
+  ChildPanelOnModalReturn(IEC61850_SCL_PANEL_PATH,
+                          \"SCL browse\",
+                          dsParams,
+                          0, 0,
+                          df, ds);
+
+  // Refresh Device panel with new updated devices list
+  string sTemp = dispIED.text;
+  iec61850_DevicePnl_initialize();
+  string sNewIed = dispIED.text;
+
+
+  if ( sTemp == \"\" )
+  {
+    sOldIed = sNewIed;
+    iec61850_DevicePnl_updateConnectionSettingsInformation( sSelIed,
+                                                            sPrevIedAdvSettings,
+                                                            sOldIed );
+  }
+
+  string sTempIed = dispIED.text;
+
+  if ( sTempIed != \"\" )
+  {
+    string sTempIedDp = iec61850_getIedDpName(sTempIed);
+
+    int iTempDrvNum;
+    dpGet(sTempIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iTempDrvNum);
+    DrvNum.value = iTempDrvNum;
+  }
+}
+
+
+
+" 0
+ E E E
+21 30
+"DrvNum"
+""
+1 147.5 69.52364423746569 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Driver instance number
+LANG:10004 21 驱动程序实例号
+LANG:10000 20 Treiberinstanznummer
+LANG:10027 48 Номер экземпляра драйвера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128 66 191 91
+0
+
+E
+E
+E
+
+N 1 255 1 1 1 1
+2 38
+"PRIMITIVE_TEXT3"
+""
+1 335.8125 105.8749999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 0.9999999999999986 -306 -36.15878525417794 0 E 335.8125 105.8749999999998 420 121
+0 2 2 "0s" 0 0 0 192 0 0  335.8125 105.8749999999998 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Driver number:
+LANG:10004 12 驱动号：
+LANG:10000 14 Treibernummer:
+LANG:10027 28 Номер драйвера:
+30 44
+"frmCommands"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.246202081442065 0 0.4949494949494946 -2.702921897273578 415.7171717171718 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+30 45
+"FRAME3"
+""
+1 29 29 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+32 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.175315018288536 0 0.2055749128919861 -52.96368498894113 104.7611330260745 0 E 29 29 333 317
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Redundancy
+LANG:10004 6 冗余
+LANG:10000 9 Redundanz
+LANG:10027 28 Резервирование
+20 46
+"cbPollRedu"
+""
+1 6591.55172413793 70 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 Enable/disable: passive host connects to device
+LANG:10004 41 启用/禁用:被动主机连接到设备
+LANG:10000 63 Passiver Host verbindet sich zu Gerät: aktivieren/deaktivieren
+LANG:10027 117 Разрешение/запрет на подключение пассивного хоста к устройству
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  26 134 292 159
+1
+T 
+4
+LANG:10001 31 Passive host connects to device
+LANG:10004 27 被动主机连接到设备
+LANG:10000 39 Passiver Host verbindet sich zum Gerät
+LANG:10027 76 Пассивное соединение хоста с устройством
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE30 50
+"FRAME4"
+""
+1 27 405 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+35 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.826152080561919 0 1.03448275862069 -39.30610617517181 91.03448275862047 0 E 27 405 389 464
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+14 51
+"txt_state1"
+""
+1 139.0036555551268 532 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Device state of host 1
+LANG:10004 22 主机1的设备状态
+LANG:10000 24 Gerätestatus des Host 1
+LANG:10027 52 Состояния устройства хоста 1
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  137 530 310 555
+3 "0s" 0 0 0 0 0 -1  E E E
+14 52
+"txt_state2"
+""
+1 449 532 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Device state of host 2
+LANG:10004 22 主机2的设备状态
+LANG:10000 24 Gerätestatus des Host 2
+LANG:10027 52 Состояния устройства хоста 2
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  447 530 620 555
+3 "0s" 0 0 0 0 0 -1  E E E
+2 53
+"ptxtStateHost1"
+""
+1 29.94825451421821 537 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 29.94825451421821 537 106 552
+0 2 2 "0s" 0 0 0 192 0 0  29.94825451421821 537 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State host 1:
+LANG:10004 6 状态
+LANG:10000 14 Status Host 1:
+LANG:10027 23 Сост. хоста 1:
+2 54
+"ptxtStateHost2"
+""
+1 349 537 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 349 537 426 552
+0 2 2 "0s" 0 0 0 192 0 0  349 537 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State host 2:
+LANG:10004 6 状态
+LANG:10000 14 Status Host 2:
+LANG:10027 23 Сост. хоста 2:
+20 55
+"cbReduDevice"
+""
+1 328.0203203684239 135.2187500000002 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 46 Set redundant device equipment active/inactive
+LANG:10004 31 设置冗余设备激活/禁用
+LANG:10000 45 Setzen wenn redundante SPSen verwendet werden
+LANG:10027 110 Установить резервированное устройство активным/неактивным
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  326 134 489 157
+1
+T 
+4
+LANG:10001 16 Redundant device
+LANG:10004 12 冗余设备
+LANG:10000 18 Redundantes Gerät
+LANG:10027 39 Резервное устройство
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  iec61850_enableSecondaryDeviceShapes(state);
+}" 0
+20 62
+"chkActive"
+""
+1 259.5 70.27871474582179 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Set device active
+LANG:10004 12 设备激活
+LANG:10000 19 Gerät aktiv setzen
+LANG:10027 45 Активировать устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  258 68 341 92
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, int state)
+{
+  // IM 113470
+  //if ( state )
+    if ( iec61850_DevicePnl_saveConnectionSettingsinformation(dispIED.text) )
+      if ( sPrevIedAdvSettings == dispIED.text )
+        if ( iec61850_DevicePnl_saveAdvancedSettingsInformation(dispIED.text) )
+          iec61850_DevicePnl_saveRedundantIEDSettingsInformation(dispIED.text);
+}
+
+
+" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 65 T 1 1.360721442885771 0 1 -0.4999999999998863 585
+0
+0

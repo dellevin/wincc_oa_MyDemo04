@@ -1,0 +1,4575 @@
+V 14
+4
+LANG:10001 17 S7+ configuration
+LANG:10004 10 S7+ 配置
+LANG:10000 17 S7+ Konfiguration
+LANG:10027 17 S7+ configuration
+PANEL,-1 -1 670 715 N "_3DFace" 0
+"main()
+{
+  addApGlobals();
+  g_s7p_conn = \"\";
+
+  string     sPlc=\"\", sPlc1=\"\", sPlc2=\"\", sOldPlc=\"\", sOldPlc1=\"\", sOldPlc2=\"\";
+  dyn_string dsPlc;
+
+  dsPlc = dpNames(getSystemName() + \"*\", S7PLUS_DPT_CONN);
+  txtSystem.text = getSystemName();
+  tfSymbChanged.text = \"0\";
+
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // do not display redundant datapoints
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    dsPlc[i] = dpSubStr(dsPlc[i], DPSUB_DP);
+
+    if ( dsPlc[i][0] == S7PLUS_INOA )
+      dsPlc[i] = substr(dsPlc[i], strlen(S7PLUS_INOA));
+  }
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    setSettingsEnabled(false);
+
+    setMultiValue(\"groupReduDevice\", \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 0);
+
+    cmbPlc.text = \"\";
+    g_s7p_conn = \"\";
+  }
+  else
+  {
+    setSettingsEnabled(true);
+
+    sPlc = dsPlc[1];
+    g_s7p_conn = sPlc;
+  }
+
+  cmbPlc.items = dsPlc;
+  cmbPlc.text  = sPlc;
+
+  sbDrvNum.enabled = false;
+
+  registerTabs();
+  checkPlcType();
+  checkSwitchCondition();
+  setTableStateColumns();
+  fillLanguageMibList();
+
+  if ( cmbPlc.text != \"\" )
+    loads7plusDp(txtSystem.text	+ S7PLUS_INOA + cmbPlc.text);
+
+  getTSM();
+
+  if ( sbTSI.text == 0 )
+    sbTSI.text = 24;
+
+  while ( true )
+  {
+    if ( isRedundant() )
+    {
+      setMultiValue(\"grpStatisticsSingle\", \"visible\", 0,
+                    \"grpStatisticsRedu\",   \"visible\", 1);
+
+      sPlc1 = S7PLUS_INOA + cmbPlc.text;
+      sPlc2 = S7PLUS_INOA + cmbPlc.text + S7PLUS_REDU;
+
+      g_s7p_conn = cmbPlc.text;
+
+      if ( sPlc1 != sOldPlc1 && sPlc2 != sOldPlc2 )
+      {
+        // CONNECTION INFO + STATISTICS - REDUNDANT SYSTEM
+        if ( sOldPlc1 != \"\" && dpExists(sOldPlc1) && sOldPlc2 != \"\" && dpExists(sOldPlc2) )
+        {
+          dpDisconnect(\"s7plusWorkInfo2\",
+                       //-----------------------------------------------
+                       sOldPlc1 + sSTACONN + \"PLCTime\"          ,
+                       sOldPlc1 + sSTAINFO + \"SystemVersion\"    ,
+                       sOldPlc1 + sSTAINFO + \"SystemLimits\"     ,
+                       //-----------------------------------------------
+                       sOldPlc1 + sSTASTAT + \"ReadsSent\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsRecv\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsRej\"         ,
+                       sOldPlc1 + sSTASTAT + \"WritesSent\"       ,
+                       sOldPlc1 + sSTASTAT + \"WritesRecv\"       ,
+                       sOldPlc1 + sSTASTAT + \"WritesRej\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsPerSec\"      ,
+                       sOldPlc1 + sSTASTAT + \"WritesPerSec\"     ,
+                       sOldPlc1 + sSTASTAT + \"Unsolicited\"      ,
+                       sOldPlc1 + sSTASTAT + \"UnsolicitedPerSec\",
+                       sOldPlc1 + sSTASTAT + \"AlarmsRecv\"       ,
+                       sOldPlc1 + sSTASTAT + \"AlarmsAckSent\"    ,
+                       sOldPlc1 + sSTASTAT + \"AlarmsPerSec\"     ,
+                       //-----------------------------------------------
+                       sOldPlc2 + sSTASTAT + \"ReadsSent\"        ,
+                       sOldPlc2 + sSTASTAT + \"ReadsRecv\"        ,
+                       sOldPlc2 + sSTASTAT + \"ReadsRej\"         ,
+                       sOldPlc2 + sSTASTAT + \"WritesSent\"       ,
+                       sOldPlc2 + sSTASTAT + \"WritesRecv\"       ,
+                       sOldPlc2 + sSTASTAT + \"WritesRej\"        ,
+                       sOldPlc2 + sSTASTAT + \"ReadsPerSec\"      ,
+                       sOldPlc2 + sSTASTAT + \"WritesPerSec\"     ,
+                       sOldPlc2 + sSTASTAT + \"Unsolicited\"      ,
+                       sOldPlc2 + sSTASTAT + \"UnsolicitedPerSec\",
+                       sOldPlc2 + sSTASTAT + \"AlarmsRecv\"       ,
+                       sOldPlc2 + sSTASTAT + \"AlarmsAckSent\"    ,
+                       sOldPlc2 + sSTASTAT + \"AlarmsPerSec\"     );
+                       //-----------------------------------------------
+        }
+        if ( sPlc1 != \"\" && dpExists(sPlc1) && sPlc2 != S7PLUS_REDU && dpExists(sPlc2) )
+        {
+          dpConnect(\"s7plusWorkInfo2\",
+                    //--------------------------------------------
+                    sPlc1 + sSTACONN + \"PLCTime\"          ,
+                    sPlc1 + sSTAINFO + \"SystemVersion\"    ,
+                    sPlc1 + sSTAINFO + \"SystemLimits\"     ,
+                    //--------------------------------------------
+                    sPlc1 + sSTASTAT + \"ReadsSent\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsRecv\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsRej\"         ,
+                    sPlc1 + sSTASTAT + \"WritesSent\"       ,
+                    sPlc1 + sSTASTAT + \"WritesRecv\"       ,
+                    sPlc1 + sSTASTAT + \"WritesRej\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsPerSec\"      ,
+                    sPlc1 + sSTASTAT + \"WritesPerSec\"     ,
+                    sPlc1 + sSTASTAT + \"Unsolicited\"      ,
+                    sPlc1 + sSTASTAT + \"UnsolicitedPerSec\",
+                    sPlc1 + sSTASTAT + \"AlarmsRecv\"       ,
+                    sPlc1 + sSTASTAT + \"AlarmsAckSent\"    ,
+                    sPlc1 + sSTASTAT + \"AlarmsPerSec\"     ,
+                    //--------------------------------------------
+                    sPlc2 + sSTASTAT + \"ReadsSent\"        ,
+                    sPlc2 + sSTASTAT + \"ReadsRecv\"        ,
+                    sPlc2 + sSTASTAT + \"ReadsRej\"         ,
+                    sPlc2 + sSTASTAT + \"WritesSent\"       ,
+                    sPlc2 + sSTASTAT + \"WritesRecv\"       ,
+                    sPlc2 + sSTASTAT + \"WritesRej\"        ,
+                    sPlc2 + sSTASTAT + \"ReadsPerSec\"      ,
+                    sPlc2 + sSTASTAT + \"WritesPerSec\"     ,
+                    sPlc2 + sSTASTAT + \"Unsolicited\"      ,
+                    sPlc2 + sSTASTAT + \"UnsolicitedPerSec\",
+                    sPlc2 + sSTASTAT + \"AlarmsRecv\"       ,
+                    sPlc2 + sSTASTAT + \"AlarmsAckSent\"    ,
+                    sPlc2 + sSTASTAT + \"AlarmsPerSec\"     );
+                    //--------------------------------------------
+        }
+
+        // CONNECTION STATES - REDUNDANT SYSTEM
+        if ( sOldPlc1 != \"\" && dpExists(sOldPlc1) && sOldPlc2 != \"\" && dpExists(sOldPlc2) )
+        {
+          dpDisconnect(\"s7plusWorkStates2\",
+                       //-----------------------------------------------
+                       sOldPlc1 + sCFG + \"ReadOpState\"          ,
+                       sOldPlc1 + sSTA + \"ConnState\"            ,
+                       sOldPlc1 + sSTA + \"Disabled\"             ,
+                       sOldPlc1 + sSTACONN + \"State\"            ,
+                       sOldPlc1 + sSTACONN + \"OpState\"          ,
+                       sOldPlc1 + sSTACONN + \"LegitimationLevel\",
+                       sOldPlc1 + sSTACONN + \"AlarmState\"       ,
+                       //-----------------------------------------------
+                       sOldPlc2 + sCFG + \"ReadOpState\"          ,
+                       sOldPlc2 + sSTA + \"ConnState\"            ,
+                       sOldPlc2 + sSTA + \"Disabled\"             ,
+                       sOldPlc2 + sSTACONN + \"State\"            ,
+                       sOldPlc2 + sSTACONN + \"OpState\"          ,
+                       sOldPlc2 + sSTACONN + \"LegitimationLevel\",
+                       sOldPlc2 + sSTACONN + \"AlarmState\"       );
+                       //-----------------------------------------------
+
+        }
+        if ( sPlc1 != \"\" && dpExists(sPlc1) && sPlc2 != S7PLUS_REDU && dpExists(sPlc2) )
+        {
+          dpConnect(\"s7plusWorkStates2\",
+                    //--------------------------------------------
+                    sPlc1 + sCFG + \"ReadOpState\"          ,
+                    sPlc1 + sSTA + \"ConnState\"            ,
+                    sPlc1 + sSTA + \"Disabled\"             ,
+                    sPlc1 + sSTACONN + \"State\"            ,
+                    sPlc1 + sSTACONN + \"OpState\"          ,
+                    sPlc1 + sSTACONN + \"LegitimationLevel\",
+                    sPlc1 + sSTACONN + \"AlarmState\"       ,
+                    //--------------------------------------------
+                    sPlc2 + sCFG + \"ReadOpState\"          ,
+                    sPlc2 + sSTA + \"ConnState\"            ,
+                    sPlc2 + sSTA + \"Disabled\"             ,
+                    sPlc2 + sSTACONN + \"State\"            ,
+                    sPlc2 + sSTACONN + \"OpState\"          ,
+                    sPlc2 + sSTACONN + \"LegitimationLevel\",
+                    sPlc2 + sSTACONN + \"AlarmState\"       );
+                    //--------------------------------------------
+
+          //readDpWritePanel2(sPlc1);
+        }
+
+        sOldPlc1 = sPlc1;
+        sOldPlc2 = sPlc2;
+      }
+    }
+    else
+    {
+      setMultiValue(\"grpStatisticsSingle\", \"visible\", 1,
+                    \"grpStatisticsRedu\",   \"visible\", 0);
+
+      sPlc1 = S7PLUS_INOA + cmbPlc.text;
+
+      if ( sPlc1 != sOldPlc1 )
+      {
+        // CONNECTION INFO + STATISTICS - SINGLE SYSTEM
+        if ( sOldPlc1 != \"\" && dpExists(sOldPlc1) )
+        {
+          dpDisconnect(\"s7plusWorkInfo1\",
+                       //-----------------------------------------------
+                       sOldPlc1 + sSTACONN + \"PLCTime\"          ,
+                       sOldPlc1 + sSTAINFO + \"SystemVersion\"    ,
+                       sOldPlc1 + sSTAINFO + \"SystemLimits\"     ,
+                       //-----------------------------------------------
+                       sOldPlc1 + sSTASTAT + \"ReadsSent\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsRecv\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsRej\"         ,
+                       sOldPlc1 + sSTASTAT + \"WritesSent\"       ,
+                       sOldPlc1 + sSTASTAT + \"WritesRecv\"       ,
+                       sOldPlc1 + sSTASTAT + \"WritesRej\"        ,
+                       sOldPlc1 + sSTASTAT + \"ReadsPerSec\"      ,
+                       sOldPlc1 + sSTASTAT + \"WritesPerSec\"     ,
+                       sOldPlc1 + sSTASTAT + \"Unsolicited\"      ,
+                       sOldPlc1 + sSTASTAT + \"UnsolicitedPerSec\",
+                       sOldPlc1 + sSTASTAT + \"AlarmsRecv\"       ,
+                       sOldPlc1 + sSTASTAT + \"AlarmsAckSent\"    ,
+                       sOldPlc1 + sSTASTAT + \"AlarmsPerSec\"     );
+                       //-----------------------------------------------
+        }
+        if ( sPlc1 != \"\" && dpExists(sPlc1) )
+        {
+          dpConnect(\"s7plusWorkInfo1\",
+                    //--------------------------------------------
+                    sPlc1 + sSTACONN + \"PLCTime\"          ,
+                    sPlc1 + sSTAINFO + \"SystemVersion\"    ,
+                    sPlc1 + sSTAINFO + \"SystemLimits\"     ,
+                    //--------------------------------------------
+                    sPlc1 + sSTASTAT + \"ReadsSent\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsRecv\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsRej\"         ,
+                    sPlc1 + sSTASTAT + \"WritesSent\"       ,
+                    sPlc1 + sSTASTAT + \"WritesRecv\"       ,
+                    sPlc1 + sSTASTAT + \"WritesRej\"        ,
+                    sPlc1 + sSTASTAT + \"ReadsPerSec\"      ,
+                    sPlc1 + sSTASTAT + \"WritesPerSec\"     ,
+                    sPlc1 + sSTASTAT + \"Unsolicited\"      ,
+                    sPlc1 + sSTASTAT + \"UnsolicitedPerSec\",
+                    sPlc1 + sSTASTAT + \"AlarmsRecv\"       ,
+                    sPlc1 + sSTASTAT + \"AlarmsAckSent\"    ,
+                    sPlc1 + sSTASTAT + \"AlarmsPerSec\"     );
+                    //--------------------------------------------
+        }
+
+        // CONNECTION STATES - SINGLE SYSTEM
+        if ( sOldPlc1 != \"\" && dpExists(sOldPlc1) )
+        {
+          dpDisconnect(\"s7plusWorkStates1\",
+                       //-----------------------------------------------
+                       sOldPlc1 + sCFG + \"ReadOpState\"          ,
+                       sOldPlc1 + sSTA + \"ConnState\"            ,
+                       sOldPlc1 + sSTA + \"Disabled\"             ,
+                       sOldPlc1 + sSTACONN + \"State\"            ,
+                       sOldPlc1 + sSTACONN + \"OpState\"          ,
+                       sOldPlc1 + sSTACONN + \"LegitimationLevel\",
+                       sOldPlc1 + sSTACONN + \"AlarmState\"       );
+                       //-----------------------------------------------
+        }
+        if ( sPlc1 != \"\" && dpExists(sPlc1))
+        {
+          dpConnect(\"s7plusWorkStates1\",
+                    //--------------------------------------------
+                    sPlc1 + sCFG + \"ReadOpState\"          ,
+                    sPlc1 + sSTA + \"ConnState\"            ,
+                    sPlc1 + sSTA + \"Disabled\"             ,
+                    sPlc1 + sSTACONN + \"State\"            ,
+                    sPlc1 + sSTACONN + \"OpState\"          ,
+                    sPlc1 + sSTACONN + \"LegitimationLevel\",
+                    sPlc1 + sSTACONN + \"AlarmState\"       );
+                    //--------------------------------------------
+        }
+
+        sOldPlc1 = sPlc1;
+      }
+    }
+
+    delay(1);
+  }
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+s7plusWorkInfo1(// host 1 dp
+                string dp001, dyn_time dtPlcTime,
+                string dp002, string sSysVers,
+                string dp003, dyn_int diSysLim,
+
+                string dp101, float fReadsSent,
+                string dp102, float fReadsRecv,
+                string dp103, float fReadsRej,
+                string dp104, float fWritesSent,
+                string dp105, float fWritesRecv,
+                string dp106, float fWritesRej,
+                string dp107, float fReadsPerSec,
+                string dp108, float fWritesPerSec,
+                string dp109, float fUnsolicited,
+                string dp110, float fUnsolPerSec,
+                string dp111, float fAlarmsRecv,
+                string dp112, float fAlarmsAckSent,
+                string dp113, float fAlarmsPerSec)
+{
+  setMultiValue(\"tfReadsSent\",     \"text\", fReadsSent,
+                \"tfReadsRecv\",     \"text\", fReadsRecv,
+                \"tfReadsRej\",      \"text\", fReadsRej,
+                \"tfWritesSent\",    \"text\", fWritesSent,
+                \"tfWritesRecv\",    \"text\", fWritesRecv,
+                \"tfWritesRej\",     \"text\", fWritesRej,
+                \"tfReadsPerSec\",   \"text\", fReadsPerSec,
+                \"tfWritesPerSec\",  \"text\", fWritesPerSec,
+                \"tfUnsolicited\",   \"text\", fUnsolicited,
+                \"tfUnsolPerSec\",   \"text\", fUnsolPerSec,
+                \"tfAlarmsRecv\",    \"text\", fAlarmsRecv,
+                \"tfAlarmsAckSent\", \"text\", fAlarmsAckSent,
+                \"tfAlarmsPerSec\",  \"text\", fAlarmsPerSec,
+                \"tfSysVers\",       \"text\", sSysVers,
+
+                \"tfMaxSubs\",       \"text\", (dynlen(diSysLim)>0)?diSysLim[1]:\"\",
+                \"tfMaxSubVals\",    \"text\", (dynlen(diSysLim)>1)?diSysLim[2]:\"\",
+                \"tfMaxValsPerReq\", \"text\", (dynlen(diSysLim)>2)?diSysLim[3]:\"\",
+                \"tfPlcTime\",       \"text\", (dynlen(dtPlcTime)>0)?dtPlcTime[1]:\"\",
+                \"tfPlcTimeRedu\",   \"text\", (dynlen(dtPlcTime)>2)?dtPlcTime[3]:\"\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+s7plusWorkInfo2(// host 2 dp
+                string dp001, dyn_time dtPlcTime,
+                string dp002, string sSysVers,
+                string dp003, dyn_int diSysLim,
+
+                string dp101, float fReadsSent1,
+                string dp102, float fReadsRecv1,
+                string dp103, float fReadsRej1,
+                string dp104, float fWritesSent1,
+                string dp105, float fWritesRecv1,
+                string dp106, float fWritesRej1,
+                string dp107, float fReadsPerSec1,
+                string dp108, float fWritesPerSec1,
+                string dp109, float fUnsolicited1,
+                string dp110, float fUnsolPerSec1,
+                string dp111, float fAlarmsRecv1,
+                string dp112, float fAlarmsAckSent1,
+                string dp113, float fAlarmsPerSec1,
+
+                // host 2 dp
+                string dp201, float fReadsSent2,
+                string dp202, float fReadsRecv2,
+                string dp203, float fReadsRej2,
+                string dp204, float fWritesSent2,
+                string dp205, float fWritesRecv2,
+                string dp206, float fWritesRej2,
+                string dp207, float fReadsPerSec2,
+                string dp208, float fWritesPerSec2,
+                string dp209, float fUnsolicited2,
+                string dp210, float fUnsolPerSec2,
+                string dp211, float fAlarmsRecv2,
+                string dp212, float fAlarmsAckSent2,
+                string dp213, float fAlarmsPerSec2)
+{
+  setMultiValue(\"tfReadsSent1\",     \"text\", fReadsSent1,
+                \"tfReadsRecv1\",     \"text\", fReadsRecv1,
+                \"tfReadsRej1\",      \"text\", fReadsRej1,
+                \"tfWritesSent1\",    \"text\", fWritesSent1,
+                \"tfWritesRecv1\",    \"text\", fWritesRecv1,
+                \"tfWritesRej1\",     \"text\", fWritesRej1,
+                \"tfReadsPerSec1\",   \"text\", fReadsPerSec1,
+                \"tfWritesPerSec1\",  \"text\", fWritesPerSec1,
+                \"tfUnsolicited1\",   \"text\", fUnsolicited1,
+                \"tfUnsolPerSec1\",   \"text\", fUnsolPerSec1,
+                \"tfAlarmsRecv1\",    \"text\", fAlarmsRecv1,
+                \"tfAlarmsAckSent1\", \"text\", fAlarmsAckSent1,
+                \"tfAlarmsPerSec1\",  \"text\", fAlarmsPerSec1,
+
+                \"tfSysVers\",        \"text\", sSysVers,
+                \"tfMaxSubs\",        \"text\", (dynlen(diSysLim)>0)?diSysLim[1]:\"\",
+                \"tfMaxSubVals\",     \"text\", (dynlen(diSysLim)>1)?diSysLim[2]:\"\",
+                \"tfMaxValsPerReq\",  \"text\", (dynlen(diSysLim)>2)?diSysLim[3]:\"\",
+                \"tfPlcTime\",        \"text\", (dynlen(dtPlcTime)>0)?dtPlcTime[1]:\"\",
+                \"tfPlcTimeRedu\",    \"text\", (dynlen(dtPlcTime)>2)?dtPlcTime[3]:\"\",
+
+                \"tfReadsSent2\",     \"text\", fReadsSent2,
+                \"tfReadsRecv2\",     \"text\", fReadsRecv2,
+                \"tfReadsRej2\",      \"text\", fReadsRej2,
+                \"tfWritesSent2\",    \"text\", fWritesSent2,
+                \"tfWritesRecv2\",    \"text\", fWritesRecv2,
+                \"tfWritesRej2\",     \"text\", fWritesRej2,
+                \"tfReadsPerSec2\",   \"text\", fReadsPerSec2,
+                \"tfWritesPerSec2\",  \"text\", fWritesPerSec2,
+                \"tfUnsolicited2\",   \"text\", fUnsolicited2,
+                \"tfUnsolPerSec2\",   \"text\", fUnsolPerSec2,
+                \"tfAlarmsRecv2\",    \"text\", fAlarmsRecv2,
+                \"tfAlarmsAckSent2\", \"text\", fAlarmsAckSent2,
+                \"tfAlarmsPerSec2\",  \"text\", fAlarmsPerSec2);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+s7plusWorkStates1(// host 1 dp
+                  string dp11, bool bReadOpState1,
+                  string dp12, uint uiConnState1,
+                  string dp13, bool bDisabled1,
+                  string dp14, dyn_uint duiState1,
+                  string dp15, dyn_uint duiOpState1,
+                  string dp16, dyn_int diLegLevel1,
+                  string dp17, dyn_uint duiAlState1)
+{
+  string sShape = \"tfConnStateHost1\";
+  setConnStateField(uiConnState1, sShape);
+
+  // 28.09.2016 gstrauhs
+  // check if PLC type needs to be set and read S7DOS access points
+  if ( tfPlcType.backCol == \"yellow\" && tfPlcType.visible )
+  {
+    string sDp  = S7PLUS_INOA + cmbPlc.text;
+    string sStationName;
+    uint   uiDrvNum;
+
+    dpGet(sDp + sCFG + \"DrvNumber\",    uiDrvNum,
+          sDp + sCFG + \"StationName\",  sStationName);
+
+    dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+    if ( sStationName != \"\" && dynContains(drvRunning, uiDrvNum) )
+      getAutoPlcType();
+  }
+
+  // read access points
+  if(_WIN32)
+  {
+    if ( dynlen(g_dsPgPcAp) == 0 )
+      setApGlobals(cmbPlc.text);
+  }
+
+  // connection states - first device
+  dyn_string dsStateH1      = makeDynString((                 !bDisabled1 && dynlen(duiState1)>0)  ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[1]):  \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>1)  ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[2]):  \"---\"),
+             dsStateH2      = makeDynString(                                                                                                                        \"---\",
+                                                                                                                                                                    \"---\"),
+             dsOpState      = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState1)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState1[1]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState1)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState1[2]):\"---\"),
+             dsLegLevel     = makeDynString((                 !bDisabled1 && dynlen(diLegLevel1)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel1[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel1)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel1[2]):\"---\"),
+             dsAlState      = makeDynString((                 !bDisabled1 && dynlen(duiAlState1)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState1[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState1)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState1[2]):\"---\"),
+  // connection states - redu device
+             dsStateH1Redu  = makeDynString((                 !bDisabled1 && dynlen(duiState1)>2)  ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[3]):  \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>3)  ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[4]):  \"---\"),
+             dsStateH2Redu  = makeDynString(                                                                                                                        \"---\",
+                                                                                                                                                                    \"---\"),
+             dsOpStateRedu  = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState1)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState1[3]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState1)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState1[4]):\"---\"),
+             dsLegLevelRedu = makeDynString((                 !bDisabled1 && dynlen(diLegLevel1)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel1[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel1)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel1[4]):\"---\"),
+             dsAlStateRedu  = makeDynString((                 !bDisabled1 && dynlen(duiAlState1)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState1[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState1)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState1[4]):\"---\");
+
+  setMultiValue(\"tableState\",     \"deleteAllLines\",
+                \"tableStateRedu\", \"deleteAllLines\");
+
+  setValue(\"tableState\",     \"appendLines\", 2, \"#1\", dsStateH1,
+                                               \"#2\", dsStateH2,
+                                               \"#3\", dsOpState,
+                                               \"#4\", dsLegLevel,
+                                               \"#5\", dsAlState);
+
+  setValue(\"tableStateRedu\", \"appendLines\", 2, \"#1\", dsStateH1Redu,
+                                               \"#2\", dsStateH2Redu,
+                                               \"#3\", dsOpStateRedu,
+                                               \"#4\", dsLegLevelRedu,
+                                               \"#5\", dsAlStateRedu);
+
+  // ETM - set table rows visible
+  if ( cbReduConn.state(0) || cmbPlcType.selectedPos == S7P_POS_PLCTYPE_3 )
+    setMultiValue(\"tableState\",     \"showRow\", 1,
+                  \"tableStateRedu\", \"showRow\", 1);
+  else
+    setMultiValue(\"tableState\",     \"hideRow\", 1,
+                  \"tableStateRedu\", \"hideRow\", 1);
+
+  setTableStateColumns();
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+s7plusWorkStates2(// host 1 dp
+                  string dp11, bool bReadOpState1,
+                  string dp12, uint uiConnState1,
+                  string dp13, bool bDisabled1,
+                  string dp14, dyn_uint duiState1,
+                  string dp15, dyn_uint duiOpState1,
+                  string dp16, dyn_int diLegLevel1,
+                  string dp17, dyn_uint duiAlState1,
+                  // host 2 dp
+                  string dp21, bool bReadOpState2,
+                  string dp22, uint uiConnState2,
+                  string dp23, bool bDisabled2,
+                  string dp24, dyn_uint duiState2,
+                  string dp25, dyn_uint duiOpState2,
+                  string dp26, dyn_int diLegLevel2,
+                  string dp27, dyn_uint duiAlState2)
+{
+  dyn_uint duiOpState;
+  dyn_int diLegLevel;
+  dyn_uint duiAlState;
+
+  string sSys = txtSystem.text;
+  int iAnswer;
+  reduActive(iAnswer, sSys);
+
+  if ( iAnswer == 2 )
+  {
+    duiOpState = duiOpState2;
+    diLegLevel = diLegLevel2;
+    duiAlState = duiAlState2;
+  }
+  else
+  {
+    duiOpState = duiOpState1;
+    diLegLevel = diLegLevel1;
+    duiAlState = duiAlState2;
+  }
+
+  // state host 1 & host 2
+  string sShape1 = \"tfConnStateHost1\",
+         sShape2 = \"tfConnStateHost2\";
+
+  setConnStateField(uiConnState1, sShape1);
+  setConnStateField(uiConnState2, sShape2);
+
+  // connection states - first device
+  dyn_string dsStateH1      = makeDynString((                 !bDisabled1 && dynlen(duiState1)>0) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[1]): \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>1) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[2]): \"---\"),
+             dsStateH2      = makeDynString((                 !bDisabled2 && dynlen(duiState2)>0) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[1]): \"---\",
+                                            (                 !bDisabled2 && dynlen(duiState2)>1) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[2]): \"---\"),
+             dsOpState      = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[1]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[2]):\"---\"),
+             dsLegLevel     = makeDynString((                 !bDisabled1 && dynlen(diLegLevel)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[2]):\"---\"),
+             dsAlState      = makeDynString((                 !bDisabled1 && dynlen(duiAlState)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[2]):\"---\"),
+  // connection states - redu device
+             dsStateH1Redu  = makeDynString((                 !bDisabled1 && dynlen(duiState1)>2) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[3]): \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>3) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[4]): \"---\"),
+             dsStateH2Redu  = makeDynString((                 !bDisabled2 && dynlen(duiState2)>2) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[3]): \"---\",
+                                            (                 !bDisabled2 && dynlen(duiState2)>3) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[4]): \"---\"),
+             dsOpStateRedu  = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[3]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[4]):\"---\"),
+             dsLegLevelRedu = makeDynString((                 !bDisabled1 && dynlen(diLegLevel)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[4]):\"---\"),
+             dsAlStateRedu  = makeDynString((                 !bDisabled1 && dynlen(duiAlState)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[4]):\"---\");
+
+  setMultiValue(\"tableState\",     \"deleteAllLines\",
+                \"tableStateRedu\", \"deleteAllLines\");
+
+  setValue(\"tableState\",     \"appendLines\", 2, \"#1\", dsStateH1,
+                                               \"#2\", dsStateH2,
+                                               \"#3\", dsOpState,
+                                               \"#4\", dsLegLevel,
+                                               \"#5\", dsAlState);
+
+  setValue(\"tableStateRedu\", \"appendLines\", 2, \"#1\", dsStateH1Redu,
+                                               \"#2\", dsStateH2Redu,
+                                               \"#3\", dsOpStateRedu,
+                                               \"#4\", dsLegLevelRedu,
+                                               \"#5\", dsAlStateRedu);
+
+  // ETM - set table rows visible
+  if ( cbReduConn.state(0) || cmbPlcType.selectedPos == S7P_POS_PLCTYPE_3 )
+    setMultiValue(\"tableState\",     \"showRow\", 1,
+                  \"tableStateRedu\", \"showRow\", 1);
+  else
+    setMultiValue(\"tableState\",     \"hideRow\", 1,
+                  \"tableStateRedu\", \"hideRow\", 1);
+
+  setTableStateColumns();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// s7+ driver
+#uses \"CtrlS7Plus\"
+#uses \"s7PlusDrvPara\"
+
+const int S7P_PLCTYPE_1   =   1;
+const int S7P_PLCTYPE_272 = 272;
+const int S7P_PLCTYPE_16  =  16;
+const int S7P_PLCTYPE_2   =   2;
+const int S7P_PLCTYPE_3   =   3;
+const int S7P_PLCTYPE_528 = 528;
+const int S7P_PLCTYPE_768 = 768;
+
+const int S7P_POS_PLCTYPE_1   = 1;
+const int S7P_POS_PLCTYPE_272 = 2;
+const int S7P_POS_PLCTYPE_16  = 3;
+const int S7P_POS_PLCTYPE_2   = 4;
+const int S7P_POS_PLCTYPE_3   = 5;
+const int S7P_POS_PLCTYPE_528 = 6;
+const int S7P_POS_PLCTYPE_768 = 7;
+
+const int S7P_CONNTYPE_1C1D = 0;
+const int S7P_CONNTYPE_2C1D = 1;
+const int S7P_CONNTYPE_1C2D = 2;
+const int S7P_CONNTYPE_2C2D = 3;
+
+string sCFG     = \".Config.\";
+string sCFGREDU = \".Config.ReduConnection.\";
+string sCFGTSPP = \".Config.Tspp.\";
+string sCMD     = \".Command.\";
+string sSTA     = \".State.\";
+string sSTACONN = \".State.Connections.\";
+string sSTAINFO = \".State.GeneralInfo.\";
+string sSTASTAT = \".State.Statistics.\";
+string sBRO     = \".Browse.\";
+
+// lock browse requests in different threads
+bool browseRequestPending = false;
+
+dyn_string dsLangs;
+dyn_int diLangIds;
+dyn_uint duiLangMibs, duiLangMibsUnique;
+dyn_string dsLangNames;
+dyn_string dsLangCodes, dsLangCodesUnique;
+
+uint uiUtf8 = 106;
+string sUtf8 = \"utf8\";
+
+string sStationOnline = \"S7Plus$Online|Online\";
+bool bOnlineBrowsing = 0;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void createNewConn(string dp)
+{
+  dyn_string ds = strsplit(dp, \":\");
+
+  string sSystem = ds[1]+\":\";
+  dp = ds[2];
+
+  int iAnswer, iSystem = getSystemId(sSystem);
+  dyn_errClass dErr;
+
+  string dp2 = dp + S7PLUS_REDU;
+
+  cmbPlcType.selectedPos = 1;
+  cmbSwitchCond.selectedPos = 4;
+  sbDrvNum.enabled = true;
+  cmbCodepage.items = dsLangCodesUnique;
+
+//   dyn_uint duiDrvNums = paS7PlusCheckDrvNums();
+//   uint uiDrvNum;
+//
+//   if ( dynlen(duiDrvNums) )
+//     uiDrvNum = duiDrvNums[1];
+//   else
+//     uiDrvNum = 1;
+//
+//   sbDrvNum.text = uiDrvNum;
+
+  uint uiDrvNum = (uint)sbDrvNum.value;
+
+  isRemoteSystemRedundant(iAnswer, sSystem);
+
+  dpCreate(dp, S7PLUS_DPT_CONN, iSystem);
+
+  dpSet(dp + sCFG + \"Address\"                , \"\",
+        dp + sCFG + \"AccessPoint\"            , \"S7ONLINE\",
+        dp + sCFG + \"PLCType\"                , 1,
+        dp + sCFG + \"ConnType\"               , 0,
+        dp + sCFG + \"Password\"               , \"\",
+        dp + sCFG + \"KeepAliveTimeout\"       , 20,
+        dp + sCFG + \"ReconnectTimeout\"       , 20,
+        dp + sCFG + \"EstablishmentMode\"      , 0,
+        dp + sCFG + \"SetInvalidBit\"          , 0,
+        dp + sCFG + \"TimeSyncMode\"           , 0,
+        dp + sCFG + \"Timezone\"               , 0,
+        dp + sCFG + \"TimeSyncInterval\"       , 86400,
+        dp + sCFG + \"UseUTC\"                 , 1,
+        dp + sCFG + \"AcquireValuesOnConnect\" , 1,
+        dp + sCFG + \"EnableStatistics\"       , 1,
+        dp + sCFG + \"ReadOpState\"            , 1,
+        dp + sCFG + \"StationName\"            , \"\",
+        dp + sCFG + \"DrvNumber\"              , uiDrvNum,
+        dp + sCFG + \"LegitimationLevel\"      , -1,
+        dp + sCFG + \"AlarmMode\"              , 0,
+        dp + sCFG + \"FullTextAlarms\"         , 1,
+        dp + sCFG + \"DisplayClassFilter\"     , \"\",
+        dp + sCFG + \"Codepage\"               , 4,
+
+        dp + sCFGREDU + \"Address\"            , \"\",
+        dp + sCFGREDU + \"AccessPoint\"        , \"S7ONLINE\",
+        dp + sCFGREDU + \"SwitchCondition\"    , 3,
+        dp + sCFGREDU + \"SwitchTag\"          , \"\",
+
+        dp + sCFGTSPP + \"Mode\"               , 0,
+        dp + sCFGTSPP + \"ReadInterval\"       , 0,
+        dp + sCFGTSPP + \"BufferAddress\"      , \"\",
+
+        dp + sCMD + \"Enable\"                 , 0,
+        dp + sCMD + \"GQ\"                     , 0,
+        dp + sCMD + \"IGQ\"                    , 0,
+        dp + sCMD + \"DoSwitchover\"           , 0);
+
+  dErr = getLastError();
+
+  if ( dynlen(dErr) > 0)
+  {
+     throwError(dErr);
+     errorDialog(dErr);
+  }
+
+  setCheckConnAddress(dp, dp, \"__check__\");
+
+  if ( isRedundant() )
+  {
+    // redundant DPs
+    dpCreate(dp2, S7PLUS_DPT_CONN, iSystem);
+
+    dpSet(dp2 + sCFG + \"Address\"                , \"\",
+          dp2 + sCFG + \"AccessPoint\"            , \"S7ONLINE\",
+          dp2 + sCFG + \"PLCType\"                , 1,
+          dp2 + sCFG + \"ConnType\"               , 0,
+          dp2 + sCFG + \"Password\"               , \"\",
+          dp2 + sCFG + \"KeepAliveTimeout\"       , 20,
+          dp2 + sCFG + \"ReconnectTimeout\"       , 20,
+          dp2 + sCFG + \"EstablishmentMode\"      , 0,
+          dp2 + sCFG + \"SetInvalidBit\"          , 0,
+          dp2 + sCFG + \"TimeSyncMode\"           , 0,
+          dp2 + sCFG + \"Timezone\"               , 0,
+          dp2 + sCFG + \"TimeSyncInterval\"       , 86400,
+          dp2 + sCFG + \"UseUTC\"                 , 1,
+          dp2 + sCFG + \"AcquireValuesOnConnect\" , 1,
+          dp2 + sCFG + \"EnableStatistics\"       , 1,
+          dp2 + sCFG + \"ReadOpState\"            , 1,
+          dp2 + sCFG + \"StationName\"            , \"\",
+          dp2 + sCFG + \"DrvNumber\"              , uiDrvNum,
+          dp2 + sCFG + \"LegitimationLevel\"      , -1,
+          dp2 + sCFG + \"AlarmMode\"              , 0,
+          dp2 + sCFG + \"FullTextAlarms\"         , 1,
+          dp2 + sCFG + \"DisplayClassFilter\"     , \"\",
+          dp2 + sCFG + \"Codepage\"               , 4,
+
+          dp2 + sCFGREDU + \"Address\"            , \"\",
+          dp2 + sCFGREDU + \"AccessPoint\"        , \"S7ONLINE\",
+          dp2 + sCFGREDU + \"SwitchCondition\"    , 3,
+          dp2 + sCFGREDU + \"SwitchTag\"          , \"\",
+
+          dp2 + sCFGTSPP + \"Mode\"               , 0,
+          dp2 + sCFGTSPP + \"ReadInterval\"       , 0,
+          dp2 + sCFGTSPP + \"BufferAddress\"      , \"\",
+
+          dp2 + sCMD + \"Enable\"                 , 0,
+          dp2 + sCMD + \"GQ\"                     , 0,
+          dp2 + sCMD + \"IGQ\"                    , 0,
+          dp2 + sCMD + \"DoSwitchover\"           , 0);
+
+    dErr = getLastError();
+
+    if ( dynlen(dErr)>0)
+    {
+       throwError(dErr);
+       errorDialog(dErr);
+    }
+
+    setCheckConnAddress(dp2, dp, \"__checkredu__\");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setCheckConnAddress(string sDp, string sConn, string sRef)
+{
+  string sDistribCfg = \":_distrib..\";
+  string sAddressCfg = \":_address..\";
+
+  dpSetWait(sDp + sCFG + \"CheckConn\" + sDistribCfg + \"_type\",   DPCONFIG_DISTRIBUTION_INFO,
+            sDp + sCFG + \"CheckConn\" + sDistribCfg + \"_driver\", sbDrvNum.value);
+
+  dpSetWait(sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_type\",       DPCONFIG_PERIPH_ADDR_MAIN,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_drv_ident\",  \"S7PLUS\",
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_connection\", sConn,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_reference\",  sRef,
+            sDp + sCFG + \"CheckConn\" + sAddressCfg + \"_active\",     true);
+
+  dpSetWait(sDp + sCFG + \"Password:_auth.._type\",           DPCONFIG_AUTH,
+            sDp + sCFG + \"Password:_auth._original._write\", 4);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int openSymbolic(string sConn)
+{
+  dyn_float dfRet;
+  dyn_string dsRet;
+
+  /*
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(getCatStr(\"s7plus\", \"tiaSymbSelect\"),
+                                               getCatStr(\"para\", \"yes\"),
+                                               getCatStr(\"para\", \"no\")),
+                                 dfRet, dsRet);
+
+  if ( dynlen(dfRet) < 1 || dfRet[1] == 0 )
+    return;
+
+  */
+
+  dyn_string ds;
+  dyn_float df;
+
+  if ( sConn == \"\" || strlen(sConn) == 0 )
+    return 0;
+
+  string sStation;
+
+  dpGet(sConn + sCFG + \"StationName\", sStation);
+
+  ChildPanelOnCentralModalReturn(\"para/s7plus_symbolic.pnl\",
+                                 \"S7Plus Symbolic\",
+                                 makeDynString(\"$SERVER:\"  + sConn,
+                                               \"$STATION:\" + sStation,
+                                               \"$NEWCONN:\" + 1),
+                                 df, ds);
+
+  // tfs 57009 - remove connection if symbolic selection was canceled
+  if ( dynlen(df) && df[1] == 0 && dynlen(ds) && ds[1] == \"-1\" )
+  {
+    removeConn(sConn, 1);
+
+    delay(0,501);
+
+    if ( dynlen(cmbPlc.items) < 1 )
+    {
+      cmbPlc.text = \"\";
+      t1.text = \"\";
+      tfIp1.text = \"\";
+      tfIp2.text = \"\";
+      sbDrvNum.enabled = false;
+      setSettingsEnabled(0); // there is no PLC in the list so disable settings
+    }
+    else
+    {
+      cmbPlc.selectedPos(1);
+      loads7plusDp(txtSystem.text + S7PLUS_INOA + cmbPlc.text);
+    }
+
+    return -1;
+  }
+
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+  {
+    if ( sStation != \"\" )
+    {
+      //dpSet(sConn + sCFG + \"StationName\", sStation);
+
+      if ( sStation == sStationOnline )
+        setMultiValue(\"tfProjectName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                      \"tfStationName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineStation\"));
+      else
+        setMultiValue(\"tfProjectName\", \"text\", strsplit(sStation, \"|\")[1],
+                      \"tfStationName\", \"text\", strsplit(sStation, \"|\")[2]);
+    }
+    else
+      setMultiValue(\"tfProjectName\", \"text\", \"\",
+                    \"tfStationName\", \"text\", \"\");
+    return 0;
+  }
+
+  if ( dynlen(ds) > 1 )
+  {
+    uint uiPlcType;
+    string sIp1, sIp2, sAddress, sAddressRedu;
+    dyn_string dsNP, dsStations;
+
+    dsNP = strsplit(ds[2], \"|\");
+
+    if ( dynlen(dsNP) > 1 )
+      uiPlcType = dsNP[2];
+    if ( dynlen(dsNP) > 2 )
+      sIp1      = dsNP[3];
+    if ( dynlen(dsNP) > 3 )
+      sIp2      = dsNP[4];
+
+    sAddress = ( uiPlcType == S7P_PLCTYPE_528 ) ? \"::\" + sIp1 + \":6.0:\" : sIp1;
+
+    if ( sIp2 != \"\" )
+      sAddressRedu = ( uiPlcType == S7P_PLCTYPE_528 ) ? \"::\" + sIp2 + \":6.0:\" : sIp2;
+
+    dpSetWait(sConn + sCFG + \"StationName\", ds[1],
+              sConn + sCFG + \"Address\"    , sAddress,
+              sConn + sCFG + \"PLCType\"    , 1);//uiPlcType);
+
+    if ( sIp2 != \"\" )
+      dpSetWait(sConn + sCFGREDU + \"Address\" , sAddressRedu,
+                sConn + sCFG     + \"ConnType\", S7P_CONNTYPE_2C1D);
+
+    if ( ds[1] == sStationOnline )
+      setMultiValue(\"tfProjectName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                    \"tfStationName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineStation\"));
+    else
+      setMultiValue(\"tfProjectName\", \"text\", strsplit(ds[1], \"|\")[1],
+                    \"tfStationName\", \"text\", strsplit(ds[1], \"|\")[2]);
+
+    setMultiValue(\"tfPlcTypeNum\",  \"text\", uiPlcType,
+                  \"tfPlcType\",     \"text\", getCatStr(\"s7plus\", \"s7plusPlcType\"+uiPlcType));
+
+    setDefaultDCF(sConn, uiPlcType);
+  }
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setDefaultDCF(string sConn, uint uiPlcType)
+{
+  string sDefaultDCF;
+  int iLimit = 0;
+
+  if ( uiPlcType == S7P_PLCTYPE_272 )
+    iLimit = 5;
+  else
+    iLimit = 16;
+
+  for ( int i = 0; i <= iLimit; i++ )
+    sDefaultDCF += i + \"|\";
+
+  sDefaultDCF = substr(sDefaultDCF, 0, strlen(sDefaultDCF)-1);
+  dpSetWait(sConn + sCFG + \"DisplayClassFilter\", sDefaultDCF);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void readDpWritePanel(string sPlc)
+{
+  string   sStationName, sAddress, sAp, sAddressRedu, sApRedu, sSwitchTag, sSysVers, sClassFilter, sBufferAddress;
+  uint     uiDrvType, uiDrvNum, uiPlcType, uiConnType, uiKeepAliveTo, uiEstMode, uiRecTo, uiConnState, uiTSM, uiTSI, uiTSIHour, uiSwitchCond, uiAlarmMode, uiCodepage, uiTsppMode, uiReadInterval;
+  bool     bReadOpState, bDisabled, bInvalidBit, bEnableStats, bUseUTC, bAVOC, bFullText;
+  int      iTimezone, iLegLevel;
+  blob     blobPassword;
+  float    fReadsSent, fReadsRecv, fReadsRej, fWritesSent, fWritesRecv, fWritesRej, fReadsPerSec, fWritesPerSec, fUnsolicited, fUnsolPerSec;
+  dyn_int    diSysLim, diLegLevel;
+  dyn_uint   duiState, duiOpState;
+  dyn_time   dtPlcTime;
+  //string sAlarmParam, sSymbolTable;
+  //bool bAlarmsActive, bDOS, bPollPass, bGQonHMI;
+  //anytype aSymbolTable, aAlarmParam;
+
+  string sPlc2 = sPlc + S7PLUS_REDU;
+
+  dpGet(sPlc + sCFG + \"Address\"               , sAddress,
+        sPlc + sCFG + \"AccessPoint\"           , sAp,
+        sPlc + sCFG + \"PLCType\"               , uiPlcType,
+        sPlc + sCFG + \"ConnType\"              , uiConnType,
+        sPlc + sCFG + \"Password\"              , blobPassword,
+        sPlc + sCFG + \"KeepAliveTimeout\"      , uiKeepAliveTo,
+        sPlc + sCFG + \"ReconnectTimeout\"      , uiRecTo,
+        sPlc + sCFG + \"EstablishmentMode\"     , uiEstMode,
+        sPlc + sCFG + \"SetInvalidBit\"         , bInvalidBit,
+        sPlc + sCFG + \"TimeSyncMode\"          , uiTSM,
+        sPlc + sCFG + \"Timezone\"              , iTimezone,
+        sPlc + sCFG + \"TimeSyncInterval\"      , uiTSI,
+        sPlc + sCFG + \"UseUTC\"                , bUseUTC,
+        sPlc + sCFG + \"AcquireValuesOnConnect\", bAVOC,
+        sPlc + sCFG + \"EnableStatistics\"      , bEnableStats,
+        sPlc + sCFG + \"ReadOpState\"           , bReadOpState,
+        sPlc + sCFG + \"StationName\"           , sStationName,
+        sPlc + sCFG + \"DrvNumber\"             , uiDrvNum,
+        sPlc + sCFG + \"LegitimationLevel\"     , iLegLevel,
+        sPlc + sCFG + \"AlarmMode\"             , uiAlarmMode,
+        sPlc + sCFG + \"FullTextAlarms\"        , bFullText,
+        sPlc + sCFG + \"DisplayClassFilter\"    , sClassFilter,
+        sPlc + sCFG + \"Codepage\"              , uiCodepage,
+
+        sPlc + sCFGREDU + \"Address\"           , sAddressRedu,
+        sPlc + sCFGREDU + \"AccessPoint\"       , sApRedu,
+        sPlc + sCFGREDU + \"SwitchCondition\"   , uiSwitchCond,
+        sPlc + sCFGREDU + \"SwitchTag\"         , sSwitchTag,
+
+        sPlc + sCFGTSPP + \"Mode\"              , uiTsppMode,
+        sPlc + sCFGTSPP + \"ReadInterval\"      , uiReadInterval,
+        sPlc + sCFGTSPP + \"BufferAddress\"     , sBufferAddress);
+
+        //sPlc + sSTA + \"ConnState\"             , uiConnState,
+        //sPlc + sSTA + \"DrvType\"               , uiDrvType,
+        //sPlc + sSTA + \"Disabled\"              , bDisabled,
+
+        //sPlc + sSTACONN + \"State\"             , duiState,
+        //sPlc + sSTACONN + \"OpState\"           , duiOpState,
+        //sPlc + sSTACONN + \"PLCTime\"           , dtPlcTime,
+        //sPlc + sSTACONN + \"LegitimationLevel\" , diLegLevel,
+
+        //sPlc + sSTAINFO + \"SystemVersion\"     , sSysVers,
+        //sPlc + sSTAINFO + \"SystemLimits\"      , diSysLim,
+
+        //sPlc + sSTASTAT + \"ReadsSent\"         , fReadsSent,
+        //sPlc + sSTASTAT + \"ReadsRecv\"         , fReadsRecv,
+        //sPlc + sSTASTAT + \"ReadsRej\"          , fReadsRej,
+        //sPlc + sSTASTAT + \"WritesSent\"        , fWritesSent,
+        //sPlc + sSTASTAT + \"WritesRecv\"        , fWritesRecv,
+        //sPlc + sSTASTAT + \"WritesRej\"         , fWritesRej,
+        //sPlc + sSTASTAT + \"ReadsPerSec\"       , fReadsPerSec,
+        //sPlc + sSTASTAT + \"WritesPerSec\"      , fWritesPerSec,
+        //sPlc + sSTASTAT + \"Unsolicited\"       , fUnsolicited,
+        //sPlc + sSTASTAT + \"UnsolicitedPerSec\" , fUnsolPerSec,
+
+        //sPlc + sCFG + \"SymbolTable\"            , aSymbolTable,
+        //sPlc + sCFG + \"DisableOnStartup\"       , bDOS,
+        //sPlc + sCFG + \"PollPassiveDriver\"      , bPollPass,
+        //sPlc + sCFG + \"GQOnRedundantHmiStation\", bGQonHMI,
+        //sPlc + sCFG + \"AlarmsActive\"           , bAlarmsActive,
+        //sPlc + sCFG + \"AlarmParam\"             , aAlarmParam,
+
+  sbDrvNum.text = uiDrvNum;
+  bOnlineBrowsing = ( sStationName == sStationOnline );
+
+  initPlcType(uiPlcType, uiConnType);
+  initConnType(uiConnType);
+  initSwitchCondition();
+
+  getTSM();
+
+  if ( checkComplexAddressString(sAddress) )     //if ( strpos(sAddress, \":\") != -1 )
+    splitAddressSoftCtrl(sAddress, false, true);
+  if ( checkComplexAddressString(sAddressRedu) ) //if ( strpos(sAddressRedu, \":\") != -1 )
+    splitAddressSoftCtrl(sAddressRedu, true, true);
+
+  if ( sAp == \"\" )
+    sAp = \"S7ONLINE\";
+  if ( sApRedu == \"\" )
+    sApRedu = \"S7ONLINE\";
+
+  // first device
+  tfIp1.text                = sAddress;
+  tfIp1.enabled             = 1;
+  tfIp2.text                = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D) ? sAddressRedu : \"\";
+  tfIp2.enabled             = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+  tfIp2.visible             = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+  ptConn2.enabled           = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+  ptConn2.visible           = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+
+  cmbAp1.items              = (dynlen(g_dsPgPcAp))?g_dsPgPcAp:makeDynString(sAp);
+  cmbAp1.selectedPos        = (dynlen(g_dsPgPcAp))?dynContains(g_dsPgPcAp, sAp):1;
+  cmbAp1.toolTipText        = (dynContains(g_dsPgPcAp, sAp))?g_dsPgPcIf[dynContains(g_dsPgPcAp, sAp)]:\"\";
+  cmbAp1.enabled            = 1;
+  cmbAp2.items              = (dynlen(g_dsPgPcAp))?g_dsPgPcAp:makeDynString(sApRedu);
+  cmbAp2.selectedPos        = (dynlen(g_dsPgPcAp))?dynContains(g_dsPgPcAp, sApRedu):1;
+  cmbAp2.toolTipText        = (dynContains(g_dsPgPcAp, sApRedu))?g_dsPgPcIf[dynContains(g_dsPgPcAp, sApRedu)]:\"\";
+  cmbAp2.enabled            = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+  cmbAp2.visible            = (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D);
+
+  // redu device
+  tfIp1Redu.text            = sAddress;
+  tfIp1Redu.enabled         = 1;
+  tfIp2Redu.text            = sAddressRedu;
+  tfIp2Redu.enabled         = (uiConnType == S7P_CONNTYPE_2C2D);
+  tfIp2Redu.visible         = (uiConnType == S7P_CONNTYPE_2C2D);
+  ptConn2Redu.enabled       = (uiConnType == S7P_CONNTYPE_2C2D);
+  ptConn2Redu.visible       = (uiConnType == S7P_CONNTYPE_2C2D);
+
+  cmbAp1Redu.items          = (dynlen(g_dsPgPcAp))?g_dsPgPcAp:makeDynString(sAp);
+  cmbAp1Redu.selectedPos    = (dynlen(g_dsPgPcAp))?dynContains(g_dsPgPcAp, sAp):1;
+  cmbAp1Redu.toolTipText    = (dynContains(g_dsPgPcAp, sAp))?g_dsPgPcIf[dynContains(g_dsPgPcAp, sAp)]:\"\";
+  cmbAp1Redu.enabled        = 1;
+  cmbAp2Redu.items          = (dynlen(g_dsPgPcAp))?g_dsPgPcAp:makeDynString(sApRedu);
+  cmbAp2Redu.selectedPos    = (dynlen(g_dsPgPcAp))?dynContains(g_dsPgPcAp, sApRedu):1;
+  cmbAp2Redu.toolTipText    = (dynContains(g_dsPgPcAp, sApRedu))?g_dsPgPcIf[dynContains(g_dsPgPcAp, sApRedu)]:\"\";
+  cmbAp2Redu.enabled        = (uiConnType == S7P_CONNTYPE_2C2D);
+  cmbAp2Redu.visible        = (uiConnType == S7P_CONNTYPE_2C2D);
+
+  // advanced settings
+  uiSwitchCond++;
+  cmbSwitchCond.selectedPos  = uiSwitchCond;
+  tfSwitchTag.text           = sSwitchTag;
+  cmdSwitchTag.enabled       = (uiSwitchCond == 5);
+
+  tfPw.text                  = (bloblen(blobPassword) > 0) ? \"*****\" : \"\";
+  tfPw.enabled               = 1;
+  cbEstMode.state(0)         = uiEstMode;
+  cbReadOpState.state(0)     = bReadOpState;
+  cbReadOpState.enabled      = 1;
+  sbKeepAliveTimeout.text    = uiKeepAliveTo;
+  sbKeepAliveTimeout.enabled = 1;
+  sbReconnectTimeout.text    = uiRecTo;
+  sbReconnectTimeout.enabled = 1;
+  sbTimezone.text            = iTimezone;
+  cbTSM.state(0)             = (bool)uiTSM;
+  cbTSM.enabled              = 1;
+  uiTSIHour                  = (uiTSI / 3600);
+  sbTSI.text                 = (uiTSIHour==0)?24:uiTSIHour;
+  cbUseUTC.state(0)          = bUseUTC;
+  cbInvalidBit.state(0)      = bInvalidBit;
+  cbInvalidBit.enabled       = 1;
+  cbAVOC.state(0)            = bAVOC;
+  cbAVOC.enabled             = 1;
+  cmbLegLevel.items          = initTlsComm();
+  cmbLegLevel.selectedPos    = iLegLevel+2;
+  cmbLegLevel.text           = getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm\"+iLegLevel);
+  cbAlarmMode.state(0)       = uiAlarmMode;
+  cbFullText.state(0)        = bFullText;
+  cbFullText.enabled         = 1;
+  tfClassFilter.text         = sClassFilter;
+  pbClassFilter.enabled      = 1;
+  cmbCodepage.selectedPos    = (dynContains(duiLangMibsUnique, uiCodepage))?dynContains(duiLangMibsUnique, uiCodepage):cmbCodepage.selectedPos;
+  rbCodepage.enabled         = 1;
+  getLangsToMib(uiCodepage);
+
+  cbTsppMode.state(0)        = uiTsppMode;
+  sbReadInterval.value       = uiReadInterval;
+  tfBufferAddress.text       = sBufferAddress;
+
+  // symbolic configuration
+
+  if ( bOnlineBrowsing )
+  {
+    tfProjectName.text       = getCatStr(\"s7plus\", \"s7plusOnlineProject\");
+    tfStationName.text       = getCatStr(\"s7plus\", \"s7plusOnlineStation\");
+    rbSource.number          = 1;
+  }
+  else
+  {
+    tfProjectName.text       = strpos(sStationName, \"|\") != -1 ? strsplit(sStationName, \"|\")[1] : \"\";
+    tfStationName.text       = strpos(sStationName, \"|\") != -1 ? strsplit(sStationName, \"|\")[2] : \"\";
+    rbSource.number          = 0;
+  }
+
+  // etm - todo: if online browsing, connection must be established for import
+  rbSource.enabled           = 1;
+  pbSymb.enabled             = !bOnlineBrowsing;
+  pbImport.enabled           = (sStationName != \"\");
+
+  // statistics
+  cbEnableStats.state(0)     = bEnableStats;
+  cbEnableStats.enabled      = 1;
+
+  /*
+  tfReadsSent.text          = fReadsSent;
+  tfReadsRecv.text          = fReadsRecv;
+  tfReadsRej.text           = fReadsRej;
+  tfWritesSent.text         = fWritesSent;
+  tfWritesRecv.text         = fWritesRecv;
+  tfWritesRej.text          = fWritesRej;
+  tfUnsolicited.text        = fUnsolicited;
+  tfReadsPerSec.text        = fReadsPerSec;
+  tfWritesPerSec.text       = fWritesPerSec;
+  tfUnsolPerSec.text        = fUnsolPerSec;
+
+  tfSysVers.text            = sSysVers;
+  tfMaxSubs.text            = (dynlen(diSysLim)>0)?diSysLim[1]:\"\";
+  tfMaxSubVals.text         = (dynlen(diSysLim)>1)?diSysLim[2]:\"\";
+  tfMaxValsPerReq.text      = (dynlen(diSysLim)>2)?diSysLim[3]:\"\";
+
+  tfPlcTime.text            = (dynlen(dtPlcTime)>0)?dtPlcTime[1]:\"\";
+  tfPlcTimeRedu.text        = (dynlen(dtPlcTime)>2)?dtPlcTime[3]:\"\";
+  */
+
+  //cbPollPass.state(0)       = bPollPass;
+  //cbGQonHMI.state(0)        = bGQonHMI;
+  //cbAlarmsActive.state(0)   = bAlarmsActive;
+  //tfAlarmParam.text         = sAlarmParam;
+
+//   dyn_string dsUsedAP = strsplit(sAddress, \":\");
+//   if ( dynlen(dsUsedAP) >= 3 && dynContains(dsS7AP, dsUsedAP[3]) )
+//     cmbAp.text = dsUsedAP[3];
+
+//   if ( aAlarmParam != \"\" )
+//     sAlarmParam  = aAlarmParam;
+//   if ( aSymbolTable != \"\" )
+//     sSymbolTable = aSymbolTable;
+
+//   sAlarmParam  = dpSubStr(sAlarmParam, DPSUB_DP);
+//   sSymbolTable = dpSubStr(sSymbolTable, DPSUB_DP);
+
+//   tfSymbolTable.text = sSymbolTable;
+
+  // alarm & symbolics - dp ids
+//   sAlarmParam  = dpSubStr(sAlarmParam, DPSUB_DP);
+//   sSymbolTable = dpSubStr(sSymbolTable, DPSUB_DP);
+
+//   tfAlarmParam.text  = sAlarmParam;
+//   tfSymbolTable.text = sSymbolTable;
+
+  langString lsLangs;
+  dyn_string dsList;
+
+  if ( cmbPlc.text == \"\" )
+    t1.text == \"\";
+  else
+  {
+    lsLangs = dpGetComment(sPlc + \".\");
+    t1.text = lsLangs;
+    dsList = lsLangs;
+    langliste1.items = dsList;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void readDpWritePanel2(string sPlc1)
+{
+  string   sAddress1, sAddress2, sAddressRedu1, sAddressRedu2, sSwitchTag1, sSwitchTag2;
+  uint     uiConnState1, uiConnState2, uiSwitchCond1, uiSwitchCond2, uiConnType1, uiConnType2;
+  bool     bDisabled1, bDisabled2, bReadOpState1, bReadOpState2;
+  dyn_int  diLegLevel, diLegLevel1, diLegLevel2;
+  dyn_uint duiState1, duiState2, duiOpState, duiOpState1, duiOpState2, duiAlState, duiAlState1, duiAlState2;
+  dyn_time dtPlcTime1, dtPlcTime2;
+
+  string sPlc2 = sPlc1 + S7PLUS_REDU;
+
+  dpGet(sPlc1 + sCFG + \"ReadOpState\"          , bReadOpState1,
+        sPlc1 + sSTA + \"ConnState\"            , uiConnState1,
+        sPlc1 + sSTA + \"Disabled\"             , bDisabled1,
+        sPlc1 + sSTACONN + \"State\"            , duiState1,
+        sPlc1 + sSTACONN + \"OpState\"          , duiOpState1,
+        sPlc1 + sSTACONN + \"LegitimationLevel\", diLegLevel1,
+        sPlc1 + sSTACONN + \"AlarmState\"       , duiAlState1,
+
+        sPlc2 + sCFG + \"ReadOpState\"          , bReadOpState2,
+        sPlc2 + sSTA + \"ConnState\"            , uiConnState2,
+        sPlc2 + sSTA + \"Disabled\"             , bDisabled2,
+        sPlc2 + sSTACONN + \"State\"            , duiState2,
+        sPlc2 + sSTACONN + \"OpState\"          , duiOpState2,
+        sPlc2 + sSTACONN + \"LegitimationLevel\", diLegLevel2,
+        sPlc2 + sSTACONN + \"AlarmState\"       , duiAlState2);
+
+  bool bRedu = isRedundant();
+
+  string sSys = txtSystem.text;
+  int iAnswer;
+  reduActive(iAnswer, sSys);
+
+  if ( iAnswer == 2 )
+  {
+    duiOpState = duiOpState2;
+    diLegLevel = diLegLevel2;
+    duiAlState = duiAlState2;
+  }
+  else
+  {
+    duiOpState = duiOpState1;
+    diLegLevel = diLegLevel1;
+    duiAlState = duiAlState1;
+  }
+
+  // state host 1 & host 2
+  string sShape1 = \"tfConnStateHost1\",
+         sShape2 = \"tfConnStateHost2\";
+
+  setConnStateField(uiConnState1, sShape1);
+
+  if ( bRedu )
+    setConnStateField(uiConnState2, sShape2);
+
+  // connection states - first device
+  dyn_string dsStateH1      = makeDynString((                 !bDisabled1 && dynlen(duiState1)>0) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[1]): \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>1) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[2]): \"---\"),
+             dsStateH2      = makeDynString((bRedu         && !bDisabled2 && dynlen(duiState2)>0) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[1]): \"---\",
+                                            (bRedu         && !bDisabled2 && dynlen(duiState2)>1) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[2]): \"---\"),
+             dsOpState      = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[1]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[2]):\"---\"),
+             dsLegLevel     = makeDynString((                 !bDisabled1 && dynlen(diLegLevel)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[2]):\"---\"),
+             dsAlState      = makeDynString((                 !bDisabled1 && dynlen(duiAlState)>0)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[1]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState)>1)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[2]):\"---\"),
+  // connection states - redu device
+             dsStateH1Redu  = makeDynString((                 !bDisabled1 && dynlen(duiState1)>2) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[3]): \"---\",
+                                            (                 !bDisabled1 && dynlen(duiState1)>3) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState1[4]): \"---\"),
+             dsStateH2Redu  = makeDynString((bRedu         && !bDisabled2 && dynlen(duiState2)>2) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[3]): \"---\",
+                                            (bRedu         && !bDisabled2 && dynlen(duiState2)>3) ?getCatStr(\"s7plus\", \"s7plusConnectionsState\"   +duiState2[4]): \"---\"),
+             dsOpStateRedu  = makeDynString((bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[3]):\"---\",
+                                            (bReadOpState1 && !bDisabled1 && dynlen(duiOpState)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsOpState\" +duiOpState[4]):\"---\"),
+             dsLegLevelRedu = makeDynString((                 !bDisabled1 && dynlen(diLegLevel)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(diLegLevel)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsLegLevel\"+diLegLevel[4]):\"---\"),
+             dsAlStateRedu  = makeDynString((                 !bDisabled1 && dynlen(duiAlState)>2)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[3]):\"---\",
+                                            (                 !bDisabled1 && dynlen(duiAlState)>3)?getCatStr(\"s7plus\", \"s7plusConnectionsAlState\" +duiAlState[4]):\"---\");
+
+  setMultiValue(\"tableState\",     \"deleteAllLines\",
+                \"tableStateRedu\", \"deleteAllLines\");
+
+  setValue(\"tableState\",     \"appendLines\", 2, \"#1\", dsStateH1,
+                                               \"#2\", dsStateH2,
+                                               \"#3\", dsOpState,
+                                               \"#4\", dsLegLevel,
+                                               \"#5\", dsAlState);
+
+  setValue(\"tableStateRedu\", \"appendLines\", 2, \"#1\", dsStateH1Redu,
+                                               \"#2\", dsStateH2Redu,
+                                               \"#3\", dsOpStateRedu,
+                                               \"#4\", dsLegLevelRedu,
+                                               \"#5\", dsAlStateRedu);
+
+  // ETM - set table rows visible
+  if ( cbReduConn.state(0) || cmbPlcType.selectedPos == S7P_POS_PLCTYPE_3 )
+    setMultiValue(\"tableState\",     \"showRow\", 1,
+                  \"tableStateRedu\", \"showRow\", 1);
+  else
+    setMultiValue(\"tableState\",     \"hideRow\", 1,
+                  \"tableStateRedu\", \"hideRow\", 1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void loads7plusDp(string dp)
+{
+  dyn_string dsPlc;
+
+  dsPlc = cmbPlc.items;
+
+//   setMultiValue(\"tfConn1\", \"text\", cmbPlc.text,
+//                 \"tfConn2\", \"text\", cmbPlc.text,
+//                 \"tfConn3\", \"text\", cmbPlc.text,
+//                 \"tfConn4\", \"text\", cmbPlc.text,
+//                 \"tfConn5\", \"text\", cmbPlc.text,
+//                 \"tfConn6\", \"text\", cmbPlc.text);
+
+  if ( dpExists(dp) && dynlen(dsPlc) > 0 )
+  {
+    readDpWritePanel(dp);
+
+    if ( isRedundant() && dpExists(dp + S7PLUS_REDU) )
+      readDpWritePanel2(dp);
+  }
+
+  if ( _WIN32 )
+  {
+    if ( dynlen(g_dsPgPcAp) == 0 )
+      setApGlobals(cmbPlc.text);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool setDp()
+{
+  string   sAddress, sAddressRedu, sAp, sApRedu, sStationName, sSwitchTag, sClassFilter, sBufferAddress;
+  uint     uiEstMode, uiRecTo, uiKeepAliveTo, uiConnState, uiTSM, uiTSI, uiTSIHour, uiPlcType, uiConnType, uiSwitchCond, uiDrvNum, uiAlarmMode, uiCodepage, uiTsppMode, uiReadInterval;
+  bool     bReadOpState, bEnable, bInvalidBit, bEnableStats, bUseUTC, bAVOC, bFullText, bStationEmpty = 0;
+  int      iTimezone, iLegLevel;
+  blob     blobPassword;
+  //bool bPollPass, bGQonHMI, bAlarmsActive;
+
+  string sDp, sDp2;
+  langString ls;
+  string sSys = txtSystem.text;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return 0;
+  }
+
+  sDp  = S7PLUS_INOA + cmbPlc.text;
+  sDp2 = sDp + S7PLUS_REDU;
+
+  if ( sDp == \"\" || sDp == S7PLUS_INOA )
+    return 0;
+
+  if ( !dpExists(sDp) )
+  {
+    dpCreate(sDp, S7PLUS_DPT_CONN);
+
+    if ( !dpExists(sDp2) )
+      dpCreate(sDp2, S7PLUS_DPT_CONN);
+  }
+
+  string sIp1 = tfIp1.text;
+  string sIp2 = tfIp2.text;
+  bool bReduConn = cbReduConn.state(0);
+
+  if ( ( sIp1 == \"\" ) || (  bReduConn  && ( sIp1 == \"\" || sIp2 == \"\" ) ) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusFillFields\")));
+
+    tabMain.activeRegister(0);
+    setInputFocus(myModuleName(), myPanelName(), \"tfIp1\");
+
+    return 0;
+  }
+
+  // 21.09.2016 gstrauhs: TFS 11382
+  // Show error message if the certificate required for encrypting the password
+  // has not been set.
+  string sPublicKey;
+  dpGet(getSystemName() + S7PLUS_DPT_CFG + \".PublicKey\", sPublicKey);
+
+  if ( sPublicKey == \"\" && tfPw.text != \"\" )
+  {
+    ChildPanelOnCentralModal(\"para/s7plus_warningPublicKey\",
+                             getCatStr(\"s7plus\",\"s7plusPanelTitelKeyReq\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusPublicKeyMissing\"),
+                                           \"OK\",
+                                           getCatStr(\"para\",\"create\")));
+
+    return 0;
+  }
+
+  string sStationSaved;
+  dpGet(sDp + sCFG + \"StationName\", sStationSaved);
+
+  sAddress       = getAddressString();
+  sAp            = cmbAp1.text;
+  blobPassword   = (tfPw.text != \"\") ? cryptoHash(tfPw.text, \"SHA1\") : \"\";
+  uiEstMode      = cbEstMode.state(0);
+  uiPlcType      = getPlcType();
+  uiConnType     = getConnType();
+  uiDrvNum       = sbDrvNum.text;
+  bReadOpState   = cbReadOpState.state(0);
+  uiRecTo        = sbReconnectTimeout.text;
+  uiKeepAliveTo  = sbKeepAliveTimeout.text;
+  iTimezone      = sbTimezone.text;
+  uiTSM          = cbTSM.state(0);
+  uiTSIHour      = sbTSI.text;
+  uiTSI          = (uiTSIHour * 3600);
+  bUseUTC        = cbUseUTC.state(0);
+  bInvalidBit    = cbInvalidBit.state(0);
+  bAVOC          = cbAVOC.state(0);
+  bEnableStats   = cbEnableStats.state(0);
+  sAddressRedu   = getAddressString(1);
+  sApRedu        = cmbAp2.text;
+  uiSwitchCond   = cmbSwitchCond.selectedPos;
+  uiSwitchCond--;
+  sSwitchTag     = tfSwitchTag.text;
+  iLegLevel      = cmbLegLevel.selectedPos - 2;
+  uiAlarmMode    = cbAlarmMode.state(0);
+  bFullText      = cbFullText.state(0);
+  sClassFilter   = tfClassFilter.text;
+  uiCodepage     = getCodepage();
+  uiTsppMode     = cbTsppMode.state(0);
+  uiReadInterval = sbReadInterval.value;
+  sBufferAddress = tfBufferAddress.text;
+
+  if ( rbSource.number == 1 )
+  {
+    bOnlineBrowsing = 1;
+    sStationName = sStationOnline;
+  }
+  else
+  {
+    bOnlineBrowsing = 0;
+
+    if ( sStationSaved == sStationOnline )
+    {
+      sStationName = \"-\";
+      bStationEmpty = 1;
+    }
+    else
+    {
+      sStationName = sStationSaved;
+    }
+  }
+
+  if ( uiEstMode == 0 )
+  {
+    dpSetWait(sDp + sCMD + \"Enable\"               , (bool)uiEstMode);
+    delay(0,100);
+  }
+
+  //if ( !dpExists(sSys + S7PLUS_INTL + \"Driver\" + uiDrvNum) )
+  //  dpCreate(sSys + S7PLUS_INTL + \"Driver\" + uiDrvNum, S7PLUS_INTL + \"DriverCommon\");
+
+  dpSetWait(sDp + sCFG + \"Address\"                , sAddress,
+            sDp + sCFG + \"AccessPoint\"            , sAp,
+            sDp + sCFG + \"PLCType\"                , uiPlcType,
+            sDp + sCFG + \"ConnType\"               , uiConnType,
+            sDp + sCFG + \"EstablishmentMode\"      , uiEstMode,
+            sDp + sCFG + \"KeepAliveTimeout\"       , uiKeepAliveTo,
+            sDp + sCFG + \"ReconnectTimeout\"       , uiRecTo,
+            sDp + sCFG + \"Timezone\"               , iTimezone,
+            sDp + sCFG + \"TimeSyncMode\"           , uiTSM,
+            sDp + sCFG + \"TimeSyncInterval\"       , uiTSI,
+            sDp + sCFG + \"UseUTC\"                 , bUseUTC,
+            sDp + sCFG + \"ReadOpState\"            , bReadOpState,
+            sDp + sCFG + \"SetInvalidBit\"          , bInvalidBit,
+            sDp + sCFG + \"AcquireValuesOnConnect\" , bAVOC,
+            sDp + sCFG + \"EnableStatistics\"       , bEnableStats,
+            sDp + sCFG + \"DrvNumber\"              , uiDrvNum,
+            sDp + sCFG + \"LegitimationLevel\"      , iLegLevel,
+            sDp + sCFG + \"AlarmMode\"              , uiAlarmMode,
+            sDp + sCFG + \"FullTextAlarms\"         , bFullText,
+            sDp + sCFG + \"DisplayClassFilter\"     , sClassFilter,
+            sDp + sCFG + \"Codepage\"               , uiCodepage,
+
+            sDp + sCFGTSPP + \"Mode\"               , uiTsppMode,
+            sDp + sCFGTSPP + \"ReadInterval\"       , uiReadInterval,
+            sDp + sCFGTSPP + \"BufferAddress\"      , sBufferAddress);
+
+  if ( sbDrvNum.enabled == true )
+  {
+    setCheckConnAddress(sDp, sDp, \"__check__\");
+
+    if ( isRedundant() )
+      setCheckConnAddress(sDp2, sDp, \"__checkredu__\");
+
+    if ( checkRunningDrvNums() )
+      sbDrvNum.enabled = false;
+  }
+
+  if ( uiEstMode == 1 )
+  {
+    delay(0,100);
+    dpSetWait(sDp + sCMD + \"Enable\"               , (bool)uiEstMode);
+  }
+
+  if ( blobPassword != (blob)cryptoHash(\"*****\", \"SHA1\") )
+  {
+    if (tfPw.text != \"\")
+    {
+      blob blobSecure;
+      secureEncode(blobPassword, sPublicKey, blobSecure);
+
+      dpSetWait(sDp + sCFG + \"Password\"           , blobSecure);
+    }
+    else
+      dpSetWait(sDp + sCFG + \"Password\"           , blobPassword);  // set empty blob
+  }
+
+  if ( sStationName != \"\" && sStationName != sStationSaved )
+    dpSetWait(sDp + sCFG + \"StationName\"          , (bStationEmpty)?\"\":sStationName);
+
+  if ( bReduConn || uiPlcType == S7P_PLCTYPE_3 )
+    dpSetWait(sDp + sCFGREDU + \"Address\"          , sAddressRedu,
+              sDp + sCFGREDU + \"AccessPoint\"      , sApRedu,
+              sDp + sCFGREDU + \"SwitchCondition\"  , uiSwitchCond,
+              sDp + sCFGREDU + \"SwitchTag\"        , sSwitchTag);
+
+  ls = langliste1.items;
+  dpSetComment(txtSystem.text + sDp + \".\", ls);
+
+  readDpWritePanel(sDp);
+
+  if ( isRedundant() )
+    readDpWritePanel2(sDp);
+
+  if ( uiAlarmMode == 1 && bOnlineBrowsing == 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoAlarm\")));
+  }
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initPlcType(uint uiPlcType, uint uiConnType)
+{
+  dyn_string dsPlcTypes = makeDynString(getCatStr(\"s7plus\", \"s7plusPlcType1\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType272\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType16\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType2\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType3\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType528\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType768\"));
+
+  if ( !dynlen(cmbPlcType.items()) )
+    setValue(\"cmbPlcType\", \"items\", dsPlcTypes);
+
+  int iPosPlcType;
+
+  if      ( uiPlcType ==   S7P_PLCTYPE_1 ) // --> auto
+    iPosPlcType = S7P_POS_PLCTYPE_1;
+  else if ( uiPlcType == S7P_PLCTYPE_272 ) // --> 1200
+    iPosPlcType = S7P_POS_PLCTYPE_272;
+  else if ( uiPlcType ==  S7P_PLCTYPE_16 ) // --> 1500
+    iPosPlcType = S7P_POS_PLCTYPE_16;
+  else if ( uiPlcType ==   S7P_PLCTYPE_2 ) // --> 1500 r/h
+    iPosPlcType = S7P_POS_PLCTYPE_2;
+  else if ( uiPlcType ==   S7P_PLCTYPE_3 ) // --> 1500 r/h single
+    iPosPlcType = S7P_POS_PLCTYPE_3;
+  else if ( uiPlcType == S7P_PLCTYPE_528 ) // --> 1500 soft
+    iPosPlcType = S7P_POS_PLCTYPE_528;
+  else if ( uiPlcType == S7P_PLCTYPE_768 ) // --> plc sim
+    iPosPlcType = S7P_POS_PLCTYPE_768;
+
+  else                         // --> auto
+    iPosPlcType = S7P_POS_PLCTYPE_1;
+
+  uint uiPlcTypeNum = tfPlcTypeNum.text;
+
+  if ( uiPlcTypeNum <= 1 )
+    tfPlcTypeNum.text = uiPlcType;
+
+  if ( iPosPlcType == S7P_POS_PLCTYPE_1 && uiPlcTypeNum <= 1 )
+    getAutoPlcType();
+
+  string sPlcTypeNum = tfPlcTypeNum.text;
+
+  setMultiValue(\"cmbPlcType\", \"selectedPos\", iPosPlcType,
+                \"tfPlcType\",  \"visible\",     (iPosPlcType == S7P_POS_PLCTYPE_1),
+                \"ptStation\",  \"visible\",     (iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528)),
+                \"sbStation1\", \"enabled\",     (iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528)),
+                \"sbStation1\", \"visible\",     (iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528)),
+                \"sbStation2\", \"enabled\",     (iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528)) && (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D),
+                \"sbStation2\", \"visible\",     (iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528)) && (uiConnType == S7P_CONNTYPE_2C1D || uiConnType == S7P_CONNTYPE_2C2D));
+
+  checkPlcType();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkPlcType()
+{
+  int iPosPlcType;
+  string sPlcTypeNum;
+  bool bReduConn, bReduDevice;
+  dyn_string dsPlcTypes = makeDynString(getCatStr(\"s7plus\", \"s7plusPlcType1\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType272\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType16\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType2\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType3\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType528\"),
+                                        getCatStr(\"s7plus\", \"s7plusPlcType768\"));
+
+  if ( bOnlineBrowsing )
+    errDetectPlcType(-4);
+
+  if ( !dynlen(cmbPlcType.items()) )
+    setValue(\"cmbPlcType\", \"items\", dsPlcTypes);
+
+  getMultiValue(\"cmbPlcType\",   \"selectedPos\", iPosPlcType,
+                \"tfPlcTypeNum\", \"text\",        sPlcTypeNum,
+                \"cbReduDevice\", \"state\", 0,    bReduDevice,
+                \"cbReduConn\",   \"state\", 0,    bReduConn);
+
+  if ( iPosPlcType == S7P_POS_PLCTYPE_528 || ( iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528) )
+    setMultiValue(\"ptStation\",      \"visible\", 1,
+                  \"sbStation1\",     \"enabled\", 1,
+                  \"sbStation1\",     \"visible\", 1,
+                  \"sbStation2\",     \"enabled\", bReduConn,
+                  \"sbStation2\",     \"visible\", bReduConn,
+                  \"ptStationRedu\",  \"visible\", bReduDevice,
+                  \"sbStation1Redu\", \"enabled\", bReduDevice,
+                  \"sbStation1Redu\", \"visible\", bReduDevice,
+                  \"sbStation2Redu\", \"enabled\", (bReduConn && bReduDevice),
+                  \"sbStation2Redu\", \"visible\", (bReduConn && bReduDevice),
+                  \"tfPlcType\",      \"visible\", (iPosPlcType == S7P_POS_PLCTYPE_1));
+  else
+    setMultiValue(\"ptStation\",      \"visible\", 0,
+                  \"sbStation1\",     \"visible\", 0,
+                  \"sbStation2\",     \"visible\", 0,
+                  \"ptStationRedu\",  \"visible\", 0,
+                  \"sbStation1Redu\", \"visible\", 0,
+                  \"sbStation2Redu\", \"visible\", 0,
+                  \"tfPlcType\",      \"visible\", (iPosPlcType == S7P_POS_PLCTYPE_1));
+
+  checkConnType();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint getPlcType()
+{
+  uint uiPlcType;
+
+  int iPosPlcType;
+  getMultiValue(\"cmbPlcType\", \"selectedPos\", iPosPlcType);
+
+  if      ( iPosPlcType == S7P_POS_PLCTYPE_1   ) // --> auto
+    uiPlcType =   S7P_PLCTYPE_1;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_272 ) // --> 1200
+    uiPlcType = S7P_PLCTYPE_272;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_16  ) // --> 1500
+    uiPlcType =  S7P_PLCTYPE_16;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_2   ) // --> 1500 r/h
+    uiPlcType =   S7P_PLCTYPE_2;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_3   ) // --> 1500 r/h single
+    uiPlcType =   S7P_PLCTYPE_3;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_528 ) // --> 1500 soft
+    uiPlcType = S7P_PLCTYPE_528;
+  else if ( iPosPlcType == S7P_POS_PLCTYPE_768 ) // --> sim plc
+    uiPlcType = S7P_PLCTYPE_768;
+
+  else                  // --> auto
+    uiPlcType =   S7P_PLCTYPE_1;
+
+  return uiPlcType;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getAutoPlcType()
+{
+  if ( bOnlineBrowsing )
+  {
+    errDetectPlcType(-4);
+    return;
+  }
+
+  // first check if the required driver is running
+  string sDp = S7PLUS_INOA + cmbPlc.text;
+  string sStationName;
+  uint uiDrvNum;
+
+  // TFS 12634
+  int iReduAct = 0;
+
+  if ( isRedundant() )
+    reduActive(iReduAct);
+
+  if ( iReduAct == 2 )
+    sDp += S7PLUS_REDU;
+
+  dpGet(sDp + sCFG + \"DrvNumber\",   uiDrvNum,
+        sDp + sCFG + \"StationName\", sStationName);
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if ( !dynContains(drvRunning, uiDrvNum) )
+  {
+    if ( sStationName == \"\")
+      errDetectPlcType(0);
+    else
+      errDetectPlcType(-3);
+
+    return;
+  }
+
+  string sProject;
+  string sStation;
+  string sReqIdSet = \"RequestPlcType\";
+
+  if ( sStationName != \"\" && dynlen(strsplit(sStationName, \"|\")) > 1 )
+  {
+    sProject = strsplit(sStationName, \"|\")[1];
+    sStation = strsplit(sStationName, \"|\")[2];
+  }
+
+  dyn_string dsTypeData, dsTypeDataTemp;
+  string sTypeData;
+  uint uiPlcTypeNum;
+
+  if ( sProject != \"\"  )
+  {
+    int cnt = 1;
+
+    // wait in case browse request from setApGlobals is pending
+    while ( browseRequestPending )
+    {
+      // avoid infinite loop - wait for max 30 seconds
+      if ( cnt >= 600 )
+      {
+        errDetectPlcType(-1);
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to autmatically detect PLC type\"));
+
+        return;
+      }
+
+      if ( cnt%20 == 0 )
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting PLC type...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // lock
+    browseRequestPending = true;
+
+    dpSetWait(sDp + sBRO + \"RequestId\", \"\");
+    dpSetWait(sDp + sBRO + \"GetBranch\", makeDynString(sReqIdSet, sProject, 1));
+
+    string sReqIdGet;
+
+    cnt = 1;
+
+    while ( sReqIdGet != sReqIdSet  && cnt++ < 600 )
+    {
+      dpGet(sDp + sBRO + \"RequestId\", sReqIdGet);
+
+      // avoid infinite loop - wait for max 30 seconds
+      if (cnt >= 600)
+      {
+        errDetectPlcType(-1);
+
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to autmatically detect PLC type\"));
+        return;
+      }
+
+      if (cnt%20 == 0)
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting PLC type...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // unlock
+    browseRequestPending = false;
+
+    if ( sReqIdGet == sReqIdSet )
+    {
+      dpGet(sDp + sBRO + \"NodePaths\", dsTypeData);
+
+      for ( int i = 1; i <= dynlen(dsTypeData); i++ )
+        dsTypeDataTemp[i] = strsplit(dsTypeData[i], \"|\")[1];
+
+      if ( dynlen(dsTypeDataTemp) && dynContains(dsTypeDataTemp, sStation) > 0 )
+        sTypeData = dsTypeData[dynContains(dsTypeDataTemp, sStation)];
+
+      dynClear(dsTypeDataTemp);
+      dsTypeDataTemp = strsplit(sTypeData, \"|\");
+
+      if ( dynlen(dsTypeDataTemp) > 1 )
+        uiPlcTypeNum = dsTypeDataTemp[2];
+
+      tfPlcTypeNum.text = uiPlcTypeNum;
+      tfPlcType.visible = true;
+
+      tfPlcType.text = getCatStr(\"s7plus\", \"s7plusPlcType\"+uiPlcTypeNum);
+      tfPlcType.enabled(1);
+      tfPlcType.backCol(\"_3DFace\");
+      tfPlcType.foreCol(\"black\");
+    }
+  }
+  else
+  {
+    errDetectPlcType(0);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setSettingsEnabled(bool bState)
+{
+  registerTabs();
+
+  setMultiValue(\"cmdAp\",  \"enabled\", _WIN32 ? bState : false,
+                \"ptPgPc\", \"enabled\", _WIN32 ? bState : false);
+
+  dyn_string dsShapesSt = makeDynString(\"rbSource\", \"pbSymb\", \"pbImport\", \"pbClassFilter\", \"cbFullText\",
+                                        \"cbAVOC\", \"cbEnableStats\", \"cbEstMode\", \"langedit1\",
+                                        \"cbInvalidBit\", \"cbReadOpState\", \"cbInvalidBit\", \"cbAVOC\",
+                                        \"cbEnableStats\", \"cbUseUTC\", \"cmbPlc\", \"cmbPlcType\",
+                                        \"cbTSM\", \"cmdApply\", \"cmdGQ\", \"cmdIGQ\", \"cmdOk\", \"cmdRemoveDp\",
+                                        \"cmdSwitchOver\", \"cmdAlarmGQ\", \"sbKeepAliveTimeout\", \"sbReconnectTimeout\",
+                                        \"sbTSI\", \"sbTimezone\", \"t1\", \"tfConnStateHost1\", \"tfConnStateHost2\",
+                                        \"tfIp1\", \"tfIp2\", \"cbReduConn\", \"cbReduDevice\", \"cmbAp1\", \"cbEstMode\",
+                                        \"tfPlcType\", \"tfPw\", \"rbCodepage\",
+                                        \"cbTsppMode\", \"sbReadInterval\", \"pbBufferAddress\");
+
+  for ( int i = 1; i <= dynlen(dsShapesSt); i++ )
+    setValue(dsShapesSt[i], \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initConnType(uint uiConnType = 0)
+{
+  if      ( uiConnType == S7P_CONNTYPE_1C1D )
+    setMultiValue(\"cbReduDevice\", \"state\", 0, 0,
+                  \"cbReduConn\",   \"state\", 0, 0);
+  else if ( uiConnType == S7P_CONNTYPE_2C1D )
+    setMultiValue(\"cbReduDevice\", \"state\", 0, 0,
+                  \"cbReduConn\",   \"state\", 0, 1);
+  else if ( uiConnType == S7P_CONNTYPE_1C2D )
+    setMultiValue(\"cbReduDevice\", \"state\", 0, 1,
+                  \"cbReduConn\",   \"state\", 0, 0);
+  else if ( uiConnType == S7P_CONNTYPE_2C2D )
+    setMultiValue(\"cbReduDevice\", \"state\", 0, 1,
+                  \"cbReduConn\",   \"state\", 0, 1);
+
+  checkConnType();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkConnType()
+{
+  int iPosPlcType = 0;
+  getValue(\"cmbPlcType\", \"selectedPos\", iPosPlcType);
+
+  if ( iPosPlcType == S7P_POS_PLCTYPE_3 )
+    setValue(\"cbReduConn\", \"state\", 0, 1);
+
+  setMultiValue(\"ptConn1\",      \"text\", ( iPosPlcType == S7P_POS_PLCTYPE_3 ) ? getCatStr(\"s7plus\", \"s7plusConn1Rhs\") : getCatStr(\"s7plus\", \"s7plusConn1Def\"),
+                \"ptConn2\",      \"text\", ( iPosPlcType == S7P_POS_PLCTYPE_3 ) ? getCatStr(\"s7plus\", \"s7plusConn2Rhs\") : getCatStr(\"s7plus\", \"s7plusConn2Def\"),
+                \"ptStateConn1\", \"text\", ( iPosPlcType == S7P_POS_PLCTYPE_3 ) ? getCatStr(\"s7plus\", \"s7plusConn1Rhs\") : getCatStr(\"s7plus\", \"s7plusConn1Def\"),
+                \"ptStateConn2\", \"text\", ( iPosPlcType == S7P_POS_PLCTYPE_3 ) ? getCatStr(\"s7plus\", \"s7plusConn2Rhs\") : getCatStr(\"s7plus\", \"s7plusConn2Def\"));
+
+  setValue(\"cbReduConn\", \"enabled\", iPosPlcType != S7P_POS_PLCTYPE_3);
+
+  bool bReduDevice, bReduConn, bIsSoftPlc = false;
+  int iPosSwitch, iPosPlcType;
+  string sPlcTypeNum;
+
+  getMultiValue(\"cbReduDevice\",  \"state\", 0,    bReduDevice,
+                \"cbReduConn\",    \"state\", 0,    bReduConn,
+                \"cmbSwitchCond\", \"selectedPos\", iPosSwitch,
+                \"cmbPlcType\",    \"selectedPos\", iPosPlcType,
+                \"tfPlcTypeNum\",  \"text\",        sPlcTypeNum);
+
+  bIsSoftPlc = ( iPosPlcType == S7P_POS_PLCTYPE_528 || (iPosPlcType == S7P_POS_PLCTYPE_1 && sPlcTypeNum == (string)S7P_PLCTYPE_528) );
+
+  if ( !bReduDevice && !bReduConn )
+  {
+    setMultiValue(\"groupReduDevice\", \"visible\", 0,
+                  \"ptConn2\",         \"visible\", 0,
+                  \"tfIp2\",           \"visible\", 0,
+                  \"cmbAp2\",          \"enabled\", 0,
+                  \"cmbAp2\",          \"visible\", 0,
+                  \"sbStation2\",      \"enabled\", 0,
+                  \"sbStation2\",      \"visible\", 0,
+                  \"ptPlcTimeRedu\",   \"visible\", 0,
+                  \"tfPlcTimeRedu\",   \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 0,
+                  \"cmdSwitchOver\",   \"enabled\", 0);
+    showConnection2Row(false);
+  }
+  else if ( !bReduDevice && bReduConn )
+  {
+    setMultiValue(\"groupReduDevice\", \"visible\", 0,
+                  \"ptConn2\",         \"enabled\", 1,
+                  \"ptConn2\",         \"visible\", 1,
+                  \"tfIp2\",           \"enabled\", 1,
+                  \"tfIp2\",           \"visible\", 1,
+                  \"cmbAp2\",          \"enabled\", 1,
+                  \"cmbAp2\",          \"visible\", 1,
+                  \"sbStation2\",      \"enabled\", bIsSoftPlc,
+                  \"sbStation2\",      \"visible\", bIsSoftPlc,
+                  \"ptPlcTimeRedu\",   \"visible\", 0,
+                  \"tfPlcTimeRedu\",   \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 0,
+                  \"cmdSwitchOver\",   \"enabled\", 1);
+    showConnection2Row(true);
+  }
+  else if ( bReduDevice && !bReduConn )
+  {
+    setMultiValue(\"groupReduDevice\", \"visible\", 1,
+                  \"ptConn2\",         \"visible\", 0,
+                  \"tfIp2\",           \"visible\", 0,
+                  \"cmbAp2\",          \"enabled\", 0,
+                  \"cmbAp2\",          \"visible\", 0,
+                  \"sbStation2\",      \"enabled\", 0,
+                  \"sbStation2\",      \"visible\", 0,
+                  \"ptPlcTimeRedu\",   \"visible\", 1,
+                  \"tfPlcTimeRedu\",   \"visible\", 1,
+                  \"ptStationRedu\",   \"visible\", bIsSoftPlc,
+                  \"sbStation1Redu\",  \"enabled\", bIsSoftPlc,
+                  \"sbStation1Redu\",  \"visible\", bIsSoftPlc,
+                  \"ptConn2Redu\",     \"enabled\", 0,
+                  \"ptConn2Redu\",     \"visible\", 0,
+                  \"tfIp2Redu\",       \"enabled\", 0,
+                  \"tfIp2Redu\",       \"visible\", 0,
+                  \"cmbAp2Redu\",      \"enabled\", 0,
+                  \"cmbAp2Redu\",      \"visible\", 0,
+                  \"sbStation2Redu\",  \"enabled\", 0,
+                  \"sbStation2Redu\",  \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 1,
+                  \"cmdSwitchOver\",   \"enabled\", 0);
+    showConnection2Row(false);
+  }
+  else if ( bReduDevice && bReduConn )
+  {
+    setMultiValue(\"groupReduDevice\", \"visible\", 1,
+                  \"ptConn2\",         \"enabled\", 1,
+                  \"ptConn2\",         \"visible\", 1,
+                  \"tfIp2\",           \"enabled\", 1,
+                  \"tfIp2\",           \"visible\", 1,
+                  \"cmbAp2\",          \"enabled\", 1,
+                  \"cmbAp2\",          \"visible\", 1,
+                  \"sbStation2\",      \"enabled\", bIsSoftPlc,
+                  \"sbStation2\",      \"visible\", bIsSoftPlc,
+                  \"ptPlcTimeRedu\",   \"visible\", 1,
+                  \"tfPlcTimeRedu\",   \"visible\", 1,
+                  \"ptStationRedu\",   \"visible\", bIsSoftPlc,
+                  \"sbStation1Redu\",  \"enabled\", bIsSoftPlc,
+                  \"sbStation1Redu\",  \"visible\", bIsSoftPlc,
+                  \"ptConn2Redu\",     \"enabled\", 1,
+                  \"ptConn2Redu\",     \"visible\", 1,
+                  \"tfIp2Redu\",       \"enabled\", 1,
+                  \"tfIp2Redu\",       \"visible\", 1,
+                  \"cmbAp2Redu\",      \"enabled\", 1,
+                  \"cmbAp2Redu\",      \"visible\", 1,
+                  \"sbStation2Redu\",  \"enabled\", bIsSoftPlc,
+                  \"sbStation2Redu\",  \"visible\", bIsSoftPlc,
+                  \"groupReduDetail\", \"visible\", 1,
+                  \"cmdSwitchOver\",   \"enabled\", 1);
+    showConnection2Row(true);
+  }
+
+  setMultiValue(\"frmReduCfg\",    \"enabled\", ( bReduDevice || bReduConn ),
+                \"ptSwitchCond\",  \"enabled\", ( bReduDevice || bReduConn ),
+                \"cmbSwitchCond\", \"enabled\", ( bReduDevice || bReduConn ),
+                \"ptSwitchTag\",   \"enabled\", ( bReduDevice || bReduConn ),
+                \"cmdSwitchTag\",  \"enabled\", ((bReduDevice || bReduConn) && iPosSwitch == 5));
+
+  int iLineCount, iLineCountRedu;
+  getMultiValue(\"tableState\",     \"lineCount\", iLineCount,
+                \"tableStateRedu\", \"lineCount\", iLineCountRedu);
+
+  if ( iLineCount > 1 && iLineCountRedu > 1 )
+  {
+    if ( bReduConn )
+      setMultiValue(\"tableState\",     \"showRow\", 1,
+                    \"tableStateRedu\", \"showRow\", 1);
+    else
+      setMultiValue(\"tableState\",     \"hideRow\", 1,
+                    \"tableStateRedu\", \"hideRow\", 1);
+  }
+
+  if ( iPosPlcType == S7P_POS_PLCTYPE_3 )
+    setValue(\"cbReduConn\", \"state\", 0, 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint getConnType()
+{
+  int iPosPlcType;
+  bool bReduConnEnabled;
+  getMultiValue(\"cmbPlcType\", \"selectedPos\", iPosPlcType,
+                \"cbReduConn\", \"enabled\",     bReduConnEnabled);
+
+  uint uiConnType;
+  int iPosSwitch;
+  bool bReduDevice, bReduConn, bReduHost = isRedundant();
+
+  getMultiValue(\"cbReduDevice\",  \"state\", 0,    bReduDevice,
+                \"cbReduConn\",    \"state\", 0,    bReduConn,
+                \"cmbSwitchCond\", \"selectedPos\", iPosSwitch);
+
+  if ( !bReduDevice && !bReduConn )
+  {
+    uiConnType = S7P_CONNTYPE_1C1D;
+    setMultiValue(\"groupReduDevice\", \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 0,
+                  \"ptConn2\", \"enabled\", (iPosPlcType == S7P_POS_PLCTYPE_3),
+                  \"tfIp2\",   \"enabled\", (iPosPlcType == S7P_POS_PLCTYPE_3),
+                  \"tfIp2\",      \"text\", (iPosPlcType == S7P_POS_PLCTYPE_3) ? tfIp2.text : \"\");
+  }
+  else if ( !bReduDevice && bReduConn )
+  {
+    uiConnType = S7P_CONNTYPE_2C1D;
+    setMultiValue(\"groupReduDevice\", \"visible\", 0,
+                  \"groupReduDetail\", \"visible\", 0,
+                  \"ptConn2\", \"enabled\", 1,
+                  \"tfIp2\",   \"enabled\", 1);
+
+    // error handling for incorrect configuration --> redundant lan / conn
+//     if ( tfIp1.text == tfIp2.text )
+//     {
+//       ChildPanelOnCentralModal(\"vision/MessageWarning\",
+//                                getCatStr(\"para\", \"warning\"),
+//                                makeDynString(getCatStr(\"s7plus\", \"s7plusNoReduLan\")));
+//       return false;
+//     }
+  }
+  else if ( bReduDevice && !bReduConn )
+  {
+    uiConnType = S7P_CONNTYPE_1C2D;
+    setMultiValue(\"groupReduDevice\", \"visible\", 1,
+                  \"groupReduDetail\", \"visible\", 1,
+                  \"ptConn2\", \"enabled\", 0,
+                  \"tfIp2\",   \"enabled\", 0,
+                  \"tfIp2\",      \"text\", (iPosPlcType == S7P_POS_PLCTYPE_3) ? tfIp2.text : \"\");
+
+    // error handling for incorrect configuration --> redundant devices
+//     if ( tfIp1.text != tfIp2.text )
+//     {
+//       ChildPanelOnCentralModal(\"vision/MessageWarning\",
+//                                getCatStr(\"para\", \"warning\"),
+//                                makeDynString(getCatStr(\"s7plus\", \"s7plusNoHSystem\")));
+//       return false;
+//     }
+  }
+  else if ( bReduDevice && bReduConn )
+  {
+    uiConnType = S7P_CONNTYPE_2C2D;
+    setMultiValue(\"groupReduDevice\", \"visible\", 1,
+                  \"groupReduDetail\", \"visible\", 1,
+                  \"ptConn2\", \"enabled\", 1,
+                  \"tfIp2\",   \"enabled\", 1);
+  }
+
+  setMultiValue(\"frmReduCfg\",    \"enabled\", ( bReduDevice || bReduConn ),
+                \"ptSwitchCond\",  \"enabled\", ( bReduDevice || bReduConn ),
+                \"cmbSwitchCond\", \"enabled\", ( bReduDevice || bReduConn ),
+                \"ptSwitchTag\",   \"enabled\", ( bReduDevice || bReduConn ),
+                \"cmdSwitchTag\",  \"enabled\", ((bReduDevice || bReduConn) && iPosSwitch == 5),
+
+                \"ptConnStateHost2\",  \"enabled\", bReduHost,
+                \"tfConnStateHost2\",  \"enabled\", bReduHost);
+
+
+
+  if ( iPosPlcType == S7P_POS_PLCTYPE_3 && !bReduConnEnabled )
+    uiConnType = S7P_CONNTYPE_2C1D;
+
+  return uiConnType;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getAddressString(bool bRedu = 0)
+{
+  string sReturn;
+
+  if ( bRedu == 1 )
+  {
+    if ( sbStation2.visible && strpos(tfIp2.text, \":\") < 0 )
+      sReturn = \"::\" + tfIp2.text + \":6.\" + sbStation2.text + \":\";
+    else
+      sReturn = tfIp2.text;
+  }
+  else
+  {
+    if ( sbStation1.visible && strpos(tfIp1.text, \":\") < 0 )
+      sReturn = \"::\" + tfIp1.text + \":6.\" + sbStation1.text + \":\";
+    else
+      sReturn = tfIp1.text;
+  }
+
+  return sReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void splitAddressSoftCtrl(string &sAddress, bool bAddressRedu = false, bool bSetStation = false)
+{
+  dyn_string ds1 = strsplit(sAddress, \":\");
+  dyn_string ds2 = strsplit(ds1[4], \".\");
+
+  sAddress = ds1[3];
+
+  if ( bSetStation )
+  {
+    if ( bAddressRedu )
+      sbStation2.text = ds2[2];
+    else
+      sbStation1.text = ds2[2];
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkComplexAddressString(string sAddress)
+{
+  bool bReturn = 0;
+  int iSoftCtrlCheck1 = strpos(sAddress, \":6\");
+
+  if ( iSoftCtrlCheck1 > 0 )
+  {
+    int iSoftCtrlCheck2 = strpos(sAddress, \":\", iSoftCtrlCheck1 + 1);
+
+    if ( iSoftCtrlCheck2 > 0 )
+      bReturn = 1;
+  }
+
+  return bReturn;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initSwitchCondition()
+{
+  dyn_string dsSwitchConditions = makeDynString(getCatStr(\"s7plus\", \"s7plusSwitchCond0\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond1\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond2\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond3\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond4\"));
+
+  if ( !dynlen(cmbSwitchCond.items()) )
+    setMultiValue(\"cmbSwitchCond\", \"items\", dsSwitchConditions,
+                  \"cmbSwitchCond\", \"selectedPos\", 4);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkSwitchCondition()
+{
+  int iPosSwitch;
+  bool bReduConn, bReduDevice;
+
+  dyn_string dsSwitchConditions = makeDynString(getCatStr(\"s7plus\", \"s7plusSwitchCond0\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond1\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond2\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond3\"),
+                                                getCatStr(\"s7plus\", \"s7plusSwitchCond4\"));
+
+  if ( !dynlen(cmbSwitchCond.items()) )
+    setMultiValue(\"cmbSwitchCond\", \"items\", dsSwitchConditions,
+                  \"cmbSwitchCond\", \"selectedPos\", 4);
+
+  getMultiValue(\"cbReduConn\",    \"state\", 0,    bReduConn,
+                \"cbReduDevice\",  \"state\", 0,    bReduDevice,
+                \"cmbSwitchCond\", \"selectedPos\", iPosSwitch);
+
+  setValue(\"cmdSwitchTag\", \"enabled\", ((bReduConn || bReduDevice) && iPosSwitch == 5));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void registerTabs()
+{
+  dyn_string dsPanels = makeDynString(\"para/s7plus_conn.pnl\",
+                                      \"para/s7plus_engineering.pnl\",
+                                      \"para/s7plus_advanced.pnl\",
+                                      \"para/s7plus_time.pnl\",
+                                      \"para/s7plus_tspp.pnl\",
+                                      \"para/s7plus_statedetails.pnl\",
+                                      \"para/s7plus_statistics.pnl\");
+
+  if ( cmbPlc.text == \"\" )
+    for ( int i = 1; i <= dynlen(dsPanels); i++ )
+      tabMain.namedRegisterPanel(\"#\"+i, dsPanels[i], makeDynString());
+  else
+    for ( int i = 1; i <= dynlen(dsPanels); i++ )
+      tabMain.namedRegisterPanel(\"#\"+i, dsPanels[i], makeDynString(\"$conn:\"  + cmbPlc.text,
+                                                                   \"$items:\" + cmbPlc.items));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setConnStateField(uint uiConnState, string sShape)
+{
+  setMultiValue(\"ptConnStateHost2\", \"enabled\", isRedundant(),
+                \"tfConnStateHost2\", \"enabled\", isRedundant());
+
+  string sBackCol, sForeCol;
+
+  if ( uiConnState == 3 )
+  {
+    sBackCol = \"green\";
+    sForeCol = \"black\";
+  }
+  else if ( uiConnState == 1 || uiConnState == 5 )
+  {
+    sBackCol = \"red\";
+    sForeCol = \"white\";
+  }
+  else
+  {
+    sBackCol = \"yellow\";
+    sForeCol = \"black\";
+  }
+
+  setMultiValue(sShape, \"text\",    getCatStr(\"s7plus\", \"s7plusConnState\"+uiConnState),
+                sShape, \"backCol\", sBackCol,
+                sShape, \"foreCol\", sForeCol);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getTSM()
+{
+  uint uiTSM;
+  bool bUseUTC;
+
+  getMultiValue(\"cbTSM\",    \"state\", 0, uiTSM,
+                \"cbUseUTC\", \"state\", 0, bUseUTC);
+
+  if ( uiTSM == 0 )
+    setMultiValue(\"txtTimezone\",    \"enabled\", 0,
+                  \"sbTimezone\",     \"enabled\", 0,
+                  \"txtTimezoneMin\", \"enabled\", 0,
+                  \"cbUseUTC\",       \"enabled\", 0,
+                  \"txtTSI\",         \"enabled\", 0,
+                  \"sbTSI\",          \"enabled\", 0,
+                  \"txtTSISec\",      \"enabled\", 0);
+  else
+    setMultiValue(\"txtTimezone\",    \"enabled\", !bUseUTC,
+                  \"sbTimezone\",     \"enabled\", !bUseUTC,
+                  \"txtTimezoneMin\", \"enabled\", !bUseUTC,
+                  \"cbUseUTC\",       \"enabled\", 1,
+                  \"txtTSI\",         \"enabled\", 1,
+                  \"sbTSI\",          \"enabled\", 1,
+                  \"txtTSISec\",      \"enabled\", 1);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setApGlobals(string sPlc)
+{
+  string sDp = S7PLUS_INOA + sPlc;
+
+  // first check if the required driver is running
+  uint uiDrvNum;
+  string sStationName;
+
+  // TFS 12634
+  int iReduAct = 0;
+
+  if ( isRedundant() )
+    reduActive(iReduAct);
+
+  if ( iReduAct == 2 )
+    sDp += S7PLUS_REDU;
+
+  dpGet(sDp + sCFG + \"DrvNumber\",   uiDrvNum,
+        sDp + sCFG + \"StationName\", sStationName);
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if ( sStationName != \"\" && dynContains(drvRunning, uiDrvNum) )
+  {
+    int cnt = 1;
+
+    // wait in case browse request from getAutoPlcType is pending
+    while ( browseRequestPending && !bOnlineBrowsing )
+    {
+      // avoid infinite loop - wait for max 30 seconds
+      if ( cnt >= 600 )
+      {
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to read S7DOS access points\"));
+        return;
+      }
+
+      if ( cnt%20 == 0 )
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Reading S7DOS access points...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // lock this request
+    browseRequestPending = true;
+
+    string sReqIdSet = \"RequestAccessPoints\";
+    string sData = \"S7Plus$AccessPoints\";
+    dpSetWait(sDp + sBRO + \"GetBranch\", makeDynString(sReqIdSet, sData, 1));
+
+    string sReqIdGet;
+    cnt = 1;
+
+    while ( sReqIdGet != sReqIdSet )
+    {
+      dpGet(sDp + sBRO + \"RequestId\", sReqIdGet);
+
+      // avoid infinite loop - wait for max 30 seconds
+      if ( cnt >= 600 )
+      {
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to read S7DOS access points\"));
+        return;
+      }
+
+      if ( cnt%20 == 0 )
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Reading S7DOS access points...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // unlock
+    browseRequestPending = false;
+
+    if ( sReqIdGet == sReqIdSet )
+      dpGet(sDp + sBRO + \"NodePaths\"   , g_dsPgPcAp,
+            sDp + sBRO + \"NodeComments\", g_dsPgPcIf);
+
+    if ( dynlen(g_dsPgPcAp) > 0 )
+    {
+      cmbAp1.items = g_dsPgPcAp;
+      cmbAp2.items = g_dsPgPcAp;
+    }
+  }
+
+
+  //else
+  //{
+  //  if ( uiDrvNum == 0 )
+  //  {
+  //    dyn_uint duiDrvNums = paS7PlusCheckDrvNums();
+  //
+  //    if ( dynlen(duiDrvNums) )
+  //      uiDrvNum = duiDrvNums[1];
+  //    else
+  //      uiDrvNum = 1;
+  //
+  //    sbDrvNum.text = uiDrvNum;
+  //
+  //    dpSetWait(sDp + sCFG + \"DrvNumber\", uiDrvNum);
+  //
+  //    setCheckConnAddress(sDp, sDp, \"__check__\");
+  //
+  //    string sDp2 = sDp + S7PLUS_REDU;
+  //    if ( isRedundant() )
+  //      setCheckConnAddress(sDp2, sDp, \"__checkredu__\");
+  //  }
+  //}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void addApGlobals()
+{
+  if ( !globalExists(\"g_dsPgPcAp\") )
+    addGlobal(\"g_dsPgPcAp\", DYN_STRING_VAR);
+  if ( !globalExists(\"g_dsPgPcIf\") )
+    addGlobal(\"g_dsPgPcIf\", DYN_STRING_VAR);
+
+
+  if ( !globalExists(\"g_s7p_conn\") )
+    addGlobal(\"g_s7p_conn\", STRING_VAR);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeApGlobals()
+{
+  if ( globalExists(\"g_dsPgPcAp\") )
+    removeGlobal(\"g_dsPgPcAp\");
+  if ( globalExists(\"g_dsPgPcIf\") )
+    removeGlobal(\"g_dsPgPcIf\");
+
+  if ( globalExists(\"g_s7p_conn\") )
+    removeGlobal(\"g_s7p_conn\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string initTlsComm()
+{
+  dyn_string dsLegLevel = makeDynString(getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm-1\"),
+                                        getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm0\"),
+                                        getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm1\"),
+                                        getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm2\"),
+                                        getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm3\"),
+                                        getCatStr(\"s7plus\", \"s7plusConnectionsTlsComm4\"));
+  return dsLegLevel;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void errDetectPlcType(int iErrType)
+{
+  string sPlcType = \"s7plusPlcType\";
+
+  tfPlcTypeNum.text = \"0\";
+  tfPlcType.visible = 1;
+  tfPlcType.enabled = 1;
+
+  tfPlcType.text = getCatStr(\"s7plus\", sPlcType + (string)iErrType);
+
+  if ( iErrType == 0 || iErrType == -4 )
+  {
+    tfPlcType.backCol(\"red\");
+    tfPlcType.foreCol(\"white\");
+  }
+  else if ( iErrType == -1 || iErrType == -3 )
+  {
+    tfPlcType.backCol(\"yellow\");
+    tfPlcType.foreCol(\"black\");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showConnection2Row(bool whetherToShow)
+{
+  int tableStateWidth, tableStateReduWidth, tableHeight;
+  getMultiValue(\"tableState\",     \"size\", tableStateWidth,     tableHeight,
+                \"tableStateRedu\", \"size\", tableStateReduWidth, tableHeight);
+
+  tableHeight = whetherToShow ? 75 : 50;
+
+  setMultiValue(\"tableState\",       \"size\",        tableStateWidth,      tableHeight,
+                \"tableStateRedu\",   \"size\",        tableStateReduWidth,  tableHeight,
+                \"ptStateConn2\",     \"visible\",     whetherToShow,
+                \"ptStateConn2Redu\", \"visible\",     whetherToShow && groupReduDetail.visible);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkRunningDrvNums()
+{
+  dyn_uint duiDrvNums = paS7PlusCheckDrvNums();
+  uint uiDrvNum;
+  string sPlc = txtSystem.text + S7PLUS_INOA + cmbPlc.text;
+  string sSys = txtSystem.text;
+
+  dyn_string ds;
+  dyn_float df;
+
+  dpGet(sPlc + +sCFG + \"DrvNumber\", uiDrvNum);
+
+  if ( uiDrvNum == 0 )
+  {
+    if ( dynlen(duiDrvNums) )
+      uiDrvNum = duiDrvNums[1];
+  }
+
+  //if ( !dpExists(sSys + S7PLUS_INTL + \"Driver\" + uiDrvNum) )
+  //  dpCreate(sSys + S7PLUS_INTL + \"Driver\" + uiDrvNum, S7PLUS_INTL + \"DriverCommon\");
+
+  if ( !dynContains(duiDrvNums, sbDrvNum.text) )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"s7plus\", \"s7plusDrvNumNotRun\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( dynlen(df) < 1 || df[1] == 0 )
+    {
+      sbDrvNum.text = uiDrvNum;
+      sbDrvNum.enabled = 1;
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTableStateColumns()
+{
+  int iTabWith1 = 128;
+  int iTabWith2 = 103;
+
+  if ( isRedundant() )
+    setMultiValue(\"tableState\",     \"columnWidth\", 0, iTabWith2,
+                  \"tableState\",     \"columnWidth\", 2, iTabWith2,
+                  \"tableState\",     \"columnWidth\", 3, iTabWith2,
+                  \"tableState\",     \"columnWidth\", 4, iTabWith2,
+                  \"tableState\",     \"columnVisibility\", 1, 1,
+                  \"tableStateRedu\", \"columnWidth\", 0, iTabWith2,
+                  \"tableStateRedu\", \"columnWidth\", 2, iTabWith2,
+                  \"tableStateRedu\", \"columnWidth\", 3, iTabWith2,
+                  \"tableStateRedu\", \"columnWidth\", 4, iTabWith2,
+                  \"tableStateRedu\", \"columnVisibility\", 1, 1);
+  else
+    setMultiValue(\"tableState\",     \"columnWidth\", 0, iTabWith1,
+                  \"tableState\",     \"columnWidth\", 2, iTabWith1,
+                  \"tableState\",     \"columnWidth\", 3, iTabWith1,
+                  \"tableState\",     \"columnWidth\", 4, iTabWith1+1,
+                  \"tableState\",     \"columnVisibility\", 1, 0,
+                  \"tableStateRedu\", \"columnWidth\", 0, iTabWith1,
+                  \"tableStateRedu\", \"columnWidth\", 2, iTabWith1,
+                  \"tableStateRedu\", \"columnWidth\", 3, iTabWith1,
+                  \"tableStateRedu\", \"columnWidth\", 4, iTabWith1+1,
+                  \"tableStateRedu\", \"columnVisibility\", 1, 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int getLanguageData(dyn_string &langs, dyn_int &langids, dyn_int &langmibs, dyn_string &langnames, dyn_string &langcodes)
+{
+  int    err = 0, langid, langmib;
+  string langname, rec;
+  file   fd = fopen(WINCCOA_PATH + \"nls/lang.dir\", \"r\");
+
+  langs = makeDynString();
+  langids = makeDynInt();
+  langmibs = makeDynInt();
+
+  if ( fd == 0 )
+  {
+    err = -1;
+    return(err);
+  }
+
+  while ( !feof(fd) )
+  {
+    fgets(rec, 65535, fd);
+    strreplace(rec, \"\\n\", \"\");
+    if ( strltrim(strrtrim(rec)) == \"\" || rec[0] == \"#\")
+      continue;
+
+    sscanf(rec, \"%d%s%d\", langid, langname, langmib);
+    if ( langid == 254 || langid == 255 || langid == 65535 )
+      continue;
+
+    dynAppend(langs, langname);
+    dynAppend(langids, langid);
+    dynAppend(langmibs, langmib);
+
+    if ( dynlen(strsplit(langname, \".\")) > 1 )
+    {
+      dynAppend(langnames, strsplit(langname, \".\")[1]);
+      dynAppend(langcodes, strsplit(langname, \".\")[2]);
+    }
+  }
+
+  fclose(fd);
+
+  return(err);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void fillLanguageMibList()
+{
+  int iErr = getLanguageData(dsLangs, diLangIds, duiLangMibs, dsLangNames, dsLangCodes);
+
+  if ( iErr == -1 )
+  {
+    setMultiValue(\"frmCodepage\", \"enabled\", 0,
+                  \"rbCodepage\",  \"enabled\", 0,
+                  \"cmbCodepage\", \"visible\", 0,
+                  \"ptCodepage\",  \"visible\", 1,
+                  \"ptCodepage\",  \"text\",    getCatStr(\"s7plus\", \"s7plusCodepageSetting\"));
+    return;
+  }
+
+  duiLangMibsUnique = duiLangMibs;
+  dsLangCodesUnique = dsLangCodes;
+
+  dynUnique(duiLangMibsUnique);
+  dynUnique(dsLangCodesUnique);
+
+  dynRemove(dsLangCodesUnique, dynContains(dsLangCodesUnique, sUtf8));
+  dynRemove(duiLangMibsUnique, dynContains(duiLangMibsUnique, uiUtf8));
+
+  for ( int i = 1; i <= dynlen(dsLangCodesUnique); i++ )
+    dsLangCodesUnique[i] = strtoupper(dsLangCodesUnique[i]);
+
+  cmbCodepage.items = dsLangCodesUnique;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getLangsToMib(uint uiMib)
+{
+  if      ( uiMib == 0 )
+    rbCodepage.number = 0;
+  else if ( uiMib == uiUtf8 )
+    rbCodepage.number = 1;
+  else
+    rbCodepage.number = 2;
+
+  cmbCodepage.enabled = (uiMib != 0 && uiMib != uiUtf8 && rbCodepage.enabled == 1);
+
+  string sLangToMib = \"\";
+  string sTemp;
+
+  dyn_uint duiLangMibsSorted = duiLangMibs;
+  dynSort(duiLangMibsSorted);
+
+  int iDynOcc = dynOcc(duiLangMibsSorted, uiMib);
+
+  if ( iDynOcc > 0 )
+  {
+    for ( int i = 1; i <= dynlen(dsLangNames); i++ )
+      if ( duiLangMibs[i] == uiMib )
+        sTemp += dsLangNames[i] + \",\";
+
+    dyn_string dsSplitTemp = strsplit(sTemp, \",\");
+
+    for ( int i = 1; i <= iDynOcc; i++ )
+    {
+      if ( i < iDynOcc )
+        sLangToMib += dsSplitTemp[i] + \", \";
+      else
+        sLangToMib += dsSplitTemp[i];
+    }
+  }
+  else
+    sLangToMib = getCatStr(\"s7plus\", \"s7plusNoLangFound\");
+
+  cmbCodepage.toolTipText = sLangToMib;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int dynOcc(dyn_anytype dynField, anytype element)
+{
+  int pos = dynContains(dynField, element);
+  int occ = (pos)?1:0;
+
+  if ( pos > 0 )
+  {
+    pos++;
+    while ( pos <= dynlen(dynField) && dynField[pos] == element )
+    {
+      occ++;
+      pos++;
+    }
+  }
+
+  return occ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint getCodepage()
+{
+  if ( rbCodepage.number == 0 )
+    return 0;
+  else if ( rbCodepage.number == 1 )
+    return uiUtf8;
+  else
+    return duiLangMibsUnique[dynContains(dsLangCodesUnique, (cmbCodepage.selectedText))];
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setOnlineConfig(string sConn)
+{
+  dpSet(sConn + sCFG + \"StationName\", sStationOnline);
+  bOnlineBrowsing = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeConn(string dp, bool nc = 0)
+{
+  //string dp  = txtSystem.text + S7PLUS_INOA + cmbPlc.text;
+  string dp2 = dp + S7PLUS_REDU;
+
+  if ( nc == 0 )
+  {
+    int iPos = cmbPlc.selectedPos;
+    dyn_string dsPlc = cmbPlc.items;
+
+    if ( cmbPlc.text == \"\" )
+      return;
+
+    dyn_float  df;
+    dyn_string ds;
+
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"diskspace\", \"dpDelete\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( !df[1] )
+      return;
+
+    dynRemove(dsPlc, iPos);
+    cmbPlc.items = dsPlc;
+    sbDrvNum.enabled = false;
+
+    if ( dynlen(dsPlc) < 1 )
+    {
+      cmbPlc.text = \"\";
+      t1.text = \"\";
+      tfIp1.text = \"\";
+      tfIp2.text = \"\";
+      g_s7p_conn = \"\";
+
+      setSettingsEnabled(0); // there is no PLC in the list so disable settings
+    }
+    else
+    {
+      if ( iPos < 1 )
+        iPos = 1;
+
+      if ( iPos > dynlen(dsPlc) )
+        iPos = dynlen(dsPlc);
+
+      cmbPlc.selectedPos(iPos);
+      cmbPlc.text = dsPlc[iPos];
+
+      g_s7p_conn = cmbPlc.text;
+
+      loads7plusDp(txtSystem.text + S7PLUS_INOA + cmbPlc.text);
+    }
+
+    delay(0,501);
+  }
+
+  if ( dpExists(dp2) )
+    dpDelete(dp2);
+
+  if ( dpExists(dp) )
+    dpDelete(dp);
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  //removeApGlobals();
+  PanelOff();
+}
+
+
+
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 21
+"frmConnection"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.04823675707848 0 0.8585858585858587 -0.4823675707848014 -37.92929292929293 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 22 Подключение
+13 23
+"cmdApply"
+""
+1 485 680 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+333 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  483 678 571 706
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+    return;
+  else
+    setDp();
+}
+
+" 0
+ E E E
+13 24
+"cmdCancel"
+""
+1 575 680 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+334 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  573 678 661 706
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  removeApGlobals();
+  PanelOff();
+}
+
+
+" 0
+ E E E
+13 25
+"cmdHelp"
+""
+1 10 678 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+331 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 678 96 706
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7plus\");
+}
+
+
+
+
+" 0
+ E E E
+22 26
+"cmbPlc"
+""
+1 25 58 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select a connection
+LANG:10004 18 选择一个连接
+LANG:10000 21 Verbindung auswählen
+LANG:10027 33 Выбор подключения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 23 531 49
+0
+
+E
+"main()
+{
+  cmbPlc.enabled = false;
+  string dp = txtSystem.text + S7PLUS_INOA + cmbPlc.text;
+  g_s7p_conn = cmbPlc.text;
+  loads7plusDp(dp);
+  cmbPlc.enabled = true;
+}
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+13 27
+"cmdNewDp"
+""
+1 555 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Create a new connection with default settings
+LANG:10004 6 创建
+LANG:10000 48 Neue Verbindung mit Grundeinstellungen erstellen
+LANG:10027 98 Создать новое подключение с настройками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 23 646 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i = 1, iSource;
+  uint       uiDrvNum;
+  bool       bOnline = 0;
+  string     sPlc = S7PLUS_INOA + cmbPlc.text, sInput = \"\";//cmbPlc.text;
+  dyn_string dsPlc = cmbPlc.items;
+
+
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"para/s7plus_input.pnl\", // define dp name
+                                 getCatStr(\"da\", \"createdp\"),
+                                 makeDynString(getCatStr(\"s7plus\", \"s7plusDpInput\"),
+                                               sInput),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+  sPlc = ( dynlen(ds) > 0 ) ? ds[1] : \"\";
+  sPlc = strrtrim(strltrim(sPlc));
+
+  iSource = ( dynlen(ds) > 1 ) ? (int)ds[2] : 0;
+  rbSource.number = iSource;
+  bOnline = ( iSource == 1 );
+
+  uiDrvNum = ( dynlen(ds) > 2 ) ? (uint)ds[3] : 0;
+  if ( uiDrvNum > 0 )
+    sbDrvNum.value = (int)uiDrvNum;
+
+  if ( strpos(sPlc, \" \") != -1 || strpos(sPlc, \"__\") != -1 || patternMatch(\"*_1\", sPlc) || patternMatch(\"*_2\", sPlc) || patternMatch(\"*_\", sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusDpInvalid\")));
+    return;
+  }
+  else if ( (sPlc == \"\") || (sPlc == \" \") ||(sPlc == S7PLUS_INOA) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusDpEmpty\")));
+    return;
+  }
+  else if ( dpExists(txtSystem.text + S7PLUS_INOA + sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusDpExists\")));
+    return;
+  }
+
+  if ( strpos(sPlc, S7PLUS_INOA, 0) != -1 )
+    sPlc = strltrim(sPlc, S7PLUS_INOA);
+
+  // enable the settings again, because the first PLC has been created
+  if ( dynlen(dsPlc) < 1 )
+    setSettingsEnabled(true);
+
+  if ( sPlc != \"\" || sPlc != S7PLUS_INOA )
+  {
+    createNewConn(txtSystem.text + S7PLUS_INOA + sPlc);
+
+    if ( bOnline )
+      setOnlineConfig(S7PLUS_INOA + sPlc);
+    else
+      if ( openSymbolic(S7PLUS_INOA + sPlc) == -1 )
+        return;
+
+    tabMain.activeRegister(0);
+    setInputFocus(myModuleName(), myPanelName(), \"tfIp1\");
+  }
+
+  cmbPlc.text = sPlc;
+
+  if ( _WIN32 && dynlen(dsPlc) < 1 )
+    setApGlobals(sPlc);
+
+  string dp = txtSystem.text + S7PLUS_INOA + cmbPlc.text;
+  loads7plusDp(dp);
+
+  dsPlc = cmbPlc.items;
+  dynAppend(dsPlc, sPlc);
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc);
+  cmbPlc.items = dsPlc;
+
+  cmbPlc.selectedPos = dynContains(dsPlc, sPlc);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 28
+"cmdRemoveDp"
+""
+1 555 65 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove a connection
+LANG:10004 19 Remove a connection
+LANG:10000 20 Verbindung entfernen
+LANG:10027 37 Удалить подключение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 53 646 81
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  removeConn(txtSystem.text + S7PLUS_INOA + cmbPlc.text);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 29
+"cmdOk"
+""
+1 395 680 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+332 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 68 Применить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  393 678 481 706
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+  {
+    removeApGlobals();
+    PanelOff();
+  }
+  else
+  {  
+    if ( setDp() )
+    {
+      removeApGlobals();
+      PanelOff();
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+1 175 0 "" 0
+0
+13 55
+"cmdIGQ"
+""
+1 79 347.6329113924047 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+329 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Inverse general query
+LANG:10004 18 反向常规查询
+LANG:10000 22 Inverse Generalabfrage
+LANG:10027 42 Инверсный общий запрос
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 623 286 651
+
+T 
+4
+LANG:10001 10 Inverse GQ
+LANG:10004 10 Inverse GQ
+LANG:10000 10 Inverse GA
+LANG:10027 17 Инверс.ОЗ
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+  string sDp;
+  sDp = S7PLUS_INOA + cmbPlc.text;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(\"$1:\" + getCatStr(\"s7plus\", \"s7plusStartIGQ\"),
+                                               \"$2:\" + \"OK\",
+                                               \"$3:\" + getCatStr(\"general\", \"cancel\")),
+                                 df, ds);
+
+  if ( dynlen(ds) > 0 )
+  {
+    if ( df[1] == 1 )
+    {
+      dpSet(sDp + sCMD + \"IGQ\", 1);
+      return;
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 81
+"cmdGQ"
+""
+1 -34 347.6329113924049 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+327 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 General query
+LANG:10004 13 General query
+LANG:10000 14 Generalabfrage
+LANG:10027 23 Общий запрос
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  108 623 196 651
+
+T 
+4
+LANG:10001 2 GQ
+LANG:10004 15 总召唤数值
+LANG:10000 2 GA
+LANG:10027 19 Общ.запрос
+"main()
+{
+  string sDp;
+  sDp = S7PLUS_INOA + cmbPlc.text;
+  dpSet(sDp + sCMD + \"GQ\", 1);
+}
+
+
+
+
+" 0
+ E E E
+30 87
+"frmCommands"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+194 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.227291579447497 0 0.5483300222626547 -2.272915794474971 418.5677924306974 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 6 指令
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+13 116
+"cmdSwitchOver"
+""
+1 -270.5256137637734 347.5252787150047 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+197 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Do switch over
+LANG:10004 12 执行切换
+LANG:10000 32 Umschalten auf andere Verbindung
+LANG:10027 43 Выполнить переключение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 623 106 651
+
+T 
+4
+LANG:10001 11 Switch over
+LANG:10004 6 切换
+LANG:10000 10 Umschalten
+LANG:10027 22 Переключить
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+  string sDp;
+  sDp = S7PLUS_INOA + cmbPlc.text;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(\"$1:\" + getCatStr(\"s7plus\",\"s7plusDoSwitchOver\"),
+                                               \"$2:\" + \"OK\",
+                                               \"$3:\" + getCatStr(\"general\",\"cancel\")),
+                                 df, ds);
+
+  if ( dynlen(ds) > 0 )
+  {
+    if ( df[1] == 1 )
+    {
+      dpSet(sDp + sCMD + \"DoSwitchover\", 1);
+      return;
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+28 120
+"tabMain"
+""
+1 10 210 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 208 661 551
+E7 "#1" 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 22 Подключение
+0
+"#2" 4
+LANG:10001 11 Engineering
+LANG:10004 12 工程组态
+LANG:10000 11 Engineering
+LANG:10027 11 Engineering
+0
+"#3" 4
+LANG:10001 17 Advanced settings
+LANG:10004 12 高级设置
+LANG:10000 9 Erweitert
+LANG:10027 27 Расш.настройки
+0
+"#4" 4
+LANG:10001 13 Time settings
+LANG:10004 12 时间设置
+LANG:10000 17 Zeiteinstellungen
+LANG:10027 37 Временные настройки
+0
+"#5" 3
+LANG:10000 4 TSPP
+LANG:10001 4 TSPP
+LANG:10027 4 TSPP
+0
+"#6" 4
+LANG:10001 13 State details
+LANG:10004 12 状态细节
+LANG:10000 13 Statusdetails
+LANG:10027 26 Доп.инф.о сост.
+0
+"#7" 4
+LANG:10001 10 Statistics
+LANG:10004 6 统计
+LANG:10000 9 Statistik
+LANG:10027 20 Статистика
+0
+
+2 123
+"txtDeviceDescription"
+""
+1 25 55 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+335 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 27 57 180 74
+0 2 0 "0s" 0 0 0 64 0 0  27 57 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 Connection description:
+LANG:10004 15 连接描述：
+LANG:10000 24 Verbindungsbeschreibung:
+LANG:10027 40 Описание подключения:
+14 124
+"t1"
+""
+1 200 50 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+336 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 38 Description of the selected connection
+LANG:10004 24 选择的连接的描述
+LANG:10000 38 Beschreibung der gewählten Verbindung
+LANG:10027 60 Описание выбранного подключения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  198 53 501 79
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\", \"name\", s);
+  s = substr(s, strlen(s)-1, 1);
+
+  getValue(\"langliste\"+s, \"items\", ds);
+  ls = ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s, \"text\", ls,
+                \"langliste\"+s, \"items\", ds);
+}
+
+" 0
+ "main()
+{ 
+  this.editable = getNoOfLangs() == 1;
+}
+" 0
+ "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\", \"name\", s);
+  s = substr(s, strlen(s)-1, 1);
+
+  getValue(\"langliste\"+s, \"items\", ds);
+  ls = ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds = ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s, \"text\", ls,
+                \"langliste\"+s, \"items\", ds);
+}
+
+" 0
+
+13 125
+"langedit1"
+""
+1 498 63 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+337 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  503 53 531 81
+
+P 
+13160660
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\", \"name\", s);
+  s = substr(s, strlen(s)-1, 1);
+
+  getValue(\"langliste\"+s, \"items\", ds);
+  ls = ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds = ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s, \"text\", ls,
+                \"langliste\"+s, \"items\", ds);
+}
+
+" 0
+ E E "main()
+{
+  this.visible = getNoOfLangs() != 1;
+}" 0
+
+17 126
+"langliste1"
+""
+1 101.4482758620691 537.9444444444446 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+338 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  198 678 224 704
+0
+
+E
+E
+E
+
+0 0
+2 127
+"txtSystem"
+""
+1 -23000.99999999998 67534.41772151884 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+339 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  this.text = getSystemName();
+}
+
+" 0
+ E 0 1 1 0 1 E 0.9999999999999999 0 0.9999999999999999 -174.9999999999999 541 0 E 315 144 362 159
+1 2 2 "0s" 0 0 0 192 0 0  315 144 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 System
+LANG:10004 6 系统
+LANG:10000 6 System
+LANG:10027 14 система
+21 131
+"sbDrvNum"
+""
+1 585 113 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+341 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Select driver number
+LANG:10004 15 选择驱动号
+LANG:10000 21 Treibernummer wählen
+LANG:10027 40 Выбор номера драйвера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  568 113 626 139
+0
+
+E
+E
+E
+
+N 1 255 1 1 1 1
+2 132
+"ptDrvNum"
+""
+1 430 119.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+342 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 430 119.5 515 135
+0 2 2 "0s" 0 0 0 192 0 0  430 119.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Driver number:
+LANG:10004 12 驱动号：
+LANG:10000 14 Treibernummer:
+LANG:10027 28 Номер драйвера:
+30 133
+"frmSettings"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+343 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.048465266558967 0 1.101010101010104 -0.4846526655896621 -81.16161616161669 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Common settings
+LANG:10004 12 常规设置
+LANG:10000 13 Einstellungen
+LANG:10027 29 Общие настройки
+20 134
+"cbReduDevice"
+""
+1 120.0000000000001 169.3125000000001 E E E 0 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+344 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 46 Set redundant device equipment active/inactive
+LANG:10004 31 设置冗余设备激活/禁用
+LANG:10000 45 Setzen wenn redundante SPSen verwendet werden
+LANG:10027 92 Установить при использовании резервированных ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 168 281 191
+1
+T 
+4
+LANG:10001 16 Redundant device
+LANG:10004 12 冗余设备
+LANG:10000 18 Redundantes Gerät
+LANG:10027 39 Резервное устройство
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  checkConnType();
+}
+
+
+" 0
+20 138
+"cbReduConn"
+""
+1 120 149.1681034482759 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+346 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 46 Set redundant device equipment active/inactive
+LANG:10004 31 设置冗余设备激活/禁用
+LANG:10000 45 Setzen wenn redundante SPSen verwendet werden
+LANG:10027 97 Активировать/деактивировать резервное оборудование
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 148 281 171
+1
+T 
+4
+LANG:10001 20 Redundant connection
+LANG:10004 12 冗余连接
+LANG:10000 21 Redundante Verbindung
+LANG:10027 37 Резервир. подключен.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  checkConnType();
+}
+
+
+
+" 0
+2 140
+"ptCfg"
+""
+1 29.75000000000006 151 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+348 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 29.75000000000006 151 110 166
+0 2 2 "0s" 0 0 0 192 0 0  29.75000000000006 151 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Configuration:
+LANG:10004 7 配置:
+LANG:10000 14 Konfiguration:
+LANG:10027 25 Конфигурация:
+2 141
+"ptPlcType"
+""
+1 29.5 119.75 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+349 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 29.5 119.75 89 135
+0 2 2 "0s" 0 0 0 192 0 0  29.5 119.75 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 PLC type:
+LANG:10004 11 PLC 类型:
+LANG:10000 8 SPS-Typ:
+LANG:10027 14 Тип ПЛК:
+22 142
+"cmbPlcType"
+""
+1 41.33720930232558 120.5 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+350 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 PLC type
+LANG:10004 8 PLC type
+LANG:10000 7 SPS-Typ
+LANG:10027 13 Тип ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 113 266 139
+0
+
+E
+"main()
+{
+  checkPlcType();
+}
+
+
+
+
+
+" 0
+
+E
+ 0 0
+13 144
+"cmdAp"
+""
+1 263 23.14285714285703 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+352 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 85 Windows only: opens the configuration of the PG/PC-Interface in Windows control panel
+LANG:10004 67 仅限Windows：在Windows控制面板中打开PG/PC接口的配置
+LANG:10000 93 Nur Windows: öffnet die Einstellungen der PG/PC-Schnittstelle in der Windows Systemsteuerung
+LANG:10027 148 Только для ОС Windows: открытие окна настроек интерфейса PG/PC в Панели управления Windows
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  567 144 595 172
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  bool bInstalled;
+  string sPath, sWin, sWow, sSysCall,
+         sPattern = \"*.exe\", sS7dos = \"s7epatsx.exe\";
+         //sPattern = \"*.cpl\", sS7dos = \"s7epatdx.cpl\";
+  dyn_string dsDirs, dsFileNames;
+
+  sPath = getenv(\"PATH\");
+  sWin  = getenv(\"windir\");
+  sWow  = sWin + \"\\\\SysWOW64\";
+
+  dsDirs = strsplit(sPath, \";\");
+  dynAppend(dsDirs, sWow);
+
+  for ( int i = 1; i <= dynlen(dsDirs); i++ )
+  {
+    dsFileNames = getFileNames(dsDirs[i], sPattern);
+
+    if ( dynContains(dsFileNames, sS7dos) )
+    {
+      bInstalled = true;
+      sSysCall = dsDirs[i] + \"\\\\\" + sS7dos;
+    }
+  }
+
+  if ( _WIN32 && bInstalled )
+    system(sSysCall); //system(sS7dos);
+  else
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"s7plus\",\"s7plusPcIdNotInstalled\")));
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 145
+"ptPgPc"
+""
+1 -9354 3195.483759427114 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+353 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9761904761904761 219.9999999999999 120.5357142857142 0 E 210 30 334 45
+0 2 2 "0s" 0 0 0 192 0 0  210 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Set PG/PC-Interface:
+LANG:10004 20 设置 PG/PC-接口:
+LANG:10000 20 PG/PC-Schnittstelle:
+LANG:10027 25 Интерфейс PG/PC:
+30 148
+"frmState"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+354 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.161001788908766 0 0.6808229795223605 -1.610017889087655 543.149852770969 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+2 149
+"ptConnStateHost1"
+""
+1 60 572.9542013223218 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+355 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 60 572.9542013223218 139 588
+0 2 2 "0s" 0 0 0 192 0 0  60 572.9542013223218 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State Host 1:
+LANG:10004 16 主机1状态：
+LANG:10000 14 Status Host 1:
+LANG:10027 23 Сост. хоста 1:
+2 150
+"ptConnStateHost2"
+""
+1 370 572.9542013223218 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+356 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 370 572.9542013223218 449 588
+0 2 2 "0s" 0 0 0 192 0 0  370 572.9542013223218 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 State Host 2:
+LANG:10004 16 主机2状态：
+LANG:10000 14 Status Host 2:
+LANG:10027 23 Сост. хоста 2:
+14 151
+"tfConnStateHost1"
+""
+1 200 574.9542013223218 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+357 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Connection state host 1
+LANG:10004 23 Connection state host 1
+LANG:10000 24 Verbindungsstatus Host 1
+LANG:10027 52 Состояние подключения Хост 1
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  153 568 286 593
+2 "0s" 0 0 0 1 0 -1  E E E
+14 152
+"tfConnStateHost2"
+""
+1 210 574.9542013223218 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+358 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Connection state host 2
+LANG:10004 23 Connection state host 2
+LANG:10000 24 Verbindungsstatus Host 2
+LANG:10027 52 Состояние подключения Хост 2
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  463 568 596 593
+2 "0s" 0 0 0 1 0 -1  E E E
+20 155
+"cbEstMode"
+""
+1 346.6583092488405 311.7380952380951 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+359 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Establish connection(s) to PLC and stay connected
+LANG:10004 38 建立与 PLC 的连接并保持连接
+LANG:10000 54 Verbindung(en) zu SPS herstellen und verbunden bleiben
+LANG:10027 57 Установить подключение(я) к ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  567 175.8690476190475 645 199.8690476190475
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE2 158
+"ptEstMode"
+""
+1 -9354 3195.483759427114 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+360 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9761904761904761 219.9999999999999 150.5357142857142 0 E 210 30 337 45
+0 2 2 "0s" 0 0 0 192 0 0  210 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Establish connection:
+LANG:10004 12 建立连接
+LANG:10000 22 Verbindung herstellen:
+LANG:10027 37 Установить подключ.:
+14 161
+"tfSymbChanged"
+""
+1 230 683.5 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+361 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if ( newText == \"1\" )
+  {
+    checkConnType();
+    this.text = \"0\";
+  }
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  228 678 254 704
+2 "0s" 0 0 0 0 0 -1  E E E
+14 164
+"tfPlcType"
+""
+1 195 574.9542013223218 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+362 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 48 Automatically detected PLC type from TIA project
+LANG:10004 48 Automatically detected PLC type from TIA project
+LANG:10000 48 Automatisch ermittelter SPS Typ des TIA Projekts
+LANG:10027 109 Тип ПЛК, автоматически определенный на основании TIA-проекта
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  278 113 411 139
+2 "0s" 0 0 0 1 0 -1  E E E
+14 168
+"tfPlcTypeNum"
+""
+1 175 1139.954201322322 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+364 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  258 678 284 704
+2 "0s" 0 0 0 1 0 -1  E E E
+13 171
+"cmdAlarmGQ"
+""
+1 169 347.6329113924047 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+365 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Alarm general query
+LANG:10004 15 总召唤报警
+LANG:10000 19 Alarmgeneralabfrage
+LANG:10027 19 Alarm general query
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  288 623 376 651
+
+T 
+4
+LANG:10001 8 Alarm GQ
+LANG:10004 15 总召唤报警
+LANG:10000 8 Alarm GA
+LANG:10027 8 Alarm GQ
+"main()
+{
+  string sDp;
+  sDp = S7PLUS_INOA + cmbPlc.text;
+  dpSet(sDp + sCMD + \"AlarmGQ\", 1);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+20 174
+"cbAlarmMode"
+""
+1 57.65830924884051 283.7380952380951 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+366 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Enable/Disable alarm mode
+LANG:10004 27 Enable/Disable 报警模式
+LANG:10000 34 Alarmmodus aktivieren/deaktivieren
+LANG:10027 25 Enable/Disable alarm mode
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  278 148 411 172
+1
+T 
+4
+LANG:10001 17 Activate alarming
+LANG:10004 12 激活报警
+LANG:10000 19 Alarming aktivieren
+LANG:10027 17 Activate alarming
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 595 T 103 1.350701402805611 0 1 -5 75
+0
+0

@@ -1,0 +1,1856 @@
+V 14
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 454 579 N "_3DFace" 1
+"$System"
+"main()
+{
+  isRemoteSystemRedundant( giSystemRedundancy,  $System);
+  getAdditionalManagerConnections();
+  updateTable(TRUE);
+
+  hideDefaultArchives();
+}" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"sysOverview.ctl\"
+
+//int giSystemRedundancy;
+//mapping mNum, mWeight, mBLink0, mBLink1, mBAlert, mSAlertClass, mDsLinkInformation, mState, mName;
+
+getAdditionalManagerConnections()
+{
+  dyn_string ds, dsConnections;
+  string num, weight;
+  string dpe, name;
+  dyn_string dsLinkInformation;
+  int i;
+  int iTypeLink0, iTypeLink1;
+
+  bool bDisabled, bLink0, bLink1, bAlert, bActiveLink0, bActiveLink1;
+  string sAlertClass, linkdpe, sAlertClass2;
+
+  dyn_string dsImportanceSystemDpDpe, dsImportanceSystemDpImportance;
+  int pos;
+
+  ds = dpNames($System + \"_Conn_data_*_to_report*\", \"_ManagerConnections\");
+  dynAppend(dsConnections, ds);
+
+  ds = dpNames($System + \"_Conn_data_*_to_report*\", \"_ManagerConnections\");
+  dynAppend(dsConnections, ds);
+
+  ds = dpNames($System + \"_Conn_redu_*_to_redu*\", \"_ManagerConnections\");
+  dynAppend(dsConnections, ds);
+
+
+  dpGet( $System + \"_MonitoredManagers.ImportanceSystemDp.Dpe:_online.._value\", dsImportanceSystemDpDpe,
+         $System + \"_MonitoredManagers.ImportanceSystemDp.Importance:_online.._value\", dsImportanceSystemDpImportance);
+
+  for (i = 1; i <= dynlen(dsConnections); i++)
+  {
+    weight = \"0\";
+    linkdpe = dpSubStr(dsConnections[i], DPSUB_DP);
+    linkdpe = substr(linkdpe, 6, strlen(linkdpe));
+    dsLinkInformation = convertLinkDpeToDp(linkdpe);
+
+    dpGet(   $System + dsLinkInformation[3] + \".Link0:_alert_hdl.._type\", iTypeLink0,
+	           $System + dsLinkInformation[3] + \".Link1:_alert_hdl.._type\", iTypeLink1);
+
+    sAlertClass = \"\";
+    sAlertClass2 = \"\";
+
+    if (iTypeLink0 > 0)
+    {
+      dpGet(  $System + dsLinkInformation[3] + \".Link0:_alert_hdl.._class\", sAlertClass,
+	             $System + dsLinkInformation[3] + \".Link0:_alert_hdl.._active\", bLink0);
+      bAlert = TRUE;
+    }
+    if (iTypeLink1 > 0)
+    {
+      dpGet(  $System + dsLinkInformation[3] + \".Link1:_alert_hdl.._class\", sAlertClass2,
+	             $System + dsLinkInformation[3] + \".Link1:_alert_hdl.._active\", bLink1);
+      bAlert = TRUE;
+    }
+
+    pos = dynContains(dsImportanceSystemDpDpe, $System + dsLinkInformation[3] + \".Link0\");
+
+    if (pos > 0)
+      weight = dsImportanceSystemDpImportance[pos];
+
+    mBLink0[linkdpe] = sAlertClass != \"\";                 //bLink0;
+    mBLink1[linkdpe] = sAlertClass != \"\";                 //bLink1;
+    mBAlert[linkdpe] = bAlert;
+    mSAlertClass[linkdpe] = sAlertClass;
+    mNum[linkdpe] = \"0\";
+    mWeight[linkdpe] = weight;
+    mDsLinkInformation[linkdpe] = dsLinkInformation;
+
+    mState[linkdpe] = \"SHOW\";//sState;
+    mName[linkdpe] = dpGetDescription( $System + dsLinkInformation[3] + \".\");
+  }
+}
+
+void updateTable(bool updateList = FALSE)
+{
+  dyn_string dsDPE = dpNames($System + \"_MonitoredManagers.ImportanceManager.*:_online.._value\");
+  dyn_dyn_anytype dda;
+  bool bShowBelowZero = chk_weight.state(2);
+  bool bShowZero = chk_weight.state(1);
+  bool bShowAboveZero = chk_weight.state(0);
+  int i, j, iWeight, iNum, pos;
+  string s, linkdpe, sWeight;
+  dyn_anytype mKey;
+  dyn_string dsLinkdpe, dsName ,dsNum, dsWeight, dsRealDpe , dsRealDpeNotShown, dsNameNotShown, ds;
+
+  tab.deleteAllLines();
+
+  if(!(bShowBelowZero || bShowZero || bShowAboveZero))
+  {
+     tab.visible = TRUE;
+     return;
+  }
+
+  // INFO:      The manager numbers are not stored explicitely, they are the 1-based index
+  //            of dyn_string of _MonitoredManagers.ImportanceManager.* DPE
+  //
+  // TFS 74442: The panel supports 1-based index for all manager types, except Valarch, here it is 0-based since it is usual that
+  //            there is always an Archive Manager with number 0.
+  dpGet(dsDPE, dda);
+
+  for(i = 1; i <= dynlen(dsDPE); i++)
+  {
+    if(dynlen(dda[i]) > 0)
+    {
+      for(j = 1; j <= dynlen(dda[i]); j++)
+      {
+        iWeight = dda[i][j];
+        iNum = j;
+
+        if(strpos(dsDPE[i], \".Dist\") > 0 && (iNum != 0 && iNum != getSystemId($System))) // do not show other dists than my ohnd not redundant system dist
+        {
+          linkdpe= convertDpToLinkDpe(dsDPE[i],iNum); // -> event_api_2
+          ds = strsplit(linkdpe, \"_\");            // -> api, asii...
+          string tempname = getCatStr(\"para\", ds[2]);
+          dynAppend( dsRealDpeNotShown, ds[2]);  // information for sp_type_list
+          dynAppend( dsNameNotShown, tempname);
+          continue;
+        }
+
+        if ( ((iWeight == 0) &&  bShowZero) || ((iWeight < 0) &&  bShowBelowZero) || ((iWeight > 0) &&  bShowAboveZero))
+        {
+          linkdpe = convertDpToLinkDpe(dsDPE[i], iNum); // -> event_api_2
+          ds = strsplit(linkdpe, \"_\");            // -> api, asii...
+          if ( iWeight < 0)
+            sWeight = \"I:\"+fabs(iWeight);
+          else
+            sWeight = iWeight;
+
+          string tempname = getCatStr(\"para\", ds[2]);
+
+          // TFS 74442
+          bool isValueArchive = strpos(dsDPE[i], \".Valarch\") > 0;
+
+          if ( (iNum == 121) && (linkdpe == \"data_hdb_\" + (string)iNum) )  // NGArchive
+            tempname = getCatStr(\"para\", ds[2] + \"_\" + iNum);
+
+          if (isValueArchive)
+          {
+            iNum--;
+          }
+
+          if ( (!isValueArchive && iWeight == 0 && iNum == 0) || // Manager manNum 1 to (count)
+               (isValueArchive && iWeight == 0) )                // Archive manNum 0 to (count - 1)
+          {
+            dynAppend(dsRealDpeNotShown, ds[2]);  // information for sp_type_list
+            dynAppend(dsNameNotShown, tempname);
+          }
+          else
+          {
+            dynAppend(dsRealDpe, ds[2]);  // information for sp_type_list
+            dynAppend(dsLinkdpe, linkdpe);
+            dynAppend(dsName, tempname);
+            dynAppend(dsNum, iNum);
+            dynAppend(dsWeight, sWeight);
+          }
+        }
+        else
+        {
+          linkdpe= convertDpToLinkDpe(dsDPE[i],iNum); // -> event_api_2
+          ds = strsplit(linkdpe, \"_\");            // -> api, asii...
+          string tempname = getCatStr(\"para\", ds[2]);
+          dynAppend( dsRealDpeNotShown, ds[2]);  // information for sp_type_list
+          dynAppend( dsNameNotShown, tempname);
+        }
+      }
+    }
+  }
+
+  // merge all changed elements
+  mKey = mappingKeys(mNum);
+
+  for(i = 1; i <= dynlen(mKey); i++)
+  {
+    linkdpe = mKey[i];
+    pos = dynContains(dsLinkdpe, linkdpe);
+    iWeight = mWeight[linkdpe];
+
+    if ( iWeight < 0)
+      sWeight = \"I:\"+fabs(iWeight);
+    else
+      sWeight = iWeight;
+
+    if (dpExists($System + \"_Conn_\" + linkdpe) && !isReduDp($System + \"_Conn_\" + linkdpe))
+    {
+      string tempname = dpGetDescription($System + \"_Conn_\" + linkdpe + \".\"); // TFS 74442: moved inside if to avoid \"DP does not exist\" errors
+      dynAppend(dsRealDpeNotShown, linkdpe);  // information for sp_type_list
+      dynAppend(dsNameNotShown, tempname);
+    }
+
+    if (pos <= 0 && mState[linkdpe] != \"DELETE\")   // not in list -> regular append
+    {
+      if ( ((iWeight == 0) &&  bShowZero) || ((iWeight < 0) &&  bShowBelowZero) || ((iWeight > 0) &&  bShowAboveZero))
+      {
+        dynAppend(dsLinkdpe, linkdpe);
+        dynAppend(dsName, mName[linkdpe]);
+        dynAppend(dsNum, mNum[linkdpe]);
+        dynAppend(dsWeight ,sWeight);
+
+        if (dpExists($System + \"_Conn_\" + linkdpe))
+        {
+          dynAppend(dsRealDpe, linkdpe);
+        }
+      }
+    }
+    else
+    {
+      if (mState[linkdpe] == \"DELETE\" || // || not shown
+         ((iWeight == 0) &&  !bShowZero) ||
+         ((iWeight < 0) &&  !bShowBelowZero) ||
+         ((iWeight > 0) &&  !bShowAboveZero))
+      {
+          dynRemove(dsLinkdpe, pos);
+          dynRemove(dsName, pos);
+          dynRemove(dsNum, pos);
+          dynRemove(dsWeight, pos);
+          dynAppend(dsRealDpe, pos);
+
+       }
+       else  // replacement
+       {
+          dsNum[pos] =  mNum[linkdpe];
+          dsWeight[pos] = sWeight;
+       }
+    }
+  }
+
+  tab.updateLines(
+      1, \"linkdpe\", dsLinkdpe, // key
+      \"name\", dsName, \"num\", dsNum, \"weight\", dsWeight, \"linkdpe\", dsLinkdpe); // values
+
+  if(updateList)
+  {
+    dynAppend( dsName, dsNameNotShown);
+    dynAppend( dsRealDpe, dsRealDpeNotShown);
+
+    dynUnique (dsRealDpe);
+    dynUnique (dsName);
+
+    sp_type_list.items = dsRealDpe;
+    sp_type.items = dsName;
+  }
+
+  tab.visible = TRUE;
+}
+
+//
+//   dp -> linekdpe
+//
+string convertDpToLinkDpe(string dp, int num = -1)
+{
+  dyn_string ds;
+  string ret = \"event_\";
+
+  if (dpExists(dp) && dpTypeName(dp) == \"_MonitoredManagers\")
+  {
+    if ( strpos ( dp, \".Api\") > 0)           ret += \"api\";
+    else if ( strpos ( dp, \".Ascii\") > 0)    ret += \"ascii\";
+    else if ( strpos ( dp, \".Ctrl\") > 0)     ret += \"ctrl\";
+    else if ( strpos ( dp, \".Dde\") > 0)      ret += \"dde\";
+    else if ( strpos ( dp, \".Device\") > 0)   ret += \"device\";
+    else if ( strpos ( dp, \".Dist\") > 0)
+    {
+       if ( getSystemId($System) == num || getSystemId($System) == (num-REDU_BASE))
+       {
+          ret += \"dist\";
+       }
+       else
+       {
+          ret = \"dist_dist\"    ;
+       }
+       if (num > REDU_BASE)
+       {
+          num =-REDU_BASE;
+          ret += \"2\";
+       }
+    }
+    else if ( strpos ( dp, \".Driver\") > 0)   ret += \"driver\";
+    else if ( strpos ( dp, \".Ui\") > 0)       ret += \"ui\";
+    else if ( strpos ( dp, \".Valarch\") > 0)  ret =  \"data_hdb\";
+    else if ( strpos ( dp, \".Redu\") > 0)     ret += \"redu\";
+
+  }
+  else if (dpTypeName(\"_Conn_\"+dp) == \"_MonitoredConnections\")
+  {
+    num = -1;
+    ret = dpSubStr($System+\"_Conn_\"+dp, DPSUB_DP);
+    ret = substr(ret, 6, strlen(ret));
+  }
+  else
+    ret = \"SONDERFALL NIY: \"+ dp +\" \";
+  if ( num != -1)
+    ret = ret + \"_\" + num;
+
+
+
+// DebugN( \"convertDpToLinkDpe\", dp, num ,\"->\", ret);
+
+  return ret;
+}
+
+
+//
+// linkdpe -> all information
+//
+// [1] ...  _MonitoredManagers
+// [2] ...  Index of _MonitoredManagers
+// [3] ...  _MonitoredManagers left
+// [4] ...  _MonitoredManagers right _2 if redundant
+// [5] ...  min
+// [6] ...  max
+dyn_string convertLinkDpeToDp(string linkdpe)
+{
+  dyn_string dsSplitLinkDpe = strsplit(linkdpe, \"_\");
+  int iNum = dsSplitLinkDpe[3];
+  string sMonitoredManagers = $System + \"_MonitoredManagers.ImportanceManager\";
+  bool tfs_4558 = true; // TFS 4558 --> Refactoring phase: TFS 44947: Remove unused DPs _ManagerConnections._Conn_data_?_?_to_data_?_?
+  bool valueArchive = false;
+
+  dyn_string ret;
+  int max = 255;
+  int min = 1;
+
+  if (dpExists($System + \"_Conn_\" + linkdpe) && dpTypeName($System + \"_Conn_\" + linkdpe) == \"_ManagerConnections\")
+  {
+    max = 0;
+    min = 0;
+    ret[4] = \"_Conn_\" + linkdpe;
+    ret[3] = \"_Conn_\" + linkdpe;
+    ret[2] = min;
+    ret[1] = \"\";
+  }
+  else
+  {
+    ret[2] = iNum;
+
+    if (strpos(linkdpe, \"api\") > 0) sMonitoredManagers += \".Api\";
+    else if (strpos(linkdpe, \"ascii\") > 0) sMonitoredManagers += \".Ascii\";
+    else if (strpos(linkdpe, \"ctrl\") > 0) sMonitoredManagers += \".Ctrl\";
+    else if (strpos(linkdpe, \"dde\") > 0) sMonitoredManagers += \".Dde\";
+    else if (strpos(linkdpe, \"device\") > 0) sMonitoredManagers += \".Device\";
+    else if (strpos(linkdpe, \"_dist\") > 0)
+    {
+      sMonitoredManagers += \".Dist\";
+      min = getSystemId($System);
+      max = min;
+      dsSplitLinkDpe[1] = \"event\";
+      dsSplitLinkDpe[2] = \"dist\";
+      dsSplitLinkDpe[3] = min;
+
+      ret[2] = min;
+
+    }
+    else if (strpos(linkdpe, \"driver\") > 0) sMonitoredManagers += \".Driver\";
+    else if (strpos(linkdpe, \"ui\") > 0) sMonitoredManagers += \".Ui\";
+    else if (strpos(linkdpe, \"data_hdb\") >= 0)
+    {
+      valueArchive = true;
+      sMonitoredManagers += \".Valarch\";
+
+      if (! tfs_4558)
+      {
+        dsSplitLinkDpe[1] = \"data\";
+        dsSplitLinkDpe[2] = \"data\";
+        int temp = dsSplitLinkDpe[3];
+        temp += 2;
+        dsSplitLinkDpe[3] = temp;   // 0 Data, 1 Databg, 2 Archiv 0
+      }
+
+      min = 0;
+    }
+    else if (strpos(linkdpe, \"redu\") > 0)
+    {
+      sMonitoredManagers += \".Redu\";
+      min = 1;
+      max = min;
+    }
+    else
+    {
+      dsSplitLinkDpe[1] = \"event\";    // default fom event
+    }
+
+    ret[1] = sMonitoredManagers;
+
+    if (! valueArchive)
+    {
+      string sDP = \"_Conn_\" + dsSplitLinkDpe[1] + \"_0_1_to_\" + dsSplitLinkDpe[2] + \"_\" + dsSplitLinkDpe[3] + \"_1\";
+      ret[3] = sDP;
+
+      if (giSystemRedundancy == 1)   // this part only if redundancy !!
+      {
+        sDP = \"_Conn_\" + dsSplitLinkDpe[1] + \"_0_2_to_\" + dsSplitLinkDpe[2] + \"_\" + dsSplitLinkDpe[3] + \"_2\";
+        ret[4] = sDP;
+      }
+    }
+    else
+    {
+      int archiveNum = dsSplitLinkDpe[3];
+      archiveNum--;
+
+      ret[3] = \"_ValueArchive_\" + archiveNum + \".state\";
+
+      if (giSystemRedundancy == 1)
+        ret[4] = \"_ValueArchive_\" + archiveNum + \"_2.state\";
+    }
+  }
+
+  ret[5] = min;
+  ret[6] = max;
+
+  //  special case because it is no allowed creating dps on foreign systems
+  chk_alert.enabled = TRUE;
+
+  if ( $System != getSystemName())
+  {
+    if (!dpExists($System + ret[3]) && ret[3] != \"\") // remove linkdp
+    {
+      ret[3] = \"\";
+    }
+    if (!dpExists($System + ret[4]) && ret[4] != \"\") // remove linkdp
+    {
+      ret[4] = \"\";
+    }
+
+    if (ret[3] == \"\" && ret[4] == \"\")
+    {
+      chk_alert.enabled = FALSE;
+      chk_alert.state(0) = FALSE;
+    }
+
+    if (ret[3] == \"\") // remove both
+    {
+      chk_link0.enabled = FALSE;
+      chk_link1.enabled = FALSE;
+      chk_link1.state(0) = FALSE;
+      cbo_alert.text = \"\";
+      cbo_alert.enabled = FALSE;
+    }
+  }
+
+  return ret;
+}
+
+
+generateLinkDpeFromScreen()
+{
+  int min, max, iNum;
+
+  dyn_string dsLinkInformation ;
+  string linkdpe;
+
+//  DebugN(\"D1\", sp_num.sbMaximum, sp_num.sbMinimum, sp_num.text);
+
+  if (sp_type_list.text == \"dist\")
+  {
+    if (sp_num.sbMaximum != DIST_MAX) //alang IM 76905 Testprotocol
+      sp_num.sbMaximum = DIST_MAX;
+    sp_num.text = getSystemId($System);
+  }
+
+//  DebugN(\"D2\", sp_num.sbMaximum, sp_num.sbMinimum, sp_num.text);
+
+  if (dpExists($System + \"_Conn_\" + sp_type_list.text))
+  {
+    dsLinkInformation = convertLinkDpeToDp(sp_type_list.text);
+  }
+  else if (sp_type_list.text != \"hdb\")
+  {
+    dsLinkInformation = convertLinkDpeToDp(\"event_\" + sp_type_list.text + \"_\" + sp_num.text);
+  }
+  else
+  {
+    dsLinkInformation = convertLinkDpeToDp(\"data_\" + sp_type_list.text + \"_\" + sp_num.text);
+  }
+
+  if ( dsLinkInformation[1] == \"\")
+    linkdpe =   sp_type_list.text;
+  else
+  {
+     linkdpe = convertDpToLinkDpe(dsLinkInformation[1],sp_num.text);
+     dsLinkInformation = convertLinkDpeToDp(linkdpe);
+  }
+
+  sp_linkdpe.items = dsLinkInformation;
+  sp_linkdpe.text = linkdpe;
+
+  min = dsLinkInformation[5];
+  max = dsLinkInformation[6];
+
+  iNum = sp_num.text;
+
+//  DebugN(\"D3\", sp_num.sbMaximum, sp_num.sbMinimum, sp_num.text);
+  sp_num.sbMinimum = min;
+  sp_num.sbMaximum = max;
+  sp_num.enabled = (min != max);   // enable if more than 1 element
+//  DebugN(\"D4\", sp_num.sbMaximum, sp_num.sbMinimum, sp_num.text);
+
+  if ( iNum < min)                 // if wrong position -> change
+     iNum = min;
+  else  if ( iNum > max)
+     iNum = max;
+
+  sp_num.text	= iNum;
+  chk_temp.enabled = TRUE;
+
+}
+
+
+
+
+storeInformationInMapping(string sState)
+{
+  string         num, weight;
+  string         dpe, name;
+  dyn_string ds, dsLinkInformation;
+
+  bool bDisabled, bLink0,bLink1,bAlert;
+  string sAlertClass, linkdpe;
+
+
+  getMultiValue(\"sp_num\",\"text\",num,
+                \"sp_weight\",\"text\",weight,
+                \"sp_type\", \"text\", name,
+                \"chk_temp\",\"state\",0,bDisabled,
+                \"chk_link0\",\"state\",0,bLink0,
+                \"chk_link1\",\"state\",0,bLink1,
+                \"chk_alert\",\"state\",0,bAlert,
+                \"cbo_alert\", \"text\",sAlertClass,
+                \"sp_linkdpe\", \"text\", linkdpe,
+                \"sp_linkdpe\", \"items\", dsLinkInformation   );
+
+  if ( sAlertClass != \"\")   // 100_alert  -> alert.
+  {
+    int s_pos;
+
+    //ds = strsplit(sAlertClass, \"_\");
+    //sAlertClass = ds[2] + \".\";
+
+    s_pos = strpos(sAlertClass,\"_\");
+    sAlertClass = substr(sAlertClass,s_pos+1);
+    sAlertClass = sAlertClass + \".\";
+  }
+
+    if ( bDisabled )
+       weight = \"-\"+weight;
+
+	mNum[linkdpe] = num;
+	mWeight[linkdpe] = weight;
+	mBLink0[linkdpe] = bLink0;
+	mBLink1[linkdpe] = bLink1;
+	mBAlert[linkdpe] = bAlert;
+	mSAlertClass[linkdpe] = sAlertClass;
+	mDsLinkInformation[linkdpe] = dsLinkInformation;
+	mState[linkdpe] = sState;
+    mName[linkdpe] =name;
+
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which hides non NGA archive managers on the manager table.
+ * @note Will be executed only in the NGA project.
+ */
+void hideDefaultArchives()
+{
+  if ( !useNGA() )  // sanity check
+    return;
+
+  for (int row = 0; row < tab.lineCount(); ++row)
+  {
+    if ( (tab.cellValueRC(row, \"name\") == getCatStr(\"para\", \"hdb\")) &&
+         patternMatch(\"data_hdb_?\", tab.cellValueRC(row, \"linkdpe\")) )
+      tab.hideRow(row);
+  }
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 4
+"Text1"
+""
+1 290 415 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 292 417 347 432
+0 2 0 "0s" 0 0 0 192 0 0  292 417 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9    Weight
+LANG:10004 6 权重
+LANG:10000 10 Gewichtung
+LANG:10027 6 Вес
+2 5
+"Text5"
+""
+1 225 415 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 227 417 274 432
+0 2 0 "0s" 0 0 0 192 0 0  227 417 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Number
+LANG:10004 6 编号
+LANG:10000 4 Num.
+LANG:10027 10 Номер
+2 16
+"Text2"
+""
+1 20 413 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 415 74 430
+0 2 0 "0s" 0 0 0 192 0 0  22 415 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Manager
+LANG:10004 9 管理器
+LANG:10000 7 Manager
+LANG:10027 16 Менеджер
+30 17
+"fra"
+""
+1 10 388 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 -1.4210854715202e-14 0 E 10 10 250 390
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Manager
+LANG:10004 9 管理器
+LANG:10000 7 Manager
+LANG:10027 16 Менеджер
+30 18
+"Frame2"
+""
+1 10 570 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.005917159763314 0 -7.366863905325417 0 E 10 400 440 570
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Append/Update
+LANG:10004 13 添加/更新
+LANG:10000 19 Hinzufügen/Ändern
+LANG:10027 33 Добавить/Изменить
+30 20
+"Frame1"
+""
+1 258 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9782608695652175 0 -0.7608695652173967 0 E 258 11 440 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Display options
+LANG:10004 12 显示选项
+LANG:10000 15 Anzeigeoptionen
+LANG:10027 23 Опции вывода
+6 36
+"Border1"
+""
+1 249 247 E E E 1 E 0 E N {0,0,0} E N {255,255,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  this.visible = false;
+}
+" 0
+ E 0 1 1 0 1 E U  1 E 249 147 447 247
+2 39
+"Text3"
+""
+1 290 516 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  if ($System != getSystemName())
+  {
+     this.visible	= TRUE;  
+  }
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 294 520 400 535
+0 4 2 "0s" 0 0 0 192 0 0  294 520 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 16 Foreign system !
+LANG:10004 10 外系统!
+LANG:10000 16 Fremdes System !
+LANG:10027 27 Чужая система !
+25 0
+"tab"
+""
+1 -1714.72602739726 -2441.873177842566 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 35.5 237 384.5
+"main()
+{
+  this.sort(\"name\",\"num\");
+  this.tableMode(TABLE_SELECT_BROWSE );
+  this.selectByClick( TABLE_SELECT_LINE);
+  
+}" 0
+"#uses \"sysOverview\"
+
+main(int row, string column, string value)
+{
+  int iValue;
+  bool bDisabled;
+  dyn_string dsLinkInformation;
+  string sAlertClass, sAlertClass2;
+  dyn_string dsImportanceSystemDp;
+  string oldValue;
+  int iNum = this.cellValueRC(row, \"num\");
+  int min, max;
+
+  int iTypeLink0, iTypeLink1;
+  bool bActiveLink0, bActiveLink1;
+
+  string linkdpe = this.cellValueRC(row, \"linkdpe\");
+
+  cbo_alert.text = \"\";
+  cbo_alert.enabled = FALSE;
+  chk_alert.state(0) = FALSE;
+  chk_link0.state(0) = FALSE;
+  chk_link1.state(0) = FALSE;
+  chk_temp.state(0) = FALSE;
+  chk_link0.enabled = FALSE;
+  chk_link1.enabled = FALSE;
+  chk_temp.enabled = FALSE;
+
+  if (column == \"weight\")
+  {
+    oldValue = this.cellValueRC(row, \"weight\");
+
+    if (strpos(value, \"I:\") >= 0 || strpos(value, \"i:\") >= 0)
+    {
+      strreplace(value, \"I:\", \"\");
+      strreplace(value, \"i:\", \"\");
+      bDisabled = TRUE;
+    }
+    iValue = value;
+
+    if (iValue > 999)
+      iValue = 999;
+    if (iValue < 0)
+      iValue = 0;
+
+    value = iValue;
+    if (bDisabled)
+      value = \"I:\" + value;
+
+    this.cellValueRC(row, column, value);
+
+    if (value != oldValue)
+    {
+      DebugN(\"Änderung von \" + oldValue + \" auf \" + value);
+    }
+  }
+
+  value = this.cellValueRC(row, \"weight\");
+
+  if (strpos(value, \"I:\") >= 0 || strpos(value, \"i:\") >= 0)
+  {
+    strreplace(value, \"I:\", \"\");
+    strreplace(value, \"i:\", \"\");
+    bDisabled = TRUE;
+  }
+
+  iValue = value;
+
+  dsLinkInformation = convertLinkDpeToDp(linkdpe);
+
+  //
+  //  1:\"_MonitoredManagers.ImportanceManager.Ui\"
+  //  2:\"4\"
+  //  3:\"_Conn_event_0_1_to_ui_3_1\"
+  //  4:\"_Conn_event_0_2_to_ui_3_2\"
+  sp_linkdpe.items = dsLinkInformation;
+  sp_linkdpe.text = this.cellValueRC(row, \"linkdpe\");
+
+  sp_type.text = this.cellValueRC(row, \"name\");
+  chk_temp.state(0, bDisabled);
+  chk_temp.enabled = TRUE;
+
+  // set number, visibility and min/max
+  min = dsLinkInformation[5];
+  max = dsLinkInformation[6];
+
+  if (max < sp_num.sbMinimum)
+    sp_num.sbMinimum = min;
+
+  if (min > sp_num.sbMaximum)
+    sp_num.sbMaximum = max;
+
+  setValue(\"sp_num\", \"sbMinimum\", min,
+                    \"sbMaximum\", max,
+                    \"enabled\", (min != max)); // enable if more than 1 element
+
+  if (iNum < min) // if wrong position -> change
+    iNum = min;
+  else if (iNum > max)
+    iNum = max;
+
+  sp_num.text = iNum;
+
+  // set weight
+  sp_weight.text = iValue;
+
+  if (mappingHasKey(mNum, linkdpe))
+  {
+    sAlertClass = mSAlertClass[linkdpe];
+    cbo_alert.text = mBAlert[linkdpe];
+    chk_link0.state(0, mBLink0[linkdpe]);
+    chk_link1.state(0, mBLink1[linkdpe]);
+    cbo_alert.enabled(mBLink0[linkdpe]);
+
+    chk_alert.state(0, mBLink0[linkdpe] || mBLink1[linkdpe] || mBAlert[linkdpe]);
+
+    chk_link1.enabled(mBLink1[linkdpe] || (mBLink0[linkdpe] || mBLink1[linkdpe] || mBAlert[linkdpe]));
+  }
+  else if (dpExists($System + dsLinkInformation[3]) && dsLinkInformation[3] != \"\")
+  {
+    if (strpos(linkdpe, \"data_hdb_\") >= 0) // TFS 4558, 74442
+    {
+      for (int isRedu = 0; isRedu <= 1; isRedu++)
+      {
+        string dpe = sov_getFullqualifiedArchiveStateDpe(iNum, isRedu);
+        bool activeLink;
+
+        if (isRedu && iTypeLink1 <= 0)
+          break;
+
+        dpGet(
+            dpe + \":_alert_hdl.1._class\", sAlertClass,
+            dpe + \":_alert_hdl.._active\", activeLink,
+            $System + \"_MonitoredManagers.ImportanceSystemDp.Dpe:_online.._value\", dsImportanceSystemDp);
+
+        if (!isRedu)
+          bActiveLink0 = activeLink;
+        else
+          bActiveLink1 = activeLink;
+      }
+    }
+    else
+    {
+      // original implementation
+      dpGet($System + dsLinkInformation[3] + \".Link0:_alert_hdl.._type\", iTypeLink0,
+            $System + dsLinkInformation[3] + \".Link1:_alert_hdl.._type\", iTypeLink1,
+            $System + \"_MonitoredManagers.ImportanceSystemDp.Dpe:_online.._value\", dsImportanceSystemDp);
+
+      if (iTypeLink0 > 0)
+      {
+        dpGet($System + dsLinkInformation[3] + \".Link0:_alert_hdl.._class\", sAlertClass,
+              $System + dsLinkInformation[3] + \".Link0:_alert_hdl.._active\", bActiveLink0);
+      }
+
+      if (iTypeLink1 > 0)
+      {
+        dpGet($System + dsLinkInformation[3] + \".Link1:_alert_hdl.._class\", sAlertClass2,
+              $System + dsLinkInformation[3] + \".Link1:_alert_hdl.._active\", bActiveLink1);
+      }
+    }
+
+    chk_link0.state(0, bActiveLink0 || sAlertClass != \"\");
+    chk_link1.state(0, bActiveLink1 || sAlertClass2 != \"\");
+    chk_link1.enabled(bActiveLink0 || bActiveLink1 || sAlertClass != \"\");
+  }
+  else
+    chk_link1.enabled(bActiveLink0 || bActiveLink1 || sAlertClass != \"\");
+
+  chk_alert.state(0, bActiveLink0 || bActiveLink1 || sAlertClass != \"\");
+
+  setTrace(0);
+
+  if (sAlertClass != \"\")
+  {
+    int iTemp;
+    char cPrior;
+    string sTemp;
+    dpGet(sAlertClass + \":_alert_class.._prior\", cPrior);
+    iTemp = cPrior;
+    sprintf(sTemp, \"%03d\", iTemp);
+    sAlertClass = sTemp + \"_\" + dpSubStr(sAlertClass, DPSUB_DP);
+    cbo_alert.enabled = TRUE;
+  }
+
+  cbo_alert.text = sAlertClass;
+
+  storeInformationInMapping(\"SHOW\");
+
+  int pos = sp_type.selectedPos();
+  sp_type_list.selectedPos = pos;
+}
+" 0
+ 1 0 1 4 19 "name" 9 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 6 名称
+LANG:10000 7 Manager
+LANG:10027 16 Менеджер
+E
+4
+LANG:10001 12 Manager type
+LANG:10004 15 管理器类型
+LANG:10000 11 Manager Typ
+LANG:10027 25 Тип менеджера
+
+116 "num" 2 1 0 "s" 4
+LANG:10001 4 Num.
+LANG:10004 6 num号
+LANG:10000 4 Num.
+LANG:10027 10 Номер
+E
+4
+LANG:10001 14 Manager number
+LANG:10004 9 管理器
+LANG:10000 13 Managernummer
+LANG:10027 29 Номер менеджера
+
+40 "weight" 2 1 1 "s" 4
+LANG:10001 4 Wgh.
+LANG:10004 6 权重
+LANG:10000 4 Gew.
+LANG:10027 6 Вес
+E
+4
+LANG:10001 15 Weight [0..999]
+LANG:10004 14 权重[0..999]
+LANG:10000 18 Gewichtung [0-999]
+LANG:10027 15 Вес [0..999]
+
+40 "linkdpe" 4 1 0 "s" 4
+LANG:10001 7 linkdpe
+LANG:10004 18 已连接上的DPE
+LANG:10000 3 dpe
+LANG:10027 3 dpe
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+55 
+17 17 "" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+"" 1 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+"" 1 4
+LANG:10001 3 #18
+LANG:10004 3 #18
+LANG:10000 3 #18
+LANG:10027 3 #18
+"" 1 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+"" 1 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+"" 1 4
+LANG:10001 3 #21
+LANG:10004 3 #21
+LANG:10000 3 #21
+LANG:10027 3 #21
+"" 1 4
+LANG:10001 3 #22
+LANG:10004 3 #22
+LANG:10000 3 #22
+LANG:10027 3 #22
+"" 1 4
+LANG:10001 3 #23
+LANG:10004 3 #23
+LANG:10000 3 #23
+LANG:10027 3 #23
+"" 1 4
+LANG:10001 3 #24
+LANG:10004 3 #24
+LANG:10000 3 #24
+LANG:10027 3 #24
+"" 1 4
+LANG:10001 3 #25
+LANG:10004 3 #25
+LANG:10000 3 #25
+LANG:10027 3 #25
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 6
+"pb_modify"
+""
+1 371 432 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Update element
+LANG:10004 12 更新元素
+LANG:10000 28 Selektiertes Element updaten
+LANG:10027 50 Обновить выбранный элемент
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  370 432 398 460
+
+P 
+12632256
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if (sp_type.text != \"\")
+  {
+    storeInformationInMapping(\"INSERT\");
+    updateTable();
+  }
+}" 0
+ E E E
+21 7
+"sp_weight"
+""
+1 290 435 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  288 433 362 459
+0
+
+E
+E
+E
+
+N 0 999 1 1 1 1
+21 8
+"sp_num"
+""
+1 225 435 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  223 433 282 459
+0
+
+E
+"main()
+{
+  int pos;
+  string s;
+  if ( sp_type.text	== \"\")
+    sp_type.selectedPos( 1);
+   
+  getValue(\"sp_type\",\"selectedPos\", pos);
+  
+  sp_type_list.selectedPos(pos); 
+
+
+
+
+//DebugN(pos,  sp_type.text,  sp_type.selectedPos, sp_type_list.selectedPos, sp_type_list.text);
+
+  generateLinkDpeFromScreen();
+}" 0
+
+E
+
+N 1 2048 1 1 1 1
+22 9
+"sp_type"
+""
+1 20 435 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 433 217 459
+0
+
+E
+"main()
+{
+  int pos = sp_type.selectedPos();
+  sp_type_list.selectedPos = pos; 
+ 
+  generateLinkDpeFromScreen();
+}" 0
+
+E
+ 0 1
+13 12
+"Button2"
+""
+1 302 110 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 56 Reset sorting of table to managername and manager number
+LANG:10004 52 将表的排序重置为managername和manager number
+LANG:10000 62 Zurücksetzen der Sortierung auf Managername und Managernummer
+LANG:10027 88 Сброс сортировки по именам и номерам менеджеров
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  300 103 403 133
+
+T 
+4
+LANG:10001 15 Default sorting
+LANG:10004 12 默认排序
+LANG:10000 9 Sortieren
+LANG:10027 22 Сортировать
+"main()
+{
+  tab.sort(\"name\",\"num\");
+
+}
+" 0
+ E E E
+20 19
+"chk_weight"
+""
+1 270 30 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  268 28 436 92
+3
+T 
+4
+LANG:10001 19 Show regular weight
+LANG:10004 18 显示正常权重
+LANG:10000 20 Reguläre Gewichtung
+LANG:10027 31 Стандартные веса
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Show weight 0
+LANG:10004 13 显示权重0
+LANG:10000 12 Gewichtung 0
+LANG:10027 8 Вес 0
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Show inactive weight
+LANG:10004 24 显示未运行的权重
+LANG:10000 19 Inaktive Gewichtung
+LANG:10027 17 Без весов
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+3
+E E
+E E
+E E
+E"main(int button, bool state)
+{
+
+  updateTable();
+
+}" 0
+20 21
+"chk_temp"
+""
+1 20 530 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 528 262 555
+1
+T 
+4
+LANG:10001 21 Temporary deactivated
+LANG:10004 12 暂时停用
+LANG:10000 21 Temporär deaktiviert
+LANG:10027 45 Временно деактивировано
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE13 22
+"pb_delete"
+""
+1 395 432 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Delete one element
+LANG:10004 18 删除一个元素
+LANG:10000 16 Element löschen
+LANG:10027 38 Удалить один элемент
+
+2
+"hoverbclr" "N \"STD_hover\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  394 432 422 460
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  storeInformationInMapping(\"DELETE\");
+  updateTable();
+}" 0
+ E E E
+22 25
+"cbo_alert"
+""
+1 290 470 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  288 468 427 494
+0
+
+"main()
+{
+  dyn_string ds = dpNames($System+\"*.:_alert_class.._prior\", \"_AlertClass\");
+  dyn_anytype dat;
+  int i;
+  string s;
+  
+  dpGet( ds, dat);
+  
+  for ( i=1; i<= dynlen(ds); i++)
+  {
+    char c = dat[i]; 
+    int temp = c;
+    sprintf(s, \"%03d\", temp);
+    
+    ds[i] = s+\"_\"+dpSubStr(ds[i], DPSUB_DP);
+  
+  }
+  
+  dynSortAsc(ds);
+
+  this.items = ds;
+
+ 
+
+}" 0
+
+E
+E
+ 0 0
+20 26
+"chk_alert"
+""
+1 20 471 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 469 262 493
+1
+T 
+4
+LANG:10001 31 Alert handling with alert class
+LANG:10004 33 使用报警类进行报警处理
+LANG:10000 31 Alarmbehandlung mit Alarmklasse
+LANG:10027 53 Обработка алармов с классами
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+string s = cbo_alert.text;
+  if (state)
+  {
+    if ( s == \"\")
+       setValue(\"cbo_alert\",\"text\",\"060_alert\");  
+  }
+  
+  chk_link0.state(0) = state;
+  
+  cbo_alert.enabled = state;
+  chk_link1.enabled = state;
+
+  if (!state)
+  {
+       setValue(\"cbo_alert\",\"text\",\"\");  
+       chk_link1.state(0) = FALSE;
+  }  
+}" 0
+20 28
+"chk_link1"
+""
+1 20 500 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 498 262 522
+1
+T 
+4
+LANG:10001 25 Monitor redundant network
+LANG:10004 18 监控冗余网络
+LANG:10000 31 Überwache redundantes Netzwerk
+LANG:10027 60 Мониторинг резервированной сети
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 29
+"chk_link0"
+""
+1 263 157 E E E 1 E 0 E N "_3DText" E N {255,255,0} E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  261 155 415 179
+1
+T 
+4
+LANG:10001 14 Monitore link0
+LANG:10004 16 监控的连接0
+LANG:10000 12 CheckButton3
+LANG:10027 12 CheckButton3
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+  this.visible = false;
+}
+" 0
+E22 33
+"sp_linkdpe"
+""
+1 260 180 E E E 1 E 1 E N "_WindowText" E N {255,255,0} E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  258 178 442 204
+0
+
+"main()
+{
+  this.visible = false;
+}
+" 0
+
+E
+E
+ 1 0
+22 35
+"sp_type_list"
+""
+1 260 210 E E E 1 E 0 E N "_WindowText" E N {255,255,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  258 208 442 234
+0
+
+"main()
+{
+  this.visible = false;
+}
+" 0
+
+E
+E
+ 1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

@@ -1,0 +1,1074 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 563 640 N "_3DFace" 3
+"$System"
+"$dp"
+"$peerNr"
+"#uses \"libFileSync.ctl\"
+
+main()
+{
+  dyn_string dsDataHosts;
+  string sHost1, sHost2;
+
+  // get host information for host 1
+  dpGet($System+\"_Connections.Data.HostNames:_online.._value\",dsDataHosts);
+
+  if (dynlen(dsDataHosts) > 0)
+  {
+    name_of_host_1.text(dsDataHosts[1]);
+    sHost1 = dsDataHosts[1];
+  }
+
+  // get host information for host 2
+  dpGet($System+\"_Connections_2.Data.HostNames:_online.._value\",dsDataHosts);
+
+  if (dynlen(dsDataHosts) > 0)
+  {
+    name_of_host_2.text(dsDataHosts[1]);
+    sHost2 = dsDataHosts[1];
+  }
+
+  if ( $dp == \"_ReduManager\" )
+  {
+    sRootDp = $System + FILESYNC_ROOT_DP;
+    txtReduPartner.text=sHost2;
+    transfer_direction.fill(\"[pattern,[tile,any,arrow_left_modern.png]]\");
+  }
+  else if ( $dp == \"_ReduManager_2\" )
+  {
+    sRootDp = $System + FILESYNC_ROOT_DP_2;
+    txtReduPartner.text=sHost1;
+    transfer_direction.fill(\"[pattern,[tile,any,arrow_right_modern.png]]\");
+  }
+  else
+    txtReduPartner.text=\"\";
+}
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  40 40
+""0  1
+E "string sRootDp ;
+
+void save()
+{
+  dyn_string dsPattern;
+  dyn_bool dbActive;
+  dyn_bool dbRecursive;
+  
+  dsPattern=tabDirs.getColumnN(tabDirs.nameToColumn(\"Pattern\"));
+  dbActive=tabDirs.getColumnN(tabDirs.nameToColumn(\"Active\"));  
+  dbRecursive=tabDirs.getColumnN(tabDirs.nameToColumn(\"Recursive\"));    
+ 
+  dpSet(sRootDp+FILESYNC_DPE_DIRS_PATTERN, dsPattern,
+        sRootDp+FILESYNC_DPE_DIRS_ACTIVE, dbActive,
+        sRootDp+FILESYNC_DPE_DIRS_RECURSIVE, dbRecursive);
+}
+
+void waitForDP()
+{
+  while(sRootDp == \"\" || !dpExists(sRootDp))
+  {
+    delay(0,50);
+  }
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 0
+"btnSynchronize"
+""
+1 24 238 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 226 251 254
+
+T 
+4
+LANG:10001 35 Start file synchronization manually
+LANG:10004 24 手动启动文件同步
+LANG:10000 24 Abgleich manuell starten
+LANG:10027 54 Запуск синхронизации вручную
+"main()
+{
+  if (!fsIsScriptRunning($peerNr == 1 ? \"\":\"_2\",$System))
+  {
+    string sErrText = fsGetErrorText(\"manegerStoped\");
+    ChildPanelOnCentralModal( \"vision/MessageWarning\", getCatStr( \"general\", \"warning\" ), makeDynString(sErrText, getCatStr( \"general\", \"OK\" ) ) );
+    return;
+  }
+  fsStartSync($peerNr, FALSE, $System);
+}
+
+
+
+" 0
+ E E "
+main()
+{
+  waitForDP();
+  dpConnect(\"showState_CB\", TRUE, 
+            sRootDp+FILESYNC_DPE_STATE,
+            sRootDp+FILESYNC_DPE_ANSWER);
+}
+
+void showState_CB(string sDp1, int iState,
+                  string sDp1, dyn_string dsAnswer )
+{
+//   DebugN(\"work *************\",sDp1,dsAnswer);
+  if (isAnswer())
+  {
+    setShapesEnabled(iState != FILESYNC_STATE_ACTIVE);
+    return;
+  }
+  
+  if (dynlen(dsAnswer) < 2)
+    return;
+  
+  int iCmd = (int)dsAnswer[1];
+  if (FILESYNC_COMMAND_START == iCmd)
+  {
+    switch ( iState )
+    {
+      case FILESYNC_STATE_ACTIVE: 
+      {
+//           DebugN(\"file sync active\");
+  //       this.backCol=\"black_yellow\"; 
+        setShapesEnabled(FALSE);
+        break;
+      }
+      
+      case FILESYNC_STATE_ERR:
+      {
+//         DebugN(\"file sync FILESYNC_STATE_ERR\");
+        string sErrText = getCatStr( FILESYNC_CAT_NAME, \"ErrInCtrl\" );
+      
+        if (dynlen(dsAnswer) == 4 && dsAnswer[3] != \"\")
+          sErrText = fsGetErrorText(dsAnswer[3], dsAnswer[4]);
+      
+        ChildPanelOnCentralModal( \"vision/MessageWarning\", getCatStr( \"general\", \"warning\" ), makeDynString(sErrText, getCatStr( \"general\", \"OK\" ) ) );
+      }
+      case FILESYNC_STATE_READY:  
+//         DebugN(\"file sync FILESYNC_STATE_READY || FILESYNC_STATE_ERR\");
+        setShapesEnabled(TRUE);
+        break;
+
+    }    
+  }
+}
+
+
+void setShapesEnabled(bool bVisible = TRUE)
+{
+  dyn_string dsShapes = makeDynString(\"btnSynchronize\", \"CheckTime\", \"CheckMD5\", \"tabDirs\", \"btnAdd\", \"btnDelete\",
+                                    \"cmdApply\", \"ok\");
+  for (int i=1; i<= dynlen(dsShapes); i++)
+    setValue(dsShapes[i], \"enabled\", bVisible);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+25 1
+"tabDirs"
+""
+1 31.99999999999999 147 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  28 298 497 570
+"main()
+{
+  tabDirs.tableMode(TABLE_SELECT_BROWSE );
+  this.alternatingRowColors(makeDynString(\"White\",\"ScriptWizard_alertnatingTable\"));
+  
+  setValue (\"\", \"selectByClick\", TABLE_SELECT_LINE);
+
+  waitForDP();
+  dpConnect(\"work\", true,
+            sRootDp+FILESYNC_DPE_DIRS_PATTERN,
+            sRootDp+FILESYNC_DPE_DIRS_ACTIVE,
+            sRootDp+FILESYNC_DPE_DIRS_RECURSIVE);
+  // add TIA projects only for the local system
+  if ( $System == getSystemName())
+    fsCheckAdditionalSync();
+}
+
+void work(string sDp1, dyn_string dsPattern,
+          string sDp2, dyn_bool dbActive,
+          string sDp3, dyn_bool dbRecursive)
+{
+  this.deleteAllLines;
+  this.appendLines(dynlen(dsPattern),
+    \"Pattern\", dsPattern,
+    \"Active\", dbActive,
+    \"Recursive\", dbRecursive
+  );
+}
+
+
+" 0
+E 1 0 1 3 0 "Pattern" 30 1 1 "s" 4
+LANG:10001 7 Pattern
+LANG:10004 6 模式
+LANG:10000 7 Pattern
+LANG:10027 12 Шаблон
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+340 "Active" 4 1 1 "s" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активна
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+53 "Recursive" 5 1 1 "s" 4
+LANG:10001 9 Recursive
+LANG:10004 6 递归
+LANG:10000 8 Rekursiv
+LANG:10027 20 Рекурсивно
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+69 
+23 23 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+20 2
+"CheckMD5"
+""
+1 285.0985817251803 178 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  283 176 544 200
+1
+T 
+4
+LANG:10001 18 Check MD5 checksum
+LANG:10004 18 检查MD5校验和
+LANG:10000 38 Abgleich bei ungleicher MD5 Prüfsumme
+LANG:10027 59 Синхр. при разных контр.суммах MD5
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  waitForDP();
+  dpConnect(\"work\", true, sRootDp+FILESYNC_DPE_CHECKMD5);
+}
+
+void work(string sDp1, bool bCheckMD5)
+{
+  this.state(0, bCheckMD5);
+}
+
+
+" 0
+"main(int button, int state)
+{
+  dpSet(sRootDp+FILESYNC_DPE_CHECKMD5, state);
+}
+
+" 0
+19 3
+"CheckTime"
+""
+1 285.0985817251802 200 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  283 198 528 264
+3
+T 
+4
+LANG:10001 30 Do not check modification time
+LANG:10004 24 不要检查修改时间
+LANG:10000 33 Kein Vergleich der Änderungszeit
+LANG:10027 53 Не проверять время изменения
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 37 Check for different modification time
+LANG:10004 27 检查不同的修改时间
+LANG:10000 38 Abgleich bei ungleicher Änderungszeit
+LANG:10027 56 Синхр. при разных временах изм.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 33 Check for newer modification time
+LANG:10004 27 检查更新的修改时间
+LANG:10000 35 Abgleich bei neuerer Änderungszeit
+LANG:10027 58 Синхр. при новом врем. изменения
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+"main()
+{
+  waitForDP();
+  dpConnect(\"work\", true, sRootDp+FILESYNC_DPE_CHECKTIME);
+}
+
+void work(string sDp1, int iCheckTime)
+{
+  this.number=iCheckTime;
+}
+
+
+" 0
+ "main(int button)
+{
+  waitForDP();
+  dpSet(sRootDp+FILESYNC_DPE_CHECKTIME, button);
+}
+
+
+" 0
+
+13 6
+"btnAdd"
+""
+1 33.09858172518021 612 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 39 Add a new directory for synchronization
+LANG:10004 30 添加新目录以进行同步
+LANG:10000 49 Neues Verzeichnis für den Abgleich hinzuzufügen
+LANG:10027 78 Включить директорию в объем синхронизации
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  508 297 536 325
+
+P 
+13160660
+"pictures/append.xpm"
+4
+LANG:10001 3 new
+LANG:10004 6 新建
+LANG:10000 3 Neu
+LANG:10027 14 Создать
+"main()
+{
+  tabDirs.appendLines(1, \"Pattern\", makeDynString(\"?\"),
+                         \"Active\", makeDynBool(false),
+                         \"Recursive\", makeDynBool(false));
+}" 0
+ E E E
+13 7
+"btnDelete"
+""
+1 510.0985817251802 327 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 50 Remove selected directory from the synchronization
+LANG:10004 30 从同步中删除所选目录
+LANG:10000 52 Ausgewähltes Verzeichnis aus dem Abgleich entfernen
+LANG:10027 77 Не синхронизировать выбранные директории
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  508 325 536 353
+
+P 
+13160660
+"pictures/delete1.xpm"
+4
+LANG:10001 6 delete
+LANG:10004 6 delete
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"main()
+{
+  int row, col;
+  getValue(\"tabDirs\", \"currentCell\", row, col);
+  tabDirs.deleteLineN(row);
+}" 0
+ E E E
+13 13
+"ok"
+""
+1 277.0985817251802 605 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schliessen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  277 605 365 633
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  save();
+  PanelOff();
+}" 0
+ E E E
+13 14
+"cancel"
+""
+1 457.0985817251802 605 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schliessen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  457 605 545 633
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+1 67 0 "" 0
+0
+13 17
+"cmdApply"
+""
+1 132.0985817251802 568 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 1 0 0 83 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  367 605 455 633
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 14 Принять
+"main()
+{
+  save();
+}" 0
+ E E E
+30 20
+"FRAME1"
+""
+1 15 93 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.022944550669216 0 0.974193548387097 -0.2455865348580169 188.4 0 E 15 93 538 403
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Directories
+LANG:10004 6 目录
+LANG:10000 13 Verzeichnisse
+LANG:10027 20 Директории
+30 23
+"FRAME2"
+""
+1 15 93 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.022944550669216 0 0.3621105400088837 -0.2455865348580169 126.3237197791738 0 E 15 93 538 403
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Parametrization
+LANG:10004 12 参数配置
+LANG:10000 14 Parametrierung
+LANG:10027 32 Параметрирование
+2 31
+"PRIMITIVE_TEXT3"
+""
+1 25.09858172518022 179 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25.09858172518022 179 242 194
+0 2 2 "0s" 0 0 0 192 0 0  25.09858172518022 179 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 33 Get files from redundancy partner
+LANG:10004 30 从冗余伙伴处获取文件
+LANG:10000 35 Dateien holen von Redundanzpartner 
+LANG:10027 66 Получить файлы от резервной системы
+6 35
+"RECTANGLE8"
+""
+1 0 3.601921860016049 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.6526623786491575 0 1.526691173526585 0 -15.40036760289878 1 E 0 80 880 -50
+2 36
+"PRIMITIVE_TEXT5"
+""
+1 20 9.554687499999858 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 20 9.554687499999858 415 39.5546875
+0 2 2 "0s" 0 0 0 64 0 0  20 9.554687499999858 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Base configuration
+LANG:10004 12 基本配置
+LANG:10000 18 Basiskonfiguration
+LANG:10027 39 Базовая конфигурация
+2 37
+"shortdesc"
+""
+1 71 10.33311358973635 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 1.034883720930233 3 -3.526707848837191 0 E 47 31.99999999999997 453 132
+0 1 1 "0s" 0 0 0 192 0 0  47 31.99999999999997 6
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 83 Within this panel the global configuration for the file synchronization can be set.
+LANG:10004 60 在此面板中，可以设置文件同步的全局配置。
+LANG:10000 71 Über dieses Panel können globale Einstellungen für den Dateiabgleich
+LANG:10027 109 Данная панель позволяет настроить глобальную конфигурацию
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 19 vorgenommen werden.
+LANG:10027 40 синхронизации файлов.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+13 38
+"Button1"
+""
+1 7 605 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  7 605 95 633
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"file_sync_simple\");
+}
+" 0
+ E E E
+2 58
+"name_of_host_1"
+""
+1 126 126 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 38 124 184 148
+0 2 2 "0s" 0 0 0 65 0 0  38 124 1
+4
+LANG:10001 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 14 name_of_host_1
+LANG:10004 14 name_of_host_1
+LANG:10000 14 name_of_host_1
+LANG:10027 14 name_of_host_1
+2 59
+"name_of_host_2"
+""
+1 453 126 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 365 124 511.0000000000001 148
+0 2 2 "0s" 0 0 0 65 0 0  365 124 1
+4
+LANG:10001 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 14 name_of_host_2
+LANG:10004 14 name_of_host_2
+LANG:10000 14 name_of_host_2
+LANG:10027 14 name_of_host_2
+6 62
+"transfer_direction"
+""
+1 246 122 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.85 0 0.8846153846153847 -227.1 24.07692307692306 2  0 0  "pictures/arrow_left_modern.png" 4294967295 E 246 122 306 148
+2 63
+"txtReduPartner"
+""
+1 151.5492908625901 200 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 63.5492908625901 198 209.5492908625901 222
+0 2 2 "0s" 0 0 0 65 0 0  63.5492908625901 198 1
+4
+LANG:10001 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 18 name_of_query_host
+LANG:10004 18 name_of_query_host
+LANG:10000 18 name_of_query_host
+LANG:10027 18 name_of_query_host
+2 66
+"PRIMITIVE_TEXT6"
+""
+1 284 110 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 236 110 332 125
+0 2 2 "0s" 0 0 0 193 0 0  284 110 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Sync direction
+LANG:10004 12 同步方向
+LANG:10000 16 Abgleichrichtung
+LANG:10027 49 Направление синхронизации
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 400 T 15 1.126965300864119 0 1 0 196
+0
+0

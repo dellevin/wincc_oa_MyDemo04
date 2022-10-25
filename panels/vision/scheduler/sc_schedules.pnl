@@ -1,0 +1,846 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 986 619 N "_3DFace" 0
+"main()
+{
+  int              i;
+  string           type,
+                   sState, 
+                   desc, 
+                   name;
+  bool             state, 
+                   mode;
+  dyn_string       dsAllProgs;
+
+  dynClear(p_dsSysNames);
+  dynClear(p_duiSysIds);
+  getSystemNames(p_dsSysNames,p_duiSysIds);
+  
+  //Check user permission
+  if(!getUserPermission(2) || !getUserPermission(3))
+    tabSchedules.enabled(FALSE);
+
+  Row1.text(\"\");
+  Column1.text(\"\");
+  Value1.text(\"\");
+  
+  tabSchedules.sortOnClick = TRUE;
+  tabSchedules.tableMode(TABLE_SELECT_BROWSE);  //tabSchedules.tableMode(TABLE_SELECT_NOTHING); //tabSchedules.tableMode(TABLE_SELECT_MULTIPLE);
+  tabSchedules.selectByClick(TABLE_SELECT_LINE);
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    tabSchedules.visible(FALSE);
+    
+    //Loading table
+    load1.text() = \"1\";
+    if ( isFunctionDefined(\"sc_loadReady\") )
+      sc_loadReady();
+    else
+      return;
+   
+    
+    //Clear tab
+    tabSchedules.deleteAllLines();
+    
+    //Get ALL programs
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      //Get ALL programs
+      dynAppend(dsAllProgs,dpNames(p_dsSysNames[i]+\":*\", \"_Sc\"));   //Get all UI datapoints - also from the dist systems
+    }
+      
+    //Get all names, description, type, overrides and states
+    for (i=1; i<=dynlen(dsAllProgs); i++)
+    {
+      dpGet(dsAllProgs[i]+\".name:_original.._value\", name,
+            dsAllProgs[i]+\".result:_original.._value\", state,
+            dsAllProgs[i]+\".mode:_original.._value\", mode,
+            dsAllProgs[i]+\".type:_original.._value\", type);
+            
+      sState = mode ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+      
+      desc = dpGetDescription(dsAllProgs[i]+\".name:_original.._value\");
+      
+      sc_checkSys(dsAllProgs[i], dsAllProgs[i]);
+      
+      //Append the lines
+      tabSchedules.appendLine(\"schedule_name\", name, 
+                              \"dpe\",   dsAllProgs[i],
+                              \"schedule_description\", desc,
+                              \"schedule_type\",  type,      
+                              \"schedule_state\", state,
+                              \"schedule_override\", sState);
+    }
+    //Sort table
+    tabSchedules.sort(\"schedule_name\", \"schedule_description\", \"schedule_type\");
+
+    //Replace the tab cursor
+    setValue(\"tabSchedules\", \"lineVisible\", 0);
+    
+    if (tabSchedules.lineCount() >= 1)
+      setValue(\"tabSchedules\",\"selectLineN\", 0);
+    
+    //Reset the help buttons
+    Row1.text(0);
+    Column1.text(\"schedule_name\");
+
+//    tabSchedules.currentCell(2, 1);
+    Value1.text(tabSchedules.cellValue());
+    
+    //Ready
+    load1.text() = \"0\";
+    sc_loadReady();
+    
+    tabSchedules.visible(TRUE);
+  }
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    //Connect to transfer - only on the system that contains the _ScCom
+    for (i=1; i<=dynlen(p_dsSysNames); i++)
+    {
+      if(dpExists(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\"))
+      {
+        dpConnect(\"workCB\", FALSE, p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\");
+        dpQueryConnectSingle(\"workCB1\", FALSE,
+                                        p_dsSysNames[i] + \":\",
+                                        \"SELECT '_original.._value' FROM '*.result' WHERE _DPT = \\\"_Sc\\\"\");
+      }
+    }                                
+  }  
+}
+//******************************
+workCB1(string ident, dyn_dyn_anytype value)
+{
+  dyn_string val2;
+  
+  if (dynlen(value) != 2)
+    return;
+    
+  val2 = value[2];
+  
+  if (dynlen(val2) != 0)
+    workTable1(dpSubStr(val2[1], DPSUB_SYS_DP));
+}
+
+//******************************
+workCB(string dpe, string value)
+{  
+  dyn_string ds;
+  
+  sc_transferSplit(value, ds);
+  
+  if (ds[1] != \"\")
+    workTable2(ds[2]);
+}" 0
+ E E E E 1 -1 -1 0  66 22
+"refFileName"0  1
+E "  string      p_sScCom = \"_ScCom\";
+  dyn_string  p_dsSysNames;
+  dyn_uint    p_duiSysIds;
+  
+// ============================================================================
+// Function:  workTable1()
+// Parameter: value
+// ============================================================================
+workTable1(string value)
+{  
+  bool             result;
+  dyn_string       value12;
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    //Loading table
+    load1.text() = \"1\";
+    sc_loadReady();
+    
+    //Get the name, description, type, override and state
+    value12 = strsplit(value, \"|\");
+    if (dynlen(value12) == 2)
+      value   = dpSubStr(value12[2], DPSUB_SYS_DP_EL);
+    if (dynlen(value12) == 1)
+      value   = dpSubStr(value12[1], DPSUB_SYS_DP_EL);
+
+    if (dpExists(value))
+    {
+      dpGet(value+\".result:_original.._value\", result);
+
+      sc_checkSys(value, value);  //value = dpSubStr(value, DPSUB_SYS_DP);
+
+      //Update line
+      tabSchedules.updateLine(1, \"dpe\", value,
+                                 \"schedule_state\", result);
+    }
+    
+    //Ready
+    load1.text() = \"0\";
+    sc_loadReady();
+  }
+}
+
+// ============================================================================
+// Function:  workTable2()
+// Parameter: value
+// ============================================================================
+workTable2(string value)
+{  
+  int              u,o,i,y;
+  string           type,
+                   sState,
+                   desc,
+                   name,v;
+  bool             state, 
+                   mode;
+  dyn_int          diLine;
+  dyn_string       value12;
+  
+  if ( dynlen(p_dsSysNames) > 0 )
+  {
+    y = tabSchedules.lineCount() - 1; 
+    
+    getValue(\"tabSchedules\",\"lineRangeVisible\", o, u);
+    getValue(\"tabSchedules\", \"getSelectedLines\", diLine);
+    
+    //Loading table
+    load1.text() = \"1\";
+    sc_loadReady();
+    
+    //Get the name, description, type, override and state
+    value12 = strsplit(value, \"|\");
+    if (dynlen(value12) == 2)
+      value   = dpSubStr(value12[2], DPSUB_SYS_DP_EL);
+    if (dynlen(value12) == 1)
+      value   = dpSubStr(value12[1], DPSUB_SYS_DP_EL);
+
+    if (dpExists(value))
+    {
+      dpGet(value+\".name:_original.._value\", name,
+            value+\".result:_original.._value\", state,
+            value+\".mode:_original.._value\", mode,
+            value+\".type:_original.._value\", type);
+            
+      sState = mode ? getCatStr(\"scheduler\", \"m9\") : getCatStr(\"scheduler\", \"m10\");
+      desc  = dpGetDescription(value+\".name:_original.._value\");
+      
+      sc_checkSys(value, value);  //value = dpSubStr(value, DPSUB_SYS_DP);
+
+      //Update line
+      tabSchedules.updateLine(1, \"dpe\", value,
+                                 \"schedule_name\", name, 
+                                 \"schedule_description\", desc,
+                                 \"schedule_type\", type,      
+                                 \"schedule_state\", state,
+                                 \"schedule_override\", sState);
+    }
+    else
+    {
+      //Delete line
+      if (dynlen(diLine) >= 1)
+      {
+        tabSchedules.currentCell(diLine[1], 0);
+        name = tabSchedules.cellValue();      
+        tabSchedules.currentCell(diLine[1], 2);
+        desc = tabSchedules.cellValue();      
+        tabSchedules.currentCell(diLine[1], 3);
+        type = tabSchedules.cellValue();      
+        tabSchedules.currentCell(diLine[1], 4);
+        state = tabSchedules.cellValue();      
+        tabSchedules.currentCell(diLine[1], 5);
+        sState = tabSchedules.cellValue();
+        tabSchedules.deleteLine(5, \"schedule_name\",  name, 
+                                   \"schedule_description\",  desc,
+                                   \"schedule_type\",  type,      
+                                   \"schedule_state\",  state,
+                                   \"schedule_override\", sState);
+      }
+    } 
+
+    //Reset cursor in tables
+    sc_resetCursorMainTabs(\"tabSchedules\", value, diLine, o, u, y);
+    getValue(\"tabSchedules\", \"getSelectedLines\", diLine);
+    if (dynlen(diLine) >= 1)
+    {
+      setValue(\"Row1\", \"text\",diLine[1]);
+      setValue(\"tabSchedules\", \"currentCell\",diLine[1], 1);
+      getValue(\"tabSchedules\", \"cellValue\", v);
+      setValue(\"Value1\", \"text\", v);
+    }
+    
+    //Ready
+    load1.text() = \"0\";
+    sc_loadReady();
+  }
+}
+" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 264
+"tabSchedules"
+""
+1 15 15 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  int        iRow, answer;
+  string     sRow, r, v, dpe, typ;
+  dyn_int    sl;
+  dyn_string popUpText,
+             allPartsNew,
+             edit,
+             sDelete,
+             activate,
+             deactivate,
+             copy,
+             print,
+             dsEn;
+  string     type;
+             
+  //Check user permission
+  if(!getUserPermission(3))
+    dsEn[5] = 0;
+  
+  edit           = strsplit(getCatStr(\"scheduler\", \"edit\"), \",\");
+  edit[1]        = strltrim(edit[1]);
+  allPartsNew    = strsplit(getCatStr(\"scheduler\", \"fileNew\"), \",\");
+  allPartsNew[1] = strltrim(allPartsNew[1]);
+  sDelete[1]      = getCatStr(\"scheduler\", \"delete\");
+  activate[1]    = getCatStr(\"scheduler\", \"activate\");
+  deactivate[1]  = getCatStr(\"scheduler\", \"deactivate\");
+  copy[1]        = getCatStr(\"scheduler\", \"copy\");
+  print[1]       = getCatStr(\"scheduler\", \"print\");
+  print[2]       = getCatStr(\"scheduler\", \"table\");
+  print[3]       = getCatStr(\"scheduler\", \"details\");
+  
+  //Enable, disable menu items
+  if (tabSchedules.lineCount() <= 0)
+  {
+    dsEn[2] = 0;
+    dsEn[3] = 0;
+    dsEn[5] = 0;
+    dsEn[7] = 0;
+    dsEn[8] = 0;
+    dsEn[21] = 0;
+    dsEn[22] = 0;
+  }
+  else
+  {
+    dsEn[2] = 1;
+    dsEn[3] = 1;
+    dsEn[5] = 1;
+    dsEn[7] = 1;
+    dsEn[8] = 1;
+    dsEn[21] = 1;
+    dsEn[22] = 1;
+  }
+
+  popUpText = makeDynString(\"CASCADE_BUTTON, \"+allPartsNew[1]+\", 1\",    //New
+                            \"PUSH_BUTTON, \"+edit[1]+\", 1, \"+dsEn[2]+\"\",           //Edit
+                            \"PUSH_BUTTON, \"+copy[1]+\", 5, \"+dsEn[3]+\"\",           //Copy
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+sDelete[1]+\", 2, \"+dsEn[5]+\"\",                //Delete
+                            \"SEPARATOR\",                                //----------
+                            \"PUSH_BUTTON, \"+activate[1]+\", 3, \"+dsEn[7]+\"\",       //Activate
+                            \"PUSH_BUTTON, \"+deactivate[1]+\", 4, \"+dsEn[8]+\"\",     //Deactivate
+                            \"SEPARATOR\",                                //----------
+                            \"CASCADE_BUTTON, \"+print[1]+\", 1\",          //Print
+                            \"\"+allPartsNew[1]+\"\",                       //News 1st level
+                            \"CASCADE_BUTTON, \"+allPartsNew[2]+\", 1\",    //Time schedule
+                            \"PUSH_BUTTON, \"+allPartsNew[6]+\", 6, 1\",    //Reaction program
+                            \"PUSH_BUTTON, \"+allPartsNew[7]+\", 7, 1\",    //Info action
+                            \"PUSH_BUTTON, \"+allPartsNew[8]+\", 11, 1\",   //Special day
+                            \"\"+allPartsNew[2]+\"\",                       //News 2nd level
+                            \"PUSH_BUTTON, \"+allPartsNew[3]+\", 8, 1\",    //Day
+                            \"PUSH_BUTTON, \"+allPartsNew[4]+\", 9, 1\",    //Week
+                            \"PUSH_BUTTON, \"+allPartsNew[5]+\", 10, 1\",   //Free
+                            \"\"+print[1]+\"\",                             //Print 1st level
+                            \"PUSH_BUTTON, \"+print[2]+\", 12, \"+dsEn[21]+\"\",         //Table
+                            \"PUSH_BUTTON, \"+print[3]+\", 13, \"+dsEn[22]+\"\");        //Details
+
+  popupMenu(popUpText, answer);
+
+  if(answer == 1)
+  {
+    if (Row1.text() == \"\")
+    {
+      sc_nolineselected();  return;
+    }
+    tabSchedules.currentCell(Row1.text(),1);
+    dpe = tabSchedules.cellValue();
+    tabSchedules.currentCell(Row1.text(),3);
+    type = tabSchedules.cellValue();
+    type = strtoupper(type);  
+    sc_editCas(type, dpe);
+  }
+  if(answer == 2)
+  {
+    getValue(\"Row1\", \"text\",r);
+    getValue(\"Value1\", \"text\",v);
+    getValue(\"tabSchedules\", \"getSelectedLines\", sl);
+    sc_delScDp(r, v, sl);
+  }
+  sRow = Row1.text();
+  sRow = strltrim(sRow, \"\\\"\");
+  sRow = strrtrim(sRow, \"\\\"\");
+  //iRow = sRow;
+  if(answer == 3)
+    sc_actDeact(\"\", sRow, \"dpe\", \"TRUE\");
+  if(answer == 4)
+    sc_actDeact(\"\", sRow, \"dpe\", \"FALSE\");
+  if(answer == 5)
+    sc_copy(\"\", sRow, \"dpe\");
+  if(answer == 8)
+    sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_day_scheduler\"), \"\", \"D\");
+  if(answer == 9)
+  {
+    sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_week_scheduler\"), \"\", \"W\");
+  }
+  if(answer == 10)
+    sc_newCas(\"/vision/scheduler/sc_freeSchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 6)
+    sc_newCas(\"/vision/scheduler/sc_reactionProg.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 7)
+    sc_newInfoAction();
+  if(answer == 11)
+    sc_newCas(\"/vision/scheduler/sc_specialDays.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+  if(answer == 12)
+    sc_printTableDetails(\"tabSchedules\", \"p1\");
+  if(answer == 13)
+    sc_printScDetails(\"\", sRow, \"dpe\", \"scDetails\", \"p10\");
+}" 0
+ "main()
+{
+  string dpe, type;
+  if (Row1.text() < 0 || tabSchedules.selectLineN()==-1)
+  {
+    sc_nolineselected();  return;
+  }  
+  tabSchedules.currentCell(Row1.text(),1);
+  dpe = tabSchedules.cellValue();
+  tabSchedules.currentCell(Row1.text(),3);
+  type = tabSchedules.cellValue();
+  type = strtoupper(type);
+  
+  sc_editCas(type, dpe);
+}" 0
+
+249 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 13 962 565
+E"main(int row, string column, string value)
+{
+  if (tabSchedules.lineCount()<row)
+  {
+    return;
+  }
+  int    i;
+  string dpe, sRow;
+  
+  //Get the chosen line out of the tab
+  Row1.text(row);
+  Column1.text(column);
+  this.currentCell(row, 1);
+  Value1.text(this.cellValue());
+  
+  //Sets the entered value - if the right column
+  if (column == \"schedule_override\")
+  {
+    getValue(\"\", \"cellValueRC\", row, \"schedule_override\", value);
+    value = strtolower(value);
+    
+    switch(value)
+    {
+      case \"false\" : value = \"FALSE\"; break;
+      case \"0\"     : value = \"FALSE\"; break;
+      case \"true\"  : value = \"TRUE\"; break;
+      case \"1\"     : value = \"TRUE\"; break;
+      default      : value = \"FALSE\";
+    }
+    sRow = row;
+    sc_actDeact(\"tabSchedules\", row, \"dpe\", value);  
+  }
+}" 0
+ 1 0 1 6 1 "schedule_name" 32 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+4
+LANG:10001 13 Schedule name
+LANG:10004 12 调度名称
+LANG:10000 12 Programmname
+LANG:10027 27 Имя расписания
+
+365 "dpe" 32 0 0 "s" 4
+LANG:10001 9 Datapoint
+LANG:10004 2 DP
+LANG:10000 10 Datenpunkt
+LANG:10027 23 Точка данных
+E
+4
+LANG:10001 19 Scheduler datapoint
+LANG:10004 8 调度DP
+LANG:10000 18 Programmdatenpunkt
+LANG:10027 23 DP расписания
+
+361 "schedule_description" 32 1 0 "s" 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 16 Описание
+E
+4
+LANG:10001 20 Schedule description
+LANG:10004 12 调度描述
+LANG:10000 20 Programmbeschreibung
+LANG:10027 37 Описание расписания
+
+366 "schedule_type" 8 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+E
+4
+LANG:10001 13 Schedule type
+LANG:10004 12 调度类型
+LANG:10000 11 Programmtyp
+LANG:10027 27 Тип расписания
+
+106 "schedule_state" 0 0 0 "s" 4
+LANG:10001 20 Time/value condition
+LANG:10004 19 时间/数值条件
+LANG:10000 19 Zeit/Wert Bedingung
+LANG:10027 51 Условие по времени/значению
+E
+4
+LANG:10001 30 Schedule conditions fulfilled?
+LANG:10004 27 已经满足调度条件？
+LANG:10000 29 Programmbedingungen erfüllt?
+LANG:10027 55 Условия расписания выполнены?
+
+0 "schedule_override" 7 1 1 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+E
+4
+LANG:10001 14 Schedule state
+LANG:10004 12 调度状态
+LANG:10000 21 Status des Programmes
+LANG:10027 39 Состояние расписания
+
+90 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 266
+"Value1"
+""
+1 10 50 E E E 1 E 0 E N "_3DText" E N {204,0,0} E E
+ E E
+250 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 48 22 62
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+13 267
+"Column1"
+""
+1 10 30 E E E 1 E 0 E N "_3DText" E N {255,153,0} E E
+ E E
+251 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 28 22 42
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+13 268
+"Row1"
+""
+1 10 10 E E E 1 E 0 E N "_3DText" E N {0,153,0} E E
+ E E
+252 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 8 22 22
+
+T 
+4
+LANG:10001 7 Button1
+LANG:10004 7 Button1
+LANG:10000 7 Button1
+LANG:10027 7 Button1
+E E E E
+25 269
+"scDetails"
+""
+1 -15 223 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+253 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 318 947 512
+EE 1 0 1 2 1 "name" 41 1 0 "s" 4
+LANG:10001 17 Datapoint element
+LANG:10004 3 DPE
+LANG:10000 17 Datenpunktelement
+LANG:10027 17 DP элемент
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+464 "detail" 41 1 0 "s" 4
+LANG:10001 24 Parameterization details
+LANG:10004 6 参数
+LANG:10000 18 Parametrierdetails
+LANG:10027 45 Детали параметрирования
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+463 
+17 17 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 270
+"load1"
+""
+1 10 100 E E E 1 E 0 E N {255,255,255} E N {0,51,204} E E
+ E E
+253 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 98 32 122
+
+T 
+4
+LANG:10001 1 L
+LANG:10004 1 L
+LANG:10000 1 L
+LANG:10027 1 L
+E E E E
+20 271
+"cbOnlyComment"
+""
+1 15 575 E E E 1 E 1 E N "STD_text" E N "STD_panel_back" E E
+ E E
+253 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 35 Datapoint name replaces description
+LANG:10004 14 DP替换描述
+LANG:10000 38 Datenpunktelement ersetzt Beschreibung
+LANG:10027 64 Использовать имя DP вместо описания
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 573 947 603
+1
+T 
+4
+LANG:10001 35 Datapoint name replaces description
+LANG:10004 14 DP替换描述
+LANG:10000 38 Datenpunktelement ersetzt Beschreibung
+LANG:10027 64 Использовать имя DP вместо описания
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main()
+{
+  //This toggles the 1st column of table between
+  //DP Name and DP Comment
+  bool   onlyComment;
+
+  getValue(\"\",\"state\",0,onlyComment);
+ 
+  //if entries made into table, set table visible
+  if(tabSchedules.lineCount() > 0)
+  {
+    tabSchedules.visible(FALSE);
+    tabSchedules.columnVisibility(1, onlyComment);
+    tabSchedules.columnVisibility(2, !onlyComment);
+    tabSchedules.visible(TRUE);
+  }
+}" 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

@@ -1,0 +1,501 @@
+V 13
+4
+LANG:10001 42 Subcondition Severity -> WinCC OA priority
+LANG:10004 40 子条件严重性 - > WinCC OA优先级
+LANG:10000 47 Sub Condition Priorität -> WinCC OA Priorität
+LANG:10027 78 Критичность подсостояния -> приоритет WinCC OA
+PANEL,-1 -1 554 383 N "_3DFace" 1
+"$server"
+"main()
+{
+  string server = $server, sPrefix;
+  dyn_string dsAlerts, dsGeneratedAlertClasses, dsSubConditionNames;
+  dyn_int dsType;
+  dyn_int diPriority, diRangeValue;
+  int i;
+  dyn_string ds;
+  
+
+  generateAlertClass( server, dsAlerts, dsType,       dsGeneratedAlertClasses);
+
+  dpGet(server + \".Subconditions.SubConditionNames:_online.._value\", dsSubConditionNames,
+        server + \".Prefix:_online.._value\", sPrefix);
+
+  dynSortAsc(dsSubConditionNames);
+  dynUnique(dsSubConditionNames);
+
+  dsGeneratedAlertClasses = dsSubConditionNames;  
+   
+ for ( i= 1; i<= dynlen( dsSubConditionNames); i++)
+  {
+     dsSubConditionNames[i] = sPrefix + dsSubConditionNames[i];
+     strreplace(dsSubConditionNames[i], \" \", \"_\");
+
+      dpGet( dsSubConditionNames[i]+\".:_alert_class.._prior\", diPriority[i],
+             dsSubConditionNames[i]+\".:_online.._value\",      diRangeValue[i]  );
+  }
+
+     items.visible = TRUE;
+
+ for ( i= 1; i<= dynlen( dsSubConditionNames); i++)
+  {
+   if(  diRangeValue[i] == 1)
+     ds[i] = \">\";
+  else if(  diRangeValue[i] == 2)
+     ds[i] = \"<\";
+  else
+     ds[i] = \"?\";
+     
+  }
+
+  items.appendLines(dynlen(dsSubConditionNames), \"AlertClass\", dsGeneratedAlertClasses, \"AlertPriority\", diPriority, \"AlertRange\", ds);
+}" 0
+ E E E E 1 -1 -1 0  10 12
+""0  1
+E "setAlertClassPriority()
+{
+	int i;
+	int max = items.lineCount;
+	dyn_string dpAlertClass, dsScreen, ds;
+	dyn_int dsAlertPriority, diRangeValue;
+	char c;
+	string sPrefix;
+	items.enabled = FALSE;
+	
+	for (i=1; i<= max; i++)
+	{
+	   dyn_anytype da;
+	   da = items.getLineN(i-1); 
+	   dpAlertClass[i] = da[1];
+	   dsAlertPriority[i] = da[2];
+       ds[i] = da[3];
+       if ( dsAlertPriority[i] > 255)
+         dsAlertPriority[i] = 255;
+       else if ( dsAlertPriority[i] <0)
+         dsAlertPriority[i] = 0;
+       if ( ds[i] == \"<\")
+         diRangeValue[i] = 2;
+       else if ( ds[i] == \">\")
+         diRangeValue[i] = 1;
+       else
+         diRangeValue[i] = 0;
+	}
+	items.enabled = TRUE;;
+	
+	
+	  dpGet($server + \".Prefix:_online.._value\", sPrefix);
+
+    dsScreen = dpAlertClass;
+   
+	for ( i= 1; i<= dynlen( dpAlertClass); i++)
+	{
+		 dpAlertClass[i] = sPrefix + dpAlertClass[i];
+		 strreplace(dpAlertClass[i], \" \", \"_\");
+	}
+	
+	
+	
+ 	for (i=1; i<= max; i++)
+	{
+        c = dsAlertPriority[i];
+        dpSet(dpAlertClass[i]+\".:_alert_class.._type\", DPCONFIG_ALERT_CLASS,
+              dpAlertClass[i]+\".:_alert_class.._prior\",  c,
+              dpAlertClass[i]+\".:_original.._value\", diRangeValue[i] );
+
+    }
+   items.deleteAllLines	;
+ 
+   items.appendLines(dynlen(dpAlertClass), \"AlertClass\", dsScreen, \"AlertPriority\", dsAlertPriority, \"AlertRange\", ds);
+
+
+}
+
+
+generateAlertClass(string server, dyn_string &dsAlerts, dyn_int &dsType, dyn_string &dsGeneratedAlertClasses)
+{
+  dyn_string dsConditionNames, dsSubConditionNames;
+  dyn_string dsSubEventCategoryNames, dsEventCategoryNames, dsEventAttributeTypes;
+ 
+  int i, pos;
+  string sSearch;
+  string sPrefix;
+  char c;
+  int answer;
+  string sType;
+ 
+
+  dpGet( server + \".Subconditions.ConditionNames:_online.._value\", dsConditionNames,
+         server + \".Subconditions.SubConditionNames:_online.._value\", dsSubConditionNames,
+         server + \".Prefix:_online.._value\", sPrefix,
+         server + \".Subconditions.EventCategoryNames:_online.._value\", dsSubEventCategoryNames,
+         // ->
+         server + \".EventAttributes.EventCategoryNames:_online.._value\",  dsEventCategoryNames,
+         server + \".EventAttributes.EventAttributeTypes:_online.._value\", dsEventAttributeTypes);
+ 
+ 
+ 
+  dynUnique(   dsConditionNames );
+  dynUnique(   dsSubConditionNames );
+
+  for (  i = 1; i<= dynlen(dsConditionNames); i++)
+  {
+     answer = DPEL_FLOAT;
+     pos = dynContains (dsEventCategoryNames, dsSubEventCategoryNames[i]);
+     if ( pos > 0)
+     {
+        if ( dynlen(dsEventAttributeTypes) >= pos)
+          sType = dsEventAttributeTypes[pos];
+        else
+          sType = \"\";
+        
+        switch (sType)
+        {
+				  case \"VT_I2\":  answer = DPEL_INT  ; break;// short
+				  case \"VT_I4\":  answer = DPEL_INT  ; break;//long
+				  case \"VT_R4\":  answer = DPEL_FLOAT; break; //float
+				  case \"VT_R8\":  answer = DPEL_FLOAT; break; // double
+				  case \"VT_BOOL\": answer = DPEL_BOOL; break; // bool
+				  case \"VT_UI2\":  answer = DPEL_UINT; break; // unsigned short
+				  case \"VT_UI4\":  answer = DPEL_UINT; break; // unsigned long
+				  default:        answer = DPEL_FLOAT;break; // other
+       }
+     }
+    dsType[i] = answer;
+    dsAlerts[i] = dsConditionNames[i];
+
+  }
+
+  for ( i= 1; i<= dynlen(dsSubConditionNames); i++)
+  {
+     strreplace(dsSubConditionNames[i], \" \", \"_\");
+     dsSubConditionNames[i] = sPrefix + dsSubConditionNames[i];
+  }
+
+  for ( i= 1; i<= dynlen( dsSubConditionNames); i++)
+  {
+    c ++;
+    if (c == \"\\250\")
+      c == \"\\001\";
+    sSearch = dsSubConditionNames[i];
+    if (!dpExists(sSearch))
+    {
+      dpCreate(sSearch, \"_AlertClass\");
+      dpSet(sSearch+\".:_alert_class.._type\", DPCONFIG_ALERT_CLASS,
+            sSearch+\".:_alert_class.._prior\",  c);
+
+    }
+    dynAppend( dsGeneratedAlertClasses, sSearch);
+
+  }
+}
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 1
+"items"
+""
+1 -75.47817836812146 -389 E E E 1 E 0 E N "_3DText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  7 13 541 328
+E"main(int row, string column, string value)
+{
+   int iValue;
+   if (column == \"AlertPriority\")
+   {
+      iValue = value;
+      if (iValue > 127)
+        iValue = 127;
+      else if (iValue < 0)
+        iValue = 0;
+      value = iValue;
+      
+      this.cellValueRC( row, column, value);
+   }
+   else if (column == \"AlertRange\")
+   {
+      if (value != \">\")
+        value = \">\";
+      else
+         value = \"<\";
+       
+      
+      this.cellValueRC( row, column, value);
+   }
+
+
+
+}" 0
+ 1 0 1 3 1 "AlertClass" 32 1 0 "s" 4
+LANG:10001 13 Sub Condition
+LANG:10004 9 子条件
+LANG:10000 12 Subcondition
+LANG:10027 20 Подусловие
+E
+4
+LANG:10001 20 WinCC OA alert class
+LANG:10004 20 WinCC OA alert class
+LANG:10000 20 WinCC OA Alarmklasse
+LANG:10027 30 Аларм-класс WinCC OA
+
+367 "AlertPriority" 10 1 1 "s" 4
+LANG:10001 8 Priority
+LANG:10004 12 报警等级
+LANG:10000 10 Priorität
+LANG:10027 18 Приоритет
+E
+4
+LANG:10001 6 0..127
+LANG:10004 6 0..127
+LANG:10000 6 0..255
+LANG:10027 6 0..127
+
+121 "AlertRange" 1 1 0 "s" 4
+LANG:10001 2 <>
+LANG:10004 2 <>
+LANG:10000 2 <>
+LANG:10027 2 <>
+E
+4
+LANG:10001 60 <...Range below "GOOD", >... Range above "GOOD", ?...unknown
+LANG:10004 64 <..."GOOD"之下的范围 >...  "GOOD"之上的范围 ?...未知
+LANG:10000 64 <...Unterhalb von "GUT", >... Oberhalb von  "GUT", ?...unbekannt
+LANG:10027 139 <...Диапазон до "достоверного", >... Диапазон после "достоверного", ?...неизвестно
+
+25 
+22 22 "" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 2
+"help"
+""
+1 489 771 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 348 96 376
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"opc_ae_severity_table\" );
+}" 0
+ E E E
+13 3
+"modify"
+""
+1 363.9999999999999 348 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 348 451 376
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+setAlertClassPriority();
+}
+" 0
+ E E E
+13 4
+"cancel"
+""
+1 454.9999999999999 348 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  453 348 541 376
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 5
+"ok"
+""
+1 274.9999999999999 348 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  273 348 361 376
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+setAlertClassPriority();
+PanelOff();
+}" 0
+ E E E
+1 6 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 80 370 T 7 1.132264529058116 0 1 -95.58116232464927 -30
+0
+0

@@ -1,0 +1,996 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 990 560 N "WF_PanelBackground" 1
+"$id"
+"main()
+{
+  if (systemName == \"\")
+  {
+    return;
+  }
+
+  SYSTEM_NAME.text = systemName;
+
+  opcTree = getShape(\"OPC_TREE\");
+
+  initOpcTree(opcTree);
+
+  systemName += \":\";
+
+  // Determine if the system is redundant
+  if (isReduSystem(systemName))
+  {
+    //make sure we have the actual config before the other callbacks arrive
+    dpGet(systemName + \"_ReduManager.Status.Active\", reduHost1Active,
+          systemName + \"_ReduManager_2.Status.Active\", reduHost2Active);
+
+    if(reduHost1Active && reduHost2Active)
+      reduHost2Active = false;
+
+    dpConnect(\"cbRedu\", systemName + \"_ReduManager.Status.Active\",
+                        systemName + \"_ReduManager_2.Status.Active\");
+  }
+
+  string query = \"SELECT '.Config.CNSViews:_online.._value,.State.CNSViews:_online.._value'\"
+                 \" FROM '*' REMOTE '\" + systemName + \"' WHERE _DPT = \\\"_OPCUAPvssServer\\\"\";
+
+  dpQueryConnectSingle(\"cbWork\", true, \"UA\", query);
+
+  query = \"SELECT '.Config.CNSViews:_online.._value,.State.CNSViews:_online.._value'\"
+          \" FROM '*' REMOTE '\" + systemName + \"' WHERE _DPT = \\\"_OPCPvssServer\\\"\";
+
+  dpQueryConnectSingle(\"cbWork\", true, \"DA\", query);
+}
+" 0
+ E E E E 1 -1 -1 0  16 16
+""0  1
+E "string systemName = $id;
+shape opcTree;
+mapping opcViews;
+mapping opcStates;
+
+bool reduHost1Active = true;
+bool reduHost2Active = false;
+
+const string VIEW_DRAG_PREFIX    = \"CNSView#\";
+const string GROUP_DRAG_PREFIX   = \"GROUP#\";
+const string OPC_VIEW_SEPARATOR  = \"@\";
+const string DPE_CONFIG_OPC_VIEW = \".Config.CNSViews\";
+
+const string ICON_ITEM_VIEW   = \"wf/nodes/view.png\";
+const string ICON_ITEM_SYS    = \"dptree/system.png\";
+const string ICON_ITEM_DP     = \"dptree/struct.png\";
+const string ICON_ITEM_DPTYPE = \"dptree/dptype.png\";
+
+const string ICON_STATE_UNKNOWN    = \"unknown.png\";
+const string ICON_STATE_UP2DATE    = \"StandardIcons/plc_connected_20.png\";
+const string ICON_STATE_SYNC_DELTA = \"StandardIcons/dist_connected_sync_view.png\";
+const string ICON_STATE_SYNC_FULL  = \"StandardIcons/dist_connected_sync_view.png\";
+const string ICON_STATE_VIEW_NOK   = \"StandardIcons/dist_connected_no_view.png\";
+const string ICON_STATE_VIEW_MISS  = \"StandardIcons/plc_disconnected_20.png\";
+const string ICON_STATE_DISCONNECT = \"StandardIcons/plc_inactive_20.png\";
+
+string getOpcViewStateIcon(int state)
+{
+  string result;
+
+  switch (state)
+  {
+    case 1: result = ICON_STATE_UP2DATE;    break;
+    case 2: result = ICON_STATE_SYNC_DELTA; break;
+    case 3: result = ICON_STATE_SYNC_FULL;  break;
+    case 4: result = ICON_STATE_VIEW_NOK;   break;
+    case 5: result = ICON_STATE_VIEW_MISS;  break;
+    case 6: result = ICON_STATE_DISCONNECT; break;
+    case 0:
+    default:result = ICON_STATE_UNKNOWN;    break;
+  }
+
+  return result;
+}
+
+string getOpcViewStateText(int state)
+{
+  string result;
+
+  switch (state)
+  {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6: result = getCatStr(\"OpcServer\", \"STATE_\" + state); break;
+    default:
+      result = getCatStr(\"OpcServer\", \"STATE_0\") + \" <\" + state + \">\";
+      break;
+  }
+
+  return result;
+}
+
+void removeOpcView(string id)
+{
+  string dp;
+  string view;
+
+  dyn_string split = strsplit(id, OPC_VIEW_SEPARATOR);
+
+  if (dynlen(split) >= 1) view = split[1];
+  if (dynlen(split) >= 2) dp   = split[2];
+
+  if (mappingHasKey(opcViews, dp))
+  {
+    dyn_string views = opcViews[dp];
+
+    if(strpos(view, \".\") == strlen(view) - 1) // the defined view is without System1. -> so it looks like CNSView1. -> we have to remove the \".\"
+      view = substr(view, 0, strlen(view) - 1);
+
+    int index = dynContains(views, view);
+
+    // The tree never contains the ':', but the dp might contain it
+    // So we need to try both options
+    if (index <= 0)
+    {
+      index = dynContains(views, view + \":\");
+    }
+
+    if (index > 0)
+    {
+      dynRemove(views, index);
+
+      dpSet(dp + DPE_CONFIG_OPC_VIEW, views);
+
+      notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_opcViewAssignmentRemoved\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(dpSubStr(dp, DPSUB_DP)), false, notificationBar_getUserDpName(), true);
+    }
+  }
+}
+
+void opcTreeDrop(string info, int dragType, string id, int column)
+{
+  if (id == \"\")
+    return;
+  // Only allow drops from the table with the available CNS views
+  if (strpos(info, VIEW_DRAG_PREFIX) == 0)
+  {
+    // Remove the prefix
+    info = substr(info, strlen(VIEW_DRAG_PREFIX));
+    if(strpos(info, \":\") == strlen(info) - 1)
+      info = substr(info, 0, strlen(info) - 1);
+
+
+    dyn_string views;
+
+    if (mappingHasKey(opcViews, id))
+    {
+      views = opcViews[id];
+    }
+
+    dynAppend(views, info);
+    dynSort(views);
+    dynUnique(views);
+
+    dpSet(id + DPE_CONFIG_OPC_VIEW, views);
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_opcViewAssignmentChanged\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(info, dpSubStr(id, DPSUB_DP)), false, notificationBar_getUserDpName(), true);
+
+    //ask if the CNS View groups should be used for the UA Server
+    if(opcTree.parent(id) == \"UA\")
+    {
+      dyn_string ds;
+      dyn_float df;
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\",
+                                     getCatStr(\"cnsEditor\", \"cnsEditor_setUaGroupPermission\"),
+                                     makeDynString(getCatStr(\"cnsEditor\", \"cnsEditor_setUaGroupPermission\"),
+                                                   getCatStr(\"para\", \"yes\"),
+                                                   getCatStr(\"para\", \"no\"),
+                                                   getCatStr(\"para\", \"cancel\")),
+                                     df, ds);
+
+      if((dynlen(df) < 1) || (df[1] == 2))  //The ChildPanel was closed or the Cancel button was pressed
+        return;
+
+      if(df[1] == 1)  //In the ChildPanel the Yes button was pressed so use the permitted groups of the view for Config.GroupAuthentication of the UA Server
+      {
+        info = info + \":\"; //cns_viewDpToName returns values with trailing :
+        dyn_string dsViews = dpNames(dpSubStr(id, DPSUB_SYS) + \"*\",\"_CNS_Views\");  //Get a list of all CNS view datapoints
+        for(int i = dynlen(dsViews); i > 0; --i)
+        {
+          if(cns_viewDpToName(dsViews[i]) == info)  //Check if this datapoints belongs to the View ID which was dropped
+          {
+            anytype groupIds;
+            dpGet(dsViews[i] + \".GroupIds\", groupIds);
+
+            dpSet(id + \".Config.GroupAuthentication\", groupIds);
+            if(dpExists(id + \"_2\") && isReduDp(id + \"_2\"))
+              dpSet(id + \"_2.Config.GroupAuthentication\", groupIds);
+
+            break;
+          }
+        }
+      }
+    }
+  }
+  else if (strpos(info, GROUP_DRAG_PREFIX) == 0)
+  {
+    //TODO fill if UA groups should be assigned via drag and drop
+  }
+}
+
+void opcViewRightClick(shape tree, string id, int column)
+{
+  // Only show the context menu for views
+  if (dpExists(tree.parent(id)))
+  {
+    int answer;
+    dyn_string menu = makeDynString(\"PUSH_BUTTON\", getCatStr(\"cnsEditor\", \"cnsEditor_removeViewAssignment\"), 1, TRUE);
+
+    popupMenu(menu, answer);
+
+    switch (answer)
+    {
+      case 1: removeOpcView(id); break;
+    }
+  }
+}
+
+
+
+void cbRedu(string dpe1, bool host1Active, string dpe2, bool host2Active)
+{
+  bool reduStateChanged = false;
+  if(!host1Active && !host2Active || host1Active && host2Active) //should never be, take the first
+  {
+    if(!reduHost1Active)
+    {
+      reduHost1Active = true;
+      reduHost2Active = false;
+      reduStateChanged = true;
+    }
+  }
+  else if(host1Active && !host2Active &&       //host 1 is now active
+          !reduHost1Active && reduHost2Active) //host 2 was active
+  {
+    reduHost1Active = true;
+    reduHost2Active = false;
+    reduStateChanged = true;
+  }
+  else if(!host1Active && host2Active &&       //host 2 is now active
+          reduHost1Active && !reduHost2Active) //host 1 was active
+  {
+    reduHost1Active = false;
+    reduHost2Active = true;
+    reduStateChanged = true;
+  }
+
+  if(!reduStateChanged)
+    return;
+
+  opcTree.updatesEnabled = false;
+
+  dyn_string opcDPs = mappingKeys(opcViews);
+  for(int i = 1; i <= dynlen(opcDPs); ++i)
+  {
+    string dp;
+    dyn_uint states;
+    if(reduHost1Active && !isReduDp(opcDPs[i]))
+    {
+      dp = opcDPs[i];
+      states = opcStates[opcDPs[i]];
+    }
+    else if (reduHost2Active && isReduDp(opcDPs[i]))
+    {
+      dp = opcDPs[i];
+      dp = substr(dp, 0, strlen(dp) - 2);
+      states = opcStates[opcDPs[i]];
+    }
+    else
+      continue;
+
+    setStatesForDP(dp, opcViews[opcDPs[i]], states);
+  }
+
+  opcTree.updatesEnabled = true;
+}
+
+void cbWork(anytype userData, dyn_dyn_anytype data)
+{
+  string type = userData;
+
+  opcTree.updatesEnabled = FALSE;
+
+  // Skip the header
+  for (int i = 2; i <= dynlen(data); i++)
+  {
+    string     server = dpSubStr(data[i][1], DPSUB_SYS);
+    string     dp     = dpSubStr(data[i][1], DPSUB_SYS_DP);
+    dyn_string views  = data[i][2];
+    dyn_int    states = data[i][3];
+    bool       reduDp = isReduDp(dp);
+
+    // Store the current views for this opc dp,
+    // so a modification does not require a retrieval
+    opcViews[dp] = views;
+    opcStates[dp] = states;
+
+    if(reduHost1Active && reduDp ||  //don't use this DP, it's not the active one
+       reduHost2Active && !reduDp)
+      continue;
+
+    // The id in the tree is always without '_2'
+    if (reduDp && reduHost2Active)
+    {
+      dp = substr(dp, 0, strlen(dp) - 2);
+      if(mappingHasKey(opcViews, dp)) //the _2 dp does not hold any view information, use it from the original dp
+        views = opcViews[dp];
+    }
+
+    // Add the OPC server
+    if (!opcTree.itemExists(dp))
+    {
+      opcTree.appendItemNC(type, dp, dpSubStr(dp, DPSUB_DP));
+      opcTree.setOpen(dp, TRUE);
+      opcTree.setIcon(dp, 0, ICON_ITEM_DP);
+      opcTree.setDropEnabled(dp, TRUE);
+      opcTree.setExpandable(dp, TRUE);
+    }
+    else
+    {
+      // Remove all views, they could have been removed
+      dyn_string children = opcTree.children(dp);
+      opcTree.removeItems(children);
+      opcTree.setOpen(dp, TRUE);
+    }
+
+    setStatesForDP(dp, views, states);
+  }
+
+  opcTree.updatesEnabled = TRUE;
+}
+
+void setStatesForDP(string &dp, dyn_string &views, dyn_int &states)
+{
+  for (int j = 1; j <= dynlen(views); j++)
+  {
+    int    state = 0;           // Sofar the state is unknown
+    string view  = cnsSubStr(views[j], CNSSUB_VIEW);
+    string sys   = cnsSubStr(views[j], CNSSUB_SYS);
+
+    if (sys == \"\")
+    {
+      sys = cnsSubStr(server, CNSSUB_SYS);
+    }
+
+    view = sys + \".\" + view;
+
+    // Remove the possible trailing ':'
+    if (views[j][strlen(views[j]) - 1] == ':')
+    {
+      views[j] = substr(views[j], 0, strlen(views[j]) - 1);
+    }
+
+    // Get the state of this view
+    if (dynlen(states) >= j)
+    {
+      state = states[j];
+    }
+
+    string id = view + OPC_VIEW_SEPARATOR + dp;
+
+    // If needed add the view
+    if (!opcTree.itemExists(id))
+    {
+      opcTree.appendItemNC(dp, id, views[j]);
+    }
+
+    // Show the state of the view
+    opcTree.setIcon(id, 0, getOpcViewStateIcon(state));
+    opcTree.setToolTip(id, 0, getOpcViewStateText(state));
+  }
+}
+
+void initOpcTree(shape tree)
+{
+  tree.showHeader(FALSE);
+  tree.clear();
+
+  if (tree.columns() <= 0)
+  {
+    tree.addColumn(\"NAME\");
+    //tree.addColumn(\"STATE\");
+    //tree.addColumn(\"STATE_2\");
+  }
+
+  tree.appendItemNC(\"\", \"DA\", \"OPC DA/HDA\");
+  tree.setIcon(\"DA\", 0, ICON_ITEM_DPTYPE);
+  tree.setExpandable(\"DA\", true);
+  tree.setOpen(\"DA\", true);
+  tree.appendItemNC(\"\", \"UA\", \"OPC UA\");
+  tree.setIcon(\"UA\", 0, ICON_ITEM_DPTYPE);
+  tree.setExpandable(\"UA\", true);
+  tree.setOpen(\"UA\", true);
+
+  // Perhaps need to check if user has permission to change this configuration
+}
+
+bool isReduSystem(string systemName)
+{
+  int answer;
+
+  isRemoteSystemRedundant(answer, systemName);
+
+  return answer == 1;
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 1
+"tfSystemName"
+"WF_Transparent"
+1 270 618 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  368 597 736 626
+2 "0s" 0 0 0 0 0 -1  E E E
+14 2
+"tfSystemDisplayName"
+"WF"
+1 277.858407079646 645.7127659574468 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  368 627 711 656
+2 "0s" 0 0 0 0 0 -1  E E E
+2 3
+"txtSystemDisplayName"
+"WF"
+1 276.858407079646 634.9255319148936 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 276.858407079646 634.9255319148936 354 649
+0 2 2 "0s" 0 0 0 192 0 0  276.858407079646 634.9255319148936 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 System name:
+LANG:10004 13 系统名称:
+LANG:10000 11 Systemname:
+LANG:10027 22 Имя системы:
+2 4
+"txtSystemName"
+"WF"
+1 276.858407079646 605 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 276.858407079646 605 337 619
+0 2 2 "0s" 0 0 0 192 0 0  276.858407079646 605 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 System ID:
+LANG:10004 9 系统ID:
+LANG:10000 10 System ID:
+LANG:10027 20 ИД системы:
+13 16
+"btnSystemDisplayNameEdit"
+"WF"
+1 752.858407079646 653.9255319148936 E E E 0 E 1 E N "_ButtonText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  707 627 736 656
+
+P 
+4294967295
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langEditor(lsSystemDisplay);
+  tfSystemDisplayName.text = lsSystemDisplay;
+  
+  while ( cns_checkName(lsSystemDisplay) == -1 )
+  {
+    notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_checkName\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                           makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+      
+    langEditor(lsSystemDisplay);
+    tfSystemDisplayName.text = lsSystemDisplay;
+  }
+  
+  cnsEditor_systemDisplaynameChanged(sSystem, lsSystemDisplay);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 18
+"txtNodeName"
+"WF"
+1 50 675 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 50 675 833 723
+0 2 2 "0s" 0 0 0 192 0 0  50 675 3
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 99 In this panel the available CNS views can be assigned to an OPC server data point by drag and drop.
+LANG:10004 93 在此面板中，可用的CNS视图可以通过拖放方式分配给OPC服务器数据点。
+LANG:10000 117 In diesem Panel können die vorhandenen CNS Views mittels Drag and Drop einem OPC Serverdatenpunkt zugeordnet werden.
+LANG:10027 199 В данной панели можно назначить доступные представления CNS точке данных сервера OPC с помощью перетаскивания.
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 125 After the view assignment was changed, a restart of the respective OPC server is necessary so that the change becomes active.
+LANG:10004 87 视图分配更改后，需要重新启动相应的OPC服务器，以便更改生效。
+LANG:10000 110 Damit die Änderung einer Viewzuordnung wirksam wird ist ein Neustart des jeweiligen OPC Servers erforderlich.
+LANG:10027 234 После изменения назначения представления необходимо перезапустить соответствующий сервер OPC, чтобы изменения вступили в силу.
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 123 If no CNS view is assigned to an OPC server data point the access to the WinCC OA data is based on the according DP groups.
+LANG:10004 103 如果没有为OPC服务器数据点分配CNS视图，则WinCC OA数据的访问基于相应的DP组。
+LANG:10000 136 Ist einem OPC Serverdatenpunkt keine CNS View zugeordnet erfolgt der Zugriff auf die WinCC OA Daten über die entsprechenden DP-Gruppen.
+LANG:10027 253 Если точке данных сервера OPC не назначено представлений CNS, доступ к данным WinCC OA осуществляется по настройкам в соответствующих DP-группах.
+14 25
+"SYSTEM_NAME"
+"WF_Transparent"
+1 -22.94985250737466 32.5 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  118 16.5 485.9999999999999 45.5
+2 "0s" 0 0 0 0 0 -1  E E E
+2 26
+"txtViewSystem"
+"WF_Transparent"
+1 29 24 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 29 24 90 38
+0 2 2 "0s" 0 0 0 192 0 0  29 24 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 System ID:
+LANG:10004 9 系统ID:
+LANG:10000 10 System ID:
+LANG:10027 20 ИД системы:
+29 35
+"OPC_TREE"
+"WF"
+1 -1 150 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"alternatingRowColors" "bool TRUE"
+"selectionMode" "enum 3"
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, string id, int column)
+{
+  opcTreeDrop(information, dragType, id, column);
+}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -1 150 700 559
+10 TreeWidget
+1
+0 "rightClicked" "(string id, int column)"
+"  opcViewRightClick(this, id, column);"
+E2 38
+"PRIMITIVE_TEXT1"
+"WF_Transparent"
+1 29 59 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 29 59 97 73
+0 2 2 "0s" 0 0 0 192 0 0  29 59 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Server Type:
+LANG:10004 15 服务器类型
+LANG:10000 12 Server Type:
+LANG:10027 20 ИД системы:
+2 39
+"PRIMITIVE_TEXT2"
+"WF_Transparent"
+1 265 59 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 265 59 364 73
+0 2 2 "0s" 0 0 0 192 0 0  265 59 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 View Assignment:
+LANG:10004 12 分配视图
+LANG:10000 16 View Assignment:
+LANG:10027 20 ИД системы:
+20 41
+"OPC_TYPES"
+"WF"
+1 120 46 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 44 252 117
+2
+T 
+4
+LANG:10001 10 OPC DA/HDA
+LANG:10004 10 OPC DA/HDA
+LANG:10000 10 OPC DA/HDA
+LANG:10027 10 OPC DA/HDA
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 OPC UA
+LANG:10004 6 OPC UA
+LANG:10000 6 OPC UA
+LANG:10027 6 OPC UA
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  string serverType;
+
+  switch (button)
+  {
+    case 0: serverType = \"DA\"; break;
+    case 1: serverType = \"UA\"; break;
+  }
+
+  if (serverType != \"\")
+  {
+    OPC_TREE.setVisible(serverType, (bool)state);
+  }
+}" 0
+20 42
+"OPC_VIEW_FILTER"
+"WF"
+1 387 46 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  385 44 558 117
+2
+T 
+4
+LANG:10001 21 Data points with view
+LANG:10004 24 带有视图的数据点
+LANG:10000 21 Data points with view
+LANG:10027 21 Data points with view
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 24 Data points without view
+LANG:10004 27 不带有视图的数据点
+LANG:10000 24 Data points without view
+LANG:10027 24 Data points without view
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  showItems(opcTree, button == 0, state);
+}
+
+void showItems(shape tree, bool withChildren, bool show)
+{
+  tree.updatesEnabled = FALSE;
+
+  dyn_string children = tree.children(\"DA\");
+  dynAppend(children, tree.children(\"UA\"));
+
+  for (int i = 1; i <= dynlen(children); i++)
+  {
+    string id = children[i];
+
+    bool hasChildren = dynlen(tree.children(id)) > 0;
+
+    if (withChildren == hasChildren)
+    {
+      tree.setVisible(id, show);
+    }
+  }
+
+  tree.updatesEnabled = TRUE;
+}
+
+" 0
+1 43 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignNone"
+"" ""
+"vision/cns/objects_parts/ref_cnsViewFilter.pnl" 696 -0.25 T 47 1 0 1 4 0.25
+1
+"$id""$id"
+0

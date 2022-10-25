@@ -1,0 +1,2084 @@
+V 14
+4
+LANG:10001 14 KPI Definition
+LANG:10004 24 关键绩效指标定义
+LANG:10000 14 KPI Definition
+LANG:10027 14 KPI Definition
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/util\"
+#uses \"SmartSCADA/util/ssc_license\"
+
+main()
+{
+  if ( !ssc_CheckLicense(SSC_LIC_KPI) )
+  {
+    BT_DELETE.enabled(false);
+    BT_DELETE_PARAM.enabled(false);
+    BT_NEW.enabled(false);
+    BT_NEW_PARAM.enabled(false);
+    BT_PARA_UPDATE.enabled(false);
+    btn_abs.enabled(false);
+    btn_division.enabled(false);
+    btn_exp.enabled(false);
+    btn_log.enabled(false);
+    btn_log10.enabled(false);
+    btn_minus.enabled(false);
+    btn_multiply.enabled(false);
+    btn_plus.enabled(false);
+    btn_pow.enabled(false);
+    btn_sqrt.enabled(false);
+    btn_sum.enabled(false);
+    CTL_FORMULA.enabled(false);
+    tbl_parameter.enabled(false);
+    TF_PARAMETER.enabled(false);
+    TF_KPI.enabled(false);
+    casc_kpiFunctions.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"KPI\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+
+  _loadTable(false);
+
+  //checking for permission bits and setting the availability of elements acordingly
+  if(!getUserPermission(SSC_USER_PERMISSION_KPI))
+  {
+    BT_DELETE.enabled(false);
+    BT_DELETE_PARAM.enabled(false);
+    BT_NEW.enabled(false);
+    BT_NEW_PARAM.enabled(false);
+    BT_PARA_UPDATE.enabled(false);
+    btn_abs.enabled(false);
+    btn_division.enabled(false);
+    btn_exp.enabled(false);
+    btn_log.enabled(false);
+    btn_log10.enabled(false);
+    btn_minus.enabled(false);
+    btn_multiply.enabled(false);
+    btn_plus.enabled(false);
+    btn_pow.enabled(false);
+    btn_sqrt.enabled(false);
+    btn_sum.enabled(false);
+    CTL_FORMULA.enabled(false);
+    tbl_parameter.enabled(false);
+    TF_PARAMETER.enabled(false);
+    TF_KPI.enabled(false);
+    casc_kpiFunctions.enabled(false);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  80 40
+""0  1
+E "/*
+Author: Fei Li, lifei@siemens.com
+KPI definition panel.
+
+Copyright (C) Siemens AG 2015. All Rights Reserved.
+*/
+
+#uses \"SmartSCADA/util/util\"
+#uses \"SmartSCADA/kpi/libKPI\"
+#uses \"SmartSCADA/kpi/kpiDefinition\"
+
+const string C_KPI = \"cKPI\";
+const string C_DESCRIPTION = \"cDescription\";
+
+dyn_string parametersUsedInKPI;
+
+bool KPIParametersChanged = false;
+int rowInFocus = -1;
+bool paraInEdit = false;
+bool firstScriptChange = true; //when initializing a script editor it triggers the textChanged function, we don't want that
+bool scriptKpiLoadChange = false; //everytime the kpi is changed the script editor triggers the textChanged function, we don't want that
+
+void _loadKPI(string kpi)
+{
+  if(dpExists(kpi))
+  {
+    string kpiFunc;
+    dpGet(kpi+SSC_KPIFUNC_DPE, kpiFunc);
+    dyn_string parameters;
+    dpGet(kpi+SSC_KPIPARAMS_DPE, parameters);
+    dyn_string deleteBtn;
+
+		scriptKpiLoadChange = true;
+	  CTL_FORMULA.plainText(kpiFunc);
+
+		//register parameters used in formula to global variable
+		dyn_string functionCalls;
+		parseParameters(kpiFunc, parametersUsedInKPI, functionCalls);
+
+		int lines = sizeof(parameters);
+    for(int i = 0; i < lines; i++)
+    {
+      dynAppend(deleteBtn, \"x\");
+    }
+		tbl_parameter.deleteAllLines();
+		tbl_parameter.appendLines(lines, \"parameter\", parameters);
+    TF_PARAMETER.text(\"\");
+
+    _resetInEdit();
+  }
+  else
+  {
+    ssc_showWarning(\"Load KPI\", getCatStr(\"ssc_errors\", \"00026\"));
+    wf_bottomBar_reload();
+  }
+}
+
+bool _checkInEdit()
+{
+//   return paraInEdit || TE_FORMULA.modified();
+	return paraInEdit;
+  wf_bottomBar_reload();
+}
+
+void _resetInEdit()
+{
+//   TE_FORMULA.modified(false);
+  paraInEdit = false;
+  wf_bottomBar_reload();
+}
+
+void _loadTable()
+{
+  dyn_string kpis;
+  int numKPIs = ssc_getKPIDefList(kpis);
+
+  string description;
+  TABLE_KPI.deleteAllLines();
+  for(int i=1;i<=numKPIs;i++)
+  {
+    dpGet(kpis[i]+SSC_KPIDISPLAY_DPE,description);
+    TABLE_KPI.appendLine(C_KPI,kpis[i],
+                         C_DESCRIPTION,description);
+  }
+}
+
+//Panel Save funktion
+int panelSave()
+{
+  string kpiInEdit = TABLE_KPI.cellValueRC(rowInFocus,C_KPI);
+
+  //if(TE_FORMULA.text()!=\"\")
+	if(CTL_FORMULA.plainText != \"\" && !stringIsWhitespace(CTL_FORMULA.plainText))
+  {
+		if(checkSyntax())
+    {
+  		int ret = ssc_defineKPI(kpiInEdit, CTL_FORMULA.plainText, tbl_parameter.getColumnN(0),
+                          TABLE_KPI.cellValueRC(rowInFocus,C_DESCRIPTION));
+      if(ret<0)
+      {
+        ssc_showWarning(\"Define KPI\", getCatStr(\"ssc_errors\", \"00024\"));
+        return -1;
+      }else
+      {
+        _resetInEdit();
+        SSCDebugN(\"KPI saved: \"+kpiInEdit);
+        return 0;
+      }
+    }
+    else
+    {
+      return -1;
+    }
+  }else
+  {
+    ssc_showWarning(\"Define KPI\", getCatStr(\"ssc_errors\", \"00025\"));
+    return -1;
+  }
+}
+
+int isPanelChanged()
+{
+  if (paraInEdit)
+    return WF_PANEL_CHANGED;
+  else
+    return WF_PANEL_NO_CHANGE;
+}
+
+//----------------------------------------------------------------------------------------------
+
+/**
+@author Joshua Hercher joshua.hercher@etm.at
+The Function checks if the give string is only containing whitespace
+@param text the string to be checked
+@return if there is only whitespace true is returned otherwise false
+*/
+bool stringIsWhitespace(string text)
+{
+  if(text == \"\"){
+    return true;
+  }
+
+  for(int i = 1; i <= uniStrLen(text); i++){
+    if(!patternMatch(\"[ \\n\\t]\", text[i]))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+//----------------------------------------------------------------------------------------------
+
+/**
+@author Joshua Hercher joshua.hercher@etm.at
+The Function checks the script in the formula editor for syntaxerrors and invalid parameters.
+@return if syntax is correct returns TRUE, else FALSE
+*/
+bool checkSyntax()
+{
+	dyn_string parameters;
+	dyn_string usedParameters;
+  dyn_string functionCalls;
+	dyn_int toDelete;
+	string scriptString;
+	string plainScript;
+	string funcStart = \"func(){\";
+	string funcEnd = \";}\";
+	bool correctSyntax;
+
+	// 	parameters = SL_PARAMETERS.items();
+	parameters = tbl_parameter.getColumnN(0);
+	plainScript = CTL_FORMULA.plainText();
+
+	//Syntaxcheck if only the parameters are used
+	parseParameters(plainScript, usedParameters, functionCalls);
+
+	//check if used parameters are valid parameters
+	for(int i = 1; i <= sizeof(usedParameters); i++)
+	{
+		if(dynContains(parameters, usedParameters[i])	== 0)
+		{
+			 notificationBar_newMsg(\"ssc_wizards\", \"kpi0002\", NOTIFICATION_BAR_PRIO_ERROR, 02,
+                           makeDynString(usedParameters[i]), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+			return false;
+		}
+	}
+	//check if functions are defined
+	for(int i = 1; i <= sizeof(functionCalls); i++)
+	{
+		if(isFunctionDefined(functionCalls[i]) == 0)
+		{
+			notificationBar_newMsg(\"ssc_wizards\", \"kpi0004\", NOTIFICATION_BAR_PRIO_ERROR, 04,
+                          makeDynString(functionCalls[i]), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+			return false;
+		}
+	}
+
+	//automatical Syntax Check via CTRL-function
+	scriptString = funcStart + plainScript + funcEnd;
+
+	correctSyntax = checkScript(scriptString);
+
+	if(!correctSyntax)
+	{
+		notificationBar_newMsg(\"ssc_wizards\", \"kpi0001\", NOTIFICATION_BAR_PRIO_ERROR, 01,
+	                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+		return false;
+	}
+
+	notificationBar_newMsg(\"ssc_wizards\", \"kpi0003\", NOTIFICATION_BAR_PRIO_INFO, 03,
+	                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+	return true;
+}
+
+/**
+	@author Joshua Hercher joshua.hercher@etm.at
+  @param s the string is checked if it only contains numbers or decimal point
+  @return if the string is a number TRUE, if it contains letters FALSE
+*/
+bool numberCheck(string s)
+{
+  string allowed = \"1234567890.\";
+  for(int i = 0; i < strlen(s); ++i)
+	{
+    if(strpos(allowed, s[i]) == -1)
+		{
+      return false;
+		}
+	}
+  return true;
+}
+
+/**
+	@author Joshua Hercher joshua.hercher@etm.at
+	This function parses the formula editor of the KPI Wizard and extract all parameters used in this script
+  @param plainScript : the Script that should be parsed as a string
+  @param usedParameters : return value, variable which will contain the parameters used in the script
+  @param functionCalls : return value, a list of functionNames used in the script
+*/
+void parseParameters(string plainScript, dyn_string &usedParameters, dyn_string &functionCalls)
+{
+	usedParameters = strsplit(plainScript, \";<>()+*-/%, =&|\\\"!\\n\\t\");
+
+	//remove parts that are no parameters
+	for(int i = 1; i <= sizeof(usedParameters); i++)
+	{
+		int position;
+		position = strpos(plainScript, usedParameters[i]);
+
+		//remove empty string
+		if(usedParameters[i] == \"\")
+		{
+			dynRemove(usedParameters, i);
+			i--;
+		}
+		//remove numbers
+		else if(numberCheck(usedParameters[i]))
+		{
+      plainScript = substr(plainScript, strlen(usedParameters[i]));
+			dynRemove(usedParameters, i);
+			i--;
+		}
+
+		//remove function call
+		else if(plainScript[position + strlen(usedParameters[i])] == \"(\" || searchFunction(plainScript, usedParameters[i], position))
+		{
+			dynAppend(functionCalls, usedParameters[i]);
+      plainScript = substr(plainScript, strlen(usedParameters[i]));
+			dynRemove(usedParameters, i);
+			i--;
+		}
+    else
+    {
+      plainScript = substr(plainScript, strlen(usedParameters[i]));
+    }
+	}
+}
+
+/*@author Joshua Hercher joshua.hercher@etm.at
+  Function searches for function calls in a script by looking for letters and numbers sperated from \"(\" by whitespace
+  @param plainScript the whole script containing the parameter
+  @param usedParameter the parameter which should be checked if it is a function call
+  @param the position of the parameter in the plainscript
+ */
+bool searchFunction(string plainScript, string usedParameter, int position)
+{
+  int endOfString = position + strlen(usedParameter);
+  int nextBracket = strpos(plainScript, \"(\", endOfString) - 1;
+  string whitespace = \" \\n\\t\";
+  bool function = true;
+
+  if(nextBracket > endOfString)
+  {
+    for(int i = endOfString; i <= nextBracket; i++)
+    {
+      if(strpos(whitespace, plainScript[i]) < 0)
+      {
+        function = false;
+        break;
+      }
+    }
+  }
+  else
+  {
+    function = false;
+  }
+  return function;
+}
+
+//----------------------------------------------------------------------------------------------
+
+void ssc_addParameter()
+{
+  dyn_string parameters = tbl_parameter.getColumnN(0);
+	string text = TF_PARAMETER.text();
+
+	if(dynContains(parameters, text) > 0){
+		notificationBar_newMsg(\"ssc_wizards\", \"kpi0006\", NOTIFICATION_BAR_PRIO_ERROR, 06,
+	                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+		return;
+	}
+
+  if(text!=\"\"){
+    if(!findForbiddenChars(text))
+    {
+  		tbl_parameter.appendLine(\"parameter\", text);
+      paraInEdit = true;
+      wf_bottomBar_reload();
+    }
+  }
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  @param text is matched against a blacklist of characters
+  @return in case there is a charactermatch returns true if not: false
+*/
+bool findForbiddenChars(string text)
+{
+  string whiteList = \"abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ\";
+  string numbers = \"0123456789\";
+  for(int i = 0; i < strlen(text); i++)
+  {
+    if(i == 0)
+    {
+      if(strpos(numbers, text[i]) >= 0)
+      {
+        //first char cannot be a number
+    		notificationBar_newMsg(\"ssc_errors\", \"00022\", NOTIFICATION_BAR_PRIO_WARNING, 22,
+    	                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+        return true;
+      }
+    }
+    if(!(strpos(whiteList, text[i]) >= 0) && !(strpos(numbers, text[i]) >= 0))
+    {
+      //notfound
+  		notificationBar_newMsg(\"ssc_errors\", \"00022\", NOTIFICATION_BAR_PRIO_WARNING, 22,
+  	                           makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+      return true;
+    }
+  }
+  //clean
+  return false;
+}
+
+//----------------------------------------------------------------------------------------------
+
+void ssc_addKPI()
+{
+  if(_checkInEdit())
+  {
+    ssc_showWarning(\"KPI in Edit\", getCatStr(\"ssc_errors\", \"00027\"));
+
+    return;
+  }
+
+  string kpiName = TF_KPI.text;
+
+  if(\"\"==kpiName)
+  {
+    return;
+  }
+
+  if(0==nameCheck(kpiName,NAMETYPE_DP))
+  {
+    if(!dpExists(kpiName))
+    {
+      if (strpos(kpiName,\"_mp_\") == 0)
+      {
+        dyn_float df;
+        dyn_string ds;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"da\",\"createdp\"),
+          makeDynString(getCatStr(\"da\",\"wrongname_mpdp\")), df, ds);
+        return;
+      }
+
+      else if ( dpExists( \"_mp_\" + SSC_KPI_TYPE_NAME) )
+      {
+        int iError;
+        dpCopyBufferClear();
+        dpCopy(\"_mp_\" + SSC_KPI_TYPE_NAME, kpiName, iError);
+      }
+      else
+      {
+        dpCreate(kpiName, SSC_KPI_TYPE_NAME);
+      }
+
+      dyn_errClass errors = getLastError();
+
+      if(dynlen(errors)>0)
+      {
+        errorDialog(errors);
+        return;
+      }
+
+      TABLE_KPI.appendLine(C_KPI,kpiName);
+      rowInFocus = TABLE_KPI.lineCount()-1;
+
+      TABLE_KPI.selectLineN(rowInFocus);
+
+      _loadKPI(kpiName);
+
+      TF_PARAMETER.enabled(true);
+      
+      TF_KPI.text = \"\";
+    }
+    else
+    {
+      ssc_showWarning(\"KPI exists\", getCatStr(\"ssc_errors\", \"00028\")+kpiName);
+    }//kpi exists
+  }
+  else
+  {
+    ssc_showWarning(\"KPI name check\", getCatStr(\"ssc_errors\", \"00029\")+kpiName);
+  }
+}
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+29 65
+"CTL_FORMULA"
+""
+1 963.3218997361478 199 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"textInteractionFlags" "enum 19"
+"acceptDrops" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  851 168 1280 529
+10 ScriptEdit
+1
+0 "textChanged" "()"
+"	//the first time the script is change (on initiallize) we don't want the para to say it changed
+	if(!firstScriptChange && !scriptKpiLoadChange)
+	{
+	  paraInEdit = true;
+	  wf_bottomBar_reload();
+	}
+	firstScriptChange = false;
+	scriptKpiLoadChange = false;
+
+	//keeping the parameters that are used in the formula uptodate
+	dyn_string functionCalls;
+	parseParameters(this.plainText, parametersUsedInKPI, functionCalls);"
+E14 64
+"wf_txtF_answer"
+""
+1 852.8786433650328 94.15422936224221 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  852 83 1004 117
+3 "0s" 0 0 0 0 0 -1  E E E
+14 63
+"wf_txtF_cmd"
+""
+1 852.8786433650328 47.15422936224215 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  852 36 1004 70
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+14 17
+"TF_PARAMETER"
+"WF"
+1 685.9458102156623 331.5649395259097 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E "main()
+{
+  //dont delete or update button wont work anymore
+}" 0
+ E
+0
+4
+LANG:10001 41 Press Enter to create a new KPI parameter
+LANG:10004 33 按 Enter 创建新的 KPI 参数
+LANG:10000 61 Um einen neuen KPI Parameter anzulegen, Eingabetaste drücken
+LANG:10027 41 Press Enter to create a new KPI parameter
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  558 503 852 532
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  dyn_int lines;
+  lines = TABLE_KPI.getSelectedLines;
+  if(sizeof(lines) < 1)
+  {
+    this.enabled(false);
+  }
+}" 0
+ "main()
+{
+  ssc_addParameter();
+}" 0
+
+13 18
+"BT_PARA_UPDATE"
+"WF_Transparent"
+1 745.4174434750989 362.6335097155076 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Update existing KPI parameter
+LANG:10004 23 更新现有 KPI 参数
+LANG:10000 40 Änderungen am KPI Parameter übernehmen
+LANG:10027 29 Update existing KPI parameter
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  573 529.9924197374658 602 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/apply.png"
+4
+LANG:10001 6 Update
+LANG:10004 7 更新 
+LANG:10000 6 Update
+LANG:10027 6 Update
+"main()
+{
+
+	dyn_int pos;
+	string oldText;
+  pos = tbl_parameter.getSelectedLines;
+  if(sizeof(pos) > 0)
+  {
+  	getValue(\"tbl_parameter\", \"cellValueRC\", pos[1], \"parameter\", oldText);
+    string text = TF_PARAMETER.text();
+
+  	//check if parameter is used in Formula
+  	if(dynContains(parametersUsedInKPI, oldText) > 0)
+  	{
+  		ssc_showWarning(\"Parameter in use\", getCatStr(\"ssc_wizards\", \"kpi0005\"));
+  		return;
+  	}
+
+    if(text!=\"\" && text!=oldText){
+  		tbl_parameter.cellValueRC(pos[1], \"parameter\", text);
+      paraInEdit = true;
+      wf_bottomBar_reload();
+    }
+  }
+}
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"apply\");
+}" 0
+
+13 26
+"BT_NEW"
+"WF_Transparent"
+1 13.7381087274386 538.5059288553003 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Add new KPI
+LANG:10004 10 新建 KPI
+LANG:10000 21 Neuen KPI hinzufügen
+LANG:10027 11 Add new KPI
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+0  13 529.9924197374658 42 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 6 Create
+LANG:10027 6 Create
+"main()
+{
+  ssc_addKPI();
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"add\");
+}" 0
+
+25 30
+"TABLE_KPI"
+"WF"
+1 -54.03332222957978 -108.912898012317 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main(int row, string column)
+{
+  if(C_DESCRIPTION==column)
+  {
+    langString lang_description;
+    dyn_string d_description;
+    string kpi;
+    dyn_anytype test;
+
+    kpi = this.cellValueRC(row, \"cKPI\");
+
+    dpGet(kpi + \".displayName\", lang_description);
+
+    langEditor(lang_description);
+
+    d_description = lang_description;
+
+    this.cellValueRC(row, column, d_description[getActiveLang() + 1]);
+
+    dpSet(kpi + \".displayName\", lang_description);
+  }
+}
+" 0
+
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  int row;
+  dyn_int rows;
+  rows = TABLE_KPI.getSelectedLines();
+  if(dynlen(rows) > 0)
+  {
+    row = rows[1];
+    if(row != rowInFocus)
+    {
+      if(_checkInEdit())
+      {
+        ssc_showWarning(\"KPI in Edit\", getCatStr(\"ssc_errors\", \"00027\"));
+
+        TABLE_KPI.selectLineN(rowInFocus);
+        return;
+      }else
+      {
+        rowInFocus = row;
+        _loadKPI(TABLE_KPI.cellValueRC(rowInFocus,C_KPI));
+      }
+    }
+  }
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 23 562 475
+"main()
+{
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  this.vScrollBarMode(\"AlwaysOn\");
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+}" 0
+"main(int row, string column, string value)
+{
+
+  if(row!=rowInFocus)
+  {
+    if(_checkInEdit())
+    {
+      ssc_showWarning(\"KPI in Edit\", getCatStr(\"ssc_errors\", \"00027\"));
+
+      TABLE_KPI.selectLineN(rowInFocus);
+      return;
+    }else
+    {
+      rowInFocus = row;
+      _loadKPI(TABLE_KPI.cellValueRC(rowInFocus,C_KPI));
+    }
+  }
+
+  if(C_DESCRIPTION==column && TABLE_KPI.namedColumnEditable(C_DESCRIPTION))
+  {
+     string kpi = this.cellValueRC(row,C_KPI);
+     dpSet(kpi+KPIDISPLAY_DPE,value);
+     TABLE_KPI.namedColumnEditable(C_DESCRIPTION, false);
+  }
+  if(getUserPermission(SSC_USER_PERMISSION_KPI))
+  {
+    TF_PARAMETER.enabled(true);
+  }
+}
+
+
+
+" 0
+ 1 0 1 2 0 "cKPI" 17 1 0 "s" 4
+LANG:10001 3 KPI
+LANG:10004 3 KPI
+LANG:10000 3 KPI
+LANG:10027 3 KPI
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+200 "cDescription" 30 1 0 "s" 4
+LANG:10001 11 Description
+LANG:10004 6 描述
+LANG:10000 12 Beschreibung
+LANG:10027 11 Description
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+344 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 40
+"BT_DELETE"
+"WF_Transparent"
+1 39 538.3650952543185 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 Delected selected KPI(s)
+LANG:10004 22 选定的选定 KPI）
+LANG:10000 28 Ausgewählte KPI(s) löschen
+LANG:10027 24 Delected selected KPI(s)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+0  38 529.9924197374658 67 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 6 Delete
+LANG:10027 6 Delete
+"main()
+{
+  if(rowInFocus>=0)
+  {
+    string kpiToDelete = TABLE_KPI.cellValueRC(rowInFocus,C_KPI);
+
+    if(kpiDefInUse(kpiToDelete))
+    {
+      return;
+    }    
+    
+    dyn_float resultFloat;
+    dyn_string resultString;
+
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"Delete KPI\",
+                                   makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"kpi00016\")+kpiToDelete,
+                                                 \"$2:\"+getCatStr(\"general\", \"yes\"), \"$3:\"+getCatStr(\"general\", \"no\")),
+                                   resultFloat,
+                                   resultString);
+
+//    SSCDebugN(\"panel result\",resultFloat, resultString);
+
+    if(\"true\"==resultString[1])
+    {
+      dpDelete(kpiToDelete);
+      paraInEdit = false;
+      wf_bottomBar_reload();
+      dyn_errClass errors = getLastError();
+      if(dynlen(errors)>0)
+      {
+        errorDialog(errors);
+      }
+      else
+      {
+        TABLE_KPI.deleteLineN(rowInFocus);
+        rowInFocus--;
+        TF_PARAMETER.enabled(false);
+        tbl_parameter.deleteAllLines();
+        CTL_FORMULA.plainText = \"\";
+        TABLE_KPI.deleteSelection();
+      }
+    }//confirm delete
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00030\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+
+bool kpiDefInUse(string kpiToDelete)
+{
+  dyn_dyn_anytype result;
+  string query = \"SELECT '_online.._value' FROM 'kpi*.configuration.kpiName' WHERE '_online.._value' == \\\"\" + kpiToDelete + \"\\\"\";
+    
+  dpQuery(query, result);
+    
+  if(dynlen(result) > 1)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"Delete KPI\",
+                             makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"kpi00019\") + kpiToDelete));
+    return true;
+  } 
+  
+  return false;
+}" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+6 42
+"RECTANGLE1"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 1.041754617927468 0 1 0 0 1 E 0 0 1237 24
+2 44
+"PRIMITIVE_TEXT13"
+""
+1 771.4864739848234 -313.4423284377608 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999999 0 1 2.513526015176691 -31.49957380209782 0 E 12.5107616348717 35.99914760419564 42 51
+0 2 2 "0s" 0 0 0 192 0 0  12.5107616348717 35.99914760419564 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 4 KPIs
+LANG:10004 4 KPIs
+LANG:10000 4 KPIs
+LANG:10027 4 KPIs
+2 45
+"PRIMITIVE_TEXT14"
+""
+1 3401.150065727367 -306.4361357772105 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 1 199.5389166807258 -30.73466554521708 0 E 375.9071892268912 35.46933109043417 503 50
+0 2 2 "0s" 0 0 0 192 0 0  375.9071892268912 35.46933109043417 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Edit KPI parameters
+LANG:10004 17 编辑 KPI 参数
+LANG:10000 23 Bearbeite KPI Parameter
+LANG:10027 19 Edit KPI parameters
+29 53
+"txt_infoconf"
+""
+1 909.7518094756521 35.3401945364444 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+17
+"wordWrap" "enum 1"
+"sizeAdjustPolicy" "enum 0"
+"wrapPolicy" "enum 0"
+"alignment" "enum 1"
+"horizontalScrollBarPolicy" "enum 0"
+"layoutDirection" "enum 0"
+"frameShape" "enum 0"
+"textInteractionFlags" "enum 1"
+"inputMethodHints" "enum 1024"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"contextMenuPolicy" "enum 1"
+"textFormat" "enum 2"
+"frameShadow" "enum 48"
+"readOnly" "bool TRUE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  860 35 1270 120
+15 PVSS.TextEdit.1
+0
+"main()
+{
+  string text = getCatStr(\"ssc_wizards\", \"kpi00015\");
+  this.text(text);
+}" 0
+6 55
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.339425587467363 0 0.878328468937313 -76.80678851174932 88.20078012453168 1 E 23 503 406 536
+2 58
+"PRIMITIVE_TEXT16"
+""
+1 3401.150065727367 -306.4361357772105 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 1 489 -30.73466554521708 0 E 375.9071892268912 35.46933109043417 624 50
+0 2 2 "0s" 0 0 0 192 0 0  375.9071892268912 35.46933109043417 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 38 Edit KPI parameter calculation formula
+LANG:10004 27 编辑KPI参数计算公式
+LANG:10000 31 Bearbeite KPI Berechnungsformel
+LANG:10027 38 Edit KPI parameter calculation formula
+13 66
+"btn_checkScript"
+"WF_Transparent"
+1 1169 188.5924197374658 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  1238 529.9924197374658 1267 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/dots.png"
+4
+LANG:10001 12 Check syntax
+LANG:10004 12 检查语法
+LANG:10000 19 Syntax überprüfen
+LANG:10027 12 Check syntax
+"#uses \"SmartSCADA/kpi/kpiFunctions\"
+
+main()
+{
+	checkSyntax();
+}
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"dots\");
+}" 0
+
+25 67
+"tbl_parameter"
+"WF"
+1 560 25.0348860098829 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"draggable" ""
+"DragStart" "main(int keys, int row, string column)
+{
+	string text;
+	getValue(\"tbl_parameter\", \"cellValueRC\", row, column, text);
+  dragStart(text);
+}"
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  TF_PARAMETER.text = tbl_parameter.cellValue;
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  557.9999999999999 23.00000000000001 851.9999999999999 475
+"main()
+{
+	this.tableMode(TABLE_SELECT_BROWSE);
+	this.selectByClick(TABLE_SELECT_LINE);
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+}
+
+" 0
+E 1 0 1 1 0 "parameter" 24 1 0 "s" 4
+LANG:10001 18 All KPI parameters
+LANG:10004 17 所有 KPI 参数
+LANG:10000 18 Alle KPI Parameter
+LANG:10027 18 All KPI parameters
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+273 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 4 7
+1 0
+13 70
+"btn_minus"
+"WF"
+1 880 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,50,0,0,0,0,0
+0  878 138 912 170
+
+T 
+4
+LANG:10001 1 -
+LANG:10004 1 -
+LANG:10000 1 -
+LANG:10027 1 -
+"main()
+{
+  CTL_FORMULA.insert(\"-\");
+}" 0
+ E E E
+13 71
+"btn_multiply"
+"WF"
+1 910 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,50,0,0,0,0,0
+0  908 138 942 170
+
+T 
+4
+LANG:10001 1 *
+LANG:10004 1 *
+LANG:10000 1 *
+LANG:10027 1 *
+"main()
+{
+  CTL_FORMULA.insert(\"*\");
+}" 0
+ E E E
+13 72
+"btn_plus"
+"WF"
+1 850 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,50,0,0,0,0,0
+0  848 138 882 170
+
+T 
+4
+LANG:10001 1 +
+LANG:10004 1 +
+LANG:10000 1 +
+LANG:10027 1 +
+"main()
+{
+  CTL_FORMULA.insert(\"+\");
+}" 0
+ E E E
+13 73
+"btn_division"
+"WF"
+1 940 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,50,0,0,0,0,0
+0  938 138 972 170
+
+T 
+4
+LANG:10001 1 /
+LANG:10004 1 /
+LANG:10000 1 /
+LANG:10027 1 /
+"main()
+{
+  CTL_FORMULA.insert(\"/\");
+}" 0
+ E E E
+13 75
+"btn_log10"
+"WF"
+1 1060 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  1058 138 1092 170
+
+T 
+4
+LANG:10001 5 log10
+LANG:10004 5 log10
+LANG:10000 5 log10
+LANG:10027 5 log10
+"main()
+{
+  CTL_FORMULA.insert(\"log10()\");
+}" 0
+ E E E
+13 76
+"btn_log"
+"WF"
+1 1030 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  1028 138 1062 170
+
+T 
+4
+LANG:10001 2 ln
+LANG:10004 2 ln
+LANG:10000 2 ln
+LANG:10027 2 ln
+"main()
+{
+  CTL_FORMULA.insert(\"log()\");
+}" 0
+ E E E
+13 77
+"btn_pow"
+"WF"
+1 1000 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  998 138 1032 170
+
+T 
+4
+LANG:10001 3 x^y
+LANG:10004 3 x^y
+LANG:10000 3 x^y
+LANG:10027 3 x^y
+"main()
+{
+  CTL_FORMULA.insert(\"pow(,)\");
+}" 0
+ E E E
+13 78
+"btn_sqrt"
+"WF"
+1 970 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,50,0,0,0,0,0
+0  968 138 1002 170
+
+T 
+4
+LANG:10001 3 √
+LANG:10004 3 √
+LANG:10000 3 √
+LANG:10027 3 √
+"main()
+{
+  CTL_FORMULA.insert(\"sqrt()\");
+}" 0
+ E E E
+13 79
+"btn_abs"
+"WF"
+1 1120 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  1118 138 1152 170
+
+T 
+4
+LANG:10001 3 abs
+LANG:10004 3 abs
+LANG:10000 3 abs
+LANG:10027 3 abs
+"main()
+{
+  CTL_FORMULA.insert(\"fabs()\");
+}" 0
+ E E E
+13 80
+"btn_exp"
+"WF"
+1 1090 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  1088 138 1122 170
+
+T 
+4
+LANG:10001 3 exp
+LANG:10004 3 exp
+LANG:10000 3 exp
+LANG:10027 3 exp
+"main()
+{
+  CTL_FORMULA.insert(\"exp()\");
+}" 0
+ E E E
+13 81
+"btn_sum"
+"WF"
+1 1150 148 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  1148 138 1182 170
+
+T 
+4
+LANG:10001 3 sum
+LANG:10004 3 sum
+LANG:10000 3 sum
+LANG:10027 3 sum
+"main()
+{
+  CTL_FORMULA.insert(\"ssc_kpi_histSum(,,)\");
+}
+" 0
+ E E E
+2 57
+"PRIMITIVE_TEXT15"
+""
+1 3401.150065727367 -306.4361357772105 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 1 199.5389166807258 446.276835542766 0 E 375.9071892268912 35.46933109043417 537 50
+0 2 2 "0s" 0 0 0 192 0 0  375.9071892268912 35.46933109043417 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 23 Enter new KPI parameter
+LANG:10004 23 输入新的 KPI 参数
+LANG:10000 28 Neuen KPI Parameter eingeben
+LANG:10027 23 Enter new KPI parameter
+13 82
+"BT_NEW_PARAM"
+"WF_Transparent"
+1 598.7381087274387 538.5059288553003 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Add new KPI parameter
+LANG:10004 23 添加新的 KPI 参数
+LANG:10000 31 Neuen KPI Parameter hinzufügen
+LANG:10027 21 Add new KPI parameter
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+0  598 529.9924197374658 627 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 6 Create
+LANG:10027 6 Create
+"main()
+{
+  ssc_addParameter();
+}
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"add\");
+}" 0
+
+4 85
+"LINE4"
+""
+1 850.0000000000001 0 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  850 0 850 559
+13 87
+"BT_DELETE_PARAM"
+"WF_Transparent"
+1 623.9999999999999 538.3650952543185 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Delete selected KPI parameter
+LANG:10004 26 删除选定的 KPI 参数
+LANG:10000 36 Ausgewählten KPI Parameter löschen
+LANG:10027 29 Delete selected KPI parameter
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,16,5,50,0,0,0,0,0
+0  622.9999999999999 529.9924197374658 651.9999999999999 558.9924197374658
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 6 Delete
+LANG:10027 6 Delete
+"main()
+{
+  dyn_int selectedLines = tbl_parameter.getSelectedLines();
+  if (dynlen(selectedLines) > 0)
+  {
+    int row = selectedLines[1];
+    string text = tbl_parameter.cellValueRC(row, \"parameter\");
+    if(dynContains(parametersUsedInKPI, text) > 0)
+    {
+        ssc_showWarning(\"Parameter in use\", getCatStr(\"ssc_wizards\", \"kpi0005\"));
+        return;
+    }
+    tbl_parameter.deleteLineN(row);
+    tbl_parameter.selectLineN(-1);
+    paraInEdit = true;
+    wf_bottomBar_reload();
+  }
+  else
+  {
+  		notificationBar_newMsg(\"ssc_errors\", \"00072\", NOTIFICATION_BAR_PRIO_WARNING, WF_ERR_NOTHING,
+  	                        makeDynString(), false, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+}
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"delete\");
+}" 0
+
+2 88
+"PRIMITIVE_TEXT1"
+""
+1 780 530 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.8432203389830508 0 0.608695652173913 368.6016949152542 214.8837240852919 0 E 780 530 1016 553
+0 2 2 "0s" 0 0 0 66 0 0  780 530 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Check syntax
+LANG:10004 12 检查语法
+LANG:10000 19 Syntax überprüfen
+LANG:10027 12 Check syntax
+14 92
+"TF_KPI"
+"WF"
+1 242.6399983827123 331.5649395259097 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+84 0 0 0 0 0
+E "main()
+{
+  //dont delete or update button wont work anymore
+}" 0
+ E
+0
+4
+LANG:10001 42 Press Enter to create a new KPI definition
+LANG:10004 33 按 Enter 创建新的 KPI 定义
+LANG:10000 60 Um eine neue KPI Definition anzulegen, Eingabetaste drücken
+LANG:10027 42 Press Enter to create a new KPI definition
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 503 562 532
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  ssc_addKPI();
+}
+" 0
+
+2 94
+"PRIMITIVE_TEXT19"
+""
+1 3401.150065727367 -306.4361357772105 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.9999999999999998 0 1 -360.4610833192741 446.276835542766 0 E 375.9071892268912 35.46933109043417 531 50
+0 2 2 "0s" 0 0 0 192 0 0  375.9071892268912 35.46933109043417 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 24 Enter new KPI definition
+LANG:10004 23 输入新的 KPI 定义
+LANG:10000 28 Neue KPI Definition eingeben
+LANG:10027 24 Enter new KPI definition
+4 96
+"LINE6"
+""
+1 0 530.006273320718 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  0 530.006273320718 1279 530
+4 97
+"LINE7"
+""
+1 4.440892098500626e-16 25 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  4.440892098500626e-16 25 1279 24.99372667928196
+4 99
+"LINE2"
+""
+1 560.0000000000001 0 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  560 0 560 559
+26 101
+"casc_kpiFunctions"
+"WF"
+1 1180 140 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 Predefined KPI functions
+LANG:10004 23 预定义的 KPI 函数
+LANG:10000 28 Vordefinierte KPI Funktionen
+LANG:10027 24 Predefined KPI functions
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  1178 138 1282 170
+ 0 4
+LANG:10001 12 functions...
+LANG:10004 9 函数...
+LANG:10000 13 Funktionen...
+LANG:10027 12 functions...
+"" 0 0 0 0 0
+ 0 "main()
+{
+  dyn_string kpiFunctions = makeDynString(\"\");
+  dyn_string kpiConfigs = dpNames(getSystemName() + \"*\", SSC_KPI_CONFIGURATION_TYPE);
+  int kpiConfigsCount = dynlen(kpiConfigs);
+  dyn_string kpiFunctionsPart;
+  for (int i = 1; i <= kpiConfigsCount; i++)
+  {
+    dpGet(kpiConfigs[i] + \".kpiFunctions\", kpiFunctionsPart);
+    dynAppend(kpiFunctions, kpiFunctionsPart);
+  }
+  
+  dynUnique(kpiFunctions);
+  dynSort(kpiFunctions);
+  if (kpiFunctions[1] == \"\")    // if kpiFunctions contains \"\", it must be at position 1
+  {
+    dynRemove(kpiFunctions, 1);
+  }  
+  
+  int kpiFunctionsCount = dynlen(kpiFunctions);
+  for (int i = 1; i <= kpiFunctionsCount; i++)
+  {
+    this.insertItemId(\"\", CB_ITEM, -1, i, kpiFunctions[i]);
+  }
+}" 0
+ "main(string id)
+{
+  string function;
+  getValue(this, \"textItemId\", id, function);
+  CTL_FORMULA.insert(function);
+}" 0
+0 
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

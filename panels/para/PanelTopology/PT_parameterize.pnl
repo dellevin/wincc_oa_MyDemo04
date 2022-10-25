@@ -1,0 +1,920 @@
+V 13
+4
+LANG:10001 23 Screen parameterization
+LANG:10004 18 屏幕参数配置
+LANG:10000 24 Bildschirmparametrierung
+LANG:10027 31 Настройка экрана
+PANEL,-1 -1 430 595 N "_3DFace" 1
+"$number"
+"main()
+{
+  num=$number;
+  initPanelVar();
+  ParseTemplateFolders();
+  initShapes();
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"CtrlPv2Admin\"
+
+//Subprojects to get all previews
+dyn_string strSubProjects;
+dyn_string PreviewFiles;
+//number of Screen (not Character)
+int num;
+
+//Lokal Panel values for global variables
+int resx,resy;  //Resolution for Screen
+string template,panel; //template
+string name,deftemp;
+dyn_string Lname,Rname;
+int   defresx,defresy;
+
+
+//return values of panel
+dyn_string ds_ret;
+dyn_float df_ret;
+
+
+
+
+void ParseTemplateFolders()
+{
+  string strSection = \"general\";
+  string strKeywordProjPath = \"proj_path\";
+  string strFile = getPath( CONFIG_REL_PATH, \"config\" );
+  dyn_string dstemp;
+  dyn_string dstempfiles;
+  dyn_string dsdir;
+  int t,j;
+  int pos;
+  string load;
+  
+  //get Subprojects + PVSS patj
+  dynClear(strSubProjects);
+  dynClear(PreviewFiles);
+  paCfgReadValueList( strFile, strSection, strKeywordProjPath, strSubProjects );
+  paCfgReadValueList( strFile, strSection, \"pvss_path\", dstemp );
+
+  cmb_ResXY.deleteAllItems(); 
+  
+  dynAppend(strSubProjects,dstemp);
+  
+  //get all Previews 
+  for( t = 1; t <= dynlen( strSubProjects ); t++)
+  {   
+    dsdir=getFileNames(strSubProjects[t] + \"/panels/para/PanelTopology/templates/\",\"*\",FILTER_DIRS);
+    
+    for(j=1;j <= dynlen(dsdir); j++)
+    {
+      dyn_string sTemplateParts;      
+      
+      dstempfiles=getFileNames(strSubProjects[t] + \"/panels/para/PanelTopology/templates/\"+dsdir[j]+\"/\",\"basePanel_*_*_\"+dsdir[j]+\".[px][nm][l]\");
+      
+      //fill available resolutions for selection, base on the currently selected template
+      if(sel_template.text == dsdir[j])
+      {  
+        
+        for(int x = 1; x <= dynlen(dstempfiles); x++)
+        {
+           sTemplateParts = strsplit(dstempfiles[x], \"_\");
+           
+           cmb_ResXY.appendItem(sTemplateParts[2]+\" x \"+sTemplateParts[3]);
+              
+        }
+      }
+    
+       if(dynlen(dstempfiles)>0)
+       {
+         dstempfiles=strsplit(dstempfiles[1],\"_\");
+         if(dynlen(dstempfiles)== 4) //=Correct base Panel name
+           dynAppend(PreviewFiles,dstempfiles[4]);
+       }    
+    }
+  }
+
+  dynUnique( PreviewFiles );
+  dynSortAsc( PreviewFiles );
+  
+  for(t = 1; t <= dynlen( PreviewFiles ); t++)
+  {   
+    PreviewFiles[t] = strtoupper(PreviewFiles[t] );
+    strreplace( PreviewFiles[t], \".PNL\", \"\" );
+    strreplace( PreviewFiles[t], \".XML\", \"\" );
+  }
+
+  //load default Template
+  if(template == \"DEFAULTTEMP\")
+  {
+    load=deftemp;
+    pos=dynContains(PreviewFiles,deftemp);
+
+  }
+  else  //load Template
+  {
+    load=template;
+    pos=dynContains(PreviewFiles,template);
+
+  }
+  
+  //Fill selection list
+  sel_template.items = PreviewFiles;
+  
+  //if not found then unload preview
+  //cstoeg: todo: maybe addSymbol() and load .pnl Datei
+  if(pos<=0)
+  {
+    sel_template.appendItem(load);
+    pos = sel_template.itemCount();
+    
+    ptms_UnLoadTemplatePreview();
+    txt_info.text(getCatStr(\"ptms_MultiMonitor\",\"noPreview\"));
+  }
+  else  //load template in preview field
+  {
+    ptms_LoadTemplatePreview(load);  
+  } 
+  
+  //set Selection List Position to template
+  setValue(\"sel_template\",\"selectedPos\",pos);
+  
+}
+
+//initialise the Panel variables
+void initPanelVar()
+{
+  template=g_dsTemplates[num];
+  resx=g_diXRes[num];
+  resy=g_diYRes[num];
+  Lname=g_dsLCharacters;
+  Rname=g_dsRCharacters;
+  name = g_dsCharacters[num];
+  deftemp = g_sDefaultTemplate;
+  defresx=g_iDefaultResX;
+  defresy=g_iDefaultResY;
+  panel = g_dsPanels[num];
+  
+}
+
+//save Configuration to global Variables
+int saveConfigForScreen()
+{
+  string temp=txt_name.text();
+ 
+  int i;
+  
+  if(dynContains(g_dsCharacters,temp) != num && dynContains(g_dsCharacters,temp) > 0)
+  {
+    ptms_showErrorMessage(\"ptms_MultiMonitor\",\"charUsed\"); 
+    return -1;
+  }
+  //panel to load
+  g_dsPanels[num]=panel;
+  //get Character    
+  g_dsCharacters[num]=temp;
+  
+  //get selected Template
+  g_dsTemplates[num]=template;
+  
+  //Look for resolution
+  if(rbox_auto.number() == 0)
+  {
+    g_diXRes[num]=-1;
+    g_diYRes[num]=-1; 
+  }
+  else  
+  {        
+    g_diXRes[num]=resx;
+    g_diYRes[num]=resy;
+  }
+  
+  //Change the Left and Right Characters
+  for(i=1;i<=dynlen(Lname);i++)
+  {
+    if(Lname[i] == name)
+    {
+      dynInsertAt(Lname,temp,i);
+      dynRemove(Lname,i+1);
+    }
+    if(Rname[i] == name)
+    {
+      dynInsertAt(Rname,temp,i);
+      dynRemove(Rname,i+1);
+    }
+  }
+  
+  g_dsLCharacters=Lname;
+  g_dsRCharacters=Rname;
+  
+  return 1;
+}
+
+//initalise the shapes of the panel
+void initShapes()
+{
+   
+  if(resx==0 || resy == 0)
+  {
+    rbox_auto.number(0);
+    cmb_RexXY.enabled = false;
+  }
+  else if(resx==-1 || resy == -1)
+  {
+    if(defresy == 0 || defresx == 0)
+    {
+      rbox_auto.number(0);
+      cmb_ResXY.enabled = false;
+    }
+    else
+    {    
+      rbox_auto.number(1);
+      ParseTemplateFolders();
+      cmb_ResXY.text = defresx+\" x \"+defresy;
+      cmb_ResXY.enabled(true); 
+    } 
+  }  
+  else
+  {
+    rbox_auto.number(1);
+    ParseTemplateFolders();
+    cmb_ResXY.text = resx+\" x \"+resy;
+    cmb_ResXY.enabled = true;
+  }
+  
+  txt_name.text = name;
+     
+}
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+      PanelOffReturn(df_ret,ds_ret);
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 6
+"brd_preview"
+""
+1 20 450 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+2
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -4.800000000000004 -140.0000000000002 0 E 29 328 410 602
+30 7
+"frm_preview"
+""
+1 10 459 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9547673172750412 0 0.8879909702264086 5.652326827249596 63.44108357283096 0 E 10 120 430 460
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Preview 
+LANG:10004 6 预览
+LANG:10000 8 Vorschau
+LANG:10027 24 Предпросмотр
+13 72
+"cmd_Cancel"
+""
+1 330 560 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  328 558 416 586
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+    PanelOffReturn(df_ret,ds_ret);
+}" 0
+ E E E
+13 73
+"cmd_OK"
+""
+1 240 560 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+53 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  238 558 326 586
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  int ret;
+  ret = saveConfigForScreen();
+  if(ret >= 0)
+    PanelOffReturn(df_ret,ds_ret);
+}" 0
+ E E E
+2 76
+"PRIMITIVE_TEXT6"
+""
+1 532.5 484.8847736625515 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 304.5 132 349.5 162
+0 2 2 "0s" 0 0 0 64 0 0  304.5 132 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 3 pix
+LANG:10004 6 像素
+LANG:10000 3 pix
+LANG:10027 9 пикс.
+30 77
+"FRAME1"
+""
+1 10 110 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9548872180451122 0 1.526385736630763 5.651127819548879 -1.119286831538116 0 E 10 50 430 110
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Screen resolution 
+LANG:10004 15 屏幕分辨率
+LANG:10000 20 Bildschirmauflösung
+LANG:10027 33 Разрешение экрана
+30 78
+"frm_template"
+""
+1 10 110 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9548872180451122 0 0.9743283582089548 5.651127819548879 -41.11641791044773 0 E 10 50 430 110
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Template selection
+LANG:10004 12 模板选择
+LANG:10000 15 Vorlagenauswahl
+LANG:10027 25 Выбор шаблона
+22 79
+"sel_template"
+""
+1 45.16815286624203 -89.00000000000006 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 28 407 54
+0
+
+E
+"main()
+{
+  string strTemplate;
+  int pos;
+  string temp=this.selectedText(); //get Selected Template
+  pos=dynContains(PreviewFiles,temp);
+  template = temp;
+  
+  ParseTemplateFolders();  
+  
+  if(pos>0)
+  {  
+    ptms_LoadTemplatePreview(temp);
+  }
+  
+  else
+  {   
+    ptms_UnLoadTemplatePreview();
+  }
+  
+}" 0
+
+E
+ 0 0
+19 80
+"rbox_auto"
+""
+1 25 100 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 98 127 162
+2
+T 
+4
+LANG:10001 9 Automatic
+LANG:10004 6 自动
+LANG:10000 11 automatisch
+LANG:10027 15 Автомат.
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Manual
+LANG:10004 6 手动
+LANG:10000 7 manuell
+LANG:10027 14 Вручную
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  cmb_ResXY.enabled(this.number());
+  
+  if(this.number())
+  {
+    
+    ParseTemplateFolders();    
+    
+    string sResXY = cmb_ResXY.text;
+    dyn_string dsXY = strsplit(sResXY, \" x \");
+  
+    resx = dsXY[1]; // Write back the x-coordinate to the global var
+    resy = dsXY[4]; // Write back the y-coordinate to the global var
+    
+  }
+  else
+  {
+    resx = -1;
+    resy = -1;
+  }
+  
+  ParseTemplateFolders();
+  
+}
+
+" 0
+
+2 82
+"txt_info"
+""
+1 85.2 319.9999999999999 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 85.2 319.9999999999999 355.2 349.9999999999999
+0 2 2 "0s" 0 0 0 65 0 0  85.2 319.9999999999999 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 example
+LANG:10004 6 示例
+LANG:10000 8 Beispiel
+LANG:10027 12 Пример
+14 84
+"txt_name"
+""
+1 178 512 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  328 478 416 506
+3 "1s" 1 0 0 2 0 -1  E E E
+2 85
+"txt_Char"
+""
+1 215 482 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 215 482 325 502
+0 2 2 "0s" 0 0 0 66 0 0  215 482 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Screen Name:
+LANG:10004 13 屏幕名称:
+LANG:10000 15 Bildschirmname:
+LANG:10027 20 Имя экрана:
+13 88
+"cmdDefault"
+""
+1 180 560 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  173 508 201 536
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{  
+  template = \"DEFAULTTEMP\";
+  sel_template.deleteAllItems();
+  ParseTemplateFolders();
+  
+  resx = -1;
+  resy = -1;
+  initShapes();
+  
+}" 0
+ E E E
+13 89
+"PUSH_BUTTON1"
+""
+1 180 530 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  173 478 201 506
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  dyn_string dsInfos;
+  int posPT;
+  string sys = getSystemName();
+  strreplace(sys,\":\",\"\");
+  string param;
+  
+  if(panel == \"DEFAULTPT\")
+    posPT = 1;
+  else
+  {
+    dsInfos = strsplit(panel,\"|\");
+    posPT = dsInfos[1];
+  }
+  
+  
+  ChildPanelOnCentralModalReturn(\"para/msc/msc_selectPanel.pnl\",
+  getCatStr(\"pt\",\"onlinepara\"),makeDynString(\"$pos:\"+posPT),df,ds);
+    
+  
+  if(dynlen(df))
+  {
+    posPT = df[1]; //convert to int    
+    if(dynlen(ds))
+      param = ds[1];
+    else
+      param = \"\";
+    
+    panel = posPT+\"|\"+sys+\"|\"+param;
+  }
+  
+  
+}" 0
+ E E E
+1 99 1 "" 0
+0
+2 94
+"PRIMITIVE_TEXT8"
+""
+1 168 483.3333333333333 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 12 483.3333333333333 168 498
+0 2 2 "0s" 0 0 0 194 0 0  168 483.3333333333333 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 Start panel for screen
+LANG:10004 18 屏幕启动面板
+LANG:10000 27 Start-Panel für Bildschirm
+LANG:10027 44 Начальная панель экрана
+2 95
+"PRIMITIVE_TEXT9"
+""
+1 168 514 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 9 514 168 529
+0 2 2 "0s" 0 0 0 194 0 0  168 514 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 26 Load default configuration
+LANG:10004 18 加载默认配置
+LANG:10000 26 Lade Default-Konfiguration
+LANG:10027 45 Загрузить конф. по умолч.
+22 98
+"cmb_ResXY"
+""
+1 140 130 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 128 297 154
+0
+
+E
+"main()
+{
+    
+    string sResXY = cmb_ResXY.text;
+    dyn_string dsXY = strsplit(sResXY, \" x \");
+  
+    resx = dsXY[1]; // Write back the x-coordinate to the global var
+    resy = dsXY[4]; // Write back the y-coordinate to the global var
+
+}" 0
+
+E
+ 0 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 1 "PANEL_REF1" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 566 T 80 0.8597194388777555 0 1 0 -16
+0
+0

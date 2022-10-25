@@ -1,0 +1,2213 @@
+V 13
+4
+LANG:10001 15 Define settings
+LANG:10004 12 定义设定
+LANG:10000 22 Einstellungsverwaltung
+LANG:10027 72 Управление индивидуальными свойствами
+PANEL,-1 -1 845 484 N "_3DFace" 4
+"$s_settingsType"
+"$s_user"
+"$s_usergroup"
+"$s_workstation"
+"main()
+{
+  if(isDollarDefined(\"$s_settingsType\"))
+    sType = $s_settingsType;//_uss Grundeinstellung, _usg Benutzergruppeneinstellung, _usr Benutzereinstellung
+  else
+    sType = \"_uss\";
+  if(isDollarDefined(\"$s_workstation\"))
+    sWS = $s_workstation;//_wss Arbeitsplatzgrundeinstellung, _wsn Arbeitsplatzeinstellung
+  else
+    sWS = wss_getMyWorkstation();
+  if(isDollarDefined(\"$s_usergroup\"))
+    sUG = $s_usergroup;//Benutzergruppe : root,para,guest,etc.
+  else
+    sUG = uss_getMyUsergroup();
+  if(isDollarDefined(\"$s_user\"))
+    sUS = $s_user;//Benutzer : root,para,etc.
+  else
+    sUS = getUserName();  
+  langString ls1 = FRAME4.text();
+  langString ls2 = FRAME3.text();
+  langString ls3 = FRAME2.text();
+  for(int i = 0; i < getNoOfLangs(); i++)//Initial Überschriften
+  {
+    int id = getGlobalLangId(i);
+    int idx = getLangIdx(id);
+    string s = ls1[idx];
+    s = s+\":\"+sWS;
+    setLangString (ls1, idx, s);
+    s = ls2[idx];
+    s = s+\":\"+sUG;
+    setLangString (ls2, idx, s);
+    s = ls3[idx];
+    s = s+\":\"+sUS;
+    setLangString (ls3, idx, s);
+  }
+  FRAME4.text = ls1;  
+  FRAME3.text = ls2;  
+  FRAME2.text = ls3;  
+
+  switch(sType)//Initial Settings
+  {
+    case \"_usr\" : sPrefix = sType+\"_\"+sUS; FRAME2.visible = TRUE; break;
+    case \"_usg\" : sPrefix = sType+\"_\"+sUG; FRAME3.visible = TRUE; break;
+    case \"_wsn\" : sPrefix = sType+\"_\"+sWS; FRAME4.visible = TRUE; break;
+    case \"_wss\" : sPrefix = sType; FRAME5.visible = TRUE; break;
+    default : sPrefix = sType; FRAME1.visible = TRUE;
+  }
+  if((sType == \"_wsn\")||(sType == \"_usg\")||(sType == \"_usr\"))
+  {
+    setMultiValue(\"fullName\",\"enabled\",FALSE,
+                  \"fullName\",\"backCol\",\"_3DFace\",//IM 94943
+//                  \"cmdLang\",\"enabled\",FALSE,
+                  \"min_input\",\"enabled\",FALSE,
+                  \"max_input\",\"enabled\",FALSE,
+                  \"cmd_new\",\"enabled\",TRUE,
+                  \"cmd_delete\",\"enabled\",TRUE,
+                  \"cmd_cancel\",\"enabled\",FALSE,
+                  \"cmd_apply\",\"enabled\",TRUE
+                 );
+  }
+  loadSettings();//Einstellungen lesen und anzeigen
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  42 14
+"refFileName"0  1
+E "#uses \"uss_userSettings.ctl\"
+
+string sType,sPrefix,sWS,sUG,sUS;
+string sAction;
+dyn_string dsAllSettings;
+
+changeLanguage()//Sprache wechseln
+{
+  settings.deleteAllItems();//Listbox löschen
+  dynClear(dsAllSettings);
+  loadSettings(sType);      //und neu aufbauen
+}
+
+defaultAll()//Standard setzen
+{
+    setMultiValue(\"dyn_input\",\"text\",\"\",
+                  \"dyn_list\",\"items\",makeDynString(),
+                  \"max_input\",\"text\",\"\",
+                  \"value_input\",\"text\",\"\",
+                  \"min_input\",\"text\",\"\"
+                 );
+}
+
+loadSettings()//Settings lesen
+{
+  dyn_string dsNames = dpNames(sPrefix+\"_*\",\"_UserDefinedSettings\");//DP ernitteln
+  
+  for(int i = 1; i <= dynlen(dsNames); i++)
+  {
+    string sName;
+    dpGet(dsNames[i]+\".SettingName\",sName); //Namen auslesen
+    settings.appendItem(getSettingFullName(sPrefix+\"_\"+sName));
+    dynAppend(dsAllSettings,sName);
+  }
+  if(settings.itemCount() > 0)
+  {
+    settings.selectedPos = 1;
+    loadSettingFromDP(dsAllSettings[1]);//Werte von DP lesen
+    cmd_delete.enabled = TRUE;
+    cmd_apply.enabled = TRUE;
+    fullName.backCol = \"STD_inputfield_back\";//IM 94943
+  }
+}
+
+string getSettingFullName(string sName)//vollen (sprachabhängigen) Settingnamen lesen
+{
+  langString lsFullName;
+  
+  dpGet(sName+\".FullName\",lsFullName);
+  return lsFullName[getActiveLang()];
+}
+
+loadSettingFromDP(string sName)
+{
+  langString lsFullName;
+  string sFullName,sFormat;
+  dyn_string dsContent;
+
+  switch(sType)
+  {
+    case \"_uss\" : uss_getSpecificSetting(\"\",\"\",sName,sFormat,dsContent,lsFullName); break;
+    case \"_usg\" : uss_getSpecificSetting(\"\",sUG,sName,sFormat,dsContent,lsFullName); break;
+    case \"_usr\" : uss_getSpecificSetting(\"_usr\",sUS,sName,sFormat,dsContent,lsFullName); break;
+    case \"_wss\" : wss_getSpecificSetting(\"\",\"\",sName,sFormat,dsContent,lsFullName); break;
+    case \"_wsn\" : wss_getSpecificSetting(\"\",sWS,sName,sFormat,dsContent,lsFullName); break;
+    default : return;//Notausgang, darf eigentlich nicht sein
+  }
+  dyn_string dsFormat = makeDynString(\"SL\",\"S\",\"I\",\"F\",\"B\",\"FS\",\"PS\",\"DP\",\"CS\");
+  int iSelection = dynContains(dsFormat,sFormat);
+
+  if(sType == \"_uss\") selectBasic((iSelection > 0)?iSelection:1);
+  else if(sType == \"_wss\") selectBasicWs((iSelection > 0)?iSelection:1);
+  else if(sType == \"_wsn\") selectBasicWsn((iSelection > 0)?iSelection:1);
+  else if(sType == \"_usg\") selectBasicUsg((iSelection > 0)?iSelection:1);
+  else if(sType == \"_usr\") selectBasicUsr((iSelection > 0)?iSelection:1);
+  name.text = sName;
+  fullNameText.text = lsFullName;
+  fullName.text = lsFullName[getActiveLang()];
+  type.selectedPos = iSelection;
+  if((sFormat == \"I\")||(sFormat == \"F\"))//für integer und float
+  {
+    string s = dynlen(dsContent) > 0 ? dsContent[1] : \"\";
+    strreplace(s,\"<=\",\"|\");
+    dyn_string ds = strsplit(s,\"|\");
+    if(dynlen(ds) != 3)
+      makeDynString(\"\",\"\",\"\");
+    setFormat((sFormat == \"I\")?\"integer\":\"float\");
+    min_input.text = ds[1];
+    value_input.text = ds[2];
+    max_input.text = ds[3];
+  }
+  else    //für alle anderen Formate
+  {
+    dyn_list.items = dsContent;
+  }
+  loadListboxFromOriginal(dsContent,sName);
+}
+
+selectBasicWs(int iSelection)//Arbeitsplatzgrundeinstellung
+{
+  selectBasic(iSelection);
+}
+
+selectBasicWsn(int iSelection)//Arbeitsplatzeinstellung
+{
+  selectBasic(iSelection);
+  if(iSelection == 1)
+  {
+    LayerOffPanel(2,myPanelName());
+    LayerOffPanel(3,myPanelName());
+    LayerOnPanel(4,myPanelName());
+  }
+}
+
+selectBasicUsg(int iSelection)//Benutzergruppeneinstellung
+{
+  selectBasic(iSelection);
+  if(iSelection == 1)
+  {
+    LayerOffPanel(2,myPanelName());
+    LayerOffPanel(3,myPanelName());
+    LayerOnPanel(4,myPanelName());
+  }
+}
+
+selectBasicUsr(int iSelection)//Benutzereinstellung
+{
+  selectBasic(iSelection);
+  if(iSelection == 1)
+  {
+    LayerOffPanel(2,myPanelName());
+    LayerOffPanel(3,myPanelName());
+    LayerOnPanel(4,myPanelName());
+  }
+}
+
+selectBasic(int iSelection)//Grundeinstellung
+{
+  dyn_string ds = makeDynString(\"\",\"\",\"integer\",\"float\",\"bool\",\"file_select\",\"panel_select\",\"dp_select\",\"color_select\");
+  switch(iSelection)
+  {
+    case 1 : 
+    case 2 : dyn_input.editable(TRUE); LayerOnPanel(2,myPanelName());LayerOffPanel(3,myPanelName());LayerOffPanel(4,myPanelName());break;
+    case 3 : 
+    case 4 : dyn_input.editable(FALSE); LayerOffPanel(2,myPanelName());LayerOnPanel(3,myPanelName());LayerOffPanel(4,myPanelName());break;
+    case 5 : 
+    case 6 :
+    case 7 :
+    case 8 :
+    case 9 : dyn_input.editable(FALSE); LayerOnPanel(2,myPanelName());LayerOffPanel(3,myPanelName());LayerOffPanel(4,myPanelName());break;
+    default: return;//Notausgang, darf eigentlich nicht sein
+  }
+  setFormat(ds[iSelection]);//abhängig vom Format wird manches sichtbat/unsichtbar im Panel
+  setVisible(ds[iSelection],TRUE);
+  setEditor(iSelection);
+}
+
+setEditor(int i)
+{
+  pb_editor.visible = ((i == 3)||(i == 4)||(i==5))?FALSE:TRUE;
+}
+
+setVisible(string sWidget, bool visible)
+{
+  dp_select.visible = (sWidget == \"dp_select\")?visible:FALSE;
+  color_select.visible = (sWidget == \"color_select\")?visible:FALSE;
+  panel_select.visible = (sWidget == \"panel_select\")?visible:FALSE;
+  file_select.visible = (sWidget == \"file_select\")?visible:FALSE;
+}
+
+setFormat(string sFormat)
+{
+  if(sFormat == \"integer\") 
+    setMultiValue(\"min_input\",\"format\",\"[5d,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\",
+                  \"value_input\",\"format\",\"[5d,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\",
+                  \"max_input\",\"format\",\"[5d,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\"
+                 );
+  else if(sFormat == \"float\") 
+    setMultiValue(\"min_input\",\"format\",\"[10.3f,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\",
+                  \"value_input\",\"format\",\"[10.3f,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\",
+                  \"max_input\",\"format\",\"[10.3f,FALSE,FALSE,ALIGNMENT_BEGINNING,FALSE]\"
+                 );
+  else if(sFormat == \"bool\") 
+    setMultiValue(\"dyn_input\",\"visible\",FALSE,
+                  \"bool_input\",\"visible\",TRUE
+                 );
+  else
+    setMultiValue(\"dyn_input\",\"visible\",TRUE,
+                  \"bool_input\",\"visible\",FALSE
+                 );
+}
+
+setInput()//Vorbereitung für Werteingabe
+{
+  if((sType == \"_wsn\")||(sType == \"_usg\")||(sType == \"_usr\"))
+  {
+    setMultiValue(\"fullName\",\"enabled\",FALSE,
+                  \"fullName\",\"backCol\",\"_3DFace\",//IM 94943
+//                  \"cmdLang\",\"enabled\",FALSE,
+                  \"min_input\",\"enabled\",FALSE,
+                  \"max_input\",\"enabled\",FALSE,
+                  \"cmd_new\",\"enabled\",FALSE,
+                  \"cmd_delete\",\"enabled\",FALSE,
+                  \"cmd_cancel\",\"enabled\",TRUE,
+                  \"cmd_apply\",\"enabled\",TRUE
+                 );
+  }
+  else
+  {  
+    setMultiValue(\"name\",\"text\",\"\",
+                  \"name\",\"editable\",TRUE,
+                  \"name\",\"backCol\",\"STD_inputfield_back\",//IM 94943                  
+                  \"fullName\",\"text\",\"\",
+                  \"fullName\",\"backCol\",\"STD_inputfield_back\",//IM 94943
+                  \"fullNameText\",\"text\",\"\",
+                  \"type\",\"enabled\",TRUE,
+                  \"cmd_new\",\"enabled\",FALSE,
+                  \"cmd_delete\",\"enabled\",FALSE,
+                  \"cmd_cancel\",\"enabled\",TRUE,
+                  \"cmd_apply\",\"enabled\",TRUE,
+                  \"dyn_input\",\"text\",\"\"
+                 );
+    defaultAll();
+  }
+  sAction = \"new\";
+  if(type.selectedPos() == 5) dyn_input.text = bool_input.selectedText();
+  switch(sType)
+  {
+    case \"_uss\" : selectBasic(type.selectedPos()); break;
+    case \"_wss\" : selectBasicWs(type.selectedPos()); break;
+  }
+}
+
+setDelete()//Vorbereitung für Einstellung löschen
+{
+  setMultiValue(\"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",FALSE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",FALSE
+               );
+  if(questionDialog(getCatStr(\"ud_settings\",\"deleteOK\")))
+    sAction = \"delete\";
+}
+
+setUpdate()//Vorbereitung für Einstellung ändern
+{
+  setMultiValue(\"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",FALSE,
+                \"cmd_delete\",\"enabled\",FALSE,
+                \"cmd_cancel\",\"enabled\",TRUE
+               );
+  sAction = \"update\";
+}
+
+setEmpty()//Vorbereitung für neue Einstellung anlegen
+{
+  setMultiValue(\"name\",\"text\",\"\",
+                \"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943               
+                \"fullName\",\"text\",\"\",
+                \"fullNameText\",\"text\",\"\",
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",TRUE,
+                \"cmd_delete\",\"enabled\",FALSE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",FALSE
+               );
+  selectBasic(1);
+  sAction = \"\";
+}
+
+setCancelled()//Vorgang (Anlegen,Löschen,Ändern) abbrechen
+{
+  setMultiValue(\"name\",\"text\",\"\",
+                \"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943               
+                \"fullName\",\"text\",\"\",
+                \"fullNameText\",\"text\",\"\",
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",TRUE,
+                \"cmd_delete\",\"enabled\",TRUE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",TRUE
+               );
+  sAction = \"cancelled\";
+}
+
+setInputOK()//Eingabe abschliessen
+{
+  setMultiValue(\"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943               
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",TRUE,
+                \"cmd_delete\",\"enabled\",TRUE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",TRUE,
+                \"dyn_input\",\"text\",\"\"
+               );
+  sAction = \"saved\";
+}
+
+setUpdateOK()//Änderung abschliessen
+{
+  setMultiValue(\"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943                
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",TRUE,
+                \"cmd_delete\",\"enabled\",TRUE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",TRUE,
+                \"dyn_input\",\"text\",\"\"
+               );
+  sAction = \"updated\";
+}
+
+setDeleteOK()//Löschen abschliessen
+{
+  setMultiValue(\"name\",\"editable\",FALSE,
+                \"name\",\"backCol\",\"\",//IM 94943                
+                \"type\",\"enabled\",FALSE,
+                \"cmd_new\",\"enabled\",TRUE,
+                \"cmd_delete\",\"enabled\",TRUE,
+                \"cmd_cancel\",\"enabled\",FALSE,
+                \"cmd_apply\",\"enabled\",TRUE,
+                \"dyn_input\",\"text\",\"\"
+               );
+  sAction = \"deleted\";
+}
+
+doSave(string sAction)//Speichern ausführen
+{
+  switch(type.selectedPos())
+  {
+    case 1 : if((sType == \"_wsn\")||(sType == \"_usg\")||(sType == \"_usr\")) checkListInput(); break;
+    case 3 :
+    case 4 : if((sAction != \"delete\")&&(sAction != \"cancelled\")) if(!checkIntFltInput()) return; break;//IM 95300
+    default: break;//IM 94944
+  }
+  switch(sAction)
+  {
+    case \"new\" : doSaveNew(); break;
+    case \"update\" : doUpdate(); break;
+    case \"delete\" : doDelete(); break;
+    case \"cancelled\" : break;
+    default: return;//Sollte nicht sein
+  }
+}
+
+checkListInput()
+{
+  dyn_list.deleteAllItems();
+  dyn_list.items = makeDynString(listbox.text());
+}
+
+bool checkIntFltInput()//Bei integer und float Wertebereich beachten
+{
+  float fMin = min_input.text();
+  float fMax = max_input.text();
+  float fValue = value_input.text();
+  string sMessage = getCatStr(\"ud_settings\",\"outOfRange\");
+  if((fValue < fMin) || (fValue > fMax)) return !uss_messageDialog(sMessage);//return FALSE
+  return TRUE;
+}
+
+doDelete()//Löschen ausführen
+{
+  if(!checkName()) return;
+  if(!checkFullName()) return;
+  if(checkExisting(name.text(),TRUE)) return;
+  if(deleteDPofSetting(sPrefix+\"_\"+name.text())) return;
+  if(sType == \"_uss\")
+  {
+    doDeleteUSG();//laut Spez. müssen alle abgeleiteten Gruppen-
+    doDeleteUSR();//und Benutzereinstellungen gelöscht werden
+  }
+  else if(sType == \"_wss\") doDeleteWSN();
+  settings.deleteAllItems();
+  dynClear(dsAllSettings);
+  loadSettings();
+  if(settings.itemCount() < 1)
+    defaultAll();
+  setDeleteOK();
+}
+
+doDeleteUSG()//Alle Einstellungen für alle Benutzergruppen löschen IM 98413
+{
+  dyn_string dsDP = dpNames(\"_usg_*_\"+name.text());
+  for(int i = 1; i <= dynlen(dsDP); i++)
+  {
+    dyn_string ds = strsplit(dsDP[i],\"_\");
+    if(dynlen(ds) > 2)
+      usg_deleteSetting(ds[3],name.text());
+  }
+}
+
+doDeleteUSR()//Alle Einstellungen für alle Benutzer löschen IM 98413
+{
+  dyn_string dsDP = dpNames(\"_usr_*_\"+name.text());
+  for(int i = 1; i <= dynlen(dsDP); i++)
+  {
+    dyn_string ds = strsplit(dsDP[i],\"_\");
+    if(dynlen(ds) > 2)
+      usr_deleteSetting(ds[3],name.text());
+  }
+}
+
+doDeleteWSN()//Alle Einstellung für alle Arbeitsplätze löschen IM 98413
+{
+  dyn_string dsDP = dpNames(\"_wsn_*_\"+name.text());
+  for(int i = 1; i <= dynlen(dsDP); i++)
+  {
+    dyn_string ds = strsplit(dsDP[i],\"_\");
+    if(dynlen(ds) > 2)
+      wsn_deleteSetting(ds[3],name.text());
+  }
+}
+
+bool deleteDPofSetting(string sDPName)
+{
+  switch(sType)
+  {
+    case \"_uss\" : return uss_deleteSetting(name.text());
+    case \"_usg\" : return usg_deleteSetting(sUG,name.text());
+    case \"_usr\" : return usr_deleteSetting(sUS,name.text());
+    case \"_wss\" : return wss_deleteSetting(name.text());
+    case \"_wsn\" : return wsn_deleteSetting(sWS,name.text());
+    default : return TRUE;
+  }
+  return TRUE;
+}
+
+doUpdate()//Änderung speichern
+{
+  if(!checkName()) return;
+  if(!checkFullName()) return;
+  if(checkExisting(name.text(),TRUE)) return;
+  if(saveSettingOnDP(sPrefix+\"_\"+name.text())) return;
+
+  dyn_string dsSettings = settings.items();
+  int i;
+  string sSettingFullName = getSettingFullName(sPrefix+\"_\"+name.text());
+  
+  if((i = dynContains(dsAllSettings,name.text())) > 0)
+  {
+    dsSettings[i] = sSettingFullName;
+    settings.items = dsSettings;
+    settings.selectedText = sSettingFullName;
+    setUpdateOK();
+  }
+}
+
+doSaveNew()//neue Einstellung anlegen
+{
+  if(!checkName()) return;
+  if(!checkFullName()) return;
+  if(checkExisting(name.text())) return;
+  if(saveSettingOnDP(sPrefix+\"_\"+name.text())) return;
+
+  dyn_string dsSettings = settings.items();
+  dynAppend(dsSettings,getSettingFullName(sPrefix+\"_\"+name.text()));
+  dynAppend(dsAllSettings,name.text());
+  settings.items = dsSettings;
+  settings.selectedText = getSettingFullName(sPrefix+\"_\"+name.text());
+  setInputOK();
+}
+
+bool saveSettingOnDP(string sDPName)//DP Operation einleiten
+{
+  int iErr;
+  dyn_errClass Err;
+  
+  dyn_string dsFormat = makeDynString(\"SL\",\"S\",\"I\",\"F\",\"B\",\"FS\",\"PS\",\"DP\",\"CS\");
+  langString lsName;
+  getValue(\"fullNameText\",\"text\",lsName);
+  string sFormat = dsFormat[type.selectedPos()];
+  dyn_string dsContent;
+  
+  switch(sFormat)
+  {
+    case \"I\":
+    case \"F\": dsContent[1] = min_input.text()+\"<=\"+value_input.text()+\"<=\"+max_input.text(); break;
+    default : dsContent = dyn_list.items();
+  }
+  
+  bool bNew = !dpExists(sDPName);
+  switch(sType)
+  {
+    case \"_uss\" : if(bNew)
+                    return uss_addNewSetting(name.text(),sFormat,dsContent,lsName);
+                  else
+                    return uss_modifySetting(name.text(),sFormat,dsContent,lsName); 
+    case \"_usg\" : if(bNew)
+                    return usg_addNewSetting(sUG,name.text(),sFormat,dsContent,lsName); 
+                  else
+                    return usg_modifySetting(sUG,name.text(),sFormat,dsContent,lsName);
+    case \"_usr\" : if(bNew)
+                    return usr_addNewSetting(sUS,name.text(),sFormat,dsContent,lsName);
+                  else
+                    return usr_modifySetting(sUS,name.text(),sFormat,dsContent,lsName);
+    case \"_wss\" : if(bNew)
+                    return wss_addNewSetting(name.text(),sFormat,dsContent,lsName);
+                  else
+                    return wss_modifySetting(name.text(),sFormat,dsContent,lsName);
+    case \"_wsn\" : if(bNew)
+                    return wsn_addNewSetting(sWS,name.text(),sFormat,dsContent,lsName);
+                  else
+                    return wsn_modifySetting(sWS,name.text(),sFormat,dsContent,lsName);
+    default : return TRUE;
+  }
+  return TRUE;
+}
+
+bool checkExisting(string settingName, bool existing = FALSE)//Prüfung, ob DP existiert
+{
+  string sMessage;
+  switch(sType)
+  {
+    case \"_usr\" : sprintf(sMessage,getCatStr(\"ud_settings\",existing?\"usrNotExists\":\"usrAlreadyExists\"),settingName); break;
+    case \"_usg\" : sprintf(sMessage,getCatStr(\"ud_settings\",existing?\"usgNotExists\":\"usgAlreadyExists\"),settingName); break;
+    case \"_wsn\" : sprintf(sMessage,getCatStr(\"ud_settings\",existing?\"wsnNotExists\":\"wsnAlreadyExists\"),settingName); break;
+    case \"_wss\" :
+    case \"_uss\" : sprintf(sMessage,getCatStr(\"ud_settings\",existing?\"ussNotExists\":\"ussAlreadyExists\"),settingName); break;
+  }
+  if(!existing)
+  {
+    if(dpExists(sPrefix+\"_\"+settingName)) 
+      return uss_messageDialog(sMessage);//return TRUE
+  }
+  else
+    if(!dpExists(sPrefix+\"_\"+settingName)) 
+      return uss_messageDialog(sMessage);//return TRUE
+  sprintf(sMessage,getCatStr(\"ud_settings\",\"illegalDPName\"),settingName);
+  if(nameCheck(settingName,2))
+    return uss_messageDialog(sMessage);//return TRUE IM #95381
+  return FALSE;
+}
+
+bool checkName()//Namensprüfung (Kurzbezeichnung)
+{
+  string sName = name.text();
+  string sMessage = getCatStr(\"ud_settings\",\"noName\");
+  if(strltrim(strrtrim(sName)) == \"\") return !uss_messageDialog(sMessage);//return FALSE
+  return TRUE;
+}
+
+bool checkFullName()//Namensprüfung (Vollname)
+{
+  langString lsName;
+ 
+  getValue(\"fullNameText\",\"text\",lsName);
+  
+  for(int i = 0; i < getNoOfLangs(); i++)
+  {
+    int id = getGlobalLangId(i);
+    int idx = getLangIdx(id);
+    string sLang = getLocale(idx);
+    string sMessage,sFormat = getCatStr(\"ud_settings\",\"noFullName\");
+   
+    sprintf(sMessage,sFormat,sLang);
+    if(strltrim(strrtrim((string)lsName[idx])) == \"\") return !uss_messageDialog(sMessage);//return FALSE
+  }  
+  return TRUE;
+}
+
+bool questionDialog(string sMessage)//Sicherheitsabfrage
+{
+  dyn_string ds;
+  dyn_float df;
+  string sYes = getCatStr(\"general\",\"yes\");
+  string sNo = getCatStr(\"general\",\"no\");
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",getCatStr(\"general\",\"warning\"),makeDynString(\"$1:\"+sMessage,\"$2:\"+sYes,\"$3:\"+sNo),df,ds);
+  if(dynlen(ds) < 1) return FALSE;
+  if(ds[1] != \"false\") return TRUE;
+  return FALSE;
+}
+
+bool selectUSGsetting()//Auswahldialog bei Benutzergruppen
+{
+  dyn_float df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/uss_selectSettings.pnl\",getCatStr(\"ud_settings\",\"selSetting\"),makeDynString(\"$s_settingsType:_uss\"),df,ds);//IM 94947
+  if(dynlen(df) < 1) return FALSE;
+  if(df[1] != 1) return FALSE;
+  if(dynlen(ds) > 0)
+  {
+    defaultAll();
+    loadBasicSettingFromDP(\"_uss\",ds[1]);
+    selectBasicUsg(type.selectedPos());
+    return TRUE;
+  }
+  return FALSE;
+}
+
+bool selectUSRsetting()//Auswahldialog bei Benutzer
+{
+  dyn_float df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/uss_selectSettings.pnl\",getCatStr(\"ud_settings\",\"selSetting\"),makeDynString(\"$s_settingsType:_uss\"),df,ds);//IM 94947
+  if(dynlen(df) < 1) return FALSE;
+  if(df[1] != 1) return FALSE;
+  if(dynlen(ds) > 0)
+  {
+    defaultAll();
+    //IM 98413
+    
+    dyn_uint   allIds;
+    dyn_string allNames;
+    dyn_string allFullNames;
+    dyn_string allComments;
+    dyn_uint   notIds;
+    dyn_string notNames;
+    dyn_string notFullNames;
+    dyn_string notComments;
+    int        err;
+    
+    umUserGetGroupMembership(getUserId(sUS),allIds,allNames,allFullNames,allComments,notIds,notNames,notFullNames,notComments,err);
+    if(dynlen(allNames))
+    {
+      for(int i = 1; i <= dynlen(allNames); i++)
+      {
+        if(dpExists(\"_usg_\"+allNames[i]+\"_\"+ds[1]))//existiert Gruppeneinstellung
+        {
+          loadBasicSettingFromDP(\"_usg\",ds[1],allNames[i]);//hole Gruppeneinstellung
+          selectBasicUsg(type.selectedPos());
+          return TRUE;//nur eine (die erste) Gruppeneinstellung verwenden
+        }
+      }
+    }
+    //Ende IM 98413
+
+    loadBasicSettingFromDP(\"_uss\",ds[1]);//es gibt keine Gruppeneinstellung, also nehmen wir die Grundeinstellung
+    selectBasicUsg(type.selectedPos());
+    return TRUE;
+  }
+  return FALSE;
+}
+
+bool selectWSNsetting()//Auswahldialog bei Arbeitsplatzeinstellung
+{
+  dyn_float df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/uss_selectSettings.pnl\",getCatStr(\"ud_settings\",\"selSetting\"),makeDynString(\"$s_settingsType:_wss\"),df,ds);//IM 94947
+  if(dynlen(df) < 1) return FALSE;
+  if(df[1] != 1) return FALSE;
+  if(dynlen(ds) > 0)
+  {
+    defaultAll();
+    loadBasicSettingFromDP(\"_wss\",ds[1]);
+    selectBasicWsn(type.selectedPos());
+    return TRUE;
+  }
+  return FALSE;
+}
+
+loadBasicSettingFromDP(string sSettingType, string sName, string sGroup = \"\")//DP lesen
+{
+  langString lsFullName;
+  string sFullName,sFormat;
+  dyn_string dsContent;
+  
+  switch(sSettingType)
+  {
+    case \"_usg\": uss_getSpecificSetting(\"_usg\",sGroup,sName,sFormat,dsContent,lsFullName); break;//IM 98413
+    case \"_uss\": uss_getSpecificSetting(\"\",\"\",sName,sFormat,dsContent,lsFullName); break;
+    case \"_wss\": wss_getSpecificSetting(\"\",\"\",sName,sFormat,dsContent,lsFullName); break;
+  }
+  dyn_string dsFormat = makeDynString(\"SL\",\"S\",\"I\",\"F\",\"B\",\"FS\",\"PS\",\"DP\",\"CS\");
+  int iSelection = dynContains(dsFormat,sFormat);
+
+  if(sType == \"_uss\") selectBasic((iSelection > 0)?iSelection:1);
+  else if(sType == \"_wss\") selectBasicWs((iSelection > 0)?iSelection:1);
+  name.text = sName;
+  fullNameText.text = lsFullName;
+  fullName.text = lsFullName[getActiveLang()];
+  type.selectedPos = iSelection;
+  if((sFormat == \"I\")||(sFormat == \"F\"))
+  {
+    string s = dynlen(dsContent) > 0 ? dsContent[1] : \"\";
+    strreplace(s,\"<=\",\"|\");
+    dyn_string ds = strsplit(s,\"|\");
+    if(dynlen(ds) != 3)
+      makeDynString(\"\",\"\",\"\");
+    setFormat((sFormat == \"I\")?\"integer\":\"float\");
+    min_input.text = ds[1];
+    value_input.text = ds[2];
+    max_input.text = ds[3];
+  }
+  else
+  {
+    dyn_list.items = dsContent;
+  }
+  loadListboxFromOriginal(dsContent,sName);
+}
+
+loadListboxFromOriginal(dyn_string &dsContent, string sName)
+{
+  string sOriginalType = ((sType == \"_usr\")||(sType == \"_usg\"))?\"_uss\":\"_wss\";
+  dyn_string dsOriginalContent;
+  int i;
+  
+  if(dynlen(dsContent) < 1) return;
+  if(dpExists(sOriginalType+\"_\"+sName))
+  {
+    dpGet(sOriginalType+\"_\"+sName+\".Content\",dsOriginalContent);
+    listbox.items = dsOriginalContent;
+    if((i = dynContains(dsOriginalContent,dsContent[1])) > 0)
+      listbox.selectedPos = i;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"ELangChanged" "main()
+{
+  changeLanguage();
+}"
+"LangSwitchMode" "1"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 0 0 0 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 107
+"FRAME1"
+""
+1 11 14 E E E 1 E 0 E N "_WindowText" E N {0,0,0} E E
+ E E
+133 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9669800535115044 0 0.8286290322580645 -0.6349513441379489 2.399193548387097 0 E 11 14 860 511
+3
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Basic Settings
+LANG:10004 12 备份配置
+LANG:10000 18 Grundeinstellungen
+LANG:10027 69 Базовый набор индивидуальных свойств
+30 108
+"FRAME2"
+""
+1 11 14 E E E 1 E 0 E N "_WindowText" E N {0,0,0} E E
+ E E
+134 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9669852220955584 0 0.8286290322580645 -0.6393921903396822 2.399193548387097 0 E 11 14 860 511
+3
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 User Settings
+LANG:10004 12 用户设定
+LANG:10000 21 Benutzereinstellungen
+LANG:10027 78 Пользовательские индивидуальные свойства
+30 109
+"FRAME3"
+""
+1 11 14 E E E 1 E 0 E N "_WindowText" E N {0,0,0} E E
+ E E
+135 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.967207417233247 0 0.8286290322580645 -0.6370885631222321 2.399193548387097 0 E 11 14 860 511
+3
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Group Settings
+LANG:10004 9 组设置
+LANG:10000 20 Gruppeneinstellungen
+LANG:10027 58 Индивидуальные свойства группы
+30 110
+"FRAME4"
+""
+1 11 14 E E E 1 E 0 E N "_WindowText" E N {0,0,0} E E
+ E E
+136 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9665076801887523 0 0.8286290322580645 -0.6246943100032772 2.399193548387097 0 E 11 14 860 511
+3
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Workstation Settings
+LANG:10004 15 工作站设定
+LANG:10000 25 Arbeitsplatzeinstellungen
+LANG:10027 75 Индивидуальные свойства рабочей станции
+17 111
+"settings"
+""
+1 20 35.00000000000002 E E E 1 E 1 E N "_WindowText" E N "_InputFieldBackground" E E
+ E E
+137 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  18 33 292 414
+0
+
+E
+"main()
+{
+  setCancelled();//IM 94990,94952
+  defaultAll();
+  
+  if ( dynlen(dsAllSettings) && this.selectedPos() > -1 )
+    loadSettingFromDP(dsAllSettings[this.selectedPos()]);
+    
+  dyn_input.text = (type.selectedPos() == 5)?bool_input.text():\"\";
+  cmd_new.enabled = TRUE;
+  cmd_cancel.enabled = FALSE;
+  cmd_delete.enabled = TRUE;
+  cmd_apply.enabled = TRUE;
+}
+
+
+
+
+
+
+" 0
+
+E
+
+0 0
+2 112
+"PRIMITIVE_TEXT1"
+""
+1 431 37 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+138 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 342 37 431 52
+0 2 2 "0s" 0 0 0 194 0 0  431 37 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Short name of setting
+LANG:10004 15 短名称设定
+LANG:10000 16 Einstellungsname
+LANG:10027 23 Имя свойства
+2 113
+"PRIMITIVE_TEXT2"
+""
+1 431 67 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+139 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 360 67 431 82
+0 2 2 "0s" 0 0 0 194 0 0  431 67 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Full name of setting
+LANG:10004 12 设置全名
+LANG:10000 8 Vollname
+LANG:10027 19 Полное имя
+14 115
+"name"
+""
+1 444.9999999999997 33 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+141 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  443 33 822 59
+2 "50s" 50 0 0 0 0 -1  E E E
+14 116
+"fullName"
+""
+1 444.9999999999997 63 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+142 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  443 63 822 89
+2 "50s" 50 0 0 0 0 -1  "main()//IM 94944
+{
+  langString des;
+  
+  if(this.backCol() == \"_3DFace\") return;//Eingabe nicht zulässig
+  getValue(\"fullNameText\",\"text\",des);
+  langEditor(des);
+  setValue(\"fullNameText\",\"text\",des);
+  setValue(\"fullName\",\"text\",des[getActiveLang()]);  
+}" 0
+ E "main()//IM 94944
+{
+  langString des;
+  
+  if(this.backCol() == \"_3DFace\") return;//Eingabe nicht zulässig
+  getValue(\"fullNameText\",\"text\",des);
+  langEditor(des);
+  setValue(\"fullNameText\",\"text\",des);
+  setValue(\"fullName\",\"text\",des[getActiveLang()]);  
+}" 0
+
+2 117
+"PRIMITIVE_TEXT3"
+""
+1 431 97 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+143 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 347 97 431 112
+0 2 2 "0s" 0 0 0 194 0 0  431 97 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Type of setting
+LANG:10004 12 设置类型
+LANG:10000 19 Typ der Einstellung
+LANG:10027 23 Тип свойства
+22 118
+"type"
+""
+1 444.9999999999999 95 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+144 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+3
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  443 93 727 119
+9
+4
+LANG:10001 14 Selection List
+LANG:10004 12 选择列表
+LANG:10000 12 Auswahlliste
+LANG:10027 25 Список выбора
+
+0
+4
+LANG:10001 6 String
+LANG:10004 9 字符串
+LANG:10000 6 String
+LANG:10027 6 String
+
+0
+4
+LANG:10001 7 Integer
+LANG:10004 6 整数
+LANG:10000 7 Integer
+LANG:10027 7 Integer
+
+0
+4
+LANG:10001 5 Float
+LANG:10004 6 浮点
+LANG:10000 5 Float
+LANG:10027 5 Float
+
+0
+4
+LANG:10001 7 Boolean
+LANG:10004 7 Boolean
+LANG:10000 7 Boolean
+LANG:10027 7 Boolean
+
+0
+4
+LANG:10001 4 File
+LANG:10004 4 File
+LANG:10000 5 Datei
+LANG:10027 8 Файл
+
+0
+4
+LANG:10001 5 Panel
+LANG:10004 6 面板
+LANG:10000 5 Panel
+LANG:10027 12 Панель
+
+0
+4
+LANG:10001 9 Datapoint
+LANG:10004 2 DP
+LANG:10000 10 Datenpunkt
+LANG:10027 23 Точка данных
+
+0
+4
+LANG:10001 5 Color
+LANG:10004 6 颜色
+LANG:10000 5 Farbe
+LANG:10027 8 Цвет
+
+0
+
+E
+"main()
+{
+  if(this.selectedPos() == 5) dyn_input.text = bool_input.selectedText();
+  else if(sAction == \"new\") dyn_input.text = \"\";
+  switch(sType)
+  {
+    case \"_uss\" : selectBasic(this.selectedPos()); break;
+    case \"_wss\" : selectBasicWs(this.selectedPos()); break;
+  }
+}
+
+" 0
+
+E
+ 0 0
+2 120
+"fullNameText"
+""
+1 447 67 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E E
+146 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 447 67 449 82
+0 2 2 "0s" 0 0 0 192 0 0  447 67 1
+3
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 144
+"close"
+""
+1 743.0000000000001 448 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+181 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  743 448 831 476
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 146
+"help"
+""
+1 8.000000000000114 448 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+184 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 448 96 476
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"hmi\");
+}" 0
+ E E E
+13 147
+"cmd_delete"
+""
+1 479.0000000000001 377 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+179 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  473 448 561 476
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"main()
+{
+  setDelete();
+  if(sAction == \"delete\")
+    doSave(sAction);
+  else
+    setCancelled();
+  if(sAction == \"cancelled\")
+    if(dynlen(dsAllSettings)) loadSettingFromDP(dsAllSettings[settings.selectedPos()]);
+}
+" 0
+ E E E
+13 148
+"cmd_new"
+""
+1 732 106 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+152 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  733 92 821 120
+
+T 
+4
+LANG:10001 3 New
+LANG:10004 6 新建
+LANG:10000 3 Neu
+LANG:10027 14 Создать
+"main()
+{
+  if(sType == \"_wsn\")
+  {
+    if(selectWSNsetting())
+      setInput();
+    return;
+  }
+  else if(sType == \"_usg\")
+  {
+    if(selectUSGsetting())
+      setInput();
+    return;
+  }
+  else if(sType == \"_usr\")
+  {
+    if(selectUSRsetting())
+      setInput();
+    return;
+  }
+  setInput();
+}
+" 0
+ E E E
+13 162
+"cmd_cancel"
+""
+1 472.0000000000001 377 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+173 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  653 448 741 476
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  setCancelled();
+  defaultAll();
+  if(settings.selectedPos() > 0)
+  {
+    if(dynlen(dsAllSettings)) loadSettingFromDP(dsAllSettings[settings.selectedPos()]);
+  }
+  else
+    fullName.backCol = \"_3DFace\";
+}
+" 0
+ E E E
+13 163
+"cmd_apply"
+""
+1 481.0000000000001 377 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+180 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  563 448 651 476
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if(sAction != \"new\") setUpdate();
+  doSave(sAction);
+}" 0
+ E E E
+30 165
+"FRAME5"
+""
+1 11 14 E E E 1 E 0 E N "_WindowText" E N {0,0,0} E E
+ E E
+183 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9669800535115044 0 0.8286290322580646 -0.634951344137955 2.399193548387097 0 E 11 14 860 511
+3
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 26 Basic Workstation Settings
+LANG:10004 23 基础Workstation设置
+LANG:10000 30 Arbeitsplatzgrundeinstellungen
+LANG:10027 106 Базовый набор индивидуальных свойств для рабочих станций
+1 167 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+14 139
+"dyn_input"
+""
+1 442.9856115107913 389 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+167 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  443 388 727 414
+3 "0s" 0 0 0 0 0 -1  E E E
+13 134
+"pb_before"
+""
+1 631 281 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+160 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  763 323 791 351
+
+P 
+13421721
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds = dyn_list.items();
+  int curPos = dyn_list.selectedPos();
+  dynInsertAt(ds,dyn_input.text(),(curPos < 2)?1:curPos);
+  dyn_list.items = ds;
+}" 0
+ E E E
+13 135
+"pb_delete"
+""
+1 631 312 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+162 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  763 354 791 382
+
+P 
+13421721
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int curPos = dyn_list.selectedPos();
+  if(curPos < 1) return;
+  
+  dyn_string ds = dyn_list.items;
+  dynRemove(ds,curPos);
+  dyn_list.items = ds;
+}" 0
+ E E E
+13 136
+"pb_after"
+""
+1 601 281 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+158 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 323 761 351
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds = dyn_list.items();
+  dynInsertAt(ds,dyn_input.text(),dyn_list.selectedPos()+1);
+  dyn_list.items = ds;
+}" 0
+ E E E
+13 137
+"pb_modify"
+""
+1 601 312 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+159 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 354 761 382
+
+P 
+12632256
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int curPos = dyn_list.selectedPos();
+  if(curPos < 1) return;
+  
+  dyn_string ds = dyn_list.items;
+  ds[curPos] = dyn_input.text();
+  dyn_list.items = ds;
+}" 0
+ E E E
+17 138
+"dyn_list"
+""
+1 442.9783393501805 182.2916666666666 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E "main()
+{
+  string sItem = dyn_list.selectedText();
+  if((sItem == \"TRUE\") || (sItem == \"FALSE\"))
+    bool_input.text = sItem;
+  else
+    dyn_input.text = sItem;
+}" 0
+
+165 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  443 183 727 382
+0
+
+E
+"main()
+{
+  string sItem = dyn_list.selectedText();
+  if((sItem == \"TRUE\") || (sItem == \"FALSE\"))
+    bool_input.text = sItem;
+  else
+    dyn_input.text = sItem;  
+}" 0
+
+E
+
+0 0
+13 140
+"dp_select"
+""
+1 607 393 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+168 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 388 761 416
+
+P 
+13107
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sDP;
+  dpSelector(sDP);
+  dyn_input.text = sDP;
+}" 0
+ E E E
+13 141
+"pb_editor"
+""
+1 601 251 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+157 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 293 761 321
+
+P 
+13107
+"pictures/StandardIcons/open_script_editor_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float  df;
+  dyn_string ds;
+  dyn_string list,sPara;
+
+  getValue(\"dyn_list\",\"items\",list);
+  sPara[1]=paJoinString(list,\"\\n\"); 
+  ChildPanelOnCentralModalReturn(\"para/nvTextEditor.pnl\", //string fileName
+                 getCatStr(\"ud_settings\",\"textEdit\"),     //string panelName
+                 sPara[1],                         //dyn_string &sPara
+                 df,ds);                        //int &returns
+  if(dynlen(df) > 0)
+    if(df[1] == 1)
+      setValue(\"dyn_list\",\"items\",ds);
+}
+" 0
+ E E E
+13 142
+"pb_deleteAll"
+""
+1 661 312 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+164 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  793 354 821 382
+
+P 
+13421721
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_list.deleteAllItems();
+}" 0
+ E E E
+13 149
+"color_select"
+""
+1 582 379 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 388 761 416
+
+P 
+13107
+"pictures/StandardIcons/Colors_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sColor = \"_Transparent\";
+  colorEditor(sColor);
+  dyn_input.text = sColor;
+}" 0
+ E E E
+13 150
+"panel_select"
+""
+1 607 393 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+171 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 388 761 416
+
+P 
+13107
+"pictures/panelref.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sDP;
+  panelSelector(sDP);
+  dyn_input.text = sDP;
+}" 0
+ E E E
+13 151
+"file_select"
+""
+1 607 408 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+172 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  733 387 761 415
+
+P 
+13107
+"pictures/StandardIcons/Open_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sDP;
+  fileSelector(sDP);
+  dyn_input.text = sDP;
+}" 0
+ E E E
+22 161
+"bool_input"
+""
+1 445 390 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+3
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  443 388 538 414
+2
+4
+LANG:10001 4 TRUE
+LANG:10004 4 TRUE
+LANG:10000 4 TRUE
+LANG:10027 4 TRUE
+
+0
+4
+LANG:10001 5 FALSE
+LANG:10004 5 FALSE
+LANG:10000 5 FALSE
+LANG:10027 5 FALSE
+
+0
+
+E
+"main()
+{
+  dyn_input.text = this.text();
+}" 0
+
+E
+ 0 0
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+14 153
+"min_input"
+""
+1 444.1366906474821 154 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+154 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  443 153 567 179
+3 "5d" 5 0 0 0 0 -1  E E E
+14 154
+"value_input"
+""
+1 574.1366906474821 154 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+155 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  573 153 697 179
+3 "5d" 5 0 0 0 0 -1  E E E
+14 155
+"max_input"
+""
+1 704.1726618705037 154 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+156 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 153 822 179
+3 "5d" 5 0 0 0 0 -1  E E E
+2 156
+"min_text"
+""
+1 447 135 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+174 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 447 135 565 147
+0 2 2 "0s" 0 0 0 64 0 0  447 135 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Minimum
+LANG:10004 7 Minimum
+LANG:10000 7 Minimum
+LANG:10027 14 Минимум
+2 157
+"default_text"
+""
+1 577 135 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+175 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 577 135 695 147
+0 2 2 "0s" 0 0 0 64 0 0  577 135 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Default
+LANG:10004 6 默认
+LANG:10000 7 Default
+LANG:10027 23 По умолчанию
+2 158
+"max_text"
+""
+1 707 135 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+176 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 707 135 825 147
+0 2 2 "0s" 0 0 0 64 0 0  707 135 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 0 
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Maximum
+LANG:10004 7 Maximum
+LANG:10000 7 Maximum
+LANG:10027 16 Максимум
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+22 166
+"listbox"
+""
+1 445 125 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+153 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+3
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  443 123 822 149
+0
+
+E
+E
+E
+ 0 0
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 100 510 T 185 1.783567134268537 0 1 -183.3567134268537 -70
+0
+0

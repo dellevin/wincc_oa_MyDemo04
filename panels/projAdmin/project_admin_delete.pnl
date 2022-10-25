@@ -1,0 +1,1331 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 362 413 N "_3DFace" 1
+"$1"
+"main()
+{
+  string     sUser, sDate, sVersion, sDir, sConfig, sProj, sPvss, sProjName = $1;
+  dyn_string ds, dsVer, dsPath, dsBadProjs;
+  bool       bCheck;
+  int        err;
+  
+  txtProject.text = sProjName;
+
+  cmbProjects.text = sProjName;
+  cmbProjects.text = sProjName;
+
+  if ( !isDollarDefined(\"$info\") )
+  {
+    cmdDeleteDir.visible = true;
+    cmdDelProject.visible = true;
+    err = paGetProjs(ds, dsVer, dsPath, dsBadProjs);
+    /*if ( err && !gGetProjsErrShown) IM 113772
+    {
+      pmon_warningOutput(\"errorGetProjs\", -1);
+      gGetProjsErrShown = true;
+    }*/
+
+    txtProject.visible = false;
+    if ( dynlen(dsBadProjs) )
+    {
+      dynAppend(ds,getCatStr(\"pmon\", \"removeBadProjects\"));
+    }
+
+    dynSort(ds);
+    
+    cmbProjects.items = ds;
+    cmbProjects.visible = true;
+  }
+  else
+  {
+    cmbProjects.visible = false;
+    txtProject.visible = true;
+  }
+
+  if ( sProjName == \"\" )
+  {
+    cmdDelProject.enabled = true;
+    cmdCancel.enabled = true;
+    return;
+  }
+  
+  delay(0,1);
+  if ( !isDollarDefined(\"$info\") )
+  {
+    bCheck = (pmon_checkDelProj(sProjName, false));
+    cmdDelProject.enabled = bCheck;
+    cmdCancel.enabled = true;
+    if ( !bCheck )
+    {
+      return;
+    }
+  }
+  
+  paGetProjAttr(sProjName, \"InstallationUser\", sUser);
+  paGetProjAttr(sProjName, \"InstallationDate\", sDate);
+  err = paGetProjAttr(sProjName, \"proj_version\", sVersion);
+  paGetProjAttr(sProjName, \"InstallationDir\", sDir);
+  paProjName2ConfigFile(sProjName, sConfig);
+  paGetProjAttr(sProjName, \"proj_path\", sProj);
+  paGetProjAttr(sProjName, \"pvss_path\", sPvss);
+  // no error handling because an invalid project (for Example C:\\WINDOWS) should
+  // be removed from the registry but the directory must not be deleted! 
+
+  txtUser.text = sUser;
+  txtDate.text = sDate;
+  txtVersion.text = sVersion;
+  txtDir.text = sDir;
+  txtConfig.text = (err)?\"\":sConfig;
+  txtProjDir.text = sProj;
+  txtPvssDir.text = sPvss;
+  cmdDelProject.enabled = true;
+  cmdCancel.enabled = true;
+}
+" 0
+ E E E E 1 -1 -1 0  10 125
+""0  1
+E "#uses \"pa.ctl\"
+
+string   gTcpFifo;
+bool warningShown = isDollarDefined(\"$checkSubProjsDone\");
+
+bool pmon_checkDelProj(string sProj, bool bCheckPwd)
+{
+  int         x, y, i, iErr, iPos;
+  bool        err, bRuns, bAuth;
+  string      str, otherProject, sUser, sPwd, projVers;
+  dyn_int     sel;
+  dyn_string  ds, subprojs, projs, versions, pathes;
+  dyn_anytype daResult;
+  dyn_errClass dErr;
+
+  iErr = paGetProjAttr(sProj, \"proj_version\", projVers);
+  dErr = getLastError();
+  if ( iErr || dynlen(dErr) )
+  {
+    iErr = -1;
+    cmdDeleteDir.state(0) = false;
+    cmdDeleteDir.enabled = false;
+    pmon_warningOutput(\"errorGetProjAttr\", -1);
+    //return(false);
+  }
+
+  if ( !iErr )
+  {
+    cmdDeleteDir.enabled = true;
+    int ver = paVersionStringToNumeric(projVers);
+    if ( ver != -1 && ver >= VERSION_NUMERIC )
+    {
+      if ( bCheckPwd )
+      {
+        paVerifyPassword(sProj, \"\", \"\", iErr);
+        if ( iErr == -99 )
+        {
+          pmon_warningOutput(\"errMissingProgs2\", iErr);
+          return(false);
+        }
+        else
+        if ( iErr == 1 )
+        {
+          pmon_warningOutput(\"errMissingProgs\", iErr);
+          return(false);
+        }
+  
+        bAuth = (iErr == 0);
+        
+        if ( !bAuth )
+        {
+          dyn_anytype daResult;
+          string      sUser, sPwd;
+          int         x, y;
+        
+          getChildPanelCentralPosition(\"projAdmin/project_admin_pwd.pnl\", x, y);
+          gParams[1]  = myModuleName();
+          gParams[3]  = myPanelName();
+          gParams[5]  = x;
+          gParams[6]  = y;
+          gParams[2]  = \"projAdmin/project_admin_pwd.pnl\";
+          gParams[4]  = getCatStr(\"pmon\",\"inputPwd\");
+          gParams[9]  = makeDynString(sProj, sUser, sPwd);
+          childPanel(gParams, daResult);
+      
+          if ( dynlen(daResult) > 0 && daResult[1] == 1 )
+          {
+            sUser = daResult[2];
+            sPwd = daResult[3];
+          }
+          else
+          {
+            sUser = \"\";
+            sPwd = \"\";
+          }
+          paVerifyPassword(sProj, sUser, sPwd, iErr);
+        
+          bAuth = (iErr == 0);
+          if ( !bAuth )// && dynlen(daResult) > 0 && daResult[1] == 1 )
+          {
+            pmon_warningOutput(\"errVerifyPwd\", iErr);
+            return(false);
+          }
+          else
+          {
+            gTcpUserName = sUser;
+            gTcpPassword = sPwd;
+          }
+        }
+        else
+        {
+          gTcpUserName = \"\";
+          gTcpPassword = \"\";
+        }
+      }
+  
+      bRuns = paIsPmonRunning(sProj);
+      if ( bRuns )
+      {
+        pmon_warningOutput(\"errNoDelProjRuns\", -1, sProj);
+        return(false);
+      }
+    }
+  }
+
+  iErr = paGetProjs(projs, versions, pathes);
+  dyn_string invalidSubProjs;
+
+  for ( i = 1; i <= dynlen(projs); i++ )
+  {
+    if ( !paIsValidProj(projs[i]) || (sProj != projs[i]) ) continue;
+    iErr = paGetSubProjs(projs[i], ds, invalidSubProjs);
+    if ( !warningShown ) // don't repeat the same warning
+    {
+      int error = pmon_checkSubProjects(ds, invalidSubProjs);
+      if ( !iErr )
+        iErr = error;
+
+      if ( iErr && dynlen(invalidSubProjs) )
+        pmon_warningMessageList(getCatStr(\"pmon\", \"errorGetSubProjs\"), invalidSubProjs);
+      else if ( iErr )
+        pmon_warningOutput(\"errorGetSubProjs\", iErr);
+    }
+
+    for ( int j = dynlen(ds); j > 0; j-- )
+    {
+      if ( ds[j] == projs[i] )
+        dynRemove(ds, j);
+    }
+    dynAppend(subprojs, ds);
+  }
+  if ( (iPos = dynContains(subprojs, sProj)) )
+  {
+    pmon_warningOutput(\"errCannotDeleteProject\", iErr);
+    return(false);
+  }
+  return(true);
+}
+
+//----------------------------------------------------------------------------
+int removeBadProjects()
+{
+  dyn_anytype  daResult;
+  dyn_string   dsProjList, dsVersion, dsProjPath, dsBadProjs;
+  int          err = paGetProjs(dsProjList, dsVersion, dsProjPath, dsBadProjs);
+  int          x, y, i, j;
+  string       sDollar;
+  dyn_string   dsErr, ds, dsDollar;
+  dyn_errClass dErr = getLastError();
+  
+  if ( err && dynlen(dsBadProjs) )
+  {
+    if ( dynlen(dErr) > 0 )
+    {
+      dsErr = dErr;
+    }
+
+    for ( i = 1; i <= dynlen(dsErr); i++ )
+    {
+      ds = strsplit(dsErr[i], \",\");
+      for ( j = 1; j < 6; j++ ) dynRemove(ds, 1);
+      dsDollar[i] = dsBadProjs[i] + \"§\" + ds[1];
+    }
+    sDollar = dsDollar;
+    getChildPanelCentralPosition(\"projAdmin/pa_del_invalid_projects.pnl\", x, y);
+    gParams[1]  = myModuleName();
+    gParams[2]  = \"projAdmin/pa_del_invalid_projects.pnl\";
+    gParams[3]  = myPanelName();
+    gParams[4]  = getCatStr(\"pmon\", \"removeBadProjects\");
+    gParams[5]  = x;
+    gParams[6]  = y;
+    gParams[9]  = makeDynString(sDollar);
+    childPanel(gParams, daResult);
+  }
+  if ( dynlen(daResult) > 0 && daResult[1] != 0 )
+  {
+    getChildPanelCentralPosition(\"vision/MessageInfo1\", x, y);
+    gParams[1]  = myModuleName();
+    gParams[2]  = \"vision/MessageInfo1\";
+    gParams[3]  = myPanelName();
+    gParams[4]  = getCatStr(\"para\", \"information\");
+    gParams[5]  = x;
+    gParams[6]  = y;
+    gParams[9]  = makeDynString(getCatStr(\"pmon\", \"projsDeleted\"));
+    childPanel(gParams, daResult);
+    err = paGetProjs(dsProjList, dsVersion, dsProjPath, dsBadProjs);
+    if ( dynlen(dsBadProjs) < 1 )
+    {
+      dyn_string ds = cmbProjects.items;
+      
+      if ( ds[dynlen(ds)] == getCatStr(\"pmon\", \"removeBadProjects\") )
+      {
+        dynRemove(ds, dynlen(ds));
+        cmbProjects.items = ds;
+      }
+    }
+  }
+  cmbProjects.text = \"\";
+  return(0);
+}
+
+
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  dyn_anytype da, daa;
+  
+  if ( cmdCancel.enabled )
+  {
+    da[1] = myModuleName();
+    da[2] = myPanelName();
+    daa = makeDynString();
+    da[3] = daa;
+    panelOff(da);
+  }
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 1 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 61
+"RECTANGLE1"
+""
+1 0 350 E E E 1 E 1 E N "_ButtonBarBackground" E N "_ButtonBarBackground" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.7234468937875751 0 1.045454545454546 0 366 1 E 0 0 499 44
+30 12
+"Frame2"
+""
+1 10 288 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.8970189701897018 0 1.008196721311476 6.029810298102983 25.6311475409836 0 E 10 45 380 290
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 21  Project information 
+LANG:10004 12 项目信息
+LANG:10000 22  Projektinformationen 
+LANG:10027 39  Информация о проекте
+2 23
+"Text8"
+""
+1 74.5 10.5 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"maximumSize" "-1 20"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 0.9892473118279571 0 0.9677419354838711 -58.67741935483872 4.90322580645161 0 E 76.5 12.5 123 27
+0 2 0 "0s" 0 0 0 192 0 0  76.5 12.5 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 Project:
+LANG:10004 7 项目:
+LANG:10000 8 Projekt:
+LANG:10027 13 Проект:
+2 38
+"Text1"
+""
+1 28 64 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 2.071428571428571 0 0.9999999999999984 -15.07142857142857 39.00000000000011 0 E 22 66 92 80
+0 2 0 "0s" 0 0 0 192 0 0  22 66 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 11 Created by:
+LANG:10004 13 由...制作:
+LANG:10000 13 Erstellt von:
+LANG:10027 13 Создан:
+2 39
+"Text2"
+""
+1 36 94 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 2.101449275362319 0 0.999999999999999 -15.73188405797102 39.00000000000011 0 E 22 96 89 110
+0 2 0 "0s" 0 0 0 192 0 0  22 96 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 11 Created on:
+LANG:10004 10 创建于:
+LANG:10000 12 Erstellt am:
+LANG:10027 13 Создан:
+2 41
+"Text3"
+""
+1 82 124 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.239316239316239 0 1.000000000000001 3.235042735042734 38.99999999999984 0 E 22 126 139 140
+0 2 0 "0s" 0 0 0 192 0 0  22 126 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 20 Version of WinCC OA:
+LANG:10004 15 WinCC OA版本:
+LANG:10000 17 WinCC OA-Version:
+LANG:10027 22 Версия WinCC OA:
+2 43
+"Text4"
+""
+1 98 154 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.464646464646465 0 0.9999999999999996 -1.722222222222221 39.00000000000006 0 E 22 156 122 170
+0 2 0 "0s" 0 0 0 192 0 0  22 156 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 23 Installation directory:
+LANG:10004 13 安装目录:
+LANG:10000 18 Installationspfad:
+LANG:10027 40 Директория установки:
+2 45
+"Text5"
+""
+1 18 184 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.25 0 0.999999999999999 3 39.00000000000018 0 E 22 186 139 200
+0 2 0 "0s" 0 0 0 192 0 0  22 186 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 19 Configuration file:
+LANG:10004 13 配置文件:
+LANG:10000 20 Konfigurationsdatei:
+LANG:10027 34 Файл конфигурации:
+2 47
+"Text6"
+""
+1 32 214 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.306306306306306 0 0.999999999999999 1.76126126126126 39.00000000000024 0 E 22 216 133 230
+0 2 0 "0s" 0 0 0 192 0 0  22 216 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 18 Project directory:
+LANG:10004 13 项目目录:
+LANG:10000 19 Projektverzeichnis:
+LANG:10027 36 Директория проекта:
+2 49
+"Text7"
+""
+1 7 244 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"minimumSize" "150 -1"
+"maximumSize" "150 -1"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 0 1 E 1.028368794326241 0 1 7.375886524822695 38.99999999999997 0 E 22 246 162 260
+0 2 0 "0s" 0 0 0 192 0 0  22 246 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 19 WinCC OA directory:
+LANG:10004 16 WinCC OA 路径:
+LANG:10000 21 WinCC OA-Verzeichnis:
+LANG:10027 30 Директория WinCC OA:
+13 31
+"cmdDelProject"
+""
+1 115.9999999999999 348.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schliessen
+LANG:10027 64 Принять изменения и закрыть панель
+
+2
+"minimumSize" "85 25"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  169 375.5 257 403.5
+
+T 
+4
+LANG:10001 2 Ok
+LANG:10004 6 确定
+LANG:10000 2 Ok
+LANG:10027 2 OK
+"main()
+{
+  int         iErr, i, x, y;
+  bool        delDirs = cmdDeleteDir.state(0);
+  string      projName = cmbProjects.text;
+  dyn_anytype da, daa, daResult;
+  string sVersion = txtVersion.text;
+  
+  if ( projName == \"\" ) return;
+  
+  getChildPanelCentralPosition(\"vision/MessageWarning2\", x, y);
+  gParams[1]  = myModuleName();
+  gParams[3]  = myPanelName();
+  gParams[2]  = \"vision/MessageWarning2\";
+  gParams[4]  = getCatStr(\"pmon\", \"delProj\") + \": \" + projName;
+  gParams[5]  = x;
+  gParams[6]  = y;
+  gParams[9]  = makeDynString(getCatStr(\"pmon\", \"sureDeleteProj\"),
+                              getCatStr(\"general\", \"yes\"),
+                              getCatStr(\"general\", \"no\"));
+  childPanel(gParams, daResult);
+
+  if ( daResult[1] == 0 ) return;
+
+  cmdCancel.enabled = false;
+  cmdDeleteDir.enabled = false;
+  cmdDelProject.enabled = false;
+  
+  if ( paVersionStringToNumeric(sVersion) < paVersionStringToNumeric(\"3.12\") )
+  {
+    paUseRegistryFile(false);
+    iErr = paDelProj(projName, delDirs);//delete from 64Bit Reg
+    paReg64Access(false);
+    paDelProj(projName, delDirs);//delete from 32Bit Reg
+    paReg64Access(true);
+    paUseRegistryFile(true);
+  }
+  else
+    iErr = paDelProj(projName, delDirs);
+
+  if ( iErr )
+    pmon_warningOutput(\"errDelete\", iErr, projName);
+
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa[1] = 1;
+  da[3] = daa;
+  panelOff(da);
+}" 0
+ E E E
+13 51
+"cmdCancel"
+""
+1 216 348.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 27 0
+E E E
+8
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schliessen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+2
+"minimumSize" "85 25"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  259 375.5 347 403.5
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  dyn_anytype da, daa;
+  
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa = makeDynString();
+  da[3] = daa;
+  panelOff(da);
+}" 0
+ E E E
+13 52
+"Button3"
+""
+1 350.9999999999999 348.5000000000002 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 112 0
+E E E
+8
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 29 Открыть справку
+
+2
+"minimumSize" "85 25"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  14 375.5 102 403.5
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  if ( isDollarDefined(\"$info\") )
+    std_help(\"project_admin_info\");
+  else
+    std_help(\"project_admin_delete\");
+}" 0
+ E E E
+14 53
+"txtProject"
+""
+1 66.00000000000003 15 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"maximumSize" "-1 25"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  64 13 348 38
+2 "0s" 0 0 0 0 0 -1  E E E
+14 18
+"txtUser"
+""
+1 184.3371040723981 100 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 98 335 126
+2 "0s" 0 0 0 0 0 -1  E E E
+14 40
+"txtDate"
+""
+1 184.3371040723981 130 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 128 335 156
+2 "0s" 0 0 0 0 0 -1  E E E
+14 42
+"txtVersion"
+""
+1 184.3371040723981 160 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 158 335 186
+2 "0s" 0 0 0 0 0 -1  E E E
+14 44
+"txtDir"
+""
+1 184.3371040723981 190 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 188 335 216
+2 "0s" 0 0 0 0 0 -1  E E E
+14 46
+"txtConfig"
+""
+1 184.3371040723981 220 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 218 335 246
+2 "0s" 0 0 0 0 0 -1  E E E
+14 48
+"txtProjDir"
+""
+1 184.3371040723981 250 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"minimumSize" "-1 25"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 248 335 276
+2 "0s" 0 0 0 0 0 -1  E E E
+14 50
+"txtPvssDir"
+""
+1 184.0000000000002 280 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "-1 25"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  182 278 335 306
+2 "0s" 0 0 0 0 0 -1  E E E
+22 54
+"cmbProjects"
+""
+1 65.99999999999999 43 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"maximumSize" "-1 25"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  64 41 348 66
+0
+
+E
+"main()
+{
+  int    err;
+  string sUser, sDate, sVersion, sDir, sConfig, sProj, sPvss, sProjName;
+  warningShown = FALSE;
+  if ( this.text == getCatStr(\"pmon\", \"removeBadProjects\") )
+  {
+    int iErr = removeBadProjects();
+    
+    return;
+  }
+  
+  txtUser.text = \"\";
+  txtDate.text = \"\";
+  txtVersion.text = \"\";
+  txtDir.text = \"\";
+  txtConfig.text = \"\";
+  txtProjDir.text = \"\";
+  txtPvssDir.text = \"\";
+  cmdDelProject.enabled = false;
+  delay(0,10);
+
+  sProjName = this.text;
+
+  paGetProjAttr(sProjName, \"InstallationUser\", sUser);
+  paGetProjAttr(sProjName, \"InstallationDate\", sDate);
+  err = paGetProjAttr(sProjName, \"proj_version\", sVersion);
+  paGetProjAttr(sProjName, \"InstallationDir\", sDir);
+  paProjName2ConfigFile(sProjName, sConfig);
+  paGetProjAttr(sProjName, \"proj_path\", sProj);
+  paGetProjAttr(sProjName, \"pvss_path\", sPvss);
+  // no error handling because an invalid project (for Example C:\\WINDOWS) should
+  // be removed from the registry but the directory must not be deleted! 
+
+  txtUser.text = sUser;
+  txtDate.text = sDate;
+  txtVersion.text = sVersion;
+  txtDir.text = sDir;
+  txtConfig.text = (err)?\"\":sConfig;
+  txtProjDir.text = sProj;
+  txtPvssDir.text = sPvss;
+
+  if ( !isDollarDefined(\"$info\") )
+    cmdDelProject.enabled = (pmon_checkDelProj(sProjName, true));
+}
+" 0
+
+E
+ 0 0
+20 63
+"cmdDeleteDir"
+""
+1 15.5 324.5 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 20"
+"maximumSize" "-1 25"
+"layoutAlignment" "AlignCenter"
+"showBackground" "0"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13.5 322.5 155.5 345.5
+1
+T 
+4
+LANG:10001 16 Delete directory
+LANG:10004 12 删除目录
+LANG:10000 20 Verzeichnis löschen
+LANG:10027 35 Удалить директорию
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE32 64
+"SPACER1"
+""
+1 154 324 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"maximumSize" "-1 25"
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 154 324 346 343 1
+32 65
+"SPACER4"
+""
+1 340 515 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 340 515 341 516 1
+32 66
+"SPACER5"
+""
+1 106 377 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 106 377 165 401 1
+32 67
+"SPACER6"
+""
+1 15 350 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 15 350 346 351 2
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 2 "layout_created_by" 23
+2 0 
+38 18 
+
+"S 38" "0 0 1 1"
+"S 18" "1 0 1 1"
+"" ""
+0 1 0 0
+4 3 "layout_create_date" 23
+2 0 
+39 40 
+
+"S 39" "0 0 1 1"
+"S 40" "1 0 1 1"
+"" ""
+0 1 0 0
+4 4 "layout_winccoa_vers" 23
+2 0 
+41 42 
+
+"S 41" "0 0 1 1"
+"S 42" "1 0 1 1"
+"" ""
+0 1 0 0
+4 5 "layout_install_dir" 23
+2 0 
+43 44 
+
+"S 43" "0 0 1 1"
+"S 44" "1 0 1 1"
+"" ""
+0 1 0 0
+4 6 "layout_config_file" 23
+2 0 
+45 46 
+
+"S 45" "0 0 1 1"
+"S 46" "1 0 1 1"
+"" ""
+0 1 0 0
+4 7 "layout_project_dir" 23
+2 0 
+47 48 
+
+"S 47" "0 0 1 1"
+"S 48" "1 0 1 1"
+"" ""
+0 1 0 0
+4 8 "layout_winccoa_dir" 23
+2 0 
+49 50 
+
+"S 49" "0 0 1 1"
+"S 50" "1 0 1 1"
+"" ""
+0 1 0 0
+4 13 "LAYOUT_GROUP13" 17
+2 0 
+54 53 
+
+"S 54" "1 0 1 1"
+"S 53" "0 0 1 1"
+"" ""
+0 2 0 0
+4 17 "LAYOUT_GROUP17" 18
+1 1 
+23 
+13 
+"S 23" "0 0 1 1"
+"G 13" "1 0 1 1"
+"" ""
+0 1 0 1 0
+4 18 "layout_combobox" 24
+0 1 
+
+17 
+"G 17" "0 0 1 1"
+"" ""
+0 1 0 1 0
+4 19 "layout_checkbox" 24
+2 0 
+63 64 
+
+"S 63" "0 0 1 1"
+"S 64" "1 0 1 1"
+"" ""
+0 1 0 1 0
+4 20 "layout_bottom" -1
+5 0 
+61 31 51 52 66 
+
+"S 31" "2 0 1 1"
+"S 51" "3 0 1 1"
+"S 52" "0 0 1 1"
+"S 66" "1 0 1 1"
+"" ""
+1 1 1 15 15 10 10 1 5
+4 23 "layout_frame" 24
+1 7 
+12 
+2 3 4 5 6 7 8 
+"G 2" "0 0 1 1"
+"G 3" "1 0 1 1"
+"G 4" "2 0 1 1"
+"G 5" "3 0 1 1"
+"G 6" "4 0 1 1"
+"G 7" "5 0 1 1"
+"G 8" "6 0 1 1"
+"" ""
+1 2 1 10 10 10 10 1 5
+4 24 "layout_content" -1
+1 3 
+67 
+19 23 18 
+"S 67" "3 0 1 1"
+"G 19" "2 0 1 1"
+"G 23" "1 0 1 1"
+"G 18" "0 0 1 1"
+"" ""
+0 2 1 15 15 15 15 0
+0

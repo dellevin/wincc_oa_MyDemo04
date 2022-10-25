@@ -1,0 +1,2969 @@
+V 14
+4
+LANG:10001 16 S7 configuration
+LANG:10004 8 S7配置
+LANG:10000 17 S7-Parametrierung
+LANG:10027 27 Конфигурация S7
+PANEL,-1 -1 630 630 N "_3DFace" 0
+"#uses \"driverSettings.ctl\"
+
+main()
+{
+  addGlobal(\"gUseTSPP\", BOOL_VAR);
+  addGlobal(\"gbChanged\", BOOL_VAR);
+  addGlobal(\"gUseS7MPI\", BOOL_VAR);
+  addGlobal(\"gUseS7SINUMERIK\", BOOL_VAR);
+  addGlobal(\"gS7PanelName\", STRING_VAR);
+  //IM 119950 S7-200 Erweiterungen
+  addGlobal(\"gUseProjConn\", DYN_BOOL_VAR);
+  addGlobal(\"gMode\", INT_VAR);
+
+  hexMapping();
+  getModes();
+
+  gS7PanelName = myPanelName();  // needed by s7_sub_setting.pnl to reference shapes
+
+  int        i;
+  string     sPlc = \"\", sDp;
+  dyn_string dsPlc = dpNames(getSystemName()+\"*\",\"_S7_Conn\"), ds;
+
+  drvsS7CheckDPT();
+
+  txtSystem.text = getSystemName();
+
+  initHosts();
+
+  for ( i = dynlen(dsPlc); i > 0; i-- )
+  {
+    // don't display redundant datapoints
+    if ( i > 0 && isReduDp(dsPlc[i]))
+    {
+      dynRemove(dsPlc, i);
+      continue;
+    }
+
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+    if ( dsPlc[i][0] == \"_\" )
+      dsPlc[i] = substr(dsPlc[i], 1, strlen(dsPlc[i])-1);
+  }
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    setSettingsEnabled(FALSE);
+    return;
+  }
+  else
+  {
+    sPlc = dsPlc[1];
+
+    if ( _WIN32 )
+    {
+      bu_alarms.enabled = true;
+      bu_symb.enabled = true;
+      bu_alarmMapping.enabled = true;
+    }
+    else
+    {
+      bu_alarms.enabled = false;
+      bu_symb.enabled = false;
+      bu_alarmMapping.enabled = false;
+    }
+  }
+
+  cmbPlc.items = dsPlc;
+  cmbPlc.text = sPlc; gsOldPlc = sPlc;
+  gbChanged = false;
+  sPlc = oldPlc;
+
+  string dp = txtSystem.text	+ \"_\"+cmbPlc.text	;
+  string dp_2 = txtSystem.text	+ \"_\"+cmbPlc.text	+\"_2\";
+  // ??? readDpWritePanel wird in loadS7Dp ohnehin gemacht
+  // readDpWritePanel(dp);
+  loads7Dp(dp);
+
+  dpConnect(\"connectCB\", TRUE, \"_Connections.Driver.ManNums:_online.._value\");
+
+  if ( isRedundant() && dpExists(\"_Connections_2\") )
+    dpConnect(\"connectCB\", FALSE, \"_Connections_2.Driver.ManNums:_online.._value\");
+
+  setAllInformation(cmbMode.selectedPos()-1);
+}
+
+hexMapping()
+{
+  int i,j;
+  dyn_string ds, dsDestination;
+  string s, s1, s2;
+  int upper, lower;
+
+  if (globalExists(\"gHexMapping\"))
+    return;
+
+  addGlobal(\"gHexMapping\", DYN_STRING_VAR);
+  addGlobal(\"gHexMapping256\", DYN_STRING_VAR);
+
+  for (i=0; i<= 255; i++)
+  {
+    upper = i/16;
+    lower = i-((i/16)*16)  ;
+    s = (string) intToHexchar(upper)+(string)intToHexchar( lower);
+    dynAppend(ds,  s);
+  }
+
+  gHexMapping256 = ds;
+
+//  for (i=1; i<= 256; i++)
+//  {
+//     s1= ds[i];
+//     for (j= 1; j<= 256; j++)
+//     {
+//       s2= ds[j];
+//       dynAppend(dsDestination, s1+s2);
+//     }
+//  }
+
+  gHexMapping = dsDestination;
+}
+
+char intToHexchar(int i)
+{
+  dyn_char   dc=makeDynChar(\"0\",\"1\",\"2\",\"3\",
+                            \"4\",\"5\",\"6\",\"7\",
+                            \"8\",\"9\",\"A\",\"B\",
+                            \"C\",\"D\",\"E\",\"F\");
+  return dc[i+1];
+}
+
+connectCB(string dp, dyn_string ds)
+{
+  gbChanged = FALSE;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "//Parameter  Change Mode  Range  DPE (_S7_Config)
+//serial interface index   selectable in panel  COM1COMx  IPAddress
+//PLC MPI address  selectable in panel  0-31  Slot
+//minimum baud rate  selectable in panel  38400/57600/ 115200  ProtocolExtras(1)
+//maximum baud rate  selectable in panel  38400/57600/ 115200  ProtocolExtras(2)
+//connection type  selectable in panel  PG/OP/Other
+//512/513/514
+//(Bit 9 is used to determine, if it is a S7 MPI connection  ConnectionType
+//timeout  selectable in panel  like S7 TCPIP  Timeout
+//PC address  selectable in panel  0-31    Config
+//Single master flag  hard coded  1    Config
+//bus rate  hard coded  187500    Config
+//highest station address  hard coded  31    Config
+// TFS 8262 + IM 119252 --> removed TIA symbolic + SIMOTION
+
+const string S7MODE_IE_TCP    = \"S7 - IE (TCP)\";
+const string S7MODE_MPI       = \"S7 - MPI\";
+const string S7MODE_TSPP      = \"S7 - TSPP\";
+const string S7MODE_SINUMERIK = \"S7 - SINUMERIK\";
+
+string     gsOldPlc;
+dyn_string gDsProtocols;
+
+unsigned   oldDevNr, oldChannel, oldProtocol, oldChannelEqNum;
+bool       oldInternalPollList, oldGeneralQuery;
+string     oldPlc;
+dyn_string dsUndoDp;
+dyn_anytype daUndoData;
+string     gSymBrowseDefault;
+
+//////////////////////////////////////////////////////////////////////////////
+
+void cmdClose()
+{
+  removeGlobal(\"gUseTSPP\");
+  removeGlobal(\"gbChanged\");
+  removeGlobal(\"gUseS7MPI\");
+  removeGlobal(\"gUseS7SINUMERIK\");
+  removeGlobal(\"gS7PanelName\");
+  //IM 119950 S7-200 Erweiterungen
+  removeGlobal(\"gUseProjConn\");
+  removeGlobal(\"gMode\");
+
+  PanelOff();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+s7CreateNewEquipment(string dp)
+{
+  dyn_string ds;
+  ds = strsplit(dp, \":\");
+  string sSystem = ds[1]+\":\";
+  dp = ds[2];
+  int iSystem = getSystemId(sSystem);
+  int iAnswer;
+  dyn_errClass dErr;
+
+  isRemoteSystemRedundant(iAnswer,sSystem); // ??? warum so ?
+
+  dpCreate(dp, \"_S7_Conn\", iSystem);
+  dErr = getLastError();
+  if ( dynlen(dErr)>0)
+  {
+     throwError(dErr);
+     errorDialog(dErr);
+  }
+
+  if ( iAnswer == 1 )
+  {
+    dpCreate(dp + \"_2\", \"_S7_Conn\", iSystem);
+    dErr = getLastError();
+    if ( dynlen(dErr)>0)
+    {
+       throwError(dErr);
+       errorDialog(dErr);
+    }
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+readDpWritePanel(string sPlc)
+{
+  bool SetInvalidBit, UseTSPP, AlarmingActive;
+  langString ls;
+  dyn_string ds;
+  int iDevNr, iDrvNum;
+  dyn_int diConnections;
+
+  string sProject, sProgram;
+
+  dpGet(sPlc + \".SetInvalidBit:_online.._value\", SetInvalidBit,
+        sPlc + \".UseTSPP:_online.._value\",       UseTSPP,
+        sPlc + \".AlarmActive:_online.._value\",   AlarmingActive,
+        sPlc + \".DevNr:_online.._value\",         iDevNr,
+        sPlc + \".DrvNumber:_online.._value\",     iDrvNum,
+        sPlc + \".ProjectName:_online.._value\",   sProject,
+        sPlc + \".ProgramName:_online.._value\",   sProgram,
+        dpSubStr(sPlc, DPSUB_SYS) + \"_S7_Config.ConnectionType:_online.._value\", diConnections);
+
+  ls = dpGetComment(sPlc+\".\");
+
+  t1.text  = ls;
+  ds = ls;
+  langliste1.items = ds;
+
+  if ( UseTSPP )
+    cmbMode.selectedPos(3);
+
+  chbInvalidBit.state(0) = SetInvalidBit;
+  chbAlarmingActive.state(0) = AlarmingActive;
+
+  if ( iDrvNum > 0 )
+  {
+    sbDrvNum.text = iDrvNum;
+    sbDrvNum.enabled = FALSE;
+  }
+  else
+  {
+    dyn_int diDrvNums = checkDrvNums();
+    if ( dynlen(diDrvNums) )
+      sbDrvNum.text = diDrvNums[1];
+    else
+      sbDrvNum.text = 1;
+
+    sbDrvNum.enabled = TRUE;
+  }
+
+
+  if (iDevNr > 0 && dynlen( diConnections) >= iDevNr)
+  {
+    if ((diConnections[iDevNr] & 768) > 0)
+      cmbMode.selectedPos(4);
+    else if ((diConnections[iDevNr] & 512) > 0)
+      cmbMode.selectedPos(2);
+    else if (!UseTSPP)
+      cmbMode.selectedPos(1);
+
+    UseTSPP = FALSE;
+  }
+  gMode = cmbMode.selectedPos()-1; //IM 119950 S7-200 Erweiterungen
+  gUseTSPP = UseTSPP;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+loads7Dp(string dp)
+{
+  string panel = \"para/s7_sub_device.pnl\";
+  int DevNr1, DevNr2, DevNr3, DevNr4;
+
+
+  if (dpExists(dp))
+  {
+    readDpWritePanel(dp);
+    // IM 100000:
+    // gUseTSPP will be set by showAllInformation() according to the radiobutton which will be called (during startup)
+    // after this call. So the global variable is not initialized correctly and TSPP parameter-shapes might be displayed
+    // in a wrong state - so TSPP shall be read and set from the dp
+    dpGet(dp + \".DevNr:_online.._value\", DevNr1,
+          dp + \".ReduConn.DevNr:_online.._value\", DevNr2,
+          dp + \".ReduCP.DevNr:_online.._value\", DevNr3,
+          dp + \".ReduCP.ReduConn.DevNr:_online.._value\", DevNr4,
+          dp + \".UseTSPP\", gUseTSPP);
+
+    cbuReduConnection.state(0) = (DevNr2>0 || DevNr4>0);
+    cbuReduDevice.state(0) = (DevNr3>0 || DevNr4>0);
+  }
+
+  if (dpExists(dp+\"_2\"))
+  {
+    dpGet(dp +\"_2\"+ \".DevNr:_online.._value\", DevNr1,
+          dp +\"_2\"+ \".ReduConn.DevNr:_online.._value\", DevNr2,
+          dp +\"_2\"+ \".ReduCP.DevNr:_online.._value\", DevNr3,
+          dp +\"_2\"+ \".ReduCP.ReduConn.DevNr:_online.._value\", DevNr4);
+    if ( DevNr2 > 0 || DevNr4 > 0)
+       cbuReduConnection.state(0) = TRUE;
+
+    if ( DevNr3 > 0 || DevNr4 > 0)
+      cbuReduDevice.state(0) = TRUE;
+  }
+
+  if ( dpExists(dp))
+  {
+    if (shapeExists(\"tabs7\"))
+      removeSymbol(myModuleName(), \"\", \"tabs7\");
+
+    addSymbol(myModuleName(), \"\", \"para/s7_sub_device.pnl\", \"tabs7\", makeDynString(\"$dp:\"+dp), 0, 260, 0, 1, 1); // 10, 240
+    setValue(\"tabs7\", \"visible\", false);
+  }
+
+  if ( DevNr1 > 0 )
+  {
+    dyn_string dsProtocolExtras;
+    dyn_int diConnectionType;
+
+    dpGet(\"_S7_Config.ProtocolExtras:_online.._value\", dsProtocolExtras,
+          \"_S7_Config.ConnectionType:_online.._value\", diConnectionType);
+
+    while (!shapeExists(dp + \".ReduControl.CP.CmdMode\"))
+      delay(0,10);
+
+    if (dsProtocolExtras[DevNr1] != \"\" && (diConnectionType[DevNr1] & 512) > 0)
+    {
+      gbChanged = TRUE;
+      gUseS7MPI = FALSE;
+      gUseS7SINUMERIK = FALSE;
+      cmbMode.selectedPos(2); // MPI
+    }
+    else if (/*dsProtocolExtras[DevNr1] != \"\" && */(diConnectionType[DevNr1] & 768) > 0)
+    {
+      gbChanged = TRUE;
+      gUseS7MPI = FALSE;
+      gUseS7SINUMERIK = TRUE;
+      cmbMode.selectedPos(4); // SINUMERIK
+    }
+    else
+    {
+      gbChanged = TRUE;
+      gUseS7MPI = FALSE;
+      gUseS7SINUMERIK = FALSE;
+    }
+
+    bool bModeS5  = (diConnectionType[DevNr1] ==  256);
+    bool bModeTia = (diConnectionType[DevNr1] >= 1024);
+
+    bool bModeNotSupported = (bModeS5 || bModeTia);
+
+    setMultiValue(\"cmdOk\",              \"enabled\", !bModeNotSupported,
+                  \"cmdApply\",           \"enabled\", !bModeNotSupported,
+                  \"cmdRemoveDp\",        \"enabled\", !bModeTia,
+                  \"tabs71\",             \"enabled\", !bModeNotSupported,
+                  \"bu_symb\",            \"enabled\", !bModeNotSupported,
+                  \"Button2\",            \"enabled\", !bModeNotSupported,
+                  \"ptModeNotSupported\", \"visible\", bModeNotSupported,
+                  \"recAttention\",       \"visible\", bModeNotSupported);
+
+    if ( bModeS5 )
+    {
+      ptModeNotSupported.text = getCatStr(\"s7\", \"s5NotSupportedMode\");
+
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                getCatStr(\"para\", \"warning\"),
+                                makeDynString(getCatStr(\"s7\", \"s5NotSupported\")));
+    }
+
+    if ( bModeTia )
+    {
+      ptModeNotSupported.text = getCatStr(\"s7\", \"tiaNotSupportedMode\");
+
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                getCatStr(\"para\", \"warning\"),
+                                makeDynString(getCatStr(\"s7\", \"tiaNotSupported\")));
+    }
+  }
+
+  setValue(\"tabs7\", \"visible\", true);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+storeUndo(string dp)
+{
+  dyn_string dsUndoDp = dpNames(dp + \"**:_original.._value\");
+  dpGet(dsUndoDp, daUndoData);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+restoreUndo()
+{
+  dpSet(dsUndoDp, daUndoData);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+bool setDp()
+{
+  string     sPlc = cmbPlc.text;
+  unsigned   DevNr, Channel, Protocol, ChannelEqNum;
+  bool       SetInvalidBit, UseTSPP, AlarmingActive;
+  int        i, iDrvNum;
+  string     sShape;
+  dyn_string dsDpe, dsDpe2;
+  dyn_anytype dsValues, dsValues2;
+  bool bConfigError, bConfigError2;
+  dyn_string ds;
+  langString ls;
+  int iMode2;
+
+  int iMode = cmbMode.selectedPos()-1;
+
+  // 1 checkBox, 2 text, 3 radiobutton
+  dyn_string dsObjects = makeDynString(\".Active\",                   1,
+                                       \".DevNr\",                    2,
+                                       \".ReduConn.Active\",          1,
+                                       \".ReduConn.DevNr\",           2,
+                                       \".ReduControl.Conn.CmdMode\", 3,
+                                       \".ReduControl.Conn.SpsTag\",  2,
+                                       \".ReduControl.Conn.Switch\",  3,
+                                       \".ReduControl.CP.CmdMode\",   3,
+                                       \".ReduControl.CP.SpsTag\",    2,
+                                       \".ReduControl.CP.Switch\",    3,
+                                       \".ReduCP.Active\",            1,
+                                       \".ReduCP.DevNr\",             2,
+                                       \".ReduCP.Channel\",           2,
+                                       \".ReduCP.ChannelEqNum\",      2,
+                                       \".ReduCP.ReduConn.Active\",   1,
+                                       \".ReduCP.ReduConn.DevNr\",    2,
+                                       \".AlarmActive\",              1);
+
+  ds = langliste1.items;
+
+  if ( sPlc == \"\" )
+    return TRUE; // no selection is OK
+
+  ls = ds;
+  dpSetComment( txtSystem.text + \"_\"+sPlc+\".\", ls);
+
+  //if ( gbChanged )  // disabled !!
+  //  ChildPanelOnCentralModal(\"vision/MessageInfo1\",
+  //                           getCatStr(\"para\", \"information\"),
+  //                           makeDynString(getCatStr(\"para\", \"restartdriver\")));
+
+  SetInvalidBit = chbInvalidBit.state(0);
+  iDrvNum = sbDrvNum.text();
+
+  //chbTSPP.state(0);
+  UseTSPP = ( cmbMode.selectedPos() == 3 );
+
+  AlarmingActive = chbAlarmingActive.state(0);
+
+  if (!cbuReduDevice.state(0))
+  {
+    sShape =   txtSystem.text +\"_\"+sPlc+\".ReduCP.DevNr\";
+    setValue(sShape, \"text\", 0);
+  }
+  if (!cbuReduConnection.state(0))
+  {
+    sShape =   txtSystem.text +\"_\"+sPlc+\".ReduConn.DevNr\";
+    setValue(sShape, \"text\", 0);
+  }
+  if (!cbuReduDevice.state(0) || !cbuReduConnection.state(0))
+  {
+    sShape =   txtSystem.text +\"_\"+sPlc+\".ReduCP.ReduConn.DevNr\";
+    if ( shapeExists(sShape))
+      setValue(sShape, \"text\", 0);
+  }
+
+  for ( i = 1; i <= dynlen(dsObjects); i = i+2 )
+  {
+    sShape = txtSystem.text +\"_\"+sPlc+dsObjects[i];
+    iMode2 = dsObjects[i+1];
+
+    if ( shapeExists(sShape) )
+    {
+      if ( iMode2 == 1)
+        getValue(sShape, \"state\" , 0, dsValues[dynlen(dsValues)+1]);
+      else if ( iMode2 == 2)
+        getValue(sShape, \"text\", dsValues[dynlen(dsValues)+1]);
+      else if ( iMode2 == 3)
+        getValue(sShape, \"number\", dsValues[dynlen(dsValues)+1]);
+
+      // modification of value for ReduControl.CP.Switch because of Automatic-H setting,
+      // internal numbers do not reflect visible order
+      if (dsObjects[i]==\".ReduControl.CP.Switch\")
+      {
+        switch((int)dsValues[dynlen(dsValues)])
+        {
+          case 2:
+          case 3:
+            dsValues[dynlen(dsValues)] = dsValues[dynlen(dsValues)] - 1;
+            break;
+          case 1:
+            dsValues[dynlen(dsValues)] = 3;
+            break;
+          default:
+            break;
+        }
+      }
+      dsDpe[dynlen(dsDpe)+1] = sShape + \":_original.._value\";
+    }
+  }
+
+  dyn_int  diConnectionType, diRack, diSlot, diTimeout, diDevNr;
+  dyn_string dsIPAddress, dsTSPPExtras, dsProtocolExtras;
+  int devNr1, devNr2, devNr3, devNr4;
+  int devNr1Old, devNr2Old, devNr3Old, devNr4Old;
+
+  dpGet(txtSystem.text + \"_S7_Config.ConnectionType:_online.._value\", diConnectionType,
+        txtSystem.text + \"_S7_Config.IPAddress:_online.._value\", dsIPAddress,
+        txtSystem.text + \"_S7_Config.Rack:_online.._value\", diRack,
+        txtSystem.text + \"_S7_Config.Slot:_online.._value\", diSlot,
+        txtSystem.text + \"_S7_Config.Timeout:_online.._value\", diTimeout,
+        txtSystem.text + \"_S7_Config.TSPPExtras:_online.._value\", dsTSPPExtras,
+        txtSystem.text + \"_S7_Config.ProtocolExtras:_online.._value\", dsProtocolExtras,
+        txtSystem.text + \"_\"+sPlc+\".DevNr:_online.._value\", devNr1Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.DevNr:_online.._value\",devNr2Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduConn.DevNr:_online.._value\",devNr3Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.ReduConn.DevNr:_online.._value\",devNr4Old  );
+
+  sShape = txtSystem.text +\"_\"+sPlc+\".DevNr\";
+  getValue(sShape, \"text\", devNr1);
+  sShape = txtSystem.text +\"_\"+sPlc+\".ReduConn.DevNr\";
+  getValue(sShape, \"text\", devNr2);
+  sShape = txtSystem.text +\"_\"+sPlc+\".ReduCP.DevNr\";
+  getValue(sShape, \"text\", devNr3);
+  sShape = txtSystem.text +\"_\"+sPlc+\".ReduCP.ReduConn.DevNr\";
+  getValue(sShape, \"text\", devNr4);
+
+  // 1st Step: remove old entries
+  if ( devNr1Old != 0)
+    clearPosition(devNr1Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+
+  if ( devNr2Old != 0)
+    clearPosition(devNr2Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+
+  if ( devNr3Old != 0)
+    clearPosition(devNr3Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+
+  if ( devNr4Old != 0)
+    clearPosition(devNr4Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+
+  // 2nd Step: insert new entries
+  if ( (devNr1 != 0 && devNr1 <= DRVS_S7_MAX_DEVICES) && ( devNr1 != devNr2 && devNr1 != devNr3 && devNr1 != devNr4))
+    insertPosition(devNr1 ,txtSystem.text +\"_\"+sPlc, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, bConfigError, dsProtocolExtras);
+  else if (devNr1 != 0)
+    bConfigError2 = TRUE;
+
+  if (( devNr2 != 0 && devNr2 <= DRVS_S7_MAX_DEVICES) && ( devNr2 != devNr1 && devNr2 != devNr3 && devNr2 != devNr4))
+    insertPosition(devNr2 ,txtSystem.text +\"_\"+sPlc+\".ReduConn\", diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, bConfigError, dsProtocolExtras);
+  else if (devNr2 != 0)
+    bConfigError2 = TRUE;
+
+  if (( devNr3 != 0 && devNr3 <= DRVS_S7_MAX_DEVICES) && ( devNr3 != devNr1 && devNr3 != devNr2 && devNr3 != devNr4))
+    insertPosition(devNr3 ,txtSystem.text +\"_\"+sPlc+\".ReduCP\", diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, bConfigError, dsProtocolExtras);
+  else if (devNr3 != 0)
+    bConfigError2 = TRUE;
+
+  if (( devNr4 != 0 && devNr4 <= DRVS_S7_MAX_DEVICES) && ( devNr4 != devNr1 && devNr4 != devNr2 && devNr4 != devNr3))
+    insertPosition(devNr4 ,txtSystem.text +\"_\"+sPlc+\".ReduCP.ReduConn\", diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, bConfigError, dsProtocolExtras);
+  else if (devNr4 != 0)
+    bConfigError2 = TRUE;
+
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.ConnectionType:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] = diConnectionType;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.IPAddress:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  dsIPAddress;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.Rack:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  diRack;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.Slot:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  diSlot;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.Timeout:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  diTimeout;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.TSPPExtras:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  dsTSPPExtras;
+  dynAppend(dsDpe2, txtSystem.text + \"_S7_Config.ProtocolExtras:_original.._value\");
+  dsValues2[dynlen(dsValues2)+1] =  dsProtocolExtras;
+
+  if (bConfigError)
+  {
+    string sText = getCatStr(\"para\",\"noitem\");
+    string sText2;
+    string dp =  txtSystem.text  + \"_\"+cmbPlc.text  ;
+
+    if (shapeExists(dp+\".IPAddressText\"))
+    getValue( dp+\".IPAddressText\",\"text\", sText2);
+
+    strreplace(sText, \"§Item\", \" \"+sText2);
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(sText));
+    return FALSE;
+  }
+
+  if ( bConfigError2 )
+  {
+    string sText = getCatStr(\"s7\", \"noDublicateDeviceNumber\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(sText));
+    return FALSE;
+  }
+
+  dpSetWait(dsDpe2, dsValues2);
+  dpSetWait(dsDpe, dsValues);   // config
+
+  delay(0,1);
+
+  dpSetWait(txtSystem.text+ \"_\"+sPlc + \".DrvNumber:_original.._value\", iDrvNum);
+  dpSetWait(txtSystem.text+ \"_\"+sPlc + \".SetInvalidBit:_original.._value\", SetInvalidBit);
+  dpSetWait(txtSystem.text+ \"_\"+sPlc + \".UseTSPP:_original.._value\" , UseTSPP);
+  dpSetWait(txtSystem.text+ \"_\"+sPlc + \".AlarmActive:_original.._value\" , AlarmingActive);
+  dpSetWait(txtSystem.text+ \"_S7_Config.DoConfigAcconAGLink:_original.._value\", true);
+
+  dyn_string dsAll;
+  dpGet(txtSystem.text + \"_S7_Config.Connections.All:_online.._value\", dsAll);
+
+  if ( !dynContains(dsAll, sPlc + \" \" + iDrvNum) )
+    dynAppend(dsAll, sPlc + \" \" + iDrvNum);
+
+  if ( cmbMode.selectedPos() >= 1 )
+    dpSet(txtSystem.text + \"_S7_Config.Connections.Add:_original.._value\", sPlc + \" \" + iDrvNum,
+          txtSystem.text + \"_S7_Config.Connections.All:_original.._value\", dsAll);
+
+  setValue(\"sbDrvNum\", \"enabled\", FALSE);
+
+  return TRUE;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+clearPosition(int devNr,
+              dyn_int &diConnectionType,
+              dyn_int &diRack,
+              dyn_int &diSlot,
+              dyn_int &diTimeout,
+              dyn_string &dsIPAddress,
+              dyn_string &dsTSPPExtras,
+              dyn_string &dsProtocolExtras)
+{
+  if (devNr > 0)
+  {
+    int iMode = cmbMode.selectedPos()-1;
+
+    diConnectionType[devNr] = 0;
+    dsIPAddress[devNr] = \"\";       // remove !!
+    diRack[devNr] = 0;
+    diSlot[devNr] = 0;
+    diTimeout[devNr] = 5000;       // default 5000 ms
+    dsTSPPExtras[devNr] = \"\";
+
+    if (iMode != 0 || (iMode == 0 && dsProtocolExtras[devNr] != \"1\"))
+    {
+      // do not overwrite the protocol extras,
+      // because for industrial ethernet we have an inoffical parameter
+      dsProtocolExtras[devNr] = \"\";
+    }
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+insertPosition(int devNr,
+               string dp ,
+               dyn_int &diConnectionType,
+               dyn_int &diRack,
+               dyn_int &diSlot,
+               dyn_int &diTimeout,
+               dyn_string &dsIPAddress,
+               dyn_string &dsTSPPExtras,
+               bool &bConfigError,
+               dyn_string &dsProtocolExtras)
+{
+  int ConnectionType;
+  int ConnType1;
+  string IPAddress;
+  int Rack;
+  int Slot;
+  int Timeout;
+  string  sShape;
+  string TSPPExtras;
+  string sProtocolExtras;
+
+  if (devNr > 0)
+  {
+    int iMode = cmbMode.selectedPos()-1;
+
+    sShape = dp + \".ConnectionType\";
+    getValue(sShape, \"selectedPos\", ConnectionType);
+    sShape = dp + \".ConnType1\";
+    getValue(sShape, \"selectedPos\", ConnType1);
+
+    sShape = dp + \".IPAddress\";
+    getValue(sShape, \"text\", IPAddress);
+    sShape = dp + \".Rack\";
+    getValue(sShape, \"text\", Rack);
+    sShape = dp + \".Slot\";
+    getValue(sShape, \"text\", Slot);
+    sShape = dp + \".Timeout\";
+    getValue(sShape, \"text\", Timeout);
+
+    if ( iMode == 0 )
+    {
+      // for industrial ethernet we do not want to override the value from the data point
+      sProtocolExtras = dsProtocolExtras[devNr];
+
+      //IM 119950 S7-200 Erweiterungen
+      bool isVisible;
+      int  pos;
+      getValue(dp + \".ConnType1\",\"visible\",isVisible,\"selectedPos\",pos);
+
+      if((pos == 4) && isVisible)
+      {
+        anytype a11,a2,a3,a4,a5,a2R,a5R;
+        ConnType1++;
+        getMultiValue(
+                  dp + \".cbo11\",\"selectedPos\",a11,
+                  dp + \".cbo2\",\"selectedPos\",a2,
+                  dp + \".cbo3\",\"text\",a3,
+                  dp + \".cbo4\",\"text\",a4,
+                  dp + \".cbo5\",\"selectedPos\",a5,
+                  dp + \".cbo2_redu\",\"selectedPos\",a2R,
+                  dp + \".cbo5_redu\",\"selectedPos\",a5R
+                 );
+        (int)a2--; (int)a5--;(int)a11--; (int)a2R--; (int)a5R--;
+        string TSPPExtras = \"1\"+\".\"+a2+\".\"+a3+\".\"+a4+\".\"+a5+\".\"+a11+\".\"+a2R+\".\"+a5R;
+        dsTSPPExtras[devNr] = TSPPExtras;
+      }
+      //IM 119950 S7-200 Erweiterungen
+    }
+
+    if ( iMode == 2 ) // TSPP
+    {
+      sShape = dp + \".TSPPExtras\";
+      getValue( sShape, \"text\", TSPPExtras);
+
+      if ( TSPPExtras == \"\")
+        TSPPExtras = \"0.0.0.0.0\";
+    }
+
+    if ( iMode == 1 ) // MPI
+    {
+      string s1, s2;
+      s1 = \"\";
+      s2 = \"\";
+      sProtocolExtras = s1 +\".\"+s2;
+      TSPPExtras = \"\";
+
+      sShape = dp + \".MPISerialIndex\";
+      getValue( sShape, \"text\", IPAddress);
+
+      if ( IPAddress == \"localhost\" ) // wrong information -> do not store !!!
+        IPAddress = \"\";
+
+      ConnectionType += 512;
+      ConnType1 += 512;
+      Rack = 0;
+    }
+
+    if ( iMode == 3 ) // SINUMERIK
+    {
+      sProtocolExtras = dsProtocolExtras[devNr];
+      ConnectionType += 768;
+      ConnType1 += 768;
+    }
+
+    if ( IPAddress != \"\" )
+    {
+      if ( iMode == 2 ) // TSPP
+        diConnectionType[devNr] = ConnectionType - 1;
+      else
+        diConnectionType[devNr] = ConnType1 - 1;
+
+      dsIPAddress[devNr] = IPAddress; // remove !!
+      diRack[devNr] = Rack;
+      diSlot[devNr] = Slot;
+      diTimeout[devNr] = Timeout; // default 5000 ms
+
+      if ( iMode != 0 ) // IM 119950 S7-200 Erweiterungen
+        dsTSPPExtras[devNr] = TSPPExtras;
+
+      dsProtocolExtras[devNr] = sProtocolExtras;
+    }
+    else
+      bConfigError = TRUE;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+setStateLoop1(string dp, bool state)
+{
+  if (shapeExists(dp + \".ReduControl.CP.CmdMode\"))
+    setValue(dp + \".ReduControl.CP.CmdMode\", \"visible\", !state);
+
+  if (shapeExists(dp + \".ReduControl.Conn.CmdMode\"))
+    setValue(dp + \".ReduControl.Conn.CmdMode\", \"visible\", !state);
+
+  if (shapeExists(dp + \".TSPPExtras\"))
+    setState1(dp, state);
+
+  dp +=  \".ReduConn\";
+  if (shapeExists(dp + \".TSPPExtras\"))
+     setState1(dp, state);
+
+  dp +=  \".ReduCP\";
+  strreplace(dp,\".ReduConn\", \"\");
+
+  if (shapeExists(dp + \".TSPPExtras\"))
+    setState1(dp, state);
+
+  dp +=  \".ReduConn\";
+  if (shapeExists(dp + \".TSPPExtras\"))
+    setState1(dp, state);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+setState1(string dp, bool state)
+{
+  int pos;
+
+  while (!shapeExists(dp + \".ConnectionType\"))
+    delay(0,10);
+
+  state = ( cmbMode.selectedPos() == 3 );
+
+  setValue(dp + \".ConnectionType\", \"enabled\", !state);
+  getValue(dp + \".ConnectionType\", \"selectedPos\", pos);
+
+  if ( state  && pos < 4 )
+    setValue(dp + \".ConnectionType\", \"selectedPos\", 4);
+  else if ( !state && pos == 4)
+    setValue(dp + \".ConnectionType\", \"selectedPos\", 3);
+
+  if (!state)
+    setValue(dp + \".TSPPExtras\" , \"text\", \"\");
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+setStateLoop2(string dp, bool state)
+{
+  if ( shapeExists(dp+ \".TSPPExtras\") )
+    setState2(dp, state);
+
+  dp += \".ReduConn\";
+  if ( shapeExists(dp + \".TSPPExtras\") )
+    setState2(dp, state);
+
+  strreplace(dp, \".ReduConn\", \"\");
+
+  dp += \".ReduCP\";
+  if ( shapeExists(dp + \".TSPPExtras\") )
+    setState2(dp, state);
+
+  dp += \".ReduConn\";
+  if ( shapeExists(dp + \".TSPPExtras\") )
+    setState2(dp, state);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+setState2(string dp, bool state)
+{
+  while(!shapeExists(dp + \".Rack\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".ConnectionTypeText\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".RackText\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".SlotText\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".ConnectionType\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".ConnType1\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".ConnType2\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".Slot\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".Timeout\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".TimeoutText\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".MPISerialIndex\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".MPIText\"))
+    delay(0,10);
+
+  if ( !gUseTSPP && !gUseS7MPI )
+    setMultiValue(dp + \".IPAddress\",     \"visible\", 1,
+                  dp + \".IPAddressText\", \"visible\", 1);
+
+  if ( gUseS7MPI )
+    setMultiValue(dp + \".Slot\",               \"visible\", 1,
+                  dp + \".SlotText\",           \"visible\", 1,
+                  dp + \".ConnType1\",          \"visible\", 1,
+                  dp + \".ConnType2\",          \"visible\", 1,
+                  dp + \".ConnectionTypeText\", \"visible\", 1,
+                  dp + \".Timeout\",            \"visible\", 1,
+                  dp + \".TimeoutText\",        \"visible\", 1,
+                  dp + \".IPAddress\",          \"visible\", 0,
+                  dp + \".IPAddressText\",      \"visible\", 0,
+                  dp + \".Rack\",               \"visible\", 0,
+                  dp + \".RackText\",           \"visible\", 0);
+  else
+    setMultiValue(dp + \".IPAddress\",          \"visible\", 1,
+                  dp + \".IPAddressText\",      \"visible\", 1,
+                  dp + \".Rack\",               \"visible\", 1,
+                  dp + \".RackText\",           \"visible\", 1);
+
+  setMultiValue(dp + \".MPIText\",            \"visible\", gUseS7MPI,
+                dp + \".MPISerialIndex\",     \"visible\", gUseS7MPI,
+                dp + \".ConnType1\",          \"visible\", !gUseTSPP,
+                dp + \".ConnType1\",          \"enabled\", !gUseS7SINUMERIK,
+                dp + \".ConnType2\",          \"visible\", gUseTSPP,
+                dp + \".ConnectionTypeText\", \"visible\", 1,
+                dp + \".ConnectionTypeText\", \"enabled\", !gUseS7SINUMERIK,
+                dp + \".SlotText\",           \"visible\", !gUseS7MPI,
+                dp + \".Slot\",               \"visible\", 1,
+                dp + \".Rack\",               \"visible\", !gUseS7MPI,
+                dp + \".Rack\",               \"enabled\", !gUseS7SINUMERIK,
+                dp + \".RackText\",           \"visible\", !gUseS7MPI,
+                dp + \".RackText\",           \"enabled\", !gUseS7SINUMERIK);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
+
+setAllInformation(int button)
+{
+  // int button --> 0 = S7 IE
+  // int button --> 1 = S7 MPI
+  // int button --> 2 = S7 TSPP
+  // int button --> 3 = S7 SINUMERIK
+
+  string dp   = txtSystem.text + \"_\" + cmbPlc.text;
+  string dp_2 = txtSystem.text + \"_\" + cmbPlc.text + \"_2\";
+  int pos;
+
+  while(!shapeExists(dp + \".ConnType1\"))
+    delay(0,10);
+  while(!shapeExists(dp + \".ConnType2\"))
+    delay(0,10);
+
+  setMultiValue(\"bu_alarmMapping\", \"enabled\", _WIN32,
+                \"bu_alarms\",       \"enabled\", _WIN32,
+                \"bu_symb\",         \"enabled\", _WIN32,
+                dp+\".ConnType1\",   \"visible\", false,
+                dp+\".ConnType2\",   \"visible\", false);
+
+  cmbMode.enabled = FALSE;
+
+  if ( button == 0 ) // S7 IE
+  {
+    gbChanged = TRUE;
+    gUseTSPP  = FALSE;
+    gUseS7MPI = FALSE;
+    gUseS7SINUMERIK = FALSE;
+    gMode = 0;
+
+    setMultiValue(\"chbAlarmingActive\", \"enabled\", true,
+                  \"cbuReduDevice\",     \"enabled\", true,
+                  \"cbuReduConnection\", \"enabled\", true);
+
+    setValue(dp+\".ConnType1\", \"visible\", true);
+  }
+  else if ( button == 1 ) // S7 MPI
+  {
+    gbChanged = TRUE;
+    gUseTSPP  = FALSE;
+    gUseS7MPI = TRUE;
+    gUseS7SINUMERIK = FALSE;
+    gUseProjConn = makeDynBool(FALSE,FALSE,FALSE,FALSE);    //IM 119950 S7-200 Erweiterungen
+    gMode = 1;
+
+    while(!shapeExists(dp + \".TSPPExtras\"))
+      delay(0,10);
+    while(!shapeExists(dp + \".MPIText\"))
+      delay(0,10);
+
+    setValue(\"tabs72\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs72_REDU\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs71\",  \"registerVisible\", 3,FALSE );         // set visibility of sheet
+
+    if (shapeExists(\"tabs72_2\"))
+      setValue(\"tabs72_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    if (shapeExists(\"tabs72_REDU_2\"))
+      setValue(\"tabs72_REDU_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    if (shapeExists(\"tabs71_2\"))
+      setValue(\"tabs71_2\", \"registerVisible\", 3, FALSE);         // set visibility of sheet
+    if (shapeExists(dp+\".ReduCP.ReduConn.Active\"))
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0, FALSE);
+    if (shapeExists(dp+\".ReduConn.Active\"))
+      setValue(dp+\".ReduConn.Active\", \"state\", 0, FALSE);
+
+    if (shapeExists(\"tabs71_2\"))
+    {
+      setValue(\"tabs71_2\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+      setValue(\"tabs71_2\",  \"registerVisible\", 2,FALSE );         // set visibility of sheet
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0,FALSE);
+    }
+
+    setValue(\"tabs71\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs71\",  \"registerVisible\", 2,FALSE );         // set visibility of sheet
+    setValue(dp+\".ReduCP.Active\", \"state\", 0,FALSE);
+
+    setMultiValue(\"bu_alarms\",         \"enabled\",  false,
+                  \"bu_symb\",           \"enabled\",  false,
+                  \"chbAlarmingActive\", \"enabled\",  false,
+                  \"cbuReduDevice\",     \"state\", 0, false,
+                  \"cbuReduConnection\", \"state\", 0, false,
+                  \"cbuReduDevice\",     \"enabled\",  false,
+                  \"cbuReduConnection\", \"enabled\",  false);
+
+    setValue(dp+\".ConnType1\", \"visible\", true);
+  }
+  else if (button == 2) // S7 TSPP
+  {
+    gbChanged = TRUE;
+    gUseTSPP  = TRUE;
+    gUseS7MPI = FALSE;
+    gUseS7SINUMERIK = FALSE;
+    gUseProjConn = makeDynBool(FALSE,FALSE,FALSE,FALSE);    //IM 119950 S7-200 Erweiterungen
+    gMode = 2;
+
+    setMultiValue(\"bu_alarms\",         \"enabled\",  false,
+                  \"bu_symb\",           \"enabled\",  false,
+                  \"chbAlarmingActive\", \"enabled\",  false,
+                  \"cbuReduDevice\",     \"enabled\",  true,
+                  \"cbuReduConnection\", \"enabled\",  true);
+
+    setValue(dp+\".ConnType2\", \"visible\", true);
+  }
+  else if (button == 3) // SINUMERIK
+  {
+    gbChanged = TRUE;
+    gUseTSPP  = FALSE;
+    gUseS7MPI = FALSE;
+    gUseS7SINUMERIK = TRUE;
+    gUseProjConn = makeDynBool(FALSE,FALSE,FALSE,FALSE);    //IM 119950 S7-200 Erweiterungen
+    gMode = 3;
+
+    while(!shapeExists(dp + \".TSPPExtras\"))
+      delay(0,10);
+    while(!shapeExists(dp + \".MPIText\"))
+      delay(0,10);
+
+    setValue(\"tabs72\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs72_REDU\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs71\",  \"registerVisible\", 3,FALSE );         // set visibility of sheet
+
+    if (shapeExists(\"tabs72_2\"))
+      setValue(\"tabs72_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    if (shapeExists(\"tabs72_REDU_2\"))
+      setValue(\"tabs72_REDU_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    if (shapeExists(\"tabs71_2\"))
+      setValue(\"tabs71_2\", \"registerVisible\", 3, FALSE);         // set visibility of sheet
+    if (shapeExists(dp+\".ReduCP.ReduConn.Active\"))
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0, FALSE);
+    if (shapeExists(dp+\".ReduConn.Active\"))
+      setValue(dp+\".ReduConn.Active\", \"state\", 0, FALSE);
+
+    if (shapeExists(\"tabs71_2\"))
+    {
+      setValue(\"tabs71_2\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+      setValue(\"tabs71_2\",  \"registerVisible\", 2,FALSE );         // set visibility of sheet
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0,FALSE);
+    }
+
+    setValue(\"tabs71\",  \"registerVisible\", 1,FALSE );         // set visibility of sheet
+    setValue(\"tabs71\",  \"registerVisible\", 2,FALSE );         // set visibility of sheet
+    setValue(dp+\".ReduCP.Active\", \"state\", 0,FALSE);
+
+    setMultiValue(\"bu_alarmMapping\",   \"enabled\",  false,
+                  \"bu_alarms\",         \"enabled\",  false,
+                  \"bu_symb\",           \"enabled\",  false,
+                  \"chbAlarmingActive\", \"enabled\",  true,
+                  \"cbuReduDevice\",     \"state\", 0, false,
+                  \"cbuReduConnection\", \"state\", 0, false,
+                  \"cbuReduDevice\",     \"enabled\",  false,
+                  \"cbuReduConnection\", \"enabled\",  false);
+
+    setValue(dp+\".ConnType1\", \"visible\", true);
+  }
+
+  cbuReduDevice.enabled     = (button == 0 || button == 2);   // disabled for S7 MPI and S7 SINUMERIK
+  cbuReduConnection.enabled = (button == 0 || button == 2);   // disabled for S7 MPI and S7 SINUMERIK
+
+  setStateLoop1(dp, gUseTSPP);
+  setStateLoop2(dp, 0);
+
+  setStateLoop1(dp_2, gUseTSPP);
+  setStateLoop2(dp_2, 0);
+
+  cmbMode.enabled = TRUE;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+setSettingsEnabled (bool state)
+{
+  cbuReduDevice.enabled = state;
+  cbuReduConnection.enabled = state;
+  chbInvalidBit.enabled = state;
+
+  if ( _WIN32 )
+  {
+    bu_alarms.enabled = state;
+    bu_symb.enabled = state;
+    bu_alarmMapping.enabled = state;
+  }
+  else
+  {
+    bu_alarms.enabled = false;
+    bu_symb.enabled = state;
+    bu_alarmMapping.enabled = false;
+  }
+
+  Button1.enabled = state;
+  cmbMode.enabled = state;
+
+  if ( shapeExists(\"tabs7\") )
+    setValue(\"tabs7\", \"visible\", state);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+openAlarmParam()
+{
+  dyn_string ds;
+  dyn_float df;
+  string  pa, sS7Proj;
+  string sFileName;
+
+  dpGet( txtSystem.text +\"_\"+ cmbPlc.text+\".ProjectName:_online.._value\", sFileName);
+
+  sS7Proj = baseName(sFileName);
+  sS7Proj = delExt(sS7Proj);
+
+  dyn_string stationDps = dpNames(txtSystem.text + \"_\" + cmbPlc.text + \"_\" + sS7Proj + \"_*\");
+
+  if (dynlen(stationDps) < 1)
+  {
+    fileSelector(sFileName, gSymBrowseDefault, false, \"*.s7p\");
+    sS7Proj = baseName(sFileName);
+    sS7Proj = delExt(sS7Proj);
+    gSymBrowseDefault = dirName(sFileName);
+
+    if (sS7Proj == \"\")
+    {
+      //ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      //                         getCatStr(\"para\",\"warning\"),
+      //                         makeDynString(getCatStr(\"para\",\"apc_dpleer\")));
+      return;
+  	}
+
+    dpSet(txtSystem.text+\"_\"+ cmbPlc.text+\".ProjectName:_original.._value\", sFileName);
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/s7_alarmparam.pnl\",
+                                 getCatStr(\"s7\", \"titleAlarmParam\"),
+                                 makeDynString(\"$Connection:\"+txtSystem.text+\"_\"+ cmbPlc.text),
+                                 df, ds);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+getModes()
+{
+  setValue(\"cmbMode\", \"items\", makeDynString());
+
+  dyn_string dsModes = makeDynString(S7MODE_IE_TCP,
+                                     S7MODE_MPI,
+                                     S7MODE_TSPP,
+                                     S7MODE_SINUMERIK);
+
+  setValue(\"cmbMode\", \"items\", dsModes);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+dyn_int checkDrvNums()
+{
+  dyn_int diCheckedDrvNums;
+
+  string sSys = txtSystem.text;
+  dyn_int diCDMN, diCDMN_2;
+
+  dpGet(sSys + \"_Connections.Driver.ManNums:_online.._value\", diCDMN);
+
+  for ( int i = 1; i <= dynlen(diCDMN); i++ )
+  {
+    string sDrv;
+
+    if ( dpExists(sSys + \"_Driver\" + diCDMN[i]) )
+      dpGet(sSys + \"_Driver\" + diCDMN[i] + \".DT\", sDrv);
+
+    if ( sDrv == \"S7\" )
+      dynAppend(diCheckedDrvNums, diCDMN[i]);
+  }
+
+  if ( isRedundant() )
+  {
+    dpGet(sSys + \"_Connections_2.Driver.ManNums:_online.._value\", diCDMN_2);
+
+    for ( int i = 1; i <= dynlen(diCDMN_2); i++ )
+    {
+      string sDrv_2;
+
+      if ( dpExists(sSys + \"_Driver\" + diCDMN_2[i]) )
+        dpGet(sSys + \"_Driver\" + diCDMN_2[i] + \"_2.DT\", sDrv_2);
+
+      if ( sDrv_2 == \"S7\" )
+        dynAppend(diCheckedDrvNums, diCDMN_2[i]);
+    }
+  }
+
+  dynSort(diCheckedDrvNums);
+
+  return diCheckedDrvNums;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 149
+"ptModeNotSupported"
+""
+1 155.25 220 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+119 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 155.25 220 300 235
+0 2 2 "0s" 0 0 0 192 0 0  155.25 220 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 <mode not supported>
+LANG:10004 20 <该模式不支持>
+LANG:10000 26 <Modus nicht unterstützt>
+LANG:10027 20 <mode not supported>
+30 63
+"frmDevice"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9838449111470113 0 0.8989898989898991 0.1615508885298865 -39.94949494949496 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Device
+LANG:10004 6 设备
+LANG:10000 7 Gerät 
+LANG:10027 20 Устройство
+30 82
+"frmSettings"
+""
+1 10 255 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+76 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9838449111470112 0 1.500988764576655 0.1615508885298877 -140.158202332265 0 E 10 160 630 260
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Common settings
+LANG:10004 12 常规设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+2 105
+"txtSystem"
+""
+1 543 91 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  //this.visible	= isDistributed();  //116050 Do not show system name text field when distributed
+  this.text = getSystemName();
+}" 0
+ E 0 1 1 0 1 E U  0 E 572 93 590 106
+1 2 2 "0s" 0 0 0 194 0 0  590 93 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 sys
+LANG:10004 3 sys
+LANG:10000 3 sys
+LANG:10027 3 sys
+2 111
+"Text1"
+""
+1 18 60 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 62 143 79
+0 2 0 "0s" 0 0 0 66 0 0  20 62 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Device description:
+LANG:10004 12 设备描述
+LANG:10000 20 Gerätebeschreibung:
+LANG:10027 31 Описание устр-ва:
+13 19
+"cmdApply"
+""
+1 440 595 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 593 526 621
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+    return;
+  
+  setDp();
+}
+" 0
+ E E E
+13 20
+"cmdCancel"
+""
+1 530 595 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  528 593 616 621
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}" 0
+ E E E
+13 47
+"cmdHelp"
+""
+1 15 593 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 593 101 621
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7\");  
+}
+
+" 0
+ E E E
+22 59
+"cmbPlc"
+""
+1 20 58 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Select an equipment
+LANG:10004 18 选择一个设备
+LANG:10000 17 Gerät auswählen
+LANG:10027 37 Выберите устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 23 511 49
+0
+
+E
+"main()
+{
+  string dp;
+  bool state;
+
+  cmbPlc.enabled = false;
+  tabs71.visible = false;
+
+  if ( this.text != oldPlc )
+    gbChanged = false;
+
+  cmbMode.selectedPos(1);
+
+  setMultiValue(\"cmdOk\",              \"enabled\", 1,
+                \"cmdApply\",           \"enabled\", 1,
+                \"cmdRemoveDp\",        \"enabled\", 1,
+                \"tabs71\",             \"enabled\", 1,
+                \"bu_symb\",            \"enabled\", 1,
+                \"ptModeNotSupported\", \"visible\", 0,
+                \"recAttention\",       \"visible\", 0);
+
+  //??? readDpWritePanel is done inside loads7Dp
+  //readDpWritePanel(txtSystem.text + \"_\"+this.text);
+  gMode = 0; //IM 119950 S7-200 Erweiterungen
+  gUseProjConn = makeDynBool(FALSE,FALSE,FALSE,FALSE);
+
+  loads7Dp(txtSystem.text + \"_\" + this.text);
+
+  state = gUseTSPP;
+
+  dp = txtSystem.text + \"_\"+cmbPlc.text;
+  setStateLoop1(dp, state);
+
+  dp = txtSystem.text + \"_\"+cmbPlc.text	+\"_2\";
+  setStateLoop1(dp, state);
+
+  setAllInformation(cmbMode.selectedPos()-1);
+
+  tabs71.visible = true;
+  cmbPlc.enabled = true;
+}
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+13 68
+"cmdNewDp"
+""
+1 515 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 44 Create a new equipment with default settings
+LANG:10004 33 使用默认设置创建新设备
+LANG:10000 45 Neues Gerät mit Grundeinstellungen erstellen
+LANG:10027 96 Создать новое устройство с настройками по умолчанию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 23 606 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i = 1;
+  string     sPlc = cmbPlc.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                 getCatStr(\"da\",\"createdp\"),
+                                 makeDynString(getCatStr(\"para\",\"apc_inputdpname\"),
+                                               sPlc),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+  sPlc = (dynlen(ds)>0)?ds[1]:\"\";
+  sPlc = strrtrim(strltrim(sPlc));
+  string s = sPlc;
+
+  if(nameCheck(s) != 0)
+  {
+    string sMessage;
+    sprintf(sMessage,getCatStr(\"ud_settings\",\"illegalDPName\"),sPlc);
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"warning\"),makeDynString(sMessage));
+    return;//IM 105482
+  }
+
+  if ( strpos(sPlc, \" \") != -1 || strpos(sPlc, \"__\") != -1 ||
+       patternMatch(\"*_1\", sPlc) || patternMatch(\"*_2\", sPlc) || patternMatch(\"*_\", sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpInvalid\")));
+    return;
+  }
+  else if ( (sPlc == \"\") || (sPlc == \" \") ||(sPlc == \"_\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpEmpty\")));
+    return;
+  }
+  else if ( dpExists(txtSystem.text	+ sPlc) || dpExists(txtSystem.text	+ \"_\" + sPlc))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"s7\",\"s7dpExists\")));
+    return;
+  }
+
+  if ( strpos(sPlc, \"_\", 0) != -1 )
+    sPlc = strltrim(sPlc, \"_\");
+
+  // enable the settings again, because the first PLC has been created
+  if ( dynlen(dsPlc) < 1 )
+    setSettingsEnabled(TRUE);
+  else
+    tabs71.visible = FALSE;
+
+  cmbMode.selectedPos(1);
+  gMode = 0; //IM 119950 S7-200 Erweiterungen
+  gUseProjConn = makeDynBool(FALSE,FALSE,FALSE,FALSE);
+
+  s7CreateNewEquipment(txtSystem.text + \"_\"+sPlc);
+
+  setMultiValue(\"cmdOk\",              \"enabled\", 1,
+                \"cmdApply\",           \"enabled\", 1,
+                \"cmdRemoveDp\",        \"enabled\", 1,
+                \"bu_symb\",            \"enabled\", 1,
+                \"ptModeNotSupported\", \"visible\", 0,
+                \"recAttention\",       \"visible\", 0);
+
+  if ( shapeExists(\"tabs71\") )
+    setValue(\"tabs71\", \"enabled\", 1);
+
+  cmbPlc.text  = sPlc;
+  readDpWritePanel(txtSystem.text + \"_\"+sPlc);
+  loads7Dp(txtSystem.text + \"_\"+sPlc);
+  gbChanged = TRUE;
+
+  gUseTSPP = FALSE;
+
+  string dp;
+
+  dp = txtSystem.text + \"_\"+cmbPlc.text	;
+  setStateLoop1(dp, FALSE);
+
+  dp = txtSystem.text + \"_\"+cmbPlc.text	+\"_2\";
+  setStateLoop1(dp, FALSE);
+
+  dsPlc = cmbPlc.items;
+  dynAppend(dsPlc, cmbPlc.text);
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc);
+  cmbPlc.items = dsPlc;
+
+//  dynAppend(dsPlc, sPlc);
+//  dynSortAsc(dsPlc);
+//  cmbPlc.items = dsPlc;
+//  cmbPlc.selectedPos  = dynContains(dsPlc,sPlc);
+
+  setAllInformation(cmbMode.selectedPos()-1);
+
+  tabs71.visible = TRUE;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 69
+"cmdRemoveDp"
+""
+1 515 70 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Remove an equipment
+LANG:10004 18 移除一个设备
+LANG:10000 16 Gerät entfernen
+LANG:10027 35 Удалить устройство
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 58 606 86
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPlc.selectedPos;
+  int        iMode = cmbMode.selectedPos;
+  string     sPlc = cmbPlc.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+  dyn_string dsDpe;
+  dyn_anytype dsValues;
+  string dp = txtSystem.text + \"_\"+sPlc;
+
+  if ( sPlc == \"\" )
+    return;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\",\"information\"),
+                                 makeDynString(getCatStr(\"s7\",\"s7dpDelete\"),
+                                               getCatStr(\"para\",\"yes\"),
+                                               getCatStr(\"para\",\"no\")),
+                                               df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+    return;
+
+  tabs71.visible = FALSE;
+
+  cmbMode.selectedPos(1);
+
+  dyn_int  diConnectionType, diRack, diSlot, diTimeout, diDevNr;
+  dyn_string dsIPAddress, dsTSPPExtras, dsProtocolExtras, dsConnAll;
+  int devNr1, devNr2, devNr3, devNr4;
+  int devNr1Old, devNr2Old, devNr3Old, devNr4Old;
+  // IM 109785
+  bool bActive1, bActive2, bActive3, bActive4;
+
+  dpGet(txtSystem.text + \"_S7_Config.ConnectionType:_online.._value\",  diConnectionType,
+        txtSystem.text + \"_S7_Config.IPAddress:_online.._value\",       dsIPAddress,
+        txtSystem.text + \"_S7_Config.Rack:_online.._value\",            diRack,
+        txtSystem.text + \"_S7_Config.Slot:_online.._value\",            diSlot,
+        txtSystem.text + \"_S7_Config.Timeout:_online.._value\",         diTimeout,
+        txtSystem.text + \"_S7_Config.ProtocolExtras:_online.._value\",  dsProtocolExtras,
+        txtSystem.text + \"_S7_Config.TSPPExtras:_online.._value\",      dsTSPPExtras,
+        // establish connection without address config
+        txtSystem.text + \"_S7_Config.Connections.All:_online.._value\", dsConnAll,
+        // IM 109785
+        txtSystem.text + \"_\"+sPlc+\".DevNr:_online.._value\",                  devNr1Old,
+        txtSystem.text + \"_\"+sPlc+\".Active:_online.._value\",                 bActive1,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.DevNr:_online.._value\",           devNr2Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.Active:_online.._value\",          bActive2,
+        txtSystem.text + \"_\"+sPlc+\".ReduConn.DevNr:_online.._value\",         devNr3Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduConn.Active:_online.._value\",        bActive3,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.ReduConn.DevNr:_online.._value\",  devNr4Old,
+        txtSystem.text + \"_\"+sPlc+\".ReduCP.ReduConn.Active:_online.._value\", bActive4 );
+
+  // 1st Step: remove old entries
+  if (devNr1Old != 0)
+    clearPosition(devNr1Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+  if (devNr2Old != 0)
+    clearPosition(devNr2Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+  if (devNr3Old != 0)
+    clearPosition(devNr3Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+  if (devNr4Old != 0)
+    clearPosition(devNr4Old, diConnectionType, diRack, diSlot, diTimeout, dsIPAddress, dsTSPPExtras, dsProtocolExtras);
+
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.ConnectionType:_original.._value\"); dsValues[dynlen(dsValues)+1] = diConnectionType;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.IPAddress:_original.._value\"); dsValues[dynlen(dsValues)+1] =  dsIPAddress;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.Rack:_original.._value\"); dsValues[dynlen(dsValues)+1] =  diRack;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.Slot:_original.._value\"); dsValues[dynlen(dsValues)+1] =  diSlot;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.Timeout:_original.._value\"); dsValues[dynlen(dsValues)+1] =  diTimeout;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.TSPPExtras:_original.._value\"); dsValues[dynlen(dsValues)+1] = dsTSPPExtras;
+  dynAppend(dsDpe, txtSystem.text + \"_S7_Config.ProtocolExtras:_original.._value\"); dsValues[dynlen(dsValues)+1] = dsProtocolExtras;
+
+  // IM 109785
+  if ( bActive1 ) dpSet(dp+\".Active\", FALSE);
+  if ( bActive2 ) dpSet(dp+\".ReduCP.Active\", FALSE);
+  if ( bActive3 ) dpSet(dp+\".ReduConn.Active\", FALSE);
+  if ( bActive4 ) dpSet(dp+\".ReduCP.ReduConn.Active\", FALSE);
+
+  dpSet(dsDpe, dsValues );
+
+  if ( iMode >= 1 )
+  {
+    dyn_string dsConnAllTemp = dsConnAll;
+
+    for ( int i = 1; i <= dynlen(dsConnAll); i++ )
+    {
+      dyn_string dsSplit = strsplit(dsConnAllTemp[i], \" \");
+      if ( dynlen(dsSplit) == 2 )
+        dsConnAllTemp[i] = dsSplit[1];
+    }
+
+    if ( dynContains(dsConnAllTemp, sPlc) )
+      dynRemove(dsConnAll, dynContains(dsConnAllTemp, sPlc));
+
+    dpSet(txtSystem.text + \"_S7_Config.Connections.All:_original.._value\", dsConnAll,
+          txtSystem.text + \"_S7_Config.Connections.Add:_original.._value\", \"\");
+  }
+
+
+  dynRemove(dsPlc, iPos);
+  cmbPlc.items = dsPlc;
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    cmbPlc.text = \"\";
+    setSettingsEnabled(FALSE); // there is no PLC in the list so disable settings
+  }
+  else
+  {
+    if (iPos <1)
+      iPos = 1;
+
+    if (iPos > dynlen( dsPlc))
+      iPos = dynlen(dsPlc);
+
+    cmbPlc.selectedPos(iPos);
+    cmbPlc.text = dsPlc[iPos];
+
+    loads7Dp(txtSystem.text+\"_\"+cmbPlc.text);
+
+    setAllInformation(cmbMode.selectedPos()-1);
+
+    tabs71.visible = TRUE;
+  }
+
+  if (dpExists (dp))
+    dpDelete( dp);
+  if ( dpExists (dp+\"_2\"))
+    dpDelete( dp+\"_2\");
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+20 74
+"chbInvalidBit"
+""
+1 310.25 159.5625 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  308 158 471 181
+1
+T 
+4
+LANG:10001 15 Set invalid bit
+LANG:10004 15 设置无效位
+LANG:10000 17 Setze Invalid-Bit
+LANG:10027 32 Уст. бит недостов.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  gbChanged = true;
+}" 0
+13 75
+"cmdOk"
+""
+1 350 595 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+70 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  348 593 436 621
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+    PanelOff();
+  
+  if ( setDp() )
+  {
+    //removeGlobal(\"gUseTSPP\"); 
+    PanelOff();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+20 102
+"cbuReduDevice"
+""
+1 119.9999999999999 159.625 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 46 Set redundant device equipment active/inactive
+LANG:10004 31 设置冗余设备激活/禁用
+LANG:10000 45 Setzen wenn redundante SPSen verwendet werden
+LANG:10027 110 Установить резервированное устройство активным/неактивным
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 158 281 181
+1
+T 
+4
+LANG:10001 16 Redundant device
+LANG:10004 12 冗余设备
+LANG:10000 18 Redundantes Gerät
+LANG:10027 39 Резервное устройство
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  string panel = \"para/s7_sub_connection.pnl\";
+  string dp = txtSystem.text + \"_\"+cmbPlc.text;
+  
+  if (state)
+  {
+    setValue(\"tabs71\", \"registerVisible\", 1, TRUE);              // set visibility of sheet
+    setValue(\"tabs71\", \"registerVisible\", 2, TRUE);              // set visibility of sheet
+    
+    if (shapeExists(\"tabs71_2\"))
+    {
+      setValue(\"tabs71_2\", \"registerVisible\", 1, TRUE);          // set visibility of sheet
+      setValue(\"tabs71_2\", \"registerVisible\", 2, TRUE);          // set visibility of sheet
+    }
+  }
+  else
+  {
+    if (shapeExists(\"tabs71_2\"))
+    {
+      setValue(\"tabs71_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+      setValue(\"tabs71_2\", \"registerVisible\", 2, FALSE);         // set visibility of sheet
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0, FALSE); 
+    }
+    setValue(\"tabs71\", \"registerVisible\", 1, FALSE);             // set visibility of sheet
+    setValue(\"tabs71\", \"registerVisible\", 2, FALSE);             // set visibility of sheet
+    setValue(dp+\".ReduCP.Active\", \"state\", 0, FALSE); 
+  }
+  
+}
+" 0
+20 103
+"cbuReduConnection"
+""
+1 119.9999999999999 184.625 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Set redundant connection active/inactive
+LANG:10004 46 设置冗余连接正在运行的/未运行的
+LANG:10000 52 Setzen wenn redundante Verbindungen verwendet werden
+LANG:10027 112 Установить резервированное подключение активным/неактивным
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 183 281 206
+1
+T 
+4
+LANG:10001 20 Redundant connection
+LANG:10004 12 冗余连接
+LANG:10000 21 Redundante Verbindung
+LANG:10027 37 Резервир. подключен.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  string dp = txtSystem.text+\"_\"+cmbPlc.text;
+  string panel = \"para/s7_sub_setting.pnl\";
+  
+  if (state)
+  {
+    setValue(\"tabs72\", \"registerVisible\", 1, TRUE);         // set visibility of sheet
+    setValue(\"tabs72_REDU\", \"registerVisible\", 1, TRUE);         // set visibility of sheet
+    setValue(\"tabs71\", \"registerVisible\", 3, TRUE );         // set visibility of sheet
+    
+    if (shapeExists(\"tabs72_2\"))
+      setValue(\"tabs72_2\", \"registerVisible\", 1, TRUE);         // set visibility of sheet
+    if (shapeExists(\"tabs72_REDU_2\"))
+      setValue(\"tabs72_REDU_2\", \"registerVisible\", 1, TRUE);         // set visibility of sheet
+    if (shapeExists(\"tabs71_2\"))
+      setValue(\"tabs71_2\", \"registerVisible\", 3, TRUE);         // set visibility of sheet
+    setValue(\"tabs71\", \"registerVisible\", 3, TRUE);         // set visibility of sheet
+  }
+  else
+  {
+    setValue(\"tabs72\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    setValue(\"tabs72_REDU\", \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    setValue(\"tabs71\", \"registerVisible\", 3, FALSE);         // set visibility of sheet
+    
+    if (shapeExists(\"tabs72_2\"))
+      setValue(\"tabs72_2\", \"registerVisible\", 1, FALSE);         // set visibility of sheet      
+    if (shapeExists(\"tabs72_REDU_2\"))
+      setValue(\"tabs72_REDU_2\",  \"registerVisible\", 1, FALSE);         // set visibility of sheet
+    if (shapeExists(\"tabs71_2\"))
+      setValue(\"tabs71_2\", \"registerVisible\", 3, FALSE);         // set visibility of sheet
+    if (shapeExists(dp+\".ReduCP.ReduConn.Active\"))
+      setValue(dp+\".ReduCP.ReduConn.Active\", \"state\", 0, FALSE); 
+    if (shapeExists(dp+\".ReduConn.Active\"))
+      setValue(dp+\".ReduConn.Active\", \"state\", 0, FALSE); 
+  }
+  
+}
+" 0
+13 104
+"Button1"
+""
+1 520 145 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 37 Summary overwiew of connection states
+LANG:10004 27 摘要概述了连接状态
+LANG:10000 42 Übersicht über alle Verbindungszustände
+LANG:10027 61 Обзор состояний всех подключений
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 118 606 146
+
+T 
+4
+LANG:10001 4 Info
+LANG:10004 6 信息
+LANG:10000 4 Info
+LANG:10027 13 Информ.
+"main()
+{
+  int iCmbMode = cmbMode.selectedPos(); //IM 119950 S7-200 Erweiterungen
+  
+  if ( cmbPlc.text != \"\")
+    ChildPanelOnCentral(\"para/s7_detail.pnl\",
+                        getCatStr(\"para\",\"information\"),
+                        makeDynString(\"$dp:\"   + txtSystem.text + \"_\" + cmbPlc.text,
+                                      \"$mode:\" + iCmbMode));
+}
+
+" 0
+ E E E
+13 106
+"bu_symb"
+""
+1 520 235 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Symbolic selection
+LANG:10004 18 Symbolic selection
+LANG:10000 19 Symbolische Auswahl
+LANG:10027 46 Выбор символьных адресов
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 208 606 236
+
+T 
+4
+LANG:10001 8 Symbolic
+LANG:10004 6 符号
+LANG:10000 8 Symbolik
+LANG:10027 16 Симв.адр.
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  if ( cmbPlc.text == \"\" ) 
+    return;
+  
+  string pa, sS7Proj;
+  string sFileName;
+    
+  dpGet(txtSystem.text +\"_\"+ cmbPlc.text+\".ProjectName:_online.._value\", sFileName); 
+  
+  sS7Proj = baseName(sFileName);
+  sS7Proj = delExt(sS7Proj);
+      
+  if ( sS7Proj != \"\" && dpExists(txtSystem.text+\"_\"+cmbPlc.text+\"_\"+sS7Proj))
+  {
+    // ???
+  }
+  else
+  {
+   	fileSelector(sFileName, gSymBrowseDefault, false, \"*.s7p\");
+      
+    sS7Proj = baseName(sFileName);
+    sS7Proj = delExt(sS7Proj);
+      
+    gSymBrowseDefault = dirName(sFileName);
+      
+    if ( sS7Proj == \"\" )
+	    return;
+	  else if ( dpExists(txtSystem.text+\"_\"+cmbPlc.text+\"_\"+sS7Proj) )
+	  {
+	    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+                               getCatStr(\"para\", \"warning\"),
+                               makeDynString(getCatStr(\"sim\", \"sim_exists\")));
+        
+	    return;
+	  }
+    
+    dpCreate(\"_\"+cmbPlc.text+\"_\"+sS7Proj, \"_S7_Symbolics\", getSystemId(txtSystem.text));
+    dpSet(txtSystem.text+\"_\"+cmbPlc.text+\".ProjectName:_original.._value\", sFileName);
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/s7_items.pnl\",
+                                 \"Symboleditor\",
+                                 makeDynString(\"$Connection:\"+txtSystem.text+\"_\"+cmbPlc.text),
+                                 df, ds);
+
+  if ( dynlen(df) > 0 && df[1] == 1)
+  {
+    pa_symb.text = ds[1];
+	  pa = paEncodeS7Address();
+	  setValue(\"var_name\", \"text\", cmbPlc.text +\".\"+pa);
+  }
+}
+
+
+
+
+" 0
+ E E E
+14 107
+"t1"
+""
+1 150 60 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  148 58 477 84
+3 "0s" 0 0 0 0 0 -1  "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  getValue(\"langliste\"+s,\"items\",ds);
+  ls=ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s,\"text\",ls,
+                \"langliste\"+s,\"items\",ds);
+}
+" 0
+ "main()
+{
+  this.editable = getNoOfLangs() == 1;
+}" 0
+ "main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  getValue(\"langliste\"+s,\"items\",ds);
+  ls=ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s,\"text\",ls,
+                \"langliste\"+s,\"items\",ds);
+}
+" 0
+
+13 109
+"langedit1"
+""
+1 478 67 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  483 57 511 85
+
+P 
+13160660
+"pictures/StandardIcons/switch_de_en_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     s;
+  langString ls;
+  dyn_string ds;
+
+  getValue(\"\",\"name\",s);
+  s=substr(s,strlen(s)-1,1);
+
+  getValue(\"langliste\"+s,\"items\",ds);
+  ls=ds;
+
+  if ( this.name != \"t\"+s || getNoOfLangs() > 1)
+  {
+    langEditor(ls);
+    ds=ls;
+  }
+  else
+  {
+    ds[1] = this.text;
+    ls = ds;
+  }
+  
+  setMultiValue(\"t\"+s,\"text\",ls,
+                \"langliste\"+s,\"items\",ds);
+}
+" 0
+ E E "main()
+{
+  this.visible = getNoOfLangs() != 1;
+}" 0
+
+17 110
+"langliste1"
+""
+1 313.5 147 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  548 88 571 111
+0
+
+E
+E
+E
+
+0 0
+1 154 0 "" 0
+0
+20 117
+"chbAlarmingActive"
+""
+1 310.25 184.5625 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  308 183 471 206
+1
+T 
+4
+LANG:10001 15 Alarming active
+LANG:10004 18 激活报警功能
+LANG:10000 21 Meldungsempfang aktiv
+LANG:10027 37 Прием алармов включ.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  gbChanged = true;
+}" 0
+13 120
+"bu_alarms"
+""
+1 520 205 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Alert parametrization
+LANG:10004 18 报警信息配置
+LANG:10000 19 Alarmparametrierung
+LANG:10027 47 Параметрирование алармов
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 178 606 206
+
+T 
+4
+LANG:10001 6 Alarms
+LANG:10004 6 报警
+LANG:10000 6 Alarme
+LANG:10027 12 Алармы
+"main()
+{
+  dyn_string dsAnswer;
+  dyn_float dfAnswer;
+  time s7dn;
+  
+  if ( cmbPlc.text == \"\") 
+    return;
+  
+  dpGet(txtSystem.text+\"_\"+cmbPlc.text+\".DevNr:_online.._stime\", s7dn);
+  if (s7dn == (time)0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                   getCatStr(\"general\", \"info\"),
+                   makeDynString(getCatStr(\"s7\", \"applyBeforeAlarmParam\"),
+                                 getCatStr(\"general\", \"yes\"),
+                                 getCatStr(\"general\", \"no\")),
+                   dfAnswer, dsAnswer);
+    if (dynlen(dfAnswer) < 1 || dfAnswer[1] < 1 ) return;
+    else
+    {
+      setDp();
+      openAlarmParam();
+    }
+  }
+  else
+  {
+    openAlarmParam();
+  }
+}
+
+
+
+" 0
+ E E E
+13 123
+"bu_alarmMapping"
+""
+1 520 175 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Mapping of S7- to WinCC OA-alert classes
+LANG:10004 32 S7-到WinCC OA报警类的映射
+LANG:10000 38 S7- auf WinCC OA-Alarmklassen abbilden
+LANG:10027 67 Сопоставление аларм-классов S7 и WinCC OA
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  518 148 606 176
+
+T 
+4
+LANG:10001 11 Al.-mapping
+LANG:10004 12 报警映射
+LANG:10000 11 Al.-mapping
+LANG:10027 13 <-> Ал-мы
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  ChildPanelOnCentralModalReturn(\"para/s7_alarmmapping.pnl\",
+                                 \"Mappingeditor\",
+                                 makeDynString(), df, ds);
+}
+
+
+
+
+
+
+" 0
+ E E E
+22 126
+"cmbMode"
+""
+1 -70 51.25 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Select a mode
+LANG:10004 18 选择一个模式
+LANG:10000 16 Modus auswählen
+LANG:10027 27 Выберите режим
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 119 281 145
+0
+
+E
+"main()
+{
+  setAllInformation(this.selectedPos()-1);
+}
+
+
+
+
+" 0
+
+E
+ 0 0
+21 138
+"sbDrvNum"
+""
+1 430 118 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Select driver number
+LANG:10004 15 选择驱动号
+LANG:10000 21 Treibernummer wählen
+LANG:10027 44 Выберите номер драйвера
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  413 118 471 144
+0
+
+E
+"main()
+{
+  dyn_int diDrvNums = checkDrvNums();
+  int iDrvNum;
+  string sPlc = txtSystem.text+\"_\"+cmbPlc.text;
+  
+  dyn_string ds;
+  dyn_float df;
+  
+  dpGet(sPlc + \".DrvNumber:_online.._value\", iDrvNum);
+  
+  if ( iDrvNum == 0 )
+  {
+    if ( dynlen(diDrvNums) )
+      iDrvNum = diDrvNums[1];
+  }
+  else
+    iDrvNum = 1;
+  
+  if ( !dynContains(diDrvNums, this.text) )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", 
+                                   getCatStr(\"para\", \"information\"),
+                                   makeDynString(getCatStr(\"s7\", \"s7DrvNumNotRun\"),
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+    
+    if ( dynlen(df) < 1 || df[1] == 0 ) 
+    {
+      this.text = iDrvNum;
+      return;
+    }
+  }
+}
+
+" 0
+
+E
+
+N 1 255 1 1 1 1
+2 141
+"ptMode"
+""
+1 25 123 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 25 123 63 138
+0 2 2 "0s" 0 0 0 192 0 0  25 123 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Mode:
+LANG:10004 7 模式:
+LANG:10000 6 Modus:
+LANG:10027 11 Режим:
+2 144
+"ptDrvNum"
+""
+1 310 124.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 310 124.5 395 140
+0 2 2 "0s" 0 0 0 192 0 0  310 124.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Driver number:
+LANG:10004 12 驱动号：
+LANG:10000 14 Treibernummer:
+LANG:10027 28 Номер драйвера:
+2 146
+"ptCfg"
+""
+1 24.75 163 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 24.75 163 105 178
+0 2 2 "0s" 0 0 0 192 0 0  24.75 163 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Configuration:
+LANG:10004 7 配置:
+LANG:10000 14 Konfiguration:
+LANG:10027 25 Конфигурация:
+6 150
+"recAttention"
+""
+1 240 120 E E E 1 E 0 E N {0,0,0} E N {255,255,255} E E
+ E E
+120 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E -1 1 3 2 1 E 0.7750000000000001 0 0.3100000000000001 -66 172.8 2  1 0  "pictures/StandardIcons/Attention_32.png" 4294967295 E 240 120 280 220
+2 153
+"ptModeNotSupported"
+""
+1 155.25 220 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+121 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 155.25 220 300 235
+0 2 2 "0s" 0 0 0 192 0 0  155.25 220 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 <mode not supported>
+LANG:10004 20 <该模式不支持>
+LANG:10000 26 <Modus nicht unterstützt>
+LANG:10027 20 <mode not supported>
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 595 T 103 1.260521042084168 0 1 0 -10
+0
+0

@@ -1,0 +1,3017 @@
+V 13
+4
+LANG:10001 32 RDB parameters and configuration
+LANG:10004 18 RDB参数和配置
+LANG:10000 31 RDB Parameter und Einstellungen
+LANG:10027 50 Параметры и конфигурация RDB
+PANEL,-1 -1 778 716 N "_3DFace" 0
+"main()
+{
+  pathRDBInstall = getPath(DATA_REL_PATH, \"\", 1, 0)+\"RDBSetup/ora/\";
+  readRDBConfig();
+  fillRDBSetupPanel();
+}" 0
+ E E E E 1 0 0 0  20 690
+""0  1
+E "
+const string DBGFLAG_PARAMS = \"PARAMS\";
+
+bool sysconnected;
+bool schema_connected;
+bool appconnected;
+dbConnection conn;
+mapping mSetupParams;
+string pathRDBInstall;
+bool login_strange_init;
+bool try_odbc;
+
+//--------------------------------------------------------------------------------------
+  
+bool connect2DB(string dsn, string user, string pwd, string host=\"\")
+//returns true when ok
+{
+  int err;
+  string mydsn;
+  bool connected;
+
+  if (_WIN32 )
+  {
+    //  OLE-DB - funktioniert lokal erst nach einmaliger Durchführung von ODBC-Connect!! - wieso??
+    if (try_odbc)
+    {
+      mydsn = \"DSN=\"+dsn+\";UID=\"+user+\";PWD=\"+pwd; //ODBC
+	  }
+	  else
+	  {
+	    if (!login_strange_init)
+	    {
+		    mydsn = \"DSN='\"+dsn+\"';UID='\"+user+\"';PWD='\"+pwd+\"'\"; //ODBC
+		    err = rdbOpen(conn, mydsn);
+		    if (isDbgFlag(DBGFLAG_PARAMS))
+          DebugTN(\"ODBC Init Open (\"+mydsn+\"): \"+err);
+		    err = rdbClose(conn);
+        if (isDbgFlag(DBGFLAG_PARAMS))
+          DebugTN(\"ODBC Init Close: \"+err);
+		    login_strange_init = true;
+		  }
+	    mydsn = \"Provider=MSDAORA;Data Source='\"+dsn+\"';User ID='\"+user+\"';Password='\"+pwd+\"'\"; 
+	    //mydsn = \"Provider=MSDAORA;Data Source=\"+dsn+\";User ID=\"+user+\";Password=\"+pwd; 
+	  }
+  }
+  else	// Linux, Solaris, ...
+  {
+    mydsn = \"driver=QOCI8;server=\"+host+\";database=\"+dsn+\";uid=\"+user+\";pwd=\"+pwd+\";\";
+  }
+
+  err = rdbOpen(conn, mydsn);
+//	DebugN(\"Login (\"+mydsn+\"): \"+err);
+  
+  connected = !err;
+//  if (connected)
+//    anzeigeRDB.backCol=\"gruen\";
+//  else
+//    anzeigeRDB.backCol=\"rot\";
+  return connected;
+}
+
+//--------------------------------------------------------------------------------------
+  
+bool checkConnection(string dsn, string user, string pwd, string host=\"\")
+//returns true when ok
+{
+  int err;
+  dyn_dyn_anytype table;
+  bool b, opened4check;
+    
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"checkConnection\", dsn, user, host);
+
+  //if (!sysconnected && !schema_connected && !appconnected)
+    if (!connect2DB(dsn, user, pwd, host))
+      return false;
+    else
+      opened4check = true;
+  
+  err = rdbSelect(conn, \"select username, user_id, default_tablespace, created from user_users\", table);
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"checkConnection\", err, table);
+  b = (dynlen(table)>0 && !err);
+  if (opened4check)
+    closeConnection();
+  return b;
+}
+
+//--------------------------------------------------------------------------------------
+  
+bool closeConnection()
+{
+  int err=rdbClose(conn);
+  DebugN(err);
+  return (!err);
+}
+
+//--------------------------------------------------------------------------------------
+  
+int runSetup(string syspwd, string schemapwd, string apppwd)
+{
+  writeRDBConfig();
+
+  string fsetup=pathRDBInstall+\"RDB_setup.sql\";
+  string fconf=+\"config\";
+  string sqlcommand = \"sqlplus /nolog @\"+winPath(fsetup)+\" \"+winPath(getPath(DATA_REL_PATH, \"RDBSetup/ora/\"))+\" \"+winPath(getPath(LOG_REL_PATH))+\" config \"+syspwd+\" \"+schemapwd+\" \"+apppwd;
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(sqlcommand);
+
+  int err;
+  string batfile = getPath(DATA_REL_PATH) + \"tempbat.bat\";
+  file f = fopen(batfile, \"w\");
+  fprintf(f, \"cd %s\\n%s\\n%s\", winPath(pathRDBInstall), sqlcommand, \"\");//\"pause\");
+  fclose(f);
+  if ( _UNIX )
+    err = system(\"chmod 777 \" + batfile);
+  err = system(\"start \"+batfile);
+  return err;
+}
+
+//--------------------------------------------------------------------------------------
+  
+bool checkSetupLog()
+{
+  string line;
+  int pos;
+  string flog=winPath(getPath(LOG_REL_PATH))+\"RDB_setup.log\";
+  file f = fopen(flog, \"r\");
+  while (feof(f)==0)
+  {
+    fgets(line, 400, f);
+    if (isDbgFlag(DBGFLAG_PARAMS))
+      DebugTN(line);
+    pos = strpos(line, \"FAILED\");
+    if (pos >= 0)
+      return false;
+  }
+  return true;
+}    
+
+//--------------------------------------------------------------------------------------
+  
+void loadSetupLog()
+{
+  string flog=winPath(getPath(LOG_REL_PATH, \"RDB_setup.log\"));
+  fileEditor(flog);
+}    
+
+//--------------------------------------------------------------------------------------
+  
+int writeRDBConfig()
+{
+  string dir=getPath(DATA_REL_PATH, \"RDBSetup/ora\", \"\", 1);
+  if (dir==\"\")
+  {
+	   dir = getPath(DATA_REL_PATH)+ \"RDBSetup/ora\";
+	   mkdir(dir);
+     if (isDbgFlag(DBGFLAG_PARAMS))
+       DebugTN(\"Creating RDB directory: \"+dir);
+  }
+  string fconf=dir+ \"/RDB_config.sql\";
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"Writing to RDB config: \"+fconf);
+
+  file f=fopen(fconf, \"w\");
+  int state;
+  
+  getValue(\"chk_yesno_newuser\", \"state\", 0, state);
+  string str_yesno_newuser = state ? \"yes\" : \"no\";
+  getValue(\"chk_occi_upgrade\", \"state\", 0, state);
+  string str_occi_upgrade = state ? \"yes\" : \"no\";
+  getValue(\"chk_zip_backup\", \"state\", 0, state);
+  string str_zip_backup = state ? \"yes\" : \"no\";
+  getValue(\"chk_use_xpisso\", \"state\", 0, state);
+  string str_use_xpisso = state ? \"yes\" : \"no\";
+  getValue(\"chk_use_java\", \"state\", 0, state);
+  string str_use_java = state ? \"yes\" : \"no\";
+
+  fputs(\"define connect_identifier = '\"+txt_connect_identifier.text  +\"'\\n\", f);
+  fputs(\"define sysdba_user        = '\"+txt_sysdba_user.text         +\"'\\n\", f);
+  fputs(\"define yesno_newuser      = '\"+str_yesno_newuser            +\"'\\n\", f);
+  fputs(\"define schema_user        = '\"+txt_schema_user.text         +\"'\\n\", f);
+  fputs(\"define app_user           = '\"+txt_app_user.text            +\"'\\n\", f);
+  fputs(\"define use_rman           = '\"+strtolower(cbo_use_rman.text)+\"'\\n\", f);
+  fputs(\"define os_sys             = '\"+strtolower(cbo_os_sys.text)  +\"'\\n\", f);
+  fputs(\"define zip_backup         = '\"+str_zip_backup               +\"'\\n\", f);
+  fputs(\"define sequence_start     =  \"+txt_sequence_start.text      +\" \\n\", f);
+  fputs(\"define sequence_maxvalue  =  \"+txt_sequence_maxvalue.text   +\" \\n\", f);
+  fputs(\"define path_dbfile        = '\"+txt_path_dbfile.text         +\"'\\n\", f);
+  fputs(\"define path_tempdbfile    = '\"+txt_path_tempdbfile.text     +\"'\\n\", f);
+  fputs(\"define path_oraclebin     = '\"+txt_path_oraclebin.text      +\"'\\n\", f);
+  fputs(\"define instance_name      = '\"+txt_instance_name.text       +\"'\\n\", f);
+  fputs(\"define host_name          = '\"+txt_host_name.text           +\"'\\n\", f);
+  fputs(\"define path_backup        = '\"+txt_path_backup.text         +\"'\\n\", f);
+  fputs(\"define path_alert         = '\"+txt_path_alert.text          +\"'\\n\", f);
+  fputs(\"define path_event         = '\"+txt_path_event.text          +\"'\\n\", f);
+  fputs(\"define mytimezone         = '\"+cbo_mytimezone.text          +\"'\\n\", f);
+  fputs(\"define asm_instance       = '\"+txt_asm_instance.text        +\"'\\n\", f);
+  fputs(\"define service_name       = '\"+txt_service_name.text        +\"'\\n\", f);
+  fputs(\"define occi_upgrade       = '\"+str_occi_upgrade             +\"'\\n\", f);
+  fputs(\"define use_xpisso         = '\"+str_use_xpisso               +\"'\\n\", f);
+  fputs(\"define use_java           = '\"+str_use_java                 +\"'\\n\", f);
+
+  fclose(f);
+}
+
+//--------------------------------------------------------------------------------------
+  
+int readRDBConfig()
+{
+  string fconf=getPath(DATA_REL_PATH, \"RDBSetup/ora/RDB_config.sql\");
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"Reading from RDB config: \"+fconf);
+  file f=fopen(fconf, \"r\");
+  
+  if (!f)
+  {
+    DebugN(\"Could not open RDB_config.sql\");
+    return -1;
+  }  
+
+  dyn_string params;
+  string line, parName, parValue;
+  int cnt, pos;
+  
+  while (feof(f)==0)
+  {
+    fgets(line, 400, f);
+    //DebugN(line);
+    cnt = strreplace (line, \"define \", \"\");
+    if (cnt == 0) //if no \"define\"
+      continue;
+    pos = strpos(line, \"--\");
+    if (pos >= 0)
+    {
+      line = substr(line, 0, pos);
+    }
+    //DebugN(line);
+    params = strsplit(line, \"=\");
+    //DebugN(params);
+    if (dynlen(params)==2)
+    {
+      parName = strrtrim(strltrim(params[1]));
+      parValue = strrtrim(strltrim(params[2]));
+      strreplace(parValue,\"'\",\"\"); //Hochkomma nicht anzeigen
+      //DebugN(\"Parameter \"+parName+\": \"+parValue);
+    }
+    if (strpos(parName, \"password\") == -1) //do not save pwds as value is not found in config anyway
+      mSetupParams[parName]=parValue;
+  }
+  fclose(f); // Datei schließen
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"List of Parameters\", mSetupParams);
+}
+
+//--------------------------------------------------------------------------------------
+  
+void fillRDBSetupPanel()
+{
+  bool state;
+  
+  state = (mSetupParams[\"yesno_newuser\"]==\"yes\");// ? 1 : 0;
+  setValue(\"chk_yesno_newuser\", \"state\", 0, state);
+  state = (mSetupParams[\"occi_upgrade\"]==\"yes\");// ? 1 : 0;
+  setValue(\"chk_occi_upgrade\", \"state\", 0, state);
+  state = (mSetupParams[\"zip_backup\"]==\"yes\");// ? 1 : 0;
+  setValue(\"chk_zip_backup\", \"state\", 0, state);
+  state = (mSetupParams[\"use_xpisso\"]==\"yes\");// ? 1 : 0;
+  setValue(\"chk_use_xpisso\", \"state\", 0, state);
+  state = (mSetupParams[\"use_java\"]==\"yes\");// ? 1 : 0;
+  setValue(\"chk_use_java\", \"state\", 0, state);
+
+  state = (mSetupParams[\"sysdba_user\"]==\"\");// ? 1 : 0;
+  setValue(\"chk_osauthsetup\", \"state\", 0, state);
+  txt_sysdba_user.enabled = !state;
+  
+	txt_connect_identifier.text = mSetupParams[\"connect_identifier\"];
+	txt_sysdba_user.text        = mSetupParams[\"sysdba_user\"];
+	txt_schema_user.text        = mSetupParams[\"schema_user\"];
+	txt_app_user.text           = mSetupParams[\"app_user\"];
+	cbo_use_rman.text           = strtoupper(mSetupParams[\"use_rman\"]);
+	cbo_os_sys.text             = strtoupper(mSetupParams[\"os_sys\"]);
+	txt_sequence_start.text     = mSetupParams[\"sequence_start\"];
+	txt_sequence_maxvalue.text  = mSetupParams[\"sequence_maxvalue\"];
+	txt_path_dbfile.text        = mSetupParams[\"path_dbfile\"];
+	txt_path_tempdbfile.text    = mSetupParams[\"path_tempdbfile\"];
+	txt_path_oraclebin.text     = mSetupParams[\"path_oraclebin\"];
+	txt_instance_name.text      = mSetupParams[\"instance_name\"];
+	txt_host_name.text          = mSetupParams[\"host_name\"];
+	txt_path_backup.text        = mSetupParams[\"path_backup\"];
+	txt_path_alert.text         = mSetupParams[\"path_alert\"];
+	txt_path_event.text         = mSetupParams[\"path_event\"];
+	cbo_mytimezone.text         = mSetupParams[\"mytimezone\"];
+	txt_asm_instance.text       = mSetupParams[\"asm_instance\"];
+	txt_service_name.text       = mSetupParams[\"service_name\"];
+}
+
+//--------------------------------------------------------------------------------------
+  
+string winPath(string path)
+{
+  bool db_is_win = (strtolower(cbo_os_sys.text) == \"win\");
+  //DebugN(\"Windows Path vorher: \"+path);
+  if (db_is_win)   
+  {
+    strreplace(path, \"/\", \"\\\\\"); //double backslash for interpreter
+    if ( _UNIX) //double backslash to have Unix read it as one backslash
+      strreplace(path, \"\\\\\", \"\\\\\\\\\");
+  }
+  //DebugN(\"Path nachher: \"+path);
+  return path;
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 65
+"Border2"
+""
+1 458 387 E E E 1 E 1 E N "Dunkelgrau" E N "_Transparent" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.041322314049586 0 1 -18.9256198347106 0 0 E 458 267 700 387
+6 0
+"Border1"
+""
+1 20 690 E E E 1 E 1 E N "Dunkelgrau" E N "_Transparent" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 30 750 690
+2 1
+"Text1"
+""
+1 40 20 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 42 22 258 38
+0 2 0 "0s" 0 0 0 65 0 0  42 22 1
+4
+LANG:10001 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,1,0,0,0,0
+0 4
+LANG:10001 32 RDB parameters and configuration
+LANG:10004 18 RDB参数和配置
+LANG:10000 31 RDB Parameter und Einstellungen
+LANG:10027 50 Параметры и конфигурация RDB
+2 8
+"lbl_service_name"
+""
+1 30 51 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N {255,102,51}"
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 53 145 68
+0 2 0 "0s" 0 0 0 192 0 0  32 53 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 16 DB Service Name:
+LANG:10004 22 数据库服务名称:
+LANG:10000 16 DB Service Name:
+LANG:10027 27 Имя сервиса БД:
+2 9
+"lbl_os_sys"
+""
+1 30 83 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 85 195 100
+0 2 0 "0s" 0 0 0 192 0 0  32 85 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 22 Platform of DB Server:
+LANG:10004 25 数据库服务器平台:
+LANG:10000 20 Plattform DB Server:
+LANG:10027 39 Платформа сервера БД:
+2 10
+"lbl_path_oraclebin"
+""
+1 30 435 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 437 184 452
+0 2 0 "0s" 0 0 0 192 0 0  32 437 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 21 Path Oracle_Home/Bin:
+LANG:10004 22 路径Oracle_Home/Bin:
+LANG:10000 21 Pfad Oracle_Home/Bin:
+LANG:10027 25 Путь Oracle_Home/Bin:
+2 11
+"lbl_host_name"
+""
+1 30 115 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 117 68 132
+0 2 0 "0s" 0 0 0 192 0 0  32 117 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 5 Host:
+LANG:10004 7 主机:
+LANG:10000 5 Host:
+LANG:10027 9 Хост:
+2 12
+"lbl_mytimezone"
+""
+1 30 307 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 309 158 324
+0 2 0 "0s" 0 0 0 192 0 0  32 309 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 15 Local Timezone:
+LANG:10004 13 本地时区:
+LANG:10000 16 Lokale Zeitzone:
+LANG:10027 31 Местн. врем. зона:
+2 13
+"lbl_path_dbfile"
+""
+1 30 467 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 469 159 484
+0 2 0 "0s" 0 0 0 192 0 0  32 469 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 20 Path Database Files:
+LANG:10004 22 路径数据库文件:
+LANG:10000 16 Pfad DB Dateien:
+LANG:10027 30 Путь к файлам БД:
+2 14
+"lbl_path_tempdbfile"
+""
+1 30 499 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 501 199 516
+0 2 0 "0s" 0 0 0 192 0 0  32 501 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 20 Path Temp. DB Files:
+LANG:10004 28 路径临时数据库文件:
+LANG:10000 24 Pfad Temporäre Dateien:
+LANG:10027 40 Путь к врем. файлам БД:
+2 15
+"lbl_path_alert"
+""
+1 30 531 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 533 181 548
+0 2 0 "0s" 0 0 0 192 0 0  32 533 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 20 Path Alert Archives:
+LANG:10004 19 路径报警归档:
+LANG:10000 19 Pfad ALERT Archive:
+LANG:10027 37 Путь архива алармов:
+2 16
+"lbl_path_event"
+""
+1 30 563 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 565 200 580
+0 2 0 "0s" 0 0 0 192 0 0  32 565 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 20 Path Event Archives:
+LANG:10004 19 路径事件归档:
+LANG:10000 19 Pfad EVENT Archive:
+LANG:10027 42 Путь к архивам событий:
+2 17
+"lbl_sequence_start"
+""
+1 30 403 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 405 202 418
+0 2 0 "0s" 0 0 0 192 0 0  32 405 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 Archive Sequence from:
+LANG:10004 22 归档数字序号:从
+LANG:10000 19 Archiv-Sequenz von:
+LANG:10027 55 Последовательность архивов с:
+2 18
+"lbl_path_backup"
+""
+1 30 595 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 597 177 611
+0 2 0 "0s" 0 0 0 192 0 0  32 597 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Path Backup Files:
+LANG:10004 19 路径备份文件:
+LANG:10000 25 Pfad Backup Archivierung:
+LANG:10027 41 Путь к ф-лам рез. копий:
+2 19
+"lbl_sysdba_user"
+""
+1 30 211 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 213 87 228
+0 2 0 "0s" 0 0 0 192 0 0  32 213 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 12 SysDBA name:
+LANG:10004 13 SysDBA名称:
+LANG:10000 7 SysDBA:
+LANG:10027 7 SysDBA:
+2 20
+"lbl_instance_name"
+""
+1 30 147 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 149 110 164
+0 2 0 "0s" 0 0 0 192 0 0  32 149 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 9 Instance:
+LANG:10004 7 实例:
+LANG:10000 8 Instanz:
+LANG:10027 19 Экземпляр:
+2 21
+"lbl_connect_identifier"
+""
+1 30 179 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 181 191 196
+0 2 0 "0s" 0 0 0 192 0 0  32 181 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 19 Connect Identifier:
+LANG:10004 16 连接标识符:
+LANG:10000 19 Connect Identifier:
+LANG:10027 38 Идентиф.подключения:
+2 22
+"lbl_asm_instance"
+""
+1 30 339 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 341 143 356
+0 2 0 "0s" 0 0 0 192 0 0  32 341 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 13 ASM Instance:
+LANG:10004 10 ASM实例:
+LANG:10000 12 ASM Instanz:
+LANG:10027 23 Экземпляр ASM:
+2 50
+"lbl_schema_user"
+""
+1 30 243 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 245 122 260
+0 2 0 "0s" 0 0 0 192 0 0  32 245 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 12 Schema User:
+LANG:10004 16 表空间用户:
+LANG:10000 12 Schema User:
+LANG:10027 12 Schema User:
+2 47
+"lbl_use_rman"
+""
+1 30 371 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 373 118 388
+0 2 0 "0s" 0 0 0 192 0 0  32 373 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 10 Backup by:
+LANG:10004 13 备份方式:
+LANG:10000 7 Backup:
+LANG:10027 21 Скопирован:
+2 52
+"lbl_app_user"
+""
+1 30 275 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 277 144 292
+0 2 0 "0s" 0 0 0 192 0 0  32 277 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 17 Application User:
+LANG:10004 19 应用程序用户:
+LANG:10000 17 Application User:
+LANG:10027 27 Польз.прилож-я:
+2 66
+"Text15"
+""
+1 468 257 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 470 259 527 277
+0 2 0 "0s" 0 0 0 65 0 0  470 259 1
+4
+LANG:10001 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,1,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,1,0,0,0,0
+0 4
+LANG:10001 5 Tests
+LANG:10004 6 测试
+LANG:10000 5 Tests
+LANG:10027 10 Тесты
+2 74
+"Text16"
+""
+1 508 290 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N {255,102,51}"
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 510 292 653 307
+0 2 0 "0s" 0 0 0 192 0 0  510 292 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 15 RDB Connection?
+LANG:10004 10 RDB连接?
+LANG:10000 15 RDB-Verbindung?
+LANG:10027 30 Подключение к RDB?
+2 75
+"Text17"
+""
+1 510 319 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N {255,102,51}"
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 512 321 649 336
+0 2 0 "0s" 0 0 0 192 0 0  512 321 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 17 Setup successful?
+LANG:10004 13 安装成功?
+LANG:10000 18 Setup erfolgreich?
+LANG:10027 34 Установка успешна?
+2 76
+"Text18"
+""
+1 915 673 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N {255,102,51}"
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 512 351 678 366
+0 2 0 "0s" 0 0 0 192 0 0  512 351 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 23 WinCC OA-RDB-Integrity?
+LANG:10004 22 WinCC OA RDB完整性?
+LANG:10000 25 WinCC OA-RDB Integrität?
+LANG:10027 28 Целостн.WinCC OA-RDB?
+7 79
+"anzeigeRDB"
+""
+1 665 300 E E E 1 E 1 E N "_Transparent" E N "grau" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 27 0 1 E 665 300 10 10
+7 86
+"anzeigeInstall"
+""
+1 665 329 E E E 1 E 1 E N "_Transparent" E N "grau" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 27 0 1 E 665 329 10 10
+7 87
+"anzeigeIntegrity"
+""
+1 665 358 E E E 1 E 1 E N "_Transparent" E N "grau" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 27 0 1 E 665 358 10 10
+2 40
+"lbl_sequence_maxvalue"
+""
+1 423 406 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 425 408 447 423
+0 2 0 "0s" 0 0 0 192 0 0  425 408 1
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0 4
+LANG:10001 3 to:
+LANG:10004 3 to:
+LANG:10000 4 bis:
+LANG:10027 5 по:
+14 34
+"txt_sysdba_user"
+""
+1 200 211 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 209 431 236
+3 "0s" 0 0 0 0 0 -1  E E E
+13 84
+"Button1"
+""
+1 30 630 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0  28 628 102 652
+
+T 
+4
+LANG:10001 11 Test Sysdba
+LANG:10004 12 测试Sysdba
+LANG:10000 11 Test Sysdba
+LANG:10027 13 Прв.SysDBA
+"main()
+{
+  DebugN(\"d1\",checkConnection(\"LOKAL\", \"sys\", \"syspwd\")); //geht nicht
+  DebugN(\"d2\",checkConnection(\"LOKAL\", \"sys as sysdba\", \"syspwd\")); //geht nicht
+  DebugN(\"d3\",checkConnection(\"LOKAL as sysdba\", \"sys\", \"syspwd\")); //geht nicht
+  DebugN(\"d4\",checkConnection(\"LOKAL\", \"sys\", \"syspwd as sysdba\")); //mit ODBC geht's, ADO nicht
+  DebugN(\"d5\",checkConnection(\"LOKAL\", \"ceg\", \"ceg\")); //geht mit ODBC und ADO
+  DebugN(\"d6\",checkConnection(\"LOKAL\", \"\", \" as sysdba\")); //geht mit ODBC und ADO (gestern ja, heute mit beiden nicht - ???)
+  DebugN(\"d7\",checkConnection(\"LOKAL\", \"/\", \" as sysdba\")); //geht nicht?
+}
+" 0
+ E E E
+13 85
+"Button2"
+""
+1 30 660 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0  28 658 102 682
+
+T 
+4
+LANG:10001 10 Test Paths
+LANG:10004 12 测试路径
+LANG:10000 10 Test Pfade
+LANG:10027 18 Пров. пути
+"main()
+{
+  DebugN(getPath(PANELS_REL_PATH, \"\", 1, 0));
+  DebugN(getPath(PANELS_REL_PATH, \"\", 1, 1));
+  DebugN(getPath(PANELS_REL_PATH, \"\", 1, 2));
+
+  DebugN(getPath(PANELS_REL_PATH, \"\", 2, 0));
+  DebugN(getPath(PANELS_REL_PATH, \"\", 2, 1));
+  DebugN(getPath(PANELS_REL_PATH, \"\", 2, 2));
+}
+" 0
+ E E E
+13 72
+"btnTestConnection"
+""
+1 474 287 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"hoverbclr" "N \"rot\""
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  472 285 500 313
+
+P 
+12303291
+"pictures/start_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string empty;
+  dyn_float resultFloat;
+  dyn_string resultText;
+
+  ChildPanelOnCentralModalReturn(\"RDBAnmeldung.pnl\", \"Test Database Connection\", 
+		empty, resultFloat, resultText);
+
+	if (resultFloat[1]==-1)
+	  return;
+	    
+  string dsn = txt_service_name.text;
+  string user = resultText[1];
+  string pwd = resultText[2];
+
+  bool ok = checkConnection(dsn, user, pwd);
+
+  if (ok)
+    anzeigeRDB.backCol=\"gruen\";
+  else
+    anzeigeRDB.backCol=\"rot\";
+}
+" 0
+ E E E
+13 73
+"btnTestInstall"
+""
+1 474 317 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"hoverbclr" "N \"rot\""
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  472 315 500 343
+
+P 
+12303291
+"pictures/start_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  loadSetupLog();
+  
+  bool ok = checkSetupLog();
+
+  if (ok)
+    anzeigeInstall.backCol=\"gruen\";
+  else
+    anzeigeInstall.backCol=\"rot\";
+}
+" 0
+ E E E
+13 69
+"btnTestIntegrity"
+""
+1 474 347 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"hoverbclr" "N \"rot\""
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  472 345 500 373
+
+P 
+12303291
+"pictures/start_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sql = \"SELECT DISTINCT GROUP_NAME, REFERENCE FROM ARC_STATEMENT\";//\"SELECT GROUP_NAME FROM ARC_GROUP\";
+  
+  dyn_float resultFloat;
+  dyn_string resultText;
+
+  if (!schema_connected)
+  {
+	  ChildPanelOnCentralModalReturn(\"RDBPassword.pnl\", \"Passwort-Eingabe\", 
+	       makeDynString(\"$Sys:0\", \"$Schema:1\", \"$App:0\", \"$Ado:1\"),
+	       resultFloat, resultText);
+	  if (resultFloat[1]==-1)
+	    return;
+	  string dsn = txt_service_name.text;
+	  string pwd = resultText[2];
+	  string user = txt_schema_user.text;
+    schema_connected = connect2DB(dsn, user, pwd);
+  }
+  
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"Connected\", schema_connected);
+  
+  if (schema_connected)
+  {
+	  dyn_dyn_anytype table;
+	  bool ok, isAlert;
+	  int err = rdbSelect(conn, sql, table);
+	  if (isDbgFlag(DBGFLAG_PARAMS))
+      DebugTN(\"Table\",table);
+	  dyn_string groups_DP, groups1, groups2, types1, types2;
+	  groups1 = getDynString(table, 1);
+	  types1 = getDynString(table, 2);
+	  
+	  groups_DP = dpNames(\"*\", \"_RDBArchiveGroups\");
+	  for (int i=1;i<=dynlen(groups_DP);i++)
+	  {
+	    dpGet(groups_DP[i]+\".groupName\", groups2[i]);
+	    dpGet(groups_DP[i]+\".isAlert\", isAlert);
+	    types2[i]=isAlert?\"A\":\"E\";
+	  }
+
+	  ok = (groups1==groups2) && (types1==types2);
+	  if (isDbgFlag(DBGFLAG_PARAMS))
+      DebugTN(\"Groups and Types\", groups1, groups2, types1, types2, ok);
+	  
+	  if (ok)
+	    anzeigeIntegrity.backCol=\"gruen\";
+	  else
+	    anzeigeIntegrity.backCol=\"rot\";
+	}
+}
+" 0
+ E E E
+14 24
+"txt_service_name"
+""
+1 200 51 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 49 431 76
+3 "0s" 0 0 0 0 0 -1  E E E
+22 23
+"cbo_os_sys"
+""
+1 200 83 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 81 431 108
+0
+
+"main()
+{
+  this.items = makeDynString(\"WIN\",\"UNIX\");
+  this.selectedPos = 1;
+}" 0
+
+E
+E
+ 0 0
+14 25
+"txt_host_name"
+""
+1 200 115 E E E 1 E 1 E N "_WindowText" E N {255,255,255} E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 113 431 140
+3 "0s" 0 0 0 0 0 -1  E E E
+14 36
+"txt_instance_name"
+""
+1 200 147 E E E 1 E 1 E N "_WindowText" E N {255,255,255} E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 145 431 172
+3 "0s" 0 0 0 0 0 -1  E E E
+14 35
+"txt_connect_identifier"
+""
+1 200 179 E E E 1 E 1 E N "_WindowText" E N {255,255,255} E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 177 431 204
+3 "0s" 0 0 0 0 0 -1  E E E
+14 37
+"txt_asm_instance"
+""
+1 200 338 E E E 1 E 1 E N "_WindowText" E N {255,255,255} E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 only if ASM is used
+LANG:10004 27 仅当使用了ASM的时候
+LANG:10000 27 nur wenn ASM verwendet wird
+LANG:10027 52 только, если используется ASM.
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 336 431 363
+3 "0s" 0 0 0 0 0 -1  E E E
+14 51
+"txt_schema_user"
+""
+1 200 243 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 241 431 268
+3 "0s" 0 0 0 0 0 -1  E E E
+14 53
+"txt_app_user"
+""
+1 200 275 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 273 431 300
+3 "0s" 0 0 0 0 0 -1  E E E
+22 28
+"cbo_mytimezone"
+""
+1 200 307 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main()
+{
+  this.text = \"Europe/Vienna\";
+}" 0
+
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 305 431 332
+0
+
+"main()
+{
+	this.appendItem(\"Africa/Algiers\");
+	this.appendItem(\"Africa/Cairo\");
+	this.appendItem(\"Africa/Casablanca\");
+	this.appendItem(\"Africa/Ceuta\");
+	this.appendItem(\"Africa/Djibouti\");
+	this.appendItem(\"Africa/Freetown\");
+	this.appendItem(\"Africa/Johannesburg\");
+	this.appendItem(\"Africa/Khartoum\");
+	this.appendItem(\"Africa/Mogadishu\");
+	this.appendItem(\"Africa/Nairobi\");
+	this.appendItem(\"Africa/Nouakchott\");
+	this.appendItem(\"Africa/Tripoli\");
+	this.appendItem(\"Africa/Tunis\");
+	this.appendItem(\"Africa/Windhoek\");
+	this.appendItem(\"America/Adak\");
+	this.appendItem(\"America/Anchorage\");
+	this.appendItem(\"America/Anguilla\");
+	this.appendItem(\"America/Araguaina\");
+	this.appendItem(\"America/Aruba\");
+	this.appendItem(\"America/Asuncion\");
+	this.appendItem(\"America/Atka\");
+	this.appendItem(\"America/Belem\");
+	this.appendItem(\"America/Boa_Vista\");
+	this.appendItem(\"America/Bogota\");
+	this.appendItem(\"America/Boise\");
+	this.appendItem(\"America/Buenos_Aires\");
+	this.appendItem(\"America/Cambridge_Bay\");
+	this.appendItem(\"America/Cancun\");
+	this.appendItem(\"America/Caracas\");
+	this.appendItem(\"America/Cayenne\");
+	this.appendItem(\"America/Cayman\");
+	this.appendItem(\"America/Chicago\");
+	this.appendItem(\"America/Chihuahua\");
+	this.appendItem(\"America/Costa_Rica\");
+	this.appendItem(\"America/Cuiaba\");
+	this.appendItem(\"America/Curacao\");
+	this.appendItem(\"America/Dawson\");
+	this.appendItem(\"America/Dawson_Creek\");
+	this.appendItem(\"America/Denver\");
+	this.appendItem(\"America/Detroit\");
+	this.appendItem(\"America/Edmonton\");
+	this.appendItem(\"America/El_Salvador\");
+	this.appendItem(\"America/Ensenada\");
+	this.appendItem(\"America/Fort_Wayne\");
+	this.appendItem(\"America/Fortaleza\");
+	this.appendItem(\"America/Godthab\");
+	this.appendItem(\"America/Goose_Bay\");
+	this.appendItem(\"America/Grand_Turk\");
+	this.appendItem(\"America/Guadeloupe\");
+	this.appendItem(\"America/Guatemala\");
+	this.appendItem(\"America/Guayaquil\");
+	this.appendItem(\"America/Halifax\");
+	this.appendItem(\"America/Havana\");
+	this.appendItem(\"America/Indiana/Indianapolis\");
+	this.appendItem(\"America/Indiana/Knox\");
+	this.appendItem(\"America/Indiana/Marengo\");
+	this.appendItem(\"America/Indiana/Vevay\");
+	this.appendItem(\"America/Indianapolis\");
+	this.appendItem(\"America/Inuvik\");
+	this.appendItem(\"America/Iqaluit\");
+	this.appendItem(\"America/Jamaica\");
+	this.appendItem(\"America/Juneau\");
+	this.appendItem(\"America/Knox_IN\");
+	this.appendItem(\"America/La_Paz\");
+	this.appendItem(\"America/Lima\");
+	this.appendItem(\"America/Los_Angeles\");
+	this.appendItem(\"America/Louisville\");
+	this.appendItem(\"America/Maceio\");
+	this.appendItem(\"America/Managua\");
+	this.appendItem(\"America/Manaus\");
+	this.appendItem(\"America/Martinique\");
+	this.appendItem(\"America/Mazatlan\");
+	this.appendItem(\"America/Mexico_City\");
+	this.appendItem(\"America/Miquelon\");
+	this.appendItem(\"America/Montevideo\");
+	this.appendItem(\"America/Montreal\");
+	this.appendItem(\"America/Montserrat\");
+	this.appendItem(\"America/New_York\");
+	this.appendItem(\"America/Nome\");
+	this.appendItem(\"America/Noronha\");
+	this.appendItem(\"America/Panama\");
+	this.appendItem(\"America/Phoenix\");
+	this.appendItem(\"America/Porto_Acre\");
+	this.appendItem(\"America/Porto_Velho\");
+	this.appendItem(\"America/Puerto_Rico\");
+	this.appendItem(\"America/Rankin_Inlet\");
+	this.appendItem(\"America/Regina\");
+	this.appendItem(\"America/Rio_Branco\");
+	this.appendItem(\"America/Santiago\");
+	this.appendItem(\"America/Sao_Paulo\");
+	this.appendItem(\"America/Scoresbysund\");
+	this.appendItem(\"America/Shiprock\");
+	this.appendItem(\"America/St_Johns\");
+	this.appendItem(\"America/St_Thomas\");
+	this.appendItem(\"America/Swift_Current\");
+	this.appendItem(\"America/Tegucigalpa\");
+	this.appendItem(\"America/Thule\");
+	this.appendItem(\"America/Thunder_Bay\");
+	this.appendItem(\"America/Tijuana\");
+	this.appendItem(\"America/Tortola\");
+	this.appendItem(\"America/Vancouver\");
+	this.appendItem(\"America/Virgin\");
+	this.appendItem(\"America/Whitehorse\");
+	this.appendItem(\"America/Winnipeg\");
+	this.appendItem(\"America/Yellowknife\");
+	this.appendItem(\"Arctic/Longyearbyen\");
+	this.appendItem(\"Asia/Aden\");
+	this.appendItem(\"Asia/Almaty\");
+	this.appendItem(\"Asia/Amman\");
+	this.appendItem(\"Asia/Anadyr\");
+	this.appendItem(\"Asia/Aqtau\");
+	this.appendItem(\"Asia/Aqtobe\");
+	this.appendItem(\"Asia/Baghdad\");
+	this.appendItem(\"Asia/Bahrain\");
+	this.appendItem(\"Asia/Baku\");
+	this.appendItem(\"Asia/Bangkok\");
+	this.appendItem(\"Asia/Beirut\");
+	this.appendItem(\"Asia/Bishkek\");
+	this.appendItem(\"Asia/Calcutta\");
+	this.appendItem(\"Asia/Chongqing\");
+	this.appendItem(\"Asia/Chungking\");
+	this.appendItem(\"Asia/Dacca\");
+	this.appendItem(\"Asia/Damascus\");
+	this.appendItem(\"Asia/Dhaka\");
+	this.appendItem(\"Asia/Dubai\");
+	this.appendItem(\"Asia/Gaza\");
+	this.appendItem(\"Asia/Harbin\");
+	this.appendItem(\"Asia/Hong_Kong\");
+	this.appendItem(\"Asia/Irkutsk\");
+	this.appendItem(\"Asia/Istanbul\");
+	this.appendItem(\"Asia/Jakarta\");
+	this.appendItem(\"Asia/Jayapura\");
+	this.appendItem(\"Asia/Jerusalem\");
+	this.appendItem(\"Asia/Kabul\");
+	this.appendItem(\"Asia/Kamchatka\");
+	this.appendItem(\"Asia/Karachi\");
+	this.appendItem(\"Asia/Kashgar\");
+	this.appendItem(\"Asia/Krasnoyarsk\");
+	this.appendItem(\"Asia/Kuala_Lumpur\");
+	this.appendItem(\"Asia/Kuching\");
+	this.appendItem(\"Asia/Kuwait\");
+	this.appendItem(\"Asia/Macao\");
+	this.appendItem(\"Asia/Macau\");
+	this.appendItem(\"Asia/Magadan\");
+	this.appendItem(\"Asia/Makassar\");
+	this.appendItem(\"Asia/Manila\");
+	this.appendItem(\"Asia/Muscat\");
+	this.appendItem(\"Asia/Nicosia\");
+	this.appendItem(\"Asia/Novosibirsk\");
+	this.appendItem(\"Asia/Omsk\");
+	this.appendItem(\"Asia/Qatar\");
+	this.appendItem(\"Asia/Rangoon\");
+	this.appendItem(\"Asia/Riyadh\");
+	this.appendItem(\"Asia/Saigon\");
+	this.appendItem(\"Asia/Seoul\");
+	this.appendItem(\"Asia/Shanghai\");
+	this.appendItem(\"Asia/Singapore\");
+	this.appendItem(\"Asia/Taipei\");
+	this.appendItem(\"Asia/Tashkent\");
+	this.appendItem(\"Asia/Tbilisi\");
+	this.appendItem(\"Asia/Tehran\");
+	this.appendItem(\"Asia/Tel_Aviv\");
+	this.appendItem(\"Asia/Tokyo\");
+	this.appendItem(\"Asia/Ujung_Pandang\");
+	this.appendItem(\"Asia/Urumqi\");
+	this.appendItem(\"Asia/Vladivostok\");
+	this.appendItem(\"Asia/Yakutsk\");
+	this.appendItem(\"Asia/Yekaterinburg\");
+	this.appendItem(\"Asia/Yerevan\");
+	this.appendItem(\"Atlantic/Azores\");
+	this.appendItem(\"Atlantic/Bermuda\");
+	this.appendItem(\"Atlantic/Canary\");
+	this.appendItem(\"Atlantic/Faeroe\");
+	this.appendItem(\"Atlantic/Madeira\");
+	this.appendItem(\"Atlantic/Reykjavik\");
+	this.appendItem(\"Atlantic/St_Helena\");
+	this.appendItem(\"Atlantic/Stanley\");
+	this.appendItem(\"Australia/ACT\");
+	this.appendItem(\"Australia/Adelaide\");
+	this.appendItem(\"Australia/Brisbane\");
+	this.appendItem(\"Australia/Broken_Hill\");
+	this.appendItem(\"Australia/Canberra\");
+	this.appendItem(\"Australia/Darwin\");
+	this.appendItem(\"Australia/Hobart\");
+	this.appendItem(\"Australia/LHI\");
+	this.appendItem(\"Australia/Lindeman\");
+	this.appendItem(\"Australia/Lord_Howe\");
+	this.appendItem(\"Australia/Melbourne\");
+	this.appendItem(\"Australia/NSW\");
+	this.appendItem(\"Australia/North\");
+	this.appendItem(\"Australia/Perth\");
+	this.appendItem(\"Australia/Queensland\");
+	this.appendItem(\"Australia/South\");
+	this.appendItem(\"Australia/Sydney\");
+	this.appendItem(\"Australia/Tasmania\");
+	this.appendItem(\"Australia/Victoria\");
+	this.appendItem(\"Australia/West\");
+	this.appendItem(\"Australia/Yancowinna\");
+	this.appendItem(\"Brazil/Acre\");
+	this.appendItem(\"Brazil/DeNoronha\");
+	this.appendItem(\"Brazil/East\");
+	this.appendItem(\"Brazil/West\");
+	this.appendItem(\"CET\");
+	this.appendItem(\"CST\");
+	this.appendItem(\"CST6CDT\");
+	this.appendItem(\"Canada/Atlantic\");
+	this.appendItem(\"Canada/Central\");
+	this.appendItem(\"Canada/East-Saskatchewan\");
+	this.appendItem(\"Canada/Eastern\");
+	this.appendItem(\"Canada/Mountain\");
+	this.appendItem(\"Canada/Newfoundland\");
+	this.appendItem(\"Canada/Pacific\");
+	this.appendItem(\"Canada/Saskatchewan\");
+	this.appendItem(\"Canada/Yukon\");
+	this.appendItem(\"Chile/Continental\");
+	this.appendItem(\"Chile/EasterIsland\");
+	this.appendItem(\"Cuba\");
+	this.appendItem(\"EET\");
+	this.appendItem(\"EST\");
+	this.appendItem(\"EST5EDT\");
+	this.appendItem(\"Egypt\");
+	this.appendItem(\"Eire\");
+	this.appendItem(\"Etc/GMT\");
+	this.appendItem(\"Etc/GMT+0\");
+	this.appendItem(\"Etc/GMT+1\");
+	this.appendItem(\"Etc/GMT+10\");
+	this.appendItem(\"Etc/GMT+11\");
+	this.appendItem(\"Etc/GMT+12\");
+	this.appendItem(\"Etc/GMT+2\");
+	this.appendItem(\"Etc/GMT+3\");
+	this.appendItem(\"Etc/GMT+4\");
+	this.appendItem(\"Etc/GMT+5\");
+	this.appendItem(\"Etc/GMT+6\");
+	this.appendItem(\"Etc/GMT+7\");
+	this.appendItem(\"Etc/GMT+8\");
+	this.appendItem(\"Etc/GMT+9\");
+	this.appendItem(\"Etc/GMT-0\");
+	this.appendItem(\"Etc/GMT-1\");
+	this.appendItem(\"Etc/GMT-10\");
+	this.appendItem(\"Etc/GMT-11\");
+	this.appendItem(\"Etc/GMT-12\");
+	this.appendItem(\"Etc/GMT-13\");
+	this.appendItem(\"Etc/GMT-14\");
+	this.appendItem(\"Etc/GMT-2\");
+	this.appendItem(\"Etc/GMT-3\");
+	this.appendItem(\"Etc/GMT-4\");
+	this.appendItem(\"Etc/GMT-5\");
+	this.appendItem(\"Etc/GMT-6\");
+	this.appendItem(\"Etc/GMT-7\");
+	this.appendItem(\"Etc/GMT-8\");
+	this.appendItem(\"Etc/GMT-9\");
+	this.appendItem(\"Etc/GMT0\");
+	this.appendItem(\"Etc/Greenwich\");
+	this.appendItem(\"Europe/Amsterdam\");
+	this.appendItem(\"Europe/Athens\");
+	this.appendItem(\"Europe/Belfast\");
+	this.appendItem(\"Europe/Belgrade\");
+	this.appendItem(\"Europe/Berlin\");
+	this.appendItem(\"Europe/Bratislava\");
+	this.appendItem(\"Europe/Brussels\");
+	this.appendItem(\"Europe/Bucharest\");
+	this.appendItem(\"Europe/Budapest\");
+	this.appendItem(\"Europe/Copenhagen\");
+	this.appendItem(\"Europe/Dublin\");
+	this.appendItem(\"Europe/Gibraltar\");
+	this.appendItem(\"Europe/Helsinki\");
+	this.appendItem(\"Europe/Istanbul\");
+	this.appendItem(\"Europe/Kaliningrad\");
+	this.appendItem(\"Europe/Kiev\");
+	this.appendItem(\"Europe/Lisbon\");
+	this.appendItem(\"Europe/Ljubljana\");
+	this.appendItem(\"Europe/London\");
+	this.appendItem(\"Europe/Luxembourg\");
+	this.appendItem(\"Europe/Madrid\");
+	this.appendItem(\"Europe/Minsk\");
+	this.appendItem(\"Europe/Monaco\");
+	this.appendItem(\"Europe/Moscow\");
+	this.appendItem(\"Europe/Oslo\");
+	this.appendItem(\"Europe/Paris\");
+	this.appendItem(\"Europe/Prague\");
+	this.appendItem(\"Europe/Riga\");
+	this.appendItem(\"Europe/Rome\");
+	this.appendItem(\"Europe/Samara\");
+	this.appendItem(\"Europe/San_Marino\");
+	this.appendItem(\"Europe/Sarajevo\");
+	this.appendItem(\"Europe/Simferopol\");
+	this.appendItem(\"Europe/Skopje\");
+	this.appendItem(\"Europe/Sofia\");
+	this.appendItem(\"Europe/Stockholm\");
+	this.appendItem(\"Europe/Tallinn\");
+	this.appendItem(\"Europe/Tirane\");
+	this.appendItem(\"Europe/Vatican\");
+	this.appendItem(\"Europe/Vienna\");
+	this.appendItem(\"Europe/Vilnius\");
+	this.appendItem(\"Europe/Warsaw\");
+	this.appendItem(\"Europe/Zagreb\");
+	this.appendItem(\"Europe/Zurich\");
+	this.appendItem(\"GB\");
+	this.appendItem(\"GB-Eire\");
+	this.appendItem(\"GMT\");
+	this.appendItem(\"GMT+0\");
+	this.appendItem(\"GMT-0\");
+	this.appendItem(\"GMT0\");
+	this.appendItem(\"Greenwich\");
+	this.appendItem(\"HST\");
+	this.appendItem(\"Hongkong\");
+	this.appendItem(\"Iceland\");
+	this.appendItem(\"Indian/Chagos\");
+	this.appendItem(\"Indian/Christmas\");
+	this.appendItem(\"Indian/Cocos\");
+	this.appendItem(\"Indian/Mayotte\");
+	this.appendItem(\"Indian/Reunion\");
+	this.appendItem(\"Iran\");
+	this.appendItem(\"Israel\");
+	this.appendItem(\"Jamaica\");
+	this.appendItem(\"Japan\");
+	this.appendItem(\"Kwajalein\");
+	this.appendItem(\"Libya\");
+	this.appendItem(\"MET\");
+	this.appendItem(\"MST\");
+	this.appendItem(\"MST7MDT\");
+	this.appendItem(\"Mexico/BajaNorte\");
+	this.appendItem(\"Mexico/BajaSur\");
+	this.appendItem(\"Mexico/General\");
+	this.appendItem(\"NZ\");
+	this.appendItem(\"NZ-CHAT\");
+	this.appendItem(\"Navajo\");
+	this.appendItem(\"PRC\");
+	this.appendItem(\"PST\");
+	this.appendItem(\"PST8PDT\");
+	this.appendItem(\"Pacific/Auckland\");
+	this.appendItem(\"Pacific/Chatham\");
+	this.appendItem(\"Pacific/Easter\");
+	this.appendItem(\"Pacific/Fakaofo\");
+	this.appendItem(\"Pacific/Fiji\");
+	this.appendItem(\"Pacific/Gambier\");
+	this.appendItem(\"Pacific/Guam\");
+	this.appendItem(\"Pacific/Honolulu\");
+	this.appendItem(\"Pacific/Johnston\");
+	this.appendItem(\"Pacific/Kiritimati\");
+	this.appendItem(\"Pacific/Kwajalein\");
+	this.appendItem(\"Pacific/Marquesas\");
+	this.appendItem(\"Pacific/Midway\");
+	this.appendItem(\"Pacific/Niue\");
+	this.appendItem(\"Pacific/Norfolk\");
+	this.appendItem(\"Pacific/Noumea\");
+	this.appendItem(\"Pacific/Pago_Pago\");
+	this.appendItem(\"Pacific/Pitcairn\");
+	this.appendItem(\"Pacific/Rarotonga\");
+	this.appendItem(\"Pacific/Saipan\");
+	this.appendItem(\"Pacific/Samoa\");
+	this.appendItem(\"Pacific/Tahiti\");
+	this.appendItem(\"Pacific/Tongatapu\");
+	this.appendItem(\"Pacific/Wake\");
+	this.appendItem(\"Pacific/Wallis\");
+	this.appendItem(\"Poland\");
+	this.appendItem(\"Portugal\");
+	this.appendItem(\"ROC\");
+	this.appendItem(\"ROK\");
+	this.appendItem(\"Singapore\");
+	this.appendItem(\"Turkey\");
+	this.appendItem(\"US/Alaska\");
+	this.appendItem(\"US/Aleutian\");
+	this.appendItem(\"US/Arizona\");
+	this.appendItem(\"US/Central\");
+	this.appendItem(\"US/East-Indiana\");
+	this.appendItem(\"US/Eastern\");
+	this.appendItem(\"US/Hawaii\");
+	this.appendItem(\"US/Indiana-Starke\");
+	this.appendItem(\"US/Michigan\");
+	this.appendItem(\"US/Mountain\");
+	this.appendItem(\"US/Pacific\");
+	this.appendItem(\"US/Pacific-New\");
+	this.appendItem(\"US/Samoa\");
+	this.appendItem(\"UTC\");
+	this.appendItem(\"W-SU\");
+	this.appendItem(\"WET\");
+}" 0
+
+E
+E
+ 1 0
+22 48
+"cbo_use_rman"
+""
+1 200 371 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 369 431 396
+2
+4
+LANG:10001 12 OS functions
+LANG:10004 2 OS
+LANG:10000 25 Betriebssystem-Funktionen
+LANG:10027 19 Функции ОС
+
+1
+4
+LANG:10001 33 Oracle Restore & Recovery Manager
+LANG:10004 34 Oracle恢复/备份管理器(RMAN)
+LANG:10000 33 Oracle Restore & Recovery Manager
+LANG:10027 52 Менеджер восстановления Oracle
+
+0
+
+"main()
+{
+  this.items = makeDynString(\"OS\",\"RMAN\");
+//  this.selectedPos = 1;
+}" 0
+
+E
+E
+ 0 0
+14 32
+"txt_sequence_start"
+""
+1 200 403 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 401 411 428
+3 "8d" 8 0 0 0 0 -1  E E E
+14 26
+"txt_path_oraclebin"
+""
+1 201 435 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  199 433 707 460
+3 "0s" 0 0 0 0 0 -1  E E E
+14 27
+"txt_path_dbfile"
+""
+1 201 467 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  199 465 707 492
+3 "0s" 0 0 0 0 0 -1  E E E
+14 29
+"txt_path_tempdbfile"
+""
+1 202 499 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  200 497 707 524
+3 "0s" 0 0 0 0 0 -1  E E E
+14 30
+"txt_path_alert"
+""
+1 202 531 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  200 529 707 556
+3 "0s" 0 0 0 0 0 -1  E E E
+14 31
+"txt_path_event"
+""
+1 202 563 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  200 561 707 588
+3 "0s" 0 0 0 0 0 -1  E E E
+14 33
+"txt_path_backup"
+""
+1 202 595 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 path on database server
+LANG:10004 27 数据库服务器的路径
+LANG:10000 22 Pfad auf dem DB Server
+LANG:10027 31 Путь к серверу БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  200 593 707 620
+3 "0s" 0 0 0 0 0 -1  E E E
+14 41
+"txt_sequence_maxvalue"
+""
+1 458 403 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  456 401 677 428
+3 "8d" 8 0 0 0 0 -1  E E E
+13 68
+"btnShowSequences"
+""
+1 685 402 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  683 400 710 429
+
+P 
+12303291
+"pictures/help_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string sql = \"SELECT SEQUENCE_OWNER, MIN_VALUE, MAX_VALUE \"
+               \" FROM ALL_SEQUENCES WHERE SEQUENCE_NAME = 'SEQ_ARC_ARCHIVE' \"
+               \" ORDER BY MIN_VALUE\";
+  
+  dyn_float resultFloat;
+  dyn_string resultText;
+
+  if (!sysconnected)
+  {
+	  ChildPanelOnCentralModalReturn(\"RDBPassword.pnl\", \"Passwort-Eingabe\", 
+	       makeDynString(\"$Sys:1\", \"$Schema:0\", \"$App:0\", \"$Ado:1\"),
+	       resultFloat, resultText);
+	  if (resultFloat[1]==-1)
+	    return;
+	  string dsn = txt_service_name.text;
+	  string syspwd = resultText[1];
+	  string sysuser = txt_sysdba_user.text;
+    sysconnected = connect2DB(dsn, sysuser, syspwd);
+  }
+  
+  if (isDbgFlag(DBGFLAG_PARAMS))
+    DebugTN(\"Connected\", sysconnected);
+  
+  if (sysconnected)
+  {
+	  dyn_dyn_anytype table;
+	  int err = rdbSelect(conn, sql, table);
+    if (isDbgFlag(DBGFLAG_PARAMS))
+      DebugTN(\"Table\",table,table[1],table[2]);
+	  string flog=winPath(getPath(LOG_REL_PATH))+\"sequences.log\";
+	  if (isDbgFlag(DBGFLAG_PARAMS))
+      DebugTN(flog);
+	  file f = fopen(flog, \"w\");
+	  fprintf(f, \"%30s%10s%10s\\n\", \"Sequence Owner\", \"Minimum\", \"Maximum\");
+	  for (int i=1;i<=dynlen(table);i++)
+	  {
+	    for (int j=1;j<=3;j++)
+	    {
+	      if (j==1)
+	        fprintf(f, \"%30s\",table[i][j]);
+	      else
+	        fprintf(f, \"%10d\",table[i][j]);
+	      //DebugN(i,j,table[i][j]);
+	    }
+	    fprintf(f, \"\\n\");
+	  }
+	  fclose(f);
+    fileEditor(flog);
+	}
+}
+" 0
+ E E E
+13 80
+"btnRunSetup"
+""
+1 665 630 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 run setup (configuration will be applied)
+LANG:10004 35 运行安装程序(应用该配置)
+LANG:10000 45 Starte Setup (Konfiguration wird übernommen)
+LANG:10027 109 запустить установку (будет применена текущая конфигурация)
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  663 628 707 672
+
+P 
+4294967295
+"pictures/runSetup_red.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultText;
+  int sso;
+    
+//  ChildPanelOnCentralModalReturn(\"para/mp_messageInfo.pnl\", \"Konfiguration speichern\", 
+//    makeDynString(\"$1:Soll die Konfiguration gespeichert werden?\"/*, \"$2:OK\", \"$3:Abbrechen\"*/),
+//    resultFloat, resultText);
+//
+//  DebugN(resultFloat, resultText);
+//  
+//  int err = writeRDBConfig();
+
+  getValue(\"chk_osauthsetup\", \"state\", 0, sso);
+
+  //!!!temp!!!
+//  runSetup(sso ? \"''\" : \"syspwd\", \"ceg\", \"app\");
+//  return;
+
+  ChildPanelOnCentralModalReturn(\"RDBPassword.pnl\", \"Passwort-Eingabe\", 
+    makeDynString(\"$Sys:\"+(sso?\"0\":\"1\"), \"$Schema:1\", \"$App:1\", \"$Ado:0\"),
+    resultFloat, resultText);
+    
+  if (resultFloat[1]==-1)
+    return;
+
+  string syspwd = resultText[1];
+  string schemapwd = resultText[2];
+  string apppwd = resultText[3];
+
+  int err = runSetup(syspwd, schemapwd, apppwd);
+  
+  //PanelOff();
+}
+" 0
+ E E E
+13 64
+"btnHelp"
+""
+1 559 630 E E E 1 E 0 E N {0,0,0} E N "_Button" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 4 help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  557 628 601 672
+
+P 
+13434828
+"pictures/help_32.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 4
+"btnCancel"
+""
+1 509 630 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 cancel
+LANG:10004 6 cancel
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  507 628 551 672
+
+P 
+13434828
+"pictures/cancel_32.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 54
+"btnRefresh"
+""
+1 460 630 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 reload configuration
+LANG:10004 18 重新加载配置
+LANG:10000 23 Konfiguration neu laden
+LANG:10027 51 Перезагрузить конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  458 628 502 672
+
+P 
+13434828
+"pictures/refresh_32.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  readRDBConfig();
+  fillRDBSetupPanel();
+  sysconnected=schema_connected=appconnected=false;
+}
+" 0
+ E E E
+13 81
+"btnSaveConfiguration"
+""
+1 410 629 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 save configuration
+LANG:10004 12 保存配置
+LANG:10000 39 Konfiguration speichern und übernehmen
+LANG:10027 43 Сохранить конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  408 628 452 672
+
+P 
+13434828
+"pictures/save_32.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  writeRDBConfig();
+}
+" 0
+ E E E
+13 90
+"Button3"
+""
+1 110 630 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0  108 628 182 652
+
+T 
+4
+LANG:10001 9 Quotation
+LANG:10004 6 引文
+LANG:10000 9 Hochkomma
+LANG:10027 14 Кавычка
+"main()
+{
+  DebugN(\"''\");
+  DebugN(\"\"\"\");
+  DebugN(\"''''\");
+}
+" 0
+ E E E
+20 82
+"chk_osauthsetup"
+""
+1 460 213 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 211 741 235
+1
+T 
+4
+LANG:10001 27 OS-Authentication for Setup
+LANG:10004 29 安装程序的OS身份验证
+LANG:10000 31 OS-Authentifizierung für Setup
+LANG:10027 59 Аутентификация ОС для настройки
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  DebugN(button, state);
+  if (button==0)
+  {
+    lbl_sysdba_user.enabled = !state;
+    txt_sysdba_user.text = \"\";
+    txt_sysdba_user.enabled = !state;
+  }
+}" 0
+20 46
+"chk_yesno_newuser"
+""
+1 460 48 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 46 741 70
+1
+T 
+4
+LANG:10001 25 New User / New Tablespace
+LANG:10004 22 新用户/新表空间
+LANG:10000 29 Neuer User / Neuer Tablespace
+LANG:10027 50 Новый польз./Табл. простр-во
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  DebugN(button, state);
+  if (button==0)
+  {
+    lbl_path_dbfile.enabled = state;
+    txt_path_dbfile.enabled = state;
+    lbl_path_tempdbfile.enabled = state;
+    txt_path_tempdbfile.enabled = state;
+//    lbl_app_user.enabled = state;
+//    txt_app_user.enabled = state;
+  }
+}" 0
+20 45
+"chk_use_xpisso"
+""
+1 460 74 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 72 741 96
+1
+T 
+4
+LANG:10001 34 Single Sign On for Export / Import
+LANG:10004 31 单点登录用于导出/导入
+LANG:10000 35 Single Sign On für Export / Import
+LANG:10027 54 Однокр. идентиф. для эксп./имп.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 42
+"chk_zip_backup"
+""
+1 460 100 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 98 741 128
+1
+T 
+4
+LANG:10001 29 Compressing exported Archives
+LANG:10004 21 压缩导出的归档
+LANG:10000 36 Komprimieren der Auslagerungsdateien
+LANG:10027 56 Сжимать экспортируемые архивы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 43
+"chk_occi_upgrade"
+""
+1 460 132 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 130 741 154
+1
+T 
+4
+LANG:10001 12 OCCI Upgrade
+LANG:10004 11 OCCI 升级
+LANG:10000 12 OCCI Upgrade
+LANG:10027 19 Апгрейд OCCI
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 91
+"chk_odbc"
+""
+1 220 630 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  218 628 292 652
+1
+T 
+4
+LANG:10001 4 ODBC
+LANG:10004 4 ODBC
+LANG:10000 4 ODBC
+LANG:10027 4 ODBC
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  DebugN(button, state);
+  if (button==0)
+  {
+    try_odbc=state; //usually false, but sometimes ADO does not want to work at all
+    DebugN(\"ODBC: \"+(string)try_odbc);
+  }
+}" 0
+13 67
+"btnRefreshTimezone"
+""
+1 170 307 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  168 305 195 334
+
+P 
+12434877
+"pictures/refresh_e.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultText;
+
+  if (!sysconnected)
+  {
+	  ChildPanelOnCentralModalReturn(\"RDBPassword.pnl\", \"Passwort-Eingabe\", 
+	       makeDynString(\"$Sys:1\", \"$Schema:0\", \"$App:0\", \"$Ado:1\"),
+	       resultFloat, resultText);
+	  if (resultFloat[1]==-1)
+	    return;
+	  string dsn = txt_service_name.text;
+	  string syspwd = resultText[1];
+	  string sysuser = txt_sysdba_user.text;
+    sysconnected = connect2DB(dsn, sysuser, syspwd);
+  }
+  
+  if (sysconnected)
+  {
+	  dyn_dyn_anytype table;
+	  int err = rdbSelect(conn, \"SELECT DISTINCT TZNAME FROM V$TIMEZONE_NAMES\", table);
+	  dyn_string zones = getDynString(table, 1);
+	  cbo_mytimezone.items = zones;
+	}
+}
+
+
+" 0
+ E E E
+20 92
+"chk_use_java"
+""
+1 460 158 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,69,0,0,0,0,0
+0  458 156 741 180
+1
+T 
+4
+LANG:10001 35 Using Java instead of C-DLL/EXTPROC
+LANG:10004 39 使用Java而不是C-DLL或外部调用
+LANG:10000 35 Using Java instead of C-DLL/EXTPROC
+LANG:10027 39 Исп. Java вместо C-DLL/EXTPROC
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE13 93
+"Button4"
+""
+1 110 660 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0  108 658 182 682
+
+T 
+4
+LANG:10001 12 Test Paths 2
+LANG:10004 13 测试路径2
+LANG:10000 12 Test Pfade 2
+LANG:10027 16 Пр. пути 2
+"main()
+{
+  DebugN(PROJ_PATH);
+  DebugN(PVSS_PATH);
+  DebugN(DATA_PATH);
+  DebugN(VERSION);
+  DebugN(PROJ);
+
+  string fconf=getPath(DATA_REL_PATH, \"RDBSetup/ora/RDB_config.sql\");
+  DebugN(fconf);
+
+	string fdir=getPath(DATA_REL_PATH, \"RDBSetup/ora\");
+	DebugN(\"a\" , fdir);
+	
+	string fdir=getPath(DATA_REL_PATH, \"RDBSetup/ora\", \"\", 0);
+	DebugN(\"b\", fdir);
+	
+	string fdir=getPath(DATA_REL_PATH, \"RDBSetup/ora\", \"\", 1);
+	DebugN(\"c\", fdir);
+	
+	if (fdir==\"\")
+	{
+	  fdir = getPath(DATA_REL_PATH)+ \"RDBSetup/ora\";
+	  mkdir(fdir);
+	  string fdir=getPath(DATA_REL_PATH, \"RDBSetup/ora\", \"\", 1);
+	  DebugN(\"d\", fdir);
+	}
+	else
+	  DebugN(\"schon da\");
+ 
+  string fwrite=getPath(DATA_REL_PATH)+ \"RDBSetup/ora/RDB_config.sql\";
+  DebugN(fwrite);
+  
+  //int ret = copyFile(forig, fconf);
+
+  file f=fopen(fwrite, \"w\");
+  if (!f)
+  {
+	  DebugN(\"FILE ERROR\");
+	  return;
+  }
+    
+  int state;
+  
+  getValue(\"chk_yesno_newuser\", \"state\", 0, state);
+  string str_yesno_newuser = state ? \"yes\" : \"no\";
+
+  fputs(\"define connect_identifier = '\"+txt_connect_identifier.text  +\"'\\n\", f);
+  fputs(\"define yesno_newuser      = '\"+str_yesno_newuser            +\"'\\n\", f);
+
+  fclose(f);
+}" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

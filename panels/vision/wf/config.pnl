@@ -1,0 +1,3139 @@
+V 13
+4
+LANG:10001 20 Wizard configuration
+LANG:10004 12 向导配置
+LANG:10000 20 Wizard Konfiguration
+LANG:10027 39 Конфигурация мастера
+PANEL,-1 -1 1190 745 N "WF_PanelBackground" 0
+"main()
+{  
+  addGlobal(\"WIZ_LASTDIR\",STRING_VAR);
+  addGlobal(\"WIZ_FILE\",STRING_VAR);
+  addGlobal(\"WIZ_NAME\",STRING_VAR);
+  addGlobal(\"WIZ_ACTION\",INT_VAR);
+  addGlobal(\"WIZ_OVERWRITE\",BOOL_VAR);
+    
+  _setWizardEnabled(false);
+  _setNaviEnabled(false);
+  wf_initWizardConfigPanel();
+  delay(1);
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+  
+  setValue(\"btnImport\", \"enabled\", TRUE);
+  
+//   delay(2);
+//   
+//   if ( dynlen(treeWizards.children(\"\")) > 0 )
+//   {
+//     treeWizards.setSelectedItem(treeWizards.children(\"\")[1]);
+//     setInputFocus(myModuleName(), myPanelName(), \"treeWizards\");
+//   }
+}
+
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+  removeGlobal(\"WIZ_LASTDIR\");
+  removeGlobal(\"WIZ_FILE\");
+  removeGlobal(\"WIZ_NAME\");
+  removeGlobal(\"WIZ_ACTION\");
+  removeGlobal(\"WIZ_OVERWRITE\");
+}" 0
+ E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"wizardFramework.ctl\"
+
+int iNaviID;
+int iThreadID = -1;
+
+// void setNaviEnabled(bool b)
+// {
+//   if ( !b )
+//   {
+//     for ( int i = 1; i <= 14; i++ )
+//       setValue(\"naviPoint_\"+i+\".recWidget_free_place\",\"backCol\",\"_Transparent\");
+//   }
+//   txtName.text = \"\";
+//   txtTooltip.text = \"\";
+//   txtPanel.text = \"\";
+//   txtSaveFunction.text = \"\";
+//   txtIsChangedFunction.text = \"\";
+//   tabDollar.deleteAllLines();
+//   
+//   btnName.enabled(b);
+//   btnTooltip.enabled(b);
+//   cbPermission.enabled(b);
+//   btnCreatePanel.enabled(b);
+//   btnSelPanel.enabled(b);
+//   tabDollar.enabled(b);
+//   cbScripts.enabled(b);
+//   txtPanel.enabled(b);
+//   text3.enabled(b);
+//   text6.enabled(b);
+//   setValue(\"txtUpdateInformation\",\"text\",\"\");
+// }
+// 
+// void setWizardEnabled(bool b)
+// {
+//   btnWizardDescr.enabled(b);
+//   btnWizardName.enabled(b);
+//   dropZone.enabled(b);
+//   
+//   if ( !b )
+//   {
+//     txtWizardDescription.text(\"\");
+//     txtWizardKey.text(\"\");
+//     txtWizardName.text(\"\");
+//     txtWizardKey.enabled(false);
+//   }
+// }
+
+wf_import()
+{
+  string fileName;
+  int err;
+  
+  if(!isdir(WIZ_LASTDIR))
+    WIZ_LASTDIR = getPath(DATA_REL_PATH);
+
+  if(fileSelector(fileName,WIZ_LASTDIR,FALSE,\"*.WZ\",FALSE) < 0)
+  {
+    //Fehlerbehandlung
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"nofile\")));
+    return;
+  }
+  else
+  {
+    if(fileName == \"\")//File Selector abgebrochen
+    {
+      return;
+    }
+    if(access(fileName,F_OK) != 0)//Datei nicht vorhanden
+    {
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"fnotexists\")));
+      return;
+    }
+  }
+  WIZ_LASTDIR = WIZ_FILE = fileName;
+  strreplace(WIZ_LASTDIR,baseName(fileName),\"\");
+}
+
+//WIZ_FILE
+//WIZ_LASTDIR
+//WIZ_OVERWRITE
+
+wf_export(string fileName)
+{
+  int err;
+  
+  if((WIZ_LASTDIR == \"\") || !isdir(WIZ_LASTDIR))
+    WIZ_LASTDIR = getPath(DATA_REL_PATH);
+  if(fileSelector(fileName,WIZ_LASTDIR,FALSE,\"*.WZ\",FALSE) < 0)
+  {
+    //Fehlerbehandlung
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"nofile\")));
+    return;
+  }
+  else
+  {
+    if(fileName == \"\")//File Selector abgebrochen
+    {
+      return;
+    }
+    if(getExt(fileName) == \"\")
+      fileName += \".WZ\";
+    //Prüfung
+    if(access(fileName,F_OK) == 0)//Datei schon vorhanden
+    {
+      //Abfrage: Datei überschreiben ??
+      dyn_float df;
+      dyn_string ds;
+      ChildPanelOnCentralReturn(\"vision/MessageInfo\",myModuleName()+\"Info\",
+                                makeDynString(getCatStr(\"wfErrors\",\"fexists\"),getCatStr(\"para\",\"yes\"),getCatStr(\"para\",\"no\")),
+                                df,ds);
+      if(!dynlen(ds) || !df[1])//NEIN - nicht überschreiben
+      {
+        return;
+      }
+      else//JA - überschreiben
+        WIZ_OVERWRITE = TRUE;
+    }
+    file f = fopen(fileName,\"w\");
+    int err = ferror(f);
+    if(err)
+    {
+      //Datei nicht schreibbar
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"ferror\")));
+      return;
+    }
+    fclose(f);
+  }
+  WIZ_LASTDIR = WIZ_FILE = fileName;
+  strreplace(WIZ_LASTDIR,baseName(fileName),\"\");
+}
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  wf_panelOffConfig();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 164
+"txtNodeDrop"
+"WF"
+1 1144 160 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1102 160 1186 344
+0 2 2 "0s" 0 0 0 193 0 0  1144 160 11
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Drop node 
+LANG:10004 12 拖入节点
+LANG:10000 10 Icon für 
+LANG:10027 20 Перетащите
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 icon here
+LANG:10004 8  图标 
+LANG:10000 6 Wizard
+LANG:10027 13 Значок 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 16  hier reinziehen
+LANG:10027 14 Мастера
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 8 сюда
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4 166
+"LINE48"
+""
+1 1099 101 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  1099 101 1099 239
+6 0
+"RECTANGLE1"
+""
+1 0 0 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.820312 0 0 1 E 0 0 1188 127
+2 1
+"PRIMITIVE_TEXT1"
+""
+1 21 9 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 21 9 234 24
+0 2 2 "0s" 0 0 0 192 0 0  21 9 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 30 Wizard framework configuration
+LANG:10004 18 向导框架配置
+LANG:10000 30 Wizard Framework Konfiguration
+LANG:10027 56 Конфигурация системы мастеров
+2 2
+"PRIMITIVE_TEXT2"
+""
+1 51 29 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 51 29 823 114
+0 2 2 "0s" 0 0 0 64 0 0  51 29 12
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 62 This panel helps to create wizards in a common look and feel. 
+LANG:10004 55 此面板有助于创建具有通用外观的向导。 
+LANG:10000 101 Über dieses Panel können Wizards mit einem einheitlichen Design- und Bedienkonzept erstellt werden.
+LANG:10027 108 Данная панель помогает создавать мастеры в едином формате.
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 84 The configured wizards are stored in the system management in the tab “Wizards”.
+LANG:10004 66 配置的向导存储在系统管理的“向导”选项卡中。
+LANG:10000 104 Die konfigurierten Wizards sind im Systemmanagement in der gleichnamigen Lasche „Wizards“ zu finden.
+LANG:10027 166 Сконфигурированные мастеры доступны в разделе "Управление системой" на закладке "Мастеры".
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 97 Every wizard can have a custom icon and various menu entries with different authorization levels.
+LANG:10004 93 每个向导都可以有一个自定义图标和具有不同授权级别的各种菜单项。
+LANG:10000 124 Es können jedem Wizard ein eigenes Icon und eigene Menüpunkte mit unterschiedlichen Berechtigungsstufen zugeordnet werden.
+LANG:10027 190 Каждый мастер может иметь собственный значок и различные пункты меню для различных уровней полномочий.
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 1  
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 525 0 "" 6
+0
+6 15
+"background"
+""
+1 300 200 E E E 1 E 1 E N "_Transparent" E N "WF_Head" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 1 1 E 3.09752 0 0.214063 202.512 231.187 1 E 0 0 322 450
+1 533 1 "" 7
+0
+1 539 2 "" 7
+0
+1 545 3 "" 7
+0
+1 551 4 "" 7
+0
+1 557 5 "" 7
+0
+1 563 6 "" 7
+0
+1 569 7 "" 7
+0
+1 575 8 "" 7
+0
+1 581 9 "" 7
+0
+1 587 13 "" 7
+0
+1 593 14 "" 7
+0
+1 599 15 "" 7
+0
+1 605 16 "" 7
+0
+1 611 17 "" 7
+0
+4 130
+"LINE1"
+""
+1 2 651 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 651 202 651
+4 131
+"diff_line_1"
+""
+1 2 650 E E E 1 E 1 E N "WF_RefDiffLineLight" E N {255,255,255} E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 650 202 650
+4 132
+"LINE2"
+""
+1 2 686 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 686 202 686
+4 133
+"LINE3"
+""
+1 2 687 E E E 1 E 1 E N "WF_RefDiffLineLight" E N {255,255,255} E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 687 202 687
+6 134
+"RECTANGLE3"
+""
+1 23 503 E E E 1 E 1 E N "_Transparent" E N "WF_Frame" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.521961 0 1 -12.0051 147 1 E 23 503 406 536
+4 135
+"LINE33"
+""
+1 368 420.901 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  1 697 1 135
+4 136
+"LINE34"
+""
+1 0 697.668 E E E 1 E 1 E N "WF_RefDiffLineLight" E N {255,255,255} E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  0 697 0 135
+4 137
+"LINE35"
+""
+1 403 420.901 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  202 696 202 136
+4 138
+"LINE36"
+""
+1 203 696.668 E E E 1 E 1 E N "WF_RefDiffLineLight" E N {255,255,255} E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  203 697 203 134
+6 139
+"RECTANGLE4"
+""
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.832636 0 1 -47.9582 126 1 E 60 10 299 42
+2 140
+"txt_tree_tab_name"
+""
+1 17 143.901 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 17 143.901 70 159
+0 2 2 "0s" 0 0 0 192 0 0  17 143.901 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Wizards
+LANG:10004 6 向导
+LANG:10000 7 Wizards
+LANG:10027 14 Мастеры
+4 143
+"LINE45"
+""
+1 1.8255 169.901 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 170 201 170
+4 144
+"LINE46"
+""
+1 1.8255 170.901 E E E 1 E 1 E N "WF_RefDiffLineLight" E N {255,255,255} E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  2 171 201 171
+13 145
+"btnCreate"
+"WF_Transparent"
+1 7 664 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 13 Create wizard
+LANG:10004 12 创建向导
+LANG:10000 20 Neuen Wizard anlegen
+LANG:10027 27 Создать Мастер
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  5 654 34 683
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  if ( mappingHasKey(mActualShownWizard, \"changed\") && mActualShownWizard[\"changed\"] )
+  {
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Info\", notificationBar_getCatStrDefault(WF_CAT_GENERAL,\"askForChange\", \"save change ?\"), ds, df);
+    
+    if ( dynlen(df) > 0 && df[1] == true )
+      wf_saveConfig();
+    else
+    {
+      if ( mActualShownWizard[\"dp\"][0] == '~' )
+        treeWizards.removeItem(mActualShownWizard[\"dp\"]);
+    }
+  }
+  
+  dyn_string dsItems = treeWizards.children(\"\");
+  dyn_string dsItemTexts;
+  dyn_string dsItemKeys;
+  string sKey;
+
+  for ( int i = 1; i <= dynlen(dsItems); i++ )
+  {
+    dynAppend(dsItemTexts, treeWizards.getText(dsItems[i],0));
+    dynAppend(dsItemKeys, treeWizards.getText(dsItems[i],1));
+  }
+  
+  langString sMsg = wf_getCatStr(\"wfGeneral\", \"newWizard\");
+  int i = 1;
+  while ( true )
+  {
+    if ( !dynContains(dsItemTexts, sMsg+\" \"+i) )
+    {
+      sMsg = wf_getCatStr(\"wfGeneral\", \"newWizard\", \" \"+i);
+      break;
+    }
+    i++;
+  }
+  
+  int ii = 1;
+  while ( true )
+  {
+    if ( !dynContains(dsItemKeys, \"wizard\"+ii) )
+    {
+      sKey = \"wizard\"+ii;
+      break;
+    }
+    ii++;
+  }
+
+  treeWizards.appendItem(\"\", \"~\"+i, (string)sMsg);
+//   treeWizards.setVisible(\"~\"+i,0);
+  treeWizards.setText(\"~\"+i,1,sKey);
+  treeWizards.setSelectedItem(\"~\"+i, true);
+  setInputFocus(myModuleName(), myPanelName(), \"treeWizards\");
+  
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+" 0
+ E E "main()
+{
+  // IM 118233
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/add.png\";
+  this.buttonDownPixmap = \"wf/buttons/add_pressed.png\";
+}
+" 0
+
+13 146
+"btnDelete"
+"WF_Transparent"
+1 32 664 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+45 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 13 Delete wizard
+LANG:10004 12 删除向导
+LANG:10000 15 Wizard löschen
+LANG:10027 27 Удалить мастер
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  30 654 59 683
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  string sWizardName = treeWizards.getText(treeWizards.selectedItem,0);
+
+  if ( mappingHasKey(mActualShownWizard, \"changed\") && mActualShownWizard[\"changed\"] && treeWizards.selectedItem[0] != '~' )
+  {
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Info\", notificationBar_getCatStrDefault(WF_CAT_GENERAL,\"askForChange\", \"save change ?\"), ds, df);
+    
+    if ( dynlen(df) > 0 && df[1] == true )
+      wf_saveConfig();
+    else
+    {
+      if ( mActualShownWizard[\"dp\"][0] == '~' )
+        treeWizards.removeItem(mActualShownWizard[\"dp\"]);
+    }
+  }
+  
+  dyn_string ds;
+  dyn_float df;
+  
+  int i = wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"aaa\", getCatStr(\"wfGeneral\",\"deleteWizard\"),ds,df);
+  string selectedItem = treeWizards.selectedItem();
+
+  if ( dynlen(df) > 0 && df[1] == 1 )
+  {
+    if ( treeWizards.selectedItem[0] == '~' )
+    {
+      mActualShownWizard[\"changed\"] = false;
+      treeWizards.removeItem(treeWizards.selectedItem);
+    }
+    else if ( wf_removeWizard(treeWizards.selectedItem) == 0 )
+    {      
+      int idx = dynContains(dsWizardDps,selectedItem);
+      if(idx> 0) dynRemove(dsWizardDps,idx);
+      wf_setSysMgmMenuPoints(dsWizardDps);
+      
+      notificationBar_newMsg(WF_ERR_CAT_NAME, \"wizardSuccessfullyDeleted\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(mActualShownWizard[\"key\"]), false, notificationBar_getUserDpName(), true);
+    }    
+    else
+      notificationBar_newMsg(WF_ERR_CAT_NAME, \"errorDeletingWizard\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(mActualShownWizard[\"key\"]), false, notificationBar_getUserDpName(), true);
+  }
+  
+  if ( treeWizards.childCount < 1 )
+    _setWizardEnabled(false);
+}
+
+" 0
+ E E "main()
+{
+  // IM 118233
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/delete.png\";
+  this.buttonDownPixmap = \"wf/buttons/delete_pressed.png\";
+}
+" 0
+
+2 149
+"PRIMITIVE_TEXT12"
+""
+1 215 491 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 215 491 252 505
+0 2 2 "0s" 0 0 0 192 0 0  215 491 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Panel:
+LANG:10004 9 面板：
+LANG:10000 6 Panel:
+LANG:10027 13 Панель:
+14 150
+"txtPanel"
+"WF"
+1 371.309 489 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  340 483 636 512
+2 "0s" 0 0 0 0 0 -1  E E E
+13 151
+"btnSelPanel"
+"WF"
+1 634 491 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  632 483 661 512
+
+P 
+4294967295
+"pictures/openpanel.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     refName,param;
+  dyn_int    di;
+  dyn_string params;
+  
+  string wiz=txtWizardKey.text,template,param,
+         panelPath=getPath(PANELS_REL_PATH),
+         //wizPath=\"para/wizards/\"+wiz+\"/\"; IM 116312
+         wizPath=\"\";
+  
+  if ( !isdir(panelPath+wizPath) )
+    mkdir(panelPath+wizPath);
+
+  fileSelector(refName,panelPath+wizPath,true);
+  refName=strrtrim(strltrim(refName)); if (refName==\"\") return;
+  refName=pt_getRelFromAbsPanelPath(refName);
+  txtPanel.text=strltrim(refName,wizPath);
+  mActualShownWizard[\"navi\"][iNaviID][\"panel\"] = refName;
+  params=pt_getDollarParams(refName);
+
+  tabDollar.deleteAllLines();
+  
+  for ( int i = 1; i <= dynlen(params); i++ )
+  {
+    string sDollar = params[i];
+    string sValue = \"\";    
+    
+    setValue(\"tabDollar\",\"appendLine\", \"dollarParams\",    sDollar,   
+                                       \"dpSelector\",      \" ...\", 
+                                       \"panelSelector\",   \" ...\", 
+                                       \"colorSelector\",   \" ...\", 
+                                       \"value\",           sValue  );
+  }
+  
+  string sDollars;
+  dyn_string dsDollars = tabDollar.getColumnN(0);
+  dyn_string dsValues = tabDollar.getColumnN(4);
+  
+  for ( int i = 1; i <= dynlen(dsDollars); i++ )
+  {
+    if ( i == 1 )
+      sDollars += dsDollars[i]+\":\"+dsValues[i];
+    else
+      sDollars += \"|\"+dsDollars[i]+\":\"+dsValues[i];
+  }
+  mActualShownWizard[\"navi\"][iNaviID][\"dollars\"] = sDollars;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+
+
+" 0
+ E E E
+2 167
+""
+""
+1 215 160 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 215 160 294 174
+0 2 2 "0s" 0 0 0 192 0 0  215 160 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Wizard Name:
+LANG:10004 12 向导名称
+LANG:10000 12 Wizard Name:
+LANG:10027 22 Имя мастера:
+2 168
+"PRIMITIVE_TEXT4"
+""
+1 215 190 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 215 190 280 204
+0 2 2 "0s" 0 0 0 192 0 0  215 190 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Wizard Key:
+LANG:10004 10 向导key:
+LANG:10000 11 Wizard Key:
+LANG:10027 28 Кнопка запуска:
+14 169
+"txtWizardName"
+"WF"
+1 342 158.8 E E E 1 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  340 152 661 181
+2 "0s" 0 0 0 0 0 -1  E E E
+14 170
+"txtWizardKey"
+"WF"
+1 342 188 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+63 0 0 0 0 0
+E "main()
+{
+  string s = this.text;
+  if ( nameCheck(s) == 0 && !wf_wizardKeyExists(s) )
+    mActualShownWizard[\"key\"] = s;
+  else if ( nameCheck(s) != 0 )
+  {
+    this.text = mActualShownWizard[\"key\"];
+    notificationBar_newMsg(WF_ERR_CAT_NAME, \"unsupportedCharacters\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+  }
+  else if ( wf_wizardKeyExists(s) )
+  {
+    notificationBar_newMsg(WF_ERR_CAT_NAME, \"alreadyExists\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+    this.text = mActualShownWizard[\"key\"];
+  }
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  340 182 686 211
+3 "0s" 0 0 0 0 0 -1  E E E
+13 171
+"btnWizardName"
+"WF"
+1 659 160 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  657 152 686 181
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langString ls = mActualShownWizard[\"name\"];
+  
+  langEditor(ls);
+
+  mActualShownWizard[\"name\"] = ls;
+  txtWizardName.text = ls;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}" 0
+ E E E
+2 172
+"PRIMITIVE_TEXT5"
+""
+1 709 160 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 709 160 791 174
+0 2 2 "0s" 0 0 0 192 0 0  709 160 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 9 描述：
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+13 173
+"btnWizardDescr"
+"WF"
+1 1059 160.38 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  1057 152 1086 181
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langString ls = mActualShownWizard[\"description\"];
+  
+  langEditor(ls);
+
+  mActualShownWizard[\"description\"] = ls;
+  txtWizardDescription.text = ls;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}" 0
+ E E E
+29 174
+"txtWizardDescription"
+"WF"
+1 803.692 154.206 E E E 0 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+15
+"sizePolicy" "Expanding Expanding"
+"horizontalScrollBarPolicy" "enum 0"
+"inputMethodHints" "enum 1024"
+"layoutDirection" "enum 0"
+"wrapPolicy" "enum 0"
+"sizeAdjustPolicy" "enum 0"
+"frameShadow" "enum 48"
+"frameShape" "enum 6"
+"alignment" "enum 1"
+"textInteractionFlags" "enum 19"
+"contextMenuPolicy" "enum 1"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"wordWrap" "enum 1"
+"textFormat" "enum 2"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  804 154 1059 209
+15 PVSS.TextEdit.1
+0
+E2 176
+"PRIMITIVE_TEXT6"
+""
+1 215 460.948 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 215 460.948 340 475
+0 2 2 "0s" 0 0 0 192 0 0  215 460.948 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 User permission:
+LANG:10004 15 用户权限：
+LANG:10000 21 Benutzerberechtigung:
+LANG:10027 21 Полномочия:
+22 177
+"cbPermission"
+"WF"
+1 5.04047 525.948 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Fixed"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  340 453 686 482
+0
+
+"main()
+{
+  dyn_langString dlsDescr;
+   
+  dpGet(\"_Groups.PermissionDes\", dlsDescr);
+  
+  for ( int i = 1; i <= dynlen(dlsDescr); i++ )
+    this.appendItem(i+\" \"+dlsDescr[i]);
+}" 0
+
+"main()
+{
+  mActualShownWizard[\"navi\"][(int)iNaviID][\"permission\"] = this.selectedPos();
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+" 0
+
+E
+ 0 0
+14 178
+"txtIsChangedFunction"
+"WF"
+1 890.766 411.95 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  860 406 1156 435
+2 "0s" 0 0 0 0 0 -1  E E E
+14 179
+"txtSaveFunction"
+"WF"
+1 890.766 376.95 E E E 1 E 0 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  860 371 1156 400
+2 "0s" 0 0 0 0 0 -1  E E E
+13 180
+"text3"
+"WF"
+1 1153.5 378.95 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  1152 371 1181 400
+
+P 
+4294967295
+"pictures/scripteditor.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  ChildPanelOnCentralModalReturn(\"vision/wf/objects_parts/ref_scriptEditor.pnl\",\"a\",makeDynString(\"$Type:1\",\"$ID:\"+iNaviID),df,ds);
+  
+  txtSaveFunction.text = mActualShownWizard[\"navi\"][(int)iNaviID][\"saveFunction\"];
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}" 0
+ E E E
+13 181
+"text6"
+"WF"
+1 1153.5 413.95 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  1152 406 1181 435
+
+P 
+4294967295
+"pictures/scripteditor.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  
+  ChildPanelOnCentralModalReturn(\"vision/wf/objects_parts/ref_scriptEditor.pnl\",\"a\",makeDynString(\"$Type:2\",\"$ID:\"+iNaviID),df,ds);
+  
+  txtIsChangedFunction.text = mActualShownWizard[\"navi\"][(int)iNaviID][\"isChangedFunction\"];
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}" 0
+ E E E
+2 182
+"text1"
+""
+1 708.5 378.95 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 708.5 378.95 816 393
+0 2 2 "0s" 0 0 0 192 0 0  708.5 378.95 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Save Function:
+LANG:10004 23 将Function保存到：
+LANG:10000 18 Speichern Funktion
+LANG:10027 34 Функция Сохранить:
+2 183
+"text4"
+""
+1 708.5 413.95 E E E 1 E 0 E N "WF_Text" E N "_Window" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 708.5 413.95 827 428
+0 2 2 "0s" 0 0 0 192 0 0  708.5 413.95 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Change Function:
+LANG:10004 17 更改Function：
+LANG:10000 20 Änderungen Funktion
+LANG:10027 32 Функция Изменить:
+2 184
+"PRIMITIVE_TEXT10"
+""
+1 882.5 346.95 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 882.5 346.95 1139 361
+0 2 2 "0s" 0 0 0 192 0 0  882.5 346.95 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 32 Show save button in bottom bar? 
+LANG:10004 33 底部状态栏显示保存按钮
+LANG:10000 45 Speichern Button in der Bottom Bar anzeigen? 
+LANG:10027 80 Показать кнопку "Сохранить" в нижней панели?
+20 185
+"cbScripts"
+"WF"
+1 861.5 345.95 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  860 344 885 364
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  this.text(0,\"\");
+}" 0
+"main(int button, int state)
+{ 
+ if (state)
+ {
+  text1.visible(TRUE);
+  txtSaveFunction.visible(TRUE);
+  text3.visible(TRUE);
+  text4.visible(TRUE);
+  txtIsChangedFunction.visible(TRUE);
+  text6.visible(TRUE);
+ }
+ else
+ {
+  text1.visible(FALSE);
+  txtSaveFunction.visible(FALSE);
+  text3.visible(FALSE);
+  text4.visible(FALSE);
+  txtIsChangedFunction.visible(FALSE);
+  text6.visible(FALSE);
+  txtSaveFunction.text = \"\";
+  mActualShownWizard[\"navi\"][(int)iNaviID][\"saveFunction\"] = \"\";
+  txtIsChangedFunction.text = \"\";
+  mActualShownWizard[\"navi\"][(int)iNaviID][\"isChangedFunction\"] = \"\";
+ }
+}
+" 0
+1 617 19 "" 1
+31 "transform" 0 0 1.107694307304786 0 1 -201.5165336242938 -262.5
+0
+1 618 19 "" 4
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 619 19 "" 5
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 620 19 "" 7
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 621 19 "" 12
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 622 19 "" 13
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 623 19 "" 14
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 624 19 "" 15
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 625 19 "" 16
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+1 626 19 "" 17
+31 "transform" 0 0 1 0 1 -181.9243199999996 -262.5
+0
+29 270
+"treeWizards"
+"WF"
+1 2 169.975 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"treeStepSize" "int 15"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  2 170 201 650
+10 TreeWidget
+1
+0 "selectionChanged" "(string id)"
+"  dyn_string ds;
+  dyn_float df;
+  
+  if(id == \"\")
+  {
+    wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+    return;
+  }
+  
+  if ( mappingHasKey(mActualShownWizard, \"changed\") && mActualShownWizard[\"changed\"] )
+  {
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Info\", notificationBar_getCatStrDefault(WF_CAT_GENERAL,\"askForChange\", \"save change ?\"), ds, df);
+    
+    if ( dynlen(df) > 0 && df[1] == true )
+      wf_saveConfig();
+    else
+    {
+      if ( mActualShownWizard[\"dp\"][0] == '~' )
+        treeWizards.removeItem(mActualShownWizard[\"dp\"]);
+    }
+  }
+  
+  
+  _setNaviEnabled(false);
+  wf_showWizardInformation(id);
+  _setWizardEnabled(true);
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");"
+E14 271
+"txtUpdateInformation"
+""
+1 397 128 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Preferred Preferred"
+"textChangedCB" "main(string newText)
+{
+  if ( newText == \"\" )
+    return;
+  
+  bool bNew = false;
+  
+  if (  newText == -1 )//deselect all navipoints and disable navi area
+  {    
+    _setNaviEnabled(false);
+    return;
+  }
+  else
+    _setNaviEnabled(true);
+  
+  if ( newText[0] == '~' )//new
+  {
+    bNew = true;
+    strreplace(newText, \"~\", \"\");
+    string sIcon = \"wf/navi/undefined_icon.png\";
+    langString sText = wf_getCatStr(\"wfGeneral\", \"newMenuPoint\", \" \"+newText);
+    setValue(\"naviPoint_\"+newText+\".recWidget\",\"fill\",\"[pattern,[fit,png,\"+sIcon+\"]]\");
+    setValue(\"naviPoint_\"+newText+\".rectAdd\",\"fill\",\"[solid]\");
+    setValue(\"naviPoint_\"+newText+\".naviLabel\",\"text\",sText);
+    setValue(\"naviPoint_\"+newText+\".naviLabel\",\"visible\",true);
+    mActualShownWizard[\"navi\"][(int)newText][\"name\"] = sText;
+    mActualShownWizard[\"navi\"][(int)newText][\"key\"] = newText;
+  }
+  
+  if ( newText == \"update\" )
+  {
+    for ( int i = 1; i <= 14; i++ )
+      setValue(\"naviPoint_\"+i+\".event\",\"text\", +mActualShownWizard[\"dp\"]+\"|\"+mActualShownWizard[\"navi\"][(int)i][\"key\"]);
+    
+    _setNaviEnabled(false);
+        
+    return;
+  }
+  
+  for ( int i = 1; i <= 14; i++ )
+  {
+    string sColor = \"_Transparent\";
+    
+    if ( i == newText)
+      sColor = \"WF_Frame\";
+      
+    setValue(\"naviPoint_\"+i+\".recWidget_free_place\",\"backCol\",sColor);
+  }
+  
+  wf_showWizardNaviInformation(newText, bNew);
+//   this.text = newText;
+  iNaviID = newText;
+}
+
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  395 122 519 145
+3 "0s" 0 0 0 0 0 -1  E E E
+2 272
+"PRIMITIVE_TEXT13"
+""
+1 214.875 382 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 214.875 382 255 396
+0 2 2 "0s" 0 0 0 192 0 0  214.875 382 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Tooltip:
+LANG:10004 15 文本提示：
+LANG:10000 8 Tooltip:
+LANG:10027 19 Подсказка:
+13 273
+"btnTooltip"
+"WF"
+1 659.005 386.38 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Minimum Fixed"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  657 378 686 407
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langString ls = mActualShownWizard[\"navi\"][(int)iNaviID][\"description\"];
+  
+  langEditor(ls);
+
+  mActualShownWizard[\"navi\"][(int)iNaviID][\"description\"] = ls;
+  txtTooltip.text = ls;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+" 0
+ E E E
+29 274
+"txtTooltip"
+"WF"
+1 341.868 380.281 E E E 0 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+15
+"sizePolicy" "Expanding Expanding"
+"horizontalScrollBarPolicy" "enum 0"
+"inputMethodHints" "enum 1024"
+"layoutDirection" "enum 0"
+"wrapPolicy" "enum 0"
+"sizeAdjustPolicy" "enum 0"
+"frameShadow" "enum 48"
+"frameShape" "enum 6"
+"alignment" "enum 1"
+"textInteractionFlags" "enum 19"
+"contextMenuPolicy" "enum 1"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"wordWrap" "enum 1"
+"textFormat" "enum 2"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  342 380 659 450
+15 PVSS.TextEdit.1
+0
+E2 275
+"PRIMITIVE_TEXT14"
+""
+1 215 356.175 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 215 356.175 282 370
+0 2 2 "0s" 0 0 0 192 0 0  215 356.175 1
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Menu name:
+LANG:10004 15 菜单名称：
+LANG:10000 10 Menüname:
+LANG:10027 16 Имя меню:
+14 276
+"txtName"
+"WF"
+1 373.818 353.863 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  340 348 661 377
+2 "0s" 0 0 0 0 0 -1  E E E
+13 277
+"btnName"
+"WF"
+1 659 356 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,-1,16,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,-1,16,5,50,0,0,0,0,0
+0  657 348 686 377
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  langString ls = mActualShownWizard[\"navi\"][(int)iNaviID][\"name\"];
+  
+  langEditor(ls);
+
+  mActualShownWizard[\"navi\"][(int)iNaviID][\"name\"] = ls;
+  txtName.text = ls;
+  mActualShownWizard[\"changed\"] = true;
+  setValue(\"naviPoint_\"+iNaviID+\".naviLabel\", \"text\", ls);
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+" 0
+ E E E
+6 279
+"Border3"
+"WF"
+1 21 330 E E E 1 E 1 E N "WF_Border" E N "WF_Border" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.00426 0 1 192.91 189 0 E 21 330 489 353
+2 280
+"t1"
+"WF"
+1 221 484 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 220 522 289 537
+0 2 2 "0s" 0 0 0 192 0 0  220 522 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 $parameter
+LANG:10004 10 $parameter
+LANG:10000 10 $Parameter
+LANG:10027 18 $-параметр
+2 281
+"t3"
+"WF"
+1 262 483 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 457 522 487 537
+0 2 2 "0s" 0 0 0 192 0 0  457 522 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+6 282
+"b2"
+"WF"
+1 203 331 E E E 1 E 1 E N "_Transparent" E N {255,255,204} E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 193 189 2  1 0  "pictures/childpanel.png" 4294967295 E 203 331 221 347
+6 283
+"b3"
+"WF"
+1 235 330 E E E 1 E 1 E N "_Transparent" E N {255,255,204} E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.125 0 1.11765 161.625 150.176 2  1 0  "pictures/StandardIcons/Colors_20.png" 4294967295 E 235 330 251 347
+6 284
+"b1"
+"WF"
+1 175 331 E E E 1 E 1 E N "_Transparent" E N {255,255,204} E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 193 189 2  1 0  "pictures/StandardIcons/dpeMon_tree_20.png" 4294967295 E 175 331 193 348
+4 285
+"Line7"
+"WF"
+1 692 525 E E E 1 E 1 E N "_Window" E N "_Transparent" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  692 545 692 525
+4 286
+"Line8"
+"WF"
+1 451 519 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  451 539 451 519
+4 287
+"Line15"
+"WF"
+1 422 519 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  422 539 422 519
+4 288
+"Line16"
+"WF"
+1 393 519 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  393 539 393 519
+4 289
+"Line17"
+"WF"
+1 364 519 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  364 539 364 519
+25 290
+"tabDollar"
+"WF"
+1 198 430.767 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E E
+102 0 0 0 0 0
+E "main()
+{
+  string sDollars;
+  dyn_string dsDollars = this.getColumnN(0);
+  dyn_string dsValues = this.getColumnN(4);
+  
+  for ( int i = 1; i <= dynlen(dsDollars); i++ )
+  {
+    if ( i == 1 )
+      sDollars += dsDollars[i]+\":\"+dsValues[i];
+    else
+      sDollars += \"|\"+dsDollars[i]+\":\"+dsValues[i];
+  }
+  mActualShownWizard[\"navi\"][iNaviID][\"dollars\"] = sDollars;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0  211 537 686 672
+EE 0 0 1 5 11 "dollarParams" 17 1 0 "s" 4
+LANG:10001 10 $Parameter
+LANG:10004 10 $Parameter
+LANG:10000 10 $Parameter
+LANG:10027 18 $-параметр
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "dpSelector" 2 1 0 "s" 4
+LANG:10001 3 Dpe
+LANG:10004 3 DPE
+LANG:10000 3 Dpe
+LANG:10027 3 DPE
+"main()
+{
+  string cellString, dpSel;
+  int row, collum;
+
+  getValue(\"\",\"currentCell\",row,collum,
+              \"cellValue\",cellString );
+
+  if (cellString == \" ...\")
+  {
+    dpSelector(dpSel,true);
+
+    if(dpSel!=\"\")
+    {
+      dpSel = dpSubStr( dpSel, DPSUB_SYS_DP_EL_CONF_DET_ATT );
+      strreplace(dpSel, \"System1:\", \"\");               //NoCheckWarning
+      if (strpos(dpSel,\".\")<1) dpSel+=\".\";
+      setValue(\"\",\"cellValueRC\",row,\"value\",dpSel);
+    }
+  }
+}
+" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+29 "panelSelector" 2 1 0 "s" 4
+LANG:10001 4 File
+LANG:10004 4 File
+LANG:10000 5 Datei
+LANG:10027 8 Файл
+"main()
+{
+  string cellString, panelSel;
+  int row, collum;
+
+    getValue(\"\",\"currentCell\",row,collum,
+                \"cellValue\",cellString);
+
+  if(cellString == \" ...\")
+  {
+    panelSelector(panelSel);
+
+    if(panelSel!=\"\")
+      setValue(\"\",\"cellValueRC\",row,\"value\",panelSel);
+  }
+}
+" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+29 "colorSelector" 2 1 0 "s" 4
+LANG:10001 5 Color
+LANG:10004 6 颜色
+LANG:10000 5 Farbe
+LANG:10027 8 Цвет
+"main()
+{
+  string cellString, colSel;
+  int row, collum;
+
+  getValue(\"\",\"currentCell\",row,collum,
+              \"cellValue\",cellString);
+
+  if(cellString == \" ...\")
+  {
+    colorEditor(colSel);
+
+    if(colSel!=\"\")  
+      setValue(\"\",\"cellValueRC\",row,\"value\",colSel);
+  }
+}
+
+" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+29 "value" 25 1 1 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+214 
+16 16 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+10 64
+4
+LANG:10001 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,40,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+13 291
+"btnCreatePanel"
+"WF"
+1 659 485.773 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+103 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  657 483 686 512
+
+P 
+4294967295
+"pictures/StandardIcons/new_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string wiz=txtWizardKey.text,template,param,
+         panelPath=getPath(PANELS_REL_PATH),
+         wizPath=\"para/wizards/\"+wiz+\"/\";
+  dyn_float  df;
+  dyn_string ds,params;
+
+  if ( !isdir(panelPath+wizPath) )
+    mkdir(panelPath+wizPath);
+  
+  ChildPanelOnCentralModalReturn(\"para/PanelTopology/PT_newPanel.pnl\",
+    getCatStr(\"pt\",\"newnode\"),
+    makeDynString(\"$xR:50\",\"$yR:60\",\"$xP:1280\",\"$yP:560\",\"$type:0\", \"$path:\"+wizPath),df,ds);
+
+  if (!df[1])
+  {
+    return;
+  }
+  else
+  {
+    txtPanel.text=ds[1];
+    mActualShownWizard[\"navi\"][iNaviID][\"panel\"] = ds[1];
+    tabDollar.deleteAllLines();
+    createPanel(ds[1],ds[2],ds[3]);
+    if ( globalExists(\"gObjwGediModuleName\") )
+      RootPanelOnModule(ds[1],\"1\",gObjwGediModuleName,makeDynString());
+//     moduleRaise(gObjwGediModuleName);
+  }
+  
+//   string sDollars;
+//   dyn_string dsDollars = tabDollar.getColumnN(0);
+//   dyn_string dsValues = tabDollar.getColumnN(4);
+//   
+//   for ( int i = 1; i <= dynlen(dsDollars); i++ )
+//   {
+//     if ( i == 1 )
+//       sDollars += dsDollars[i]+\":\"+dsValues[i];
+//     else
+//       sDollars += \"|\"+dsDollars[i]+\":\"+dsValues[i];
+//   }
+//   mActualShownWizard[\"navi\"][iNaviID][\"dollars\"] = sDollars;
+  mActualShownWizard[\"changed\"] = true;
+  wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+}
+
+
+
+
+
+
+" 0
+ E E E
+1 627 20 "" 0
+31 "transform" 0 0 0.6262423548387097 0 0.6655410000000001 451.1045 228.0758288293839
+0
+1 628 20 "" 1
+31 "transform" 0 0 0.693245951417004 0 1 371.1004464220647 95
+0
+1 629 20 "" 2
+31 "transform" 0 0 0.651491 0 1 415.197 95
+0
+1 630 20 "" 3
+31 "transform" 0 0 0.85099588874 0 0.67128 298.8587128934622 225.844
+0
+1 631 20 "" 4
+31 "transform" 0 0 0.5640500000000001 0 1 509.114 1
+0
+1 632 20 "" 5
+31 "transform" 0 0 1 0 1 228.5 95
+0
+1 633 20 "" 6
+31 "transform" 0 0 0.6297025741935485 0 0.672414 445.3468662967741 225.0688839999995
+0
+1 634 20 "" 7
+31 "transform" 0 0 1 0 1 230.3168217138622 95.33350000000002
+0
+6 162
+"recNodeDrop"
+"WF"
+1 1130.34 7.18968 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main()
+{
+//   if ( bLockedByMe )
+  {
+    if ( mActualShownWizard[\"icon\"] != \"\" )
+    {
+      int iAnswer; 
+      dyn_string ds = makeDynString(\"PUSH_BUTTON, \"+getCatStr(\"wfGeneral\", \"removeIcon\")+\", 1, 1\");
+      popupMenu(ds, iAnswer);
+      
+      if ( iAnswer == 1 )
+      {
+        mActualShownWizard[\"icon\"] = \"\";
+        recNodeDrop.visible = false;
+        txtNodeDrop.visible = true;
+      }
+    }
+  }
+}
+
+
+
+
+" 0
+ E
+55 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+//   if ( !bLockedByMe )
+//   {
+//     notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_onlyReadRights\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+//                            makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+//     return;
+//   }
+  
+  dyn_string dsPaths;
+  
+  for ( int i = 1; i <= SEARCH_PATH_LEN; i++)
+    dynAppend(dsPaths, getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i) + information);
+  
+  for ( int i = 1; i <= dynlen(dsPaths); i++ )
+  {
+    if ( access(dsPaths[i], F_OK) != -1 )
+    {
+      this.fill(\"[pattern,[fit,any,\"+information+\"]]\");
+     
+      mActualShownWizard[\"icon\"] = information;
+      break;
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+"
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 1 1 E 1.45 0 1.40034 -537 130.932 1 E 1130 7 1190 67
+6 300
+"dropZone"
+"WF"
+1 1130.34 7.18968 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main()
+{
+//   if ( bLockedByMe )
+  {
+    if ( mActualShownWizard[\"icon\"] != \"\" )
+    {
+      int iAnswer; 
+      dyn_string ds = makeDynString(\"PUSH_BUTTON, \"+getCatStr(\"wfGeneral\", \"removeIcon\")+\", 1, 1\");
+      popupMenu(ds, iAnswer);
+      
+      if ( iAnswer == 1 )
+      {
+        mActualShownWizard[\"icon\"] = \"\";
+        recNodeDrop.visible = false;
+        txtNodeDrop.visible = true;
+        mActualShownWizard[\"changed\"] = true;
+        wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+      }
+    }
+  }
+}
+
+
+
+
+" 0
+ E
+104 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+//   if ( !bLockedByMe )
+//   {
+//     notificationBar_newMsg(\"cnsEditor\", \"cnsEditor_onlyReadRights\", NOTIFICATION_BAR_PRIO_ERROR, \"\",
+//                            makeDynAnytype(), false, notificationBar_getUserDpName(), true);
+//     return;
+//   }
+  
+  dyn_string dsPaths;
+  
+  for ( int i = 1; i <= SEARCH_PATH_LEN; i++)
+    dynAppend(dsPaths, getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i) + information);
+  
+  for ( int i = 1; i <= dynlen(dsPaths); i++ )
+  {
+    if ( access(dsPaths[i], F_OK) != -1 )
+    {
+      recNodeDrop.fill(\"[pattern,[fit,any,\"+information+\"]]\");
+     
+      mActualShownWizard[\"icon\"] = information;
+      recNodeDrop.visible = true;
+      txtNodeDrop.visible = false;
+      mActualShownWizard[\"changed\"] = true;
+      wf_bottomBar_reload(myModuleName()+\".\"+myPanelName()+\":configBtnBar.\");
+      break;
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+"
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 1 1 E 1.45 0 1.59194 -538.5 123.351 1 E 1130 7 1190 67
+6 302
+"recLocked"
+""
+1 30 30 E E E 1 E 0 E N "_Transparent" E N {255,255,255} E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.40686 0 1.41228 191.794 125.632 2  0 0  "pictures/cns/lock.png" 4294967295 E 30 30 5 5
+29 412
+"wait_modul_config"
+""
+1 -1.507369155232052e-014 0 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 0 114 68
+15 Canvas.Canvas.1
+0
+"main()
+{
+//   delay(0, 200);
+  this.backCol(\"WF_EwoWaitBackground\");
+  this.ModuleName = \"wait_modul_config\";
+  wait_modul_config.visible = true;
+  
+  dyn_int diSize = getPanelSize(panelFileName(myModuleName(), myPanelName()));
+  wait_modul_config.size(diSize[1],diSize[2]);
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\", \"wait_modul_config\", \"wait_modul_config\", makeDynString(\"$1:\"+diSize[1],\"$2:\"+diSize[2]));
+  
+  delay(2);
+  wait_modul_config.visible = false;
+  
+  setMultiValue(\"btnExport\", \"visible\", TRUE,
+                \"btnImport\", \"visible\", TRUE);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+13 523
+"btnExport"
+"WF_Transparent"
+1 151 668 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+108 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 16 Exporting wizard
+LANG:10004 12 导出向导
+LANG:10000 13 Wizard Export
+LANG:10027 16 Exporting wizard
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  141 654 170 683
+
+P 
+4294967295
+"pictures/wf/buttons/export.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+  
+  if ( mappingHasKey(mActualShownWizard, \"changed\") && mActualShownWizard[\"changed\"] )
+    wf_saveConfig();//IM 1186661 save first before export
+
+  ChildPanelOnCentralModalReturn(\"vision/wf/dialogs/ExportImport.pnl\",myModuleName()+\"_Import-Export\",makeDynString(\"$1:\"+txtWizardKey.text(),\"$2:1\"),df,ds);
+
+  if(dynlen(df) && df[1] == 1)
+    wf_startExport();
+}
+" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/export.png\";
+  this.buttonDownPixmap = \"wf/buttons/export_pressed.png\";
+}
+
+" 0
+
+13 524
+"btnImport"
+"WF_Transparent"
+1 173.6566 664 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+109 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 16 Importing wizard
+LANG:10004 15 从向导导入
+LANG:10000 13 Wizard Import
+LANG:10027 16 Importing wizard
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  167 654 196 683
+
+P 
+4294967295
+"pictures/wf/buttons/import.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/wf/dialogs/ExportImport.pnl\",myModuleName()+\"_Import-Export\",makeDynString(\"$1:\",\"$2:2\"),df,ds);
+
+  if(dynlen(df) && df[1] == 2)
+    wf_startImport();
+}" 0
+ E E "main()
+{
+  this.buttonType(BT_PIXMAP);
+  this.buttonUpPixmap = \"wf/buttons/import.png\";
+  this.buttonDownPixmap = \"wf/buttons/import_pressed.png\";
+}
+
+" 0
+
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1 532 0 "" 16
+0
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/NOTIFICATION_BAR.pnl" 120 147 T 4 1 0 1 -120 -43
+4
+"$bExpandable""false"
+"$bFitToPanel""true"
+"$bRootPanel""true"
+"$dsAddDps"""
+3 1 "naviPoint_1" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 7 1 0 1 208 237
+1
+"$ID""1"
+3 2 "naviPoint_5" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 8 1 0 1 484 237.187
+1
+"$ID""5"
+3 3 "naviPoint_2" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 9 1 0 1 277 237.187
+1
+"$ID""2"
+3 4 "naviPoint_6" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 10 1 0 1 553 237.187
+1
+"$ID""6"
+3 5 "naviPoint_3" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 11 1 0 1 346 237.187
+1
+"$ID""3"
+3 6 "naviPoint_7" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 12 1 0 1 622 237.187
+1
+"$ID""7"
+3 7 "naviPoint_4" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 13 1 0 1 415 237.187
+1
+"$ID""4"
+3 8 "naviPoint_8" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 14 1 0 1 691 237.187
+1
+"$ID""8"
+3 9 "naviPoint_12" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 17 1 0 1 967 237.187
+1
+"$ID""12"
+3 13 "naviPoint_9" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 21 1 0 1 760.068 237.187
+1
+"$ID""9"
+3 14 "naviPoint_10" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 22 1 0 1 829.068 237.187
+1
+"$ID""10"
+3 15 "naviPoint_11" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 23 1 0 1 898.068 237.187
+1
+"$ID""11"
+3 16 "naviPoint_14" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 24 1 0 1 1105 237.187
+1
+"$ID""14"
+3 17 "naviPoint_13" -1
+"" ""
+"vision/wf/objects_parts/ref_naviPoint.pnl" 10 10 T 25 1 0 1 1036.07 237.187
+1
+"$ID""13"
+3 19 "configBtnBar" -1
+"" ""
+"vision/wf/objects/BtnBottomBar.pnl" 7 691 T 82 1 0 1 174.9243199999996 251.5
+6
+"$dsButtons""btn_BottomBar_help|btn_BottomBar_save|btn_BottomBar_cancel|btn_BottomBar_close"
+"$dsEnabledFunc""wf_alwaysTrue|wf_alwaysTrue|wf_checkResetButton|wf_alwaysTrue"
+"$dsExecFunc""wf_openWizardConfigHelp|wf_saveConfig|wf_panelResetConfig|wf_panelOffConfig"
+"$dsIcons""|||"
+"$dsVisibleFunc""wf_alwaysTrue|wf_alwaysTrue|wf_alwaysTrue|wf_alwaysTrue"
+"$sReferenceName""configBtnBar"
+3 20 "PANEL_REF20" -1
+"" ""
+"vision/wf/objects_parts/ref_pictureFlow.pnl" 460 360 T 104 U 
+0
+0

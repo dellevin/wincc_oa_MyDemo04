@@ -1,0 +1,3209 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1264 551 N "_3DFace" 0
+"main()
+{
+  inputError = \"\";
+  dynClear(retentionItems);
+  for (int i = 0; i <= 5; ++i)  // fill up the interval periods: minutes, hours, days, weeks, months, years
+    dynAppend(retentionItems, getCatStr(\"NGA\", \"interval_description_\" + i));
+
+  ngaGroup.groupTable = getShape(\"GROUPS_TABLE\");
+  ngaGroupConfig.groupTable = getShape(\"GROUPS_TABLE\");
+  ngaGroupConfig.dpeTable = getShape(\"ASSIGNED_DPES_TABLE\");
+
+  ngaGroupConfig.clearModification();
+
+  dyn_string displayNamesBackends, backends = ngaGroupConfig.allBackends();
+  for (int i = 1; i <= dynlen(backends); ++i)
+  {
+    if ( !patternMatch(\"*_[2R]\", backends[i]) )
+      dynAppend(displayNamesBackends, ngaGroupConfig.getDisplayName(backends_IDpNamePrefix + backends[i]));
+  }
+
+  backend.items(displayNamesBackends);
+  backend.selectedPos(0);
+
+  initArchiveTable(ngaGroupConfig.groupTable);
+  initArchiveTable(ngaGroupConfig.dpeTable);
+
+  initGroups();
+  initActiveGroups();
+
+  // first line will be selected
+  int linesInGroup;
+  getValue(ngaGroup.groupTable, \"lineCount\", linesInGroup);
+
+  // the previously selected group might not already exist
+  if ( NgaSegmentConfigProvider::selectedGroupPos >= linesInGroup )
+    NgaSegmentConfigProvider::selectedGroupPos = 0;
+
+  setValue(ngaGroup.groupTable, \"selectLineN\", NgaSegmentConfigProvider::selectedGroupPos);
+
+  dpQueryConnectSingle(\"groupStatusUpdateCB\", false, \"\", \"SELECT '_online.._value' FROM '\" + groups_IDpNamePrefix + \"*.active'\");
+  dpQueryConnectSingle(\"groupStatusUpdateCB\", false, \"\", \"SELECT '_online.._value' FROM '\" + backends_IDpNamePrefix + \"*.monitor.backendConnectedTo*'\");
+  dpQueryConnectSingle(\"groupTableUpdateCB\", false, \"\", \"SELECT '_online.._value' FROM '\" + groups_IDpNamePrefix + \"*.displayName'\");
+  dpConnect(\"reduStatusCB\", nga_getINTLPrefix() + \"Connections.Data.ManNums\", nga_getINTLPrefix() + \"Connections_2.Data.ManNums\");
+  sysConnect(\"ngaDpeDeleted\", \"dpDeleted\");
+  dpQueryConnectSingle(\"nextBackupUpdateCB\", false, \"\", \"SELECT '_online.._value' FROM '\" + groups_IDpNamePrefix + \"*.storage.nextScheduledBackup'\");
+}
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"wizardFramework\"
+#uses \"classes/nga/NgaGroupConfigProvider\"
+#uses \"classes/nga/NgaSegmentConfigProvider\"
+#uses \"classes/nga/NgaTypes\"
+
+NgaSegmentConfigProvider ngaGroup;
+NgaGroupConfigProvider ngaGroupConfig;
+string inputError = \"\";
+dyn_string retentionItems;
+dyn_string dpes;
+bool userTriggered = FALSE;
+string currentDpeFilter;
+int tableMutex;
+bool changeSelection = FALSE;
+public int gTcpFileDescriptor2;  // needed for pmon functionality
+public string gTcpFifo;  // needed for pmon functionality
+public dyn_string gParams;  // needed for pmon functionality
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which saves all panel changes.
+ * @note The function is called from WF.
+**/
+int panelSave()
+{
+  if ( ngaGroupConfig.saveAll() )
+  {
+    setValue(\"wfChanged\", \"text\", NgaGroupConfigProvider::modifiedGroupIndex);
+    return WF_PANEL_SAVE_SAVED;
+  }
+
+  return WF_PANEL_SAVE_NOTHING_SAVE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which checks if the panel has unsaved changes.
+ * @note The function is called from WF.
+**/
+int isPanelChanged()
+{
+  if ( NgaGroupConfigProvider::modifiedGroupIndex != \"\" )
+    return WF_PANEL_CHANGED;
+
+  return WF_PANEL_NO_CHANGE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize the group and DPE tables.
+ * @param shapeObj is the table shape which needs to be initialize.
+**/
+void initArchiveTable(const shape &shapeObj)
+{
+  setValue(shapeObj, \"tableMode\", ( shapeObj == ngaGroup.groupTable ? TABLE_SELECT_BROWSE : TABLE_SELECT_NOTHING ),
+                     \"selectByClick\", TABLE_SELECT_LINE,
+                     \"sortOnClick\", FALSE,
+                     \"stop\", ( shapeObj == ngaGroupConfig.dpeTable ),
+                     \"hScrollBarMode\", \"ScrollBarAsNeeded\",
+                     \"columnStretchable\", ( shapeObj == ngaGroup.groupTable ? 1 : 0 ), 1,
+                     \"enableColumnResize\", false,
+                     \"alternatingRowColors\", makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"),
+                     \"selectColors\", \"SiemensNaturalBlueLight\", \"_Window\",
+                     \"styleSheet\", \"TableQT QHeaderView {qproperty-highlightSections: 'FALSE';} QTableView QHeaderView::section{height: 32px;}\");
+
+  if ( shapeObj == ngaGroup.groupTable )
+  {
+    for (int i = 0; i < shapeObj.columnCount; ++i)
+      shapeObj.columnHeaderAlignment(i, \"AlignVCenter\");
+  }
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which store the group names laoded in the group table.
+**/
+void initActiveGroups()
+{
+  ngaGroupConfig.setGroups();
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize the styling for the given settings shape.
+ * @param shapeObj is the settings shape which needs to be styled.
+**/
+void initSettingsShape(const shape &shapeObj)
+{
+  string style;
+  switch (shapeObj.shapeType)
+  {
+    case \"TEXT_FIELD\":
+    {
+      style = \"QLineEdit{border: none; color: black;}\";
+      break;
+    }
+
+    case \"COMBO_BOX\":
+    {
+      style = \"QComboBox{border: none; color: black;} QComboBox::drop-down{left: 50px;}\";
+      break;
+    }
+
+    default:
+      return;
+  }
+
+  setValue(shapeObj, \"styleSheet\", style);
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which starts the group priority changes.
+ * @param moveUp TRUE if the group priority needs to be increased, FALSE if decreased.
+**/
+bool moveGroup(const bool &moveUp) synchronized(tableMutex)
+{
+  if ( ngaGroupConfig.modificationInProcess() != groupModificationState::IDLE )
+  {
+    dyn_float df;
+    dyn_string ds;
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_OK, getCatStr(\"general\",\"information\"), getCatStr(\"NGA\",\"unsaved\"), ds, df);
+    return FALSE;
+  }
+
+  dyn_int selectedLines;
+  getValue(ngaGroupConfig.groupTable, \"getSelectedLines\", selectedLines);
+  if ( dynlen(selectedLines) < 1 )
+    return FALSE;
+
+  int lines;
+  getValue(ngaGroupConfig.groupTable, \"lineCount\", lines);
+
+  int selectedLine = selectedLines[1];
+  string nextGroup;
+  dyn_anytype keys = enumKeys(\"groupDataKey\");
+
+  // check if there is a line to move on
+  if ( (moveUp && (selectedLine - 1 < 0)) || (!moveUp && (selectedLine + 1 >= lines)) )
+    return FALSE;
+
+  getValue(ngaGroupConfig.groupTable, \"cellValueRC\", (moveUp ? selectedLine - 1 : selectedLine + 1),
+                                                     keys[(int)groupDataKey::GROUP],
+                                                     nextGroup);
+
+  int reduIndex = 0;
+  if ( nextGroup.endsWith(\"_2\") || ngaGroupConfig.showGroup(ngaGroupConfig.getDpeName(nextGroup, groups_IDpTypeName) + \"_2\") )
+    reduIndex = 1;
+
+  int currentGroupRedundant = (int)ngaGroupConfig.showGroup(ngaGroupConfig.getDpeName(selectedGroupName(), groups_IDpTypeName) + \"_2\");
+
+  // shift one line up or down, consider if the swapping group is redundant or not
+  int swapLine = (moveUp ? selectedLine - 1 - reduIndex :
+                           selectedLine + 1 + (int)ngaGroupConfig.showGroup(ngaGroupConfig.getDpeName(selectedGroupName(), groups_IDpTypeName) + \"_2\"));
+
+  if ( (swapLine < 0) || (swapLine >= lines) )  // swap line is out of range
+    return FALSE;
+
+  dyn_anytype swapRowData, currentRowData;
+  getValue(ngaGroupConfig.groupTable, \"getLineN\", selectedLine, currentRowData);
+  getValue(ngaGroupConfig.groupTable, \"getLineN\", swapLine, swapRowData);
+
+  groupDataKey groupInfo = groupDataKey::GROUP;
+  ngaGroupConfig.setGroupPriority(ngaGroupConfig.getGroup(ngaGroup.selectedGroup(currentRowData[(int)groupDataKey::PRIORITY], currentRowData[(int)groupInfo])),
+                                  swapRowData[(int)groupDataKey::PRIORITY]);  // line starts from 0, priority from 1
+  ngaGroupConfig.setGroupPriority(ngaGroupConfig.getGroup(ngaGroup.selectedGroup(swapRowData[(int)groupDataKey::PRIORITY], swapRowData[(int)groupInfo])),
+                                  currentRowData[(int)groupDataKey::PRIORITY]);  // line starts from 0, priority from 1
+
+  // refresh group table
+  ngaGroupConfig.clearModification();
+  initGroups();
+  initActiveGroups();
+
+  // find and select the shifted group in the table
+  for (int i = 0; i < lines; ++i)
+  {
+    anytype groupName;
+    getValue(ngaGroupConfig.groupTable, \"cellValueRC\", i, keys[(int)groupDataKey::GROUP], groupName);
+    if ( groupName == currentRowData[(int)groupDataKey::GROUP] )
+    {
+      setValue(ngaGroupConfig.groupTable, \"selectLineN\", i);
+      break;
+    }
+  }
+
+  return TRUE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which sets the group action buttons states.
+**/
+void refreshGroupButtons(const int& prio, const string &groupName)
+{
+  mapping buttonStates = ngaGroupConfig.groupButtonStates(ngaGroup.selectedGroup(prio, groupName));
+  dyn_string buttonKeys = enumKeys(\"groupActionButtons\");
+  for (int i = 1; i <= mappinglen(buttonStates); i++)
+  {
+    const string KEY = mappingGetKey(buttonStates, i);
+    if ( !shapeExists(KEY) )
+      continue;
+
+    setValue(KEY, \"enabled\", buttonStates[KEY]);
+    if ( ngaGroup.selectedGroup(prio, groupName) == \"\" )
+      continue;
+  }
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which sets the settings shapes states and style them.
+**/
+void refreshSettingsShapes()
+{
+  mapping shapeStates = ngaGroupConfig.settingsStates(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()));
+  dyn_string shapeKeys = enumKeys(\"groupDataKeys\");
+  dynAppend(shapeKeys, \"NEXT_BACKUP_BUTTON\");
+  dynAppend(shapeKeys, \"groupNameSet\");
+  for (int i = 1; i <= mappinglen(shapeStates); i++)
+  {
+    const string KEY = mappingGetKey(shapeStates, i);
+    if ( !shapeExists(KEY) )
+      continue;
+
+    shape theShape = getShape(KEY);
+    if ( theShape.shapeType == \"TEXT_FIELD\" )
+    {
+      setValue(theShape, \"editable\", shapeStates[KEY]);
+      if ( KEY != shapeKeys[(int)groupDataKeys::nextScheduledBackup] &&
+           KEY != shapeKeys[(int)groupDataKeys::displayName] )
+        setValue(theShape, \"styleSheet\", ( shapeStates[KEY] ? \"QLineEdit{border: 1px solid rgb(80,90,100);}\" : \"QLineEdit{border: none; color: black;}\" ));
+    }
+    else
+    {
+      setValue(theShape, \"enabled\", shapeStates[KEY]);
+      if ( KEY == shapeKeys[(int)groupDataKeys::backupInterval] )
+      {
+        setValue(\"removeBackup\", \"enabled\", shapeStates[KEY]);
+      }
+    }
+
+    if ( KEY == shapeKeys[(int)groupDataKeys::backend] )
+    {
+      setValue(KEY, \"styleSheet\", ( shapeStates[KEY] ?
+                                    \"QComboBox{border: 1px solid rgb(80,90,100);} QComboBox::drop-down{left: 0px;}\" :
+                                    \"QComboBox{border: none; color: black;} QComboBox::drop-down{left: 50px;}\" ));
+    }
+    else if ( KEY == shapeKeys[(int)groupDataKeys::retentionInterval] ||
+              KEY == shapeKeys[(int)groupDataKeys::segmentDurationInterval] )
+    {
+      dyn_string items = retentionItems;
+      if ( !supportMonthsYears(nga_getBackendNameFromDpName(ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()),
+                                                                                        groupDataKeys::backend))) )
+      {
+        dynRemove(items, dynlen(items));
+        dynRemove(items, dynlen(items));
+      }
+
+      int minDuration = ngaGroupConfig.segmentDurationGranularity(ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()),
+                                                                                              groupDataKeys::backend));
+
+      setValue(KEY, \"items\", items);
+      int index = 0;
+      while ( minDuration > 0 )
+      {
+        setValue(KEY, \"itemEnabled\", index, FALSE);
+        --minDuration;
+        ++index;
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which shows group configuration in the settings shapes.
+**/
+bool showGroupData()
+{
+  mapping data = ngaGroupConfig.takeGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()));
+  for (int i = 1; i <= mappinglen(data); i++)
+  {
+    const string KEY = mappingGetKey(data, i);
+    if ( !shapeExists(KEY) )
+      continue;
+
+    shape theShape = getShape(KEY);
+    switch (theShape.shapeType)
+    {
+      case \"CHECK_BOX\":
+      {
+        setValue(theShape, \"state\", 0, data[KEY]);
+        break;
+      }
+
+      case \"COMBO_BOX\":
+      {
+        int value = data[KEY];
+
+        if ( KEY == \"backend\" )
+        {
+          dyn_string items;
+          getValue(theShape, \"items\", items);
+          value = dynContains(items, data[KEY]);
+        }
+        else if ( KEY == \"backupInterval\" )
+        {
+          if ( !value && (data[\"backupFactor\"] > 0) )
+           ++value;
+        }
+        else // comboBox position starts from 1, group data value starts from 0
+        {
+          ++value;
+        }
+
+        setValue(theShape, \"selectedPos\", value);
+        if ( (value <= 0) && (KEY == \"backend\") )
+        {
+          // not for a new group
+          if ( ngaGroupConfig.modificationInProcess() != groupModificationState::NEW_GROUP)
+            setValue(theShape, \"text\", data[KEY]);
+        }
+
+        break;
+      }
+
+      case \"SPIN_BUTTON\":
+      {
+        setValue(theShape, \"value\", data[KEY]);
+        break;
+      }
+
+      default:
+      {
+        setValue(KEY, \"text\", data[KEY]);
+        break;
+      }
+    }
+  }
+
+  return TRUE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief The callback function which does the group table update.
+ * @param userData is user-defined data passed to the workfunc function.
+ * @param result is result of the query (values)
+**/
+groupTableUpdateCB(string userData, dyn_dyn_anytype result) synchronized(tableMutex)
+{
+  for (int i = 1; i <= dynlen(result); ++i)
+  {
+    for (int j = 1; j <= dynlen(result[i]); ++j)
+    {
+      // redundant groups are updated along with non-redundant, don't update them separately
+      if ( patternMatch(\"*\" + groups_IDpNamePrefix + \"*\" + \"_2.*\", result[i][j]) )
+        return;
+    }
+  }
+
+  while ( ngaGroupConfig.silentMode )  // wait until silent mode is OFF
+    delay(0 ,20);
+
+  ngaGroupConfig.silentMode = TRUE;
+  dyn_string selectedLines;
+  getValue(ngaGroupConfig.groupTable, \"getSelectedLines\", selectedLines);
+  if ( dynlen(selectedLines) < 1 )
+    return;
+
+  setValue(ngaGroup.groupTable, \"deleteAllLines\");
+  initGroups();
+  initActiveGroups();
+  setValue(ngaGroup.groupTable, \"selectLineN\", selectedLines[1]);
+  ngaGroupConfig.silentMode = FALSE;
+}
+
+
+//------------------------------------------------------------------------------
+/**
+ * @brief The callback function which does the next sceduled backup update.
+ * @param userData is user-defined data passed to the workfunc function.
+ * @param result is result of the query (values)
+**/
+nextBackupUpdateCB(string userData, dyn_dyn_anytype result)
+{
+  for (int i = 1; i <= dynlen(result); ++i)
+  {
+    if ( dynlen(result[i]) < 2 )
+      continue;
+
+    string groupName = dpSubStr(result[i][1], DPSUB_DP);
+    if ( !groupName.startsWith(groups_IDpNamePrefix) )
+      continue;
+
+    int groupPrio;
+    if ( !dpExists(groupName + \".groupPriority\") )
+      continue;
+
+    dpGet(groupName + \".groupPriority\", groupPrio);
+
+    groupName.remove(groupName.indexOf(groups_IDpNamePrefix), groups_IDpNamePrefix.length());
+    string groupIndex = ngaGroup.selectedGroup(groupPrio, groupName);
+    if ( ngaGroupConfig.getGroupData(groupIndex, groupDataKeys::nextScheduledBackup) != -1 )
+    {
+      ngaGroupConfig.setGroupData(groupIndex, groupDataKeys::nextScheduledBackup, result[i][2], FALSE);
+      if ( ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()) == groupIndex )
+        nextScheduledBackup.text(formatTime(\"%Y.%m.%d %H:%M\", (time)result[i][2]));
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief The SysConnect callback function which does the group table update on a group deletion.
+ * @param event is the system event name.
+ * @param data is the callback data which holds the datapoint name and its type name.
+**/
+void ngaDpeDeleted(string event, mapping data) synchronized(tableMutex)
+{
+  while ( ngaGroupConfig.silentMode )  // wait until silent mode is OFF
+    delay(0 ,20);
+
+  ngaGroupConfig.silentMode = TRUE;
+  int selectedGroup = ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName());
+  if ( mappingHasKey(data, \"dpType\") && (data[\"dpType\"] == groups_IDpTypeName) )
+  {
+    setValue(ngaGroup.groupTable, \"deleteAllLines\");
+    initGroups();
+    initActiveGroups();
+  }
+
+  ngaGroupConfig.silentMode = FALSE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which shows DPE for the selected group.
+ * @param groupIndex is the selected group index.
+ * @param displayIndex is the DPE display option, which can have the following values: \"Currently assigned\" or \"In database\".
+**/
+synchronized void showDPEs(const int &groupIndex, const int &displayIndex)
+{
+  if ( !ngaGroupConfig.getGroupData(groupIndex, groupDataKeys::active) )
+  {
+    if ( displayIndex > 1 )
+    {
+      setValue(\"FILTER_DPES\", \"currentIndex\", 0);
+      return;
+    }
+
+    setValue(\"FILTER_DPES\", \"itemEnabled\", 1, FALSE);
+  }
+  else
+  {
+    setValue(\"FILTER_DPES\", \"itemEnabled\", 1, TRUE);
+  }
+
+  const string columnName = \"dpe\";
+  setValue(ngaGroupConfig.dpeTable, \"deleteAllLines\");
+  dpes = ngaGroupConfig.showGroupDpes(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), displayIndex);
+  for (int i = 1; i <= dynlen(dpes); i++)
+  {
+    string filter = filterDpe.text;
+    if ( filter.isEmpty() || patternMatch(filter, dpes[i]) )
+      setValue(ngaGroupConfig.dpeTable, \"appendLine\", columnName, dpes[i]);
+  }
+
+  setValue(ngaGroupConfig.dpeTable, \"sort\", TRUE, columnName);  // sort content by name
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which shows DPE according to the defined filtering option.
+ * @param filter is the given pattern.
+**/
+void filterDPE(const string &filter)
+{
+  if ( dynlen(dpes) < 1 )
+    return;
+
+  currentDpeFilter = filter;
+  const string columnName = \"dpe\";
+  setValue(ngaGroupConfig.dpeTable, \"deleteAllLines\");
+  for (int i = 1; i <= dynlen(dpes); i++)
+  {
+    if ( filter.isEmpty() || patternMatch(filter, dpes[i]) )
+      setValue(ngaGroupConfig.dpeTable, \"appendLine\", columnName, dpes[i]);
+  }
+
+  setValue(ngaGroupConfig.dpeTable, \"sort\", TRUE, columnName);  // sort content by name
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which checks if the backend support month and years time intervals.
+ * @param backendName is the given backend name.
+ * @return Returns TRUE when backend does support months and years, otherwise FALSE.
+**/
+bool supportMonthsYears(const string &backendName)
+{
+  bool supportsMonthsAndYears = false;
+  string backendDp = backends_IDpNamePrefix + backendName;
+  if ( dpExists(backendDp) )
+  {
+    string profileDp;
+    dpGet(backendDp + \".general.profile\", profileDp);
+    if ( dpExists(profiles_IDpNamePrefix + profileDp) )
+    {
+      dpGet(profiles_IDpNamePrefix + profileDp + \".supportsMonthsAndYears\", supportsMonthsAndYears);
+    }
+  }
+
+  return supportsMonthsAndYears;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which store sycnhronization backup interval.
+ * @param interval is the given interval index. See groupBackupInterval for all possible intervals.
+**/
+void storeSycnhronizationTime(int interval, const int &factorVal)
+{
+  if ( interval == 1 )  // for less daily interval in minutes is used - 0
+    interval = 0;
+
+  ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), groupDataKeys::backupInterval, interval);
+  ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), groupDataKeys::backupFactor, factorVal);
+  return;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which returns selected group priority in the group Table.
+ * @return int selected group priority, -1 if no group is selected.
+**/
+int selectedGroupPriority()
+{
+  dyn_int lines;
+  getValue(ngaGroup.groupTable, \"getSelectedLines\", lines);
+  if ( dynlen(lines) < 1 )
+    return -1;
+
+  int priority;
+  dyn_string keys = enumKeys(\"groupDataKey\");
+  getValue(ngaGroup.groupTable, \"cellValueRC\", lines[1], keys[(int)groupDataKey::PRIORITY], priority);
+
+  return priority;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which returns selected group display name in the group Table.
+ * @return string selected group display name, empty string if no group is selected.
+**/
+string selectedGroupName()
+{
+  dyn_int lines;
+  getValue(ngaGroup.groupTable, \"getSelectedLines\", lines);
+  if ( dynlen(lines) < 1 )
+    return \"\";
+
+  string name;
+  dyn_string keys = enumKeys(\"groupDataKey\");
+  getValue(ngaGroup.groupTable, \"cellValueRC\", lines[1], keys[(int)groupDataKey::GROUP], name);
+
+  return name;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize the NGA archive group data and writes it to the group table.
+ * @note UI only.
+ *
+ * @return Error code:
+  value | description
+  ------|-------------
+  0     | SUCCESS.
+  -1    | FAILED, group table shape is not found.
+**/
+int initGroups() synchronized(tableMutex)
+{
+  dyn_mapping groupsData = ngaGroup.defineGroups();
+  dyn_string keys = enumKeys(\"groupDataKey\");
+  int rowIndex = 0;
+  setValue(ngaGroup.groupTable, \"deleteAllLines\");
+  for (int i = 1; i <= dynlen(groupsData); ++i)
+  {
+    if ( !ngaGroupConfig.showGroup(groupsData[i][groupDataKey::GROUP]) )
+      continue;
+
+    setValue(ngaGroup.groupTable, \"appendLine\", keys[(int)groupDataKey::GROUP], ngaGroup.getDisplayName(groups_IDpNamePrefix + groupsData[i][groupDataKey::GROUP]),
+                                                keys[(int)groupDataKey::PRIORITY], groupsData[i][groupDataKey::PRIORITY],
+                                                keys[(int)groupDataKey::BACKEND], ngaGroup.getDisplayName(backends_IDpNamePrefix + groupsData[i][groupDataKey::BACKEND]));
+
+    setValue(ngaGroup.groupTable, \"cellFillRC\", rowIndex, keys[(int)groupDataKey::STATUS], groupsData[i][groupDataKey::STATUS]);
+    setValue(ngaGroup.groupTable, \"cellFillRC\", rowIndex, keys[(int)groupDataKey::LICENSED], groupsData[i][groupDataKey::LICENSED]);
+    ++rowIndex;
+  }
+
+  setValue(ngaGroup.groupTable, \"sort\", keys[(int)groupDataKey::PRIORITY], keys[(int)groupDataKey::BACKEND]);
+  ngaGroupConfig.setGroups();
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which opens multilang. editor and set name for a selected group.
+**/
+void editName()
+{
+  int groupPrio = selectedGroupPriority();
+  string groupName = selectedGroupName();
+  const langString oldName = (ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::displayName) == -1 ?
+                              ngaGroupConfig.getUniqueName(\"Group\") : ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(groupPrio, groupName),
+                                                                                                  groupDataKeys::displayName));
+  langString newName = oldName;
+  int err = langEditor(newName, FALSE);
+  while ( !ngaGroupConfig.isNameUnique(newName) )
+  {
+    throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, getCatStr(\"NGA\", \"group_error_3\")));
+    if ( err || (newName == oldName) )  // error or cancel
+      return;
+
+    err = langEditor(newName);
+  }
+
+  displayName.text = newName;
+  ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::displayName, newName);
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief The call-back function which monitors and sets the Frontend status.
+ * @param dp, val The frontend connection DPE and its value.
+**/
+void reduStatusCB(string dp, dyn_int val,
+                  string dp_2, dyn_int val_2)
+{
+  dyn_bool oldVals = NgaSegmentConfigProvider::isFrontendAlive;
+
+  // 120 - NGA_Manager index in the Console
+  NgaSegmentConfigProvider::isFrontendAlive = makeDynBool(dynContains(val, 120), dynContains(val_2, 120));
+  if ( oldVals != NgaSegmentConfigProvider::isFrontendAlive ) // only do this if NGA isn't there any more
+  {
+    updateGroupStates();
+  }
+}
+
+groupStatusUpdateCB(string userData, dyn_dyn_anytype result)
+{
+  updateGroupStates();
+}
+
+void updateGroupStates() synchronized(tableMutex)
+{
+  dyn_string keys = enumKeys(\"groupDataKey\");
+  int lines;
+  dyn_mapping groupsData = ngaGroup.defineGroups();
+  for (int i = 1; i <= dynlen(groupsData); ++i)
+  {
+    if ( !ngaGroupConfig.showGroup(groupsData[i][groupDataKey::GROUP]) )
+      continue;
+
+    int rowNum;
+    getValue(ngaGroupConfig.groupTable, \"lineCount\", lines);
+    for (int l = 1; l <= lines; ++l)
+    {
+      rowNum = l - 1;
+      string currentGroupName;
+      getValue(ngaGroup.groupTable, \"cellValueRC\", rowNum, keys[(int)groupDataKey::GROUP], currentGroupName);
+      if ( currentGroupName == ngaGroup.getDisplayName(groups_IDpNamePrefix + groupsData[i][groupDataKey::GROUP]) )
+        break;
+    }
+
+    setValue(ngaGroup.groupTable, \"cellFillRC\", rowNum, keys[(int)groupDataKey::STATUS], groupsData[i][groupDataKey::STATUS]);
+    setValue(ngaGroup.groupTable, \"cellFillRC\", rowNum, keys[(int)groupDataKey::LICENSED], groupsData[i][groupDataKey::LICENSED]);
+  }
+}" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 2
+"header_group_table"
+""
+1 0 82 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardActive" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"frameShape" "enum 0"
+"text" "string Groups"
+"indent" "int 15"
+"minimumSize" "-1 35"
+"maximumSize" "500 35"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  0 82 449.0000000000066 116.0000000000014
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+}" 0
+25 3
+"GROUPS_TABLE"
+"WF"
+1 -14.36800000000024 118.6373920114594 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"shadowOffset" "[8,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"minimumSize" "450 -1"
+"maximumSize" "450 -1"
+"layoutAlignment" "AlignNone"
+"selectionChangedCB" "synchronized main()
+{
+  changeSelection = TRUE;
+  int selectedPrio = selectedGroupPriority();
+  string selectedName = selectedGroupName();
+  if ( selectedPrio <= 0 )
+    return;
+
+  groupModificationState initState;
+  int initIndex = (int)NgaGroupConfigProvider::modifiedGroupIndex;
+  if ( !ngaGroupConfig.silentMode )
+  {
+    initState = ngaGroupConfig.modificationInProcess();
+    switch ( initState )
+    {
+      case groupModificationState::IN_PROCESS:
+      {
+        if ( !ngaGroupConfig.groupSaved(ngaGroup.selectedGroup(selectedPrio, selectedName)) )
+        {
+          changeSelection = FALSE;
+          return;
+        }
+
+        break;
+      }
+
+      case groupModificationState::NEW_GROUP:
+      {
+        if ( !ngaGroupConfig.groupCreated(ngaGroup.selectedGroup(selectedPrio, selectedName)) )
+        {
+          changeSelection = FALSE;
+          return;
+        }
+
+        break;
+      }
+    }
+  }
+
+  dyn_string displayNamesBackends, backends = ngaGroupConfig.allBackends();
+  for (int i = 1; i <= dynlen(backends); ++i)
+  {
+    if ( !patternMatch(\"*_[2R]\", backends[i]) )
+      dynAppend(displayNamesBackends, ngaGroupConfig.getDisplayName(backends_IDpNamePrefix + backends[i]));
+  }
+
+  backend.items(displayNamesBackends);
+
+  refreshGroupButtons(selectedPrio, selectedName);
+  ngaGroupConfig.defineGroupData(ngaGroup.selectedGroup(selectedPrio, selectedName));
+
+  showGroupData();
+  refreshSettingsShapes();
+
+  // showDPEs() - most consuming procedure, will be done in the last step
+  if ( ngaGroupConfig.modificationInProcess() == groupModificationState::IDLE )
+  {
+    showDPEs(ngaGroup.selectedGroup(selectedPrio, selectedName), FILTER_DPES.selectedPos);  // show DPEs for selected group
+
+    if ( initState == groupModificationState::NEW_GROUP )  // when group creation was cancelled by user
+    {
+      int numLines;
+      getValue(ngaGroupConfig.groupTable, \"lineCount\", numLines);
+      setValue(ngaGroupConfig.groupTable, \"deleteLineN\", numLines - 1);
+    }
+  }
+  changeSelection = FALSE;
+  NgaSegmentConfigProvider::selectedGroupPos = this.selectLineN;
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  -2 115 451.0000000000039 578.9999999999853
+EE 1 0 1 5 0 "STATUS" 1 1 0 "[0s,,,AlignLeft|AlignVCenter]" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 "GROUP" 11 1 0 "[0s,,,AlignLeft|AlignVCenter]" 4
+LANG:10001 5 Group
+LANG:10004 3 组
+LANG:10000 6 Gruppe
+LANG:10027 12 Группа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+130 "BACKEND" 10 1 0 "[0s,,,AlignLeft|AlignVCenter]" 4
+LANG:10001 7 Backend
+LANG:10004 7 Backend
+LANG:10000 7 Backend
+LANG:10027 12 Бэкенд
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "PRIORITY" 4 1 0 "[0s,,,AlignLeft|AlignVCenter]" 4
+LANG:10001 8 Priority
+LANG:10004 12 报警等级
+LANG:10000 10 Priorität
+LANG:10027 11 Приор.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "LICENSED" 6 1 0 "[0s,,,AlignLeft|AlignVCenter]" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+4
+LANG:10001 40 The licensed groups have a license icon.
+LANG:10004 33 许可组具有许可证图标。
+LANG:10000 49 Die lizenzierten Gruppen haben ein Lizenzsymbol. 
+LANG:10027 94 Лицензированные группы отмечены значком лицензии. 
+
+24 
+26 26 10 30
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+29 17
+"settingsEditor"
+""
+1 450 82 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardActive" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"frameShape" "enum 0"
+"text" "string Settings"
+"indent" "int 15"
+"minimumSize" "-1 36"
+"maximumSize" "-1 36"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  450 82 1352.999999999976 117.0000000000006
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"doxygenExt\", this.name));
+}" 0
+30 18
+"FRAME1"
+""
+1 70 54 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.767999999999976 0 2.406976744186011 332.2400000000017 -11.97674418604459 0 E 70 54 321 141
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 14 Group Settings
+LANG:10004 9 组设置
+LANG:10000 21 Gruppen-Einstellungen
+LANG:10027 31 Настройки группы
+2 19
+"PRIMITIVE_TEXT3"
+""
+1 580.772440465828 81.19531249999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "130 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.223109112961362 0 1.215831077584556 -821.1205049563928 52.28021613009643 0 E 580.772440465828 81.19531249999999 637 96
+0 2 2 "0s" 0 0 0 192 0 0  580.772440465828 81.19531249999999 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 8 Backend:
+LANG:10004 10 Backend：
+LANG:10000 8 Backend:
+LANG:10027 13 Бэкенд:
+22 20
+"backend"
+"WF"
+1 580.6180904522614 151.3622159090908 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "200 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  602 144 888.000000000001 172.9999999999992
+0
+
+"main()
+{
+  initSettingsShape(this);
+}" 0
+
+"main()
+{
+  string previousBackendName = ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), groupDataKeys::backend);
+  if ( (previousBackendName != \"-1\") && nga_getBackendNameFromDpName(previousBackendName) != \"\" )
+    previousBackendName = nga_getBackendNameFromDpName(previousBackendName);
+
+  string nameInDb = ngaGroupConfig.getDpeName(ngaGroupConfig.getBackendDisplayName(this.selectedText), backends_IDpTypeName);
+  if ( ngaGroupConfig.modificationInProcess() == groupModificationState::NEW_GROUP )  // new group
+  {
+    ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, nameInDb);
+    return;
+  }
+
+  if ( nga_getBackendNameFromDpName(nameInDb) != previousBackendName )
+  {
+    dyn_string resultStrings;
+    dyn_float resultFloats;
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO,
+                    getCatStr(\"general\", \"warning\"),
+                    getCatStr(\"NGA\", \"group_changeBackend\"),
+                    resultStrings,
+                    resultFloats);
+
+    if ( !dynlen(resultStrings) || !resultStrings[1] )
+    {
+      this.selectedText(previousBackendName);
+      return;
+    }
+  }
+  else
+  {
+    return;
+  }
+
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, nameInDb);
+  dyn_string items = retentionItems;
+  if ( !supportMonthsYears(nga_getBackendNameFromDpName(nameInDb)) )
+  {
+    dynRemove(items, dynlen(items));
+    dynRemove(items, dynlen(items));
+  }
+
+  dyn_string shapeKeys = enumKeys(\"groupDataKeys\");
+  setMultiValue(shapeKeys[(int)groupDataKeys::retentionInterval], \"items\", items,
+                shapeKeys[(int)groupDataKeys::segmentDurationInterval], \"items\", items);
+
+  int minDuration = ngaGroupConfig.segmentDurationGranularity(nameInDb);
+  int index = 0;
+  while ( minDuration > 0 )
+  {
+    setValue(shapeKeys[(int)groupDataKeys::segmentDurationInterval], \"itemEnabled\", index, FALSE);
+    --minDuration;
+    ++index;
+  }
+
+  // make sure all shapes are enabled on the Backend change - > give user possibility to adjust values
+  setMultiValue(shapeKeys[(int)groupDataKeys::retentionInterval], \"enabled\", TRUE,
+                shapeKeys[(int)groupDataKeys::retentionFactor], \"enabled\", TRUE,
+                shapeKeys[(int)groupDataKeys::segmentDurationFactor], \"enabled\", TRUE,
+                shapeKeys[(int)groupDataKeys::segmentDurationInterval], \"enabled\", TRUE);
+
+  ngaGroupConfig.resetBackendRelevantData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()));
+  showGroupData();
+}
+" 0
+
+E
+ 0 0
+20 23
+"isAlert"
+""
+1 468 268 E E E 0 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  466 266 525.9999999999991 288.9999999999999
+1
+T 
+4
+LANG:10001 6 Alerts
+LANG:10004 6 报警
+LANG:10000 6 Alarme
+LANG:10027 12 Алармы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, state);
+}
+" 0
+30 24
+"FRAME2"
+""
+1 20 84 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+23 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 2.104761904761966 0 1.417808219178093 862.9047619047607 -1.095890410959808 0 E 20 84 231 231
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 16 Storage Settings
+LANG:10004 12 存储设定
+LANG:10000 22 Speicher-Einstellungen
+LANG:10027 37 Настройки хранилища
+2 25
+"PRIMITIVE_TEXT2"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "185 -1"
+"maximumSize" "185 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.65686274509804 0 1.266666665595199 875.3921568627601 -13.59999984892306 0 E 25.00000000000001 126 151 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 17 Retention Period:
+LANG:10004 21 保留时间长度：
+LANG:10000 19 Aufbewahrungsdauer:
+LANG:10027 30 Период хранения:
+2 28
+"PRIMITIVE_TEXT4"
+""
+1 25 149 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "185 -1"
+"maximumSize" "185 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.536363636363638 0 1.266666666487733 876.590909090909 -10.73333330667222 0 E 25 149 115 164
+0 2 2 "0s" 0 0 0 192 0 0  25 149 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 17 Segment Duration:
+LANG:10004 23 Segment 时间设定：
+LANG:10000 13 Segmentdauer:
+LANG:10027 30 Период сегмента:
+14 31
+"displayName"
+"WF"
+1 564.7189247232204 179.1904761904762 E E E 1 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "180 26"
+"maximumSize" "-1 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  602 176 861.9999999999953 205.0000000000004
+2 "0s" 0 0 0 0 0 -1  "main(mapping event)
+{
+  editName();
+}" 0
+ E E
+2 32
+"PRIMITIVE_TEXT5"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "130 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.577478748922162 0 1.199999998885265 430.7526206945197 31.80000014881704 0 E 25.00000000000001 126 112 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 11 Group Name:
+LANG:10004 9 组名称
+LANG:10000 12 Gruppenname:
+LANG:10027 20 Имя группы:
+14 33
+"groupNameDB"
+"WF"
+1 606.4955752212391 213.5714285714286 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "200 26"
+"maximumSize" "-1 26"
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  if ( changeSelection )
+    return;
+
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, newText);
+}"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  602 208 888.000000000006 237.0000000000004
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  initSettingsShape(this);
+}" 0
+ E
+2 34
+"PRIMITIVE_TEXT6"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "130 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.084689330792161 0 1.199999998885265 443.0131302096495 63.80000014881703 0 E 25.00000000000001 126 148 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 17 Group Name in DB:
+LANG:10004 17 DB中的组名称
+LANG:10000 18 Gruppenname in DB:
+LANG:10027 28 Имя группы в БД:
+20 35
+"archiveAll"
+""
+1 468 294 E E E 0 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"shadowOffset" "[8,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"minimumSize" "320 -1"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  466 292 789.0000000000001 314.9999999999993
+1
+T 
+4
+LANG:10001 30 Archive All Datapoint Elements
+LANG:10004 15 归档全部DPE
+LANG:10000 36 Alle Datenpunkt-Elemente archivieren
+LANG:10027 78 Архивировать все элементы точек данных (DPE)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, state);
+}
+" 0
+14 38
+"nextScheduledBackup"
+"WF"
+1 1118 287 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  if ( !userTriggered )
+    return;
+
+  userTriggered = FALSE;
+  int groupPrio = selectedGroupPriority();
+  string groupName = selectedGroupName();
+  if ( newText.isEmpty() )
+  {
+    ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), groupDataKeys::backupInterval, 0);
+    ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), groupDataKeys::backupFactor, 0);
+    ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::backupDayOfMonth, 0);
+    ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(groupPrio, groupName), this.name, 0);
+    return;
+  }
+
+  int theYear, theMonth, theDay, theHour, theMinute;
+  sscanf(newText, \"%d.%d.%d %d:%d\", theYear, theMonth, theDay, theHour, theMinute);
+
+  // if value is not changed
+  if ( makeTime(theYear, theMonth, theDay, theHour, theMinute) == ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::nextScheduledBackup) )
+    return;
+
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(groupPrio, groupName), this.name, makeTime(theYear, theMonth, theDay, theHour, theMinute));
+  ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::backupDayOfMonth, theDay);
+  storeSycnhronizationTime(backupInterval.selectedPos, ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::backupFactor));
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1116 280.1544518473652 1289 309.1544518473653
+2 "16s" 16 0 0 0 0 -1  E E E
+2 42
+"PRIMITIVE_TEXT7"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "185 -1"
+"maximumSize" "185 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.3203125 0 1.266666665595199 881.9921875 46.40000013500492 0 E 25.00000000000001 126 152 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 21 Synchronization time:
+LANG:10004 0 
+LANG:10000 21 Synchronisationszeit:
+LANG:10027 38 Время синхронизации:
+2 43
+"PRIMITIVE_TEXT8"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "185 -1"
+"maximumSize" "185 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.086419753086419 0 1.266666666634246 860.8574729841891 126.5544518516933 0 E 25.00000000000001 126 134 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 12 Next Backup:
+LANG:10004 16 下一个备份:
+LANG:10000 17 Nächstes Backup:
+LANG:10027 32 Запланировано на:
+2 46
+"PRIMITIVE_TEXT9"
+""
+1 25.00000000000001 126 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"minimumSize" "185 -1"
+"maximumSize" "185 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.165517241379311 0 1.266666666480346 881.9853707546361 95.2333333582074 0 E 25.00000000000001 126 206 141
+0 2 2 "0s" 0 0 0 192 0 0  25.00000000000001 126 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 27 Backup Segments older than:
+LANG:10004 48 对更早于该时间的 Segment 进行备份：
+LANG:10000 32 Backup für Segmente älter als:
+LANG:10027 45 Хранить сегменты старше:
+29 48
+"labelDPEs"
+""
+1 450 326 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardActive" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"frameShape" "enum 0"
+"text" "string Assigned DPEs"
+"indent" "int 15"
+"minimumSize" "-1 36"
+"maximumSize" "-1 36"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  450 326 1352.999999999977 361.0000000000007
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+}" 0
+25 49
+"ASSIGNED_DPES_TABLE"
+"WF"
+1 450 362 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  448 360 1355.00000000003 579.000000000008
+EE 0 0 1 1 0 "dpe" 4 1 0 "s" 4
+LANG:10001 1 #
+LANG:10004 1 #
+LANG:10000 1 #
+LANG:10027 1 #
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+32 52
+"SPACER9"
+""
+1 531 268 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 531 268 886.0000000000075 287 1
+32 53
+"SPACER10"
+""
+1 794 294 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 794 294 886.0000000000002 313 1
+29 54
+"groupCommandLabel"
+""
+1 0 0 E E E 1 E 1 E N "_3DText" E N "white" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"frameShape" "enum 0"
+"text" "string "
+"styleSheet" "string "
+"minimumSize" "-1 80"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  0 0 1353.00000000005 78.99999999999623
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+  this.styleSheet(\"margin-top: 5px; margin-left: 15px; margin-right: 15px; margin-bottom: 5px; border-bottom: 1px black;\");
+}
+" 0
+4 55
+"LINE2"
+""
+1 1353.000000000048 81 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1353.000000000048 81 0 81
+21 57
+"retentionFactor"
+"WF"
+1 1108 146 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"focusPolicy" "StrongFocus"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1106 139.8333333333333 1206.000000000005 168.8333333333333
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.value);
+}
+" 0
+
+E
+
+N 0 9999 1 0 1 1
+22 58
+"retentionInterval"
+"WF"
+1 1215 145 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1213 138.8333333333333 1338.999999999995 167.8333333333333
+6
+4
+LANG:10001 7 Minutes
+LANG:10004 6 分钟
+LANG:10000 7 Minuten
+LANG:10027 12 Минуты
+
+0
+4
+LANG:10001 5 Hours
+LANG:10004 6 小时
+LANG:10000 7 Stunden
+LANG:10027 8 Часы
+
+0
+4
+LANG:10001 4 Days
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 6 Дни
+
+0
+4
+LANG:10001 5 Weeks
+LANG:10004 3 周
+LANG:10000 6 Wochen
+LANG:10027 12 Недели
+
+0
+4
+LANG:10001 6 Months
+LANG:10004 6 Months
+LANG:10000 6 Monate
+LANG:10027 12 Месяцы
+
+0
+4
+LANG:10001 5 Years
+LANG:10004 3 年
+LANG:10000 5 Jahre
+LANG:10027 8 Годы
+
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.selectedPos - 1);  // comboBox position starts from 1
+}
+" 0
+
+E
+ 0 0
+21 59
+"segmentDurationFactor"
+"WF"
+1 1110 178 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"focusPolicy" "StrongFocus"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1108 171.8333333333334 1208.000000000008 200.8333333333332
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.value);
+}
+" 0
+
+E
+
+N 0 9999 1 0 1 1
+22 60
+"segmentDurationInterval"
+"WF"
+1 1213 178 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1211 171.8333333333333 1336.999999999996 200.8333333333333
+6
+4
+LANG:10001 7 Minutes
+LANG:10004 6 分钟
+LANG:10000 7 Minuten
+LANG:10027 12 Минуты
+
+0
+4
+LANG:10001 5 Hours
+LANG:10004 6 小时
+LANG:10000 7 Stunden
+LANG:10027 8 Часы
+
+0
+4
+LANG:10001 4 Days
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 6 Дни
+
+0
+4
+LANG:10001 5 Weeks
+LANG:10004 3 周
+LANG:10000 6 Wochen
+LANG:10027 12 Недели
+
+0
+4
+LANG:10001 6 Months
+LANG:10004 6 Months
+LANG:10000 6 Monate
+LANG:10027 12 Месяцы
+
+0
+4
+LANG:10001 5 Years
+LANG:10004 3 年
+LANG:10000 5 Jahre
+LANG:10027 8 Годы
+
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.selectedPos - 1);  // comboBox position starts from 1
+}
+" 0
+
+E
+ 0 0
+21 61
+"backupAgeFactor"
+"WF"
+1 1102 255 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"focusPolicy" "StrongFocus"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1100 248.8333333333334 1200.000000000008 277.8333333333334
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.value);
+}
+" 0
+
+E
+
+N 0 9999 1 0 1 1
+22 62
+"backupAgeInterval"
+"WF"
+1 1213 250.8333333333333 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1211 244.6666666666667 1336.999999999996 273.6666666666667
+4
+4
+LANG:10001 7 Minutes
+LANG:10004 6 分钟
+LANG:10000 7 Minuten
+LANG:10027 12 Минуты
+
+0
+4
+LANG:10001 5 Hours
+LANG:10004 6 小时
+LANG:10000 7 Stunden
+LANG:10027 8 Часы
+
+0
+4
+LANG:10001 4 Days
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 6 Дни
+
+0
+4
+LANG:10001 5 Weeks
+LANG:10004 3 周
+LANG:10000 6 Wochen
+LANG:10027 12 Недели
+
+0
+
+E
+"main()
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, this.selectedPos - 1);  // comboBox position starts from 1
+}
+" 0
+
+E
+ 0 0
+1 100 53 "" 1
+0
+13 67
+"MOVE_UP_BUTTON"
+""
+1 60.5000000000009 585.3175040056329 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+66 1 0 0 38 0
+E E E
+1
+4
+LANG:10001 39 Increase priority of the selected group
+LANG:10004 27 提高所选组的优先级
+LANG:10000 42 Priorität der selektieren Gruppe erhöhen
+LANG:10027 67 Повысить приоритет выбранной группы
+
+5
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  58.5 583 88.5 613.0000000000007
+
+P 
+4294967295
+"pictures/wf/buttons/up.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  moveGroup(TRUE);
+}" 0
+ E E E
+13 68
+"MOVE_DOWN_BUTTON"
+""
+1 87.50000000000091 585.3175040056329 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+67 1 0 0 40 0
+E E E
+1
+4
+LANG:10001 39 Decrease priority of the selected group
+LANG:10004 18 选定的组降级
+LANG:10000 44 Priorität der selektieren Gruppe verringern
+LANG:10027 67 Понизить приоритет выбранной группы
+
+5
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  85.5 583 115.5 613.0000000000007
+
+P 
+4294967295
+"pictures/wf/buttons/down.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  moveGroup(FALSE);
+}" 0
+ E E E
+13 69
+"DELETE_BUTTON"
+""
+1 33.50000000000085 585.3175040056329 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+68 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 21 Remove selected group
+LANG:10004 18 删除选定的组
+LANG:10000 30 Ausgewählten Gruppe entfernen
+LANG:10027 46 Удалить выбранную группу
+
+5
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  31.5 583 61.5 613.0000000000007
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if ( ngaGroupConfig.modificationInProcess() != groupModificationState::IDLE )
+  {
+    dyn_float df;
+    dyn_string ds;
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_OK, getCatStr(\"general\",\"information\"), getCatStr(\"NGA\",\"unsaved\"), ds, df);
+    return;
+  }
+
+  string groupIndex = ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName());
+  ngaGroupConfig.deleteGroup(groupIndex, ngaGroupConfig.getGroup(groupIndex));
+}
+" 0
+ E E E
+13 71
+"APPEND_BUTTON"
+""
+1 6.500000000000853 585.3175040056329 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+70 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 15 Add a new group
+LANG:10004 12 添加新组
+LANG:10000 33 Fügen Sie eine neue Gruppe hinzu
+LANG:10027 40 Добавить новую группу
+
+5
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  4.5 583 34.5 613.0000000000007
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if ( ngaGroupConfig.modificationInProcess() != groupModificationState::IDLE )
+  {
+    dyn_float df;
+    dyn_string ds;
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_OK, getCatStr(\"general\",\"information\"), getCatStr(\"NGA\",\"unsaved\"), ds, df);
+    return;
+  }
+
+  backend.deleteAllItems();
+  ASSIGNED_DPES_TABLE.deleteAllLines();
+  dyn_string displayNamesBackends, backends = ngaGroupConfig.allBackends();
+  for (int i = 1; i <= dynlen(backends); ++i)
+  {
+    if ( !patternMatch(\"*_[2R]\", backends[i]) )
+      dynAppend(displayNamesBackends, ngaGroupConfig.getDisplayName(backends_IDpNamePrefix + backends[i]));
+  }
+  backend.items(displayNamesBackends);
+
+  mapping newGroupData = ngaGroupConfig.appendGroup(ngaGroupConfig.maximumPriority());
+  int lineNum;
+  getValue(ngaGroupConfig.groupTable, \"lineCount\", lineNum);
+  setValue(ngaGroupConfig.groupTable, \"appendLine\", \"GROUP\", newGroupData[\"GROUP\"],
+                                                    \"PRIORITY\", newGroupData[\"PRIORITY\"],
+                                                    \"BACKEND\", newGroupData[\"BACKEND\"]);
+
+  setValue(ngaGroupConfig.groupTable, \"cellFillRC\", lineNum, \"STATUS\", newGroupData[\"STATUS\"]);
+  setValue(ngaGroupConfig.groupTable, \"selectLineN\", lineNum);
+  editName();
+  backend.selectedPos(1);  // take first backend in the list
+}
+" 0
+ E E E
+22 72
+"FILTER_DPES"
+"WF"
+1 938.7948717948721 1052.452380952396 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "200 26"
+"maximumSize" "-1 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  1146 582 1349 611.0000000000008
+2
+4
+LANG:10001 18 Currently Assigned
+LANG:10004 15 当前分配的
+LANG:10000 18 Aktuell zugewiesen
+LANG:10027 31 Сейчас назначены
+
+0
+4
+LANG:10001 11 In Database
+LANG:10004 12 在数据库
+LANG:10000 16 In der Datenbank
+LANG:10027 24 В базе данных
+
+0
+
+E
+"main()
+{
+  showDPEs(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), FILTER_DPES.selectedPos);
+}
+" 0
+
+E
+ 0 0
+2 73
+"PRIMITIVE_TEXT1"
+""
+1 269 27 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+8
+"shadowOffset" "[8,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"minimumSize" "300 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.200987908113179 0 1.337907716786008 257.9680628739745 551.9974144789178 0 E 269 27 403 47
+0 2 2 "0s" 0 0 0 66 0 0  269 27 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 8 Display:
+LANG:10004 9 显示：
+LANG:10000 8 Anzeige:
+LANG:10027 23 Отображение:
+32 74
+"SPACER13"
+""
+1 114 577.9999999999999 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"minimumSize" "290 -1"
+"maximumSize" "350 -1"
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 114 577.9999999999999 407.0000000000078 616.9999999999999 1
+20 76
+"active"
+""
+1 468 242 E E E 0 E 1 E N "WF_Text" E N "_3DFace" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  466 240 527.0000000000024 262.9999999999999
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  ngaGroupConfig.setGroupDataFromShape(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), this.name, state);
+}
+" 0
+32 78
+"SPACER14"
+""
+1 532 242 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 532 242 886.0000000000101 261 1
+2 82
+"PRIMITIVE_TEXT10"
+""
+1 269 27 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+8
+"shadowOffset" "[8,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"maximumSize" "120 -1"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 0.8583994490676237 0 1.337907716786008 179.0777851132788 551.9974144789178 0 E 269 27 403 47
+0 2 2 "0s" 0 0 0 66 0 0  269 27 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 11 DPE Filter:
+LANG:10004 11 DPE Filter:
+LANG:10000 12 DPE Filtern:
+LANG:10027 25 DPE Фильтрация:
+14 83
+"filterDpe"
+"WF"
+1 530.5929203539824 587.5714285714287 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+80 0 0 0 0 0
+E "main()
+{
+  this.text = this.text;  // set text, but don't execute the command
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  526 582 822.9999999999948 611.0000000000005
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  filterDPE(this.text);
+}" 0
+
+13 85
+"NEXT_BACKUP_BUTTON"
+"WF"
+1 1280 208 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+81 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 20 Synchronization Time
+LANG:10004 12 同步时间
+LANG:10000 20 Synchronisationszeit
+LANG:10027 37 Время синхронизации
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1278 201.8333333333332 1307 230.833333333334
+
+P 
+4294967295
+"pictures/StandardIcons/Clock_20.png"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main(mapping event)
+{
+  int groupPrio = selectedGroupPriority();
+  string groupName = selectedGroupName();
+  dyn_float returnFloat;
+  dyn_string returnString;
+  ChildPanelOnCentralModalReturn(\"para/archive/NGA/objects/synchronizationTime.pnl\",
+                                 getCatStr(\"NGA\", \"backupWindowTitle\"),
+                                 makeDynString(\"$interval:\" + backupInterval.selectedPos,
+                                               \"$time:\" + nextScheduledBackup.text,
+                                               \"$factor:\" + ngaGroupConfig.getGroupData(ngaGroup.selectedGroup(groupPrio, groupName),
+                                                                                        groupDataKeys::backupFactor)),
+                                 returnFloat, returnString);
+
+  if ( dynlen(returnString) > 0 )
+  {
+    ngaGroupConfig.setGroupData(ngaGroup.selectedGroup(groupPrio, groupName), groupDataKeys::backupFactor, returnFloat[1]);
+    if ( nextScheduledBackup.text != returnString[1] )  // if backup date is the same then no need to trigger user changes -> nothing is changed
+      userTriggered = TRUE;
+
+    nextScheduledBackup.text = returnString[1];
+  }
+}
+" 0
+ E E E
+22 86
+"backupInterval"
+"WF"
+1 1105.349206349206 202 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+3
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1106 202.2727272727272 1277 231.2727272727264
+5
+3
+LANG:10000 9 <täglich
+LANG:10001 6 <daily
+LANG:10027 12 < суток
+
+0
+3
+LANG:10000 8 Täglich
+LANG:10001 5 Daily
+LANG:10027 15 1 х сутки
+
+0
+3
+LANG:10000 12 Wöchentlich
+LANG:10001 6 Weekly
+LANG:10027 17 1 х неделю
+
+0
+3
+LANG:10000 9 Monatlich
+LANG:10001 7 Monthly
+LANG:10027 15 1 х месяц
+
+0
+3
+LANG:10000 9 Jährlich
+LANG:10001 8 Annually
+LANG:10027 11 1 х год
+
+1
+
+E
+"main()
+{
+  if ( this.selectedPos() < 0 )
+  {
+    NEXT_BACKUP_BUTTON.enabled(FALSE);
+    backupAgeFactor.enabled(FALSE);
+    backupAgeInterval.enabled(FALSE);
+    return;
+  }
+
+  NEXT_BACKUP_BUTTON.enabled(TRUE);
+  backupAgeFactor.enabled(TRUE);
+  backupAgeInterval.enabled(TRUE);
+  storeSycnhronizationTime(this.selectedPos, 1); // default factor value is 1
+  userTriggered = TRUE;
+  nextScheduledBackup.text = ngaGroupConfig.nextBackupQuickUpdate(ngaGroup.selectedGroup(selectedGroupPriority(), selectedGroupName()), \"\");
+}
+" 0
+
+E
+ 0 0
+14 88
+"wf_txtF_answer"
+""
+1 1256.882653061225 18.51923076922791 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  1254.882653061225 10.2884615384587 1276.882653061225 36.09615384615102
+3 "0s" 0 0 0 0 0 -1  E E E
+14 89
+"wf_txtF_cmd"
+""
+1 1266.132653061225 33.99999999999812 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  1252.5 46.53846153845966 1275.5 72.34615384615194
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text = \"\";
+}" 0
+ E
+13 91
+"groupNameSet"
+"WF"
+1 861 182.1666666666668 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+85 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 32 Set group name for each language
+LANG:10004 30 为每个语言设置组名称
+LANG:10000 49 Legen Sie den Gruppennamen für jede Sprache fest
+LANG:10027 83 Установить название группы для каждого языка
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  859 176 888.0000000000008 205.0000000000008
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main(mapping event)
+{
+  editName();
+}
+" 0
+ E E E
+14 93
+"wfChanged"
+""
+1 1190 50 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  NgaGroupConfigProvider::modifiedGroupIndex = newText;
+}
+"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  1188 48 1232 72
+3 "0s" 0 0 0 0 0 -1  E E E
+13 96
+"ApplyTextForAllLanguagesButton"
+"WF"
+1 857 588 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+88 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 6 Filter
+LANG:10004 9 过滤器
+LANG:10000 7 Filtern
+LANG:10027 12 Фильтр
+
+3
+"minimumSize" "26 -1"
+"maximumSize" "26 26"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  820 582 849 611
+
+P 
+4294967295
+"pictures/wf/buttons/apply.png"
+4
+LANG:10001 13 Apply for all
+LANG:10004 12 全部应用
+LANG:10000 21 Für alle übernehmen
+LANG:10027 13 Apply for all
+"main(mapping event)
+{
+  string filterText = filterDpe.text;
+  filterDpe.text = filterText;
+  filterDPE(filterText);
+}" 0
+ E E E
+13 98
+"removeBackup"
+"WF"
+1 1312 208 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+89 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 14 Disable Backup
+LANG:10004 12 禁用备份
+LANG:10000 19 Backup deaktivieren
+LANG:10027 60 Отключить резервное копирование
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1310 201.8333333333332 1339.000000000001 230.833333333334
+
+P 
+4294967295
+"pictures/StandardIcons/delete_20.png"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main(mapping event)
+{
+  backupInterval.selectedPos(0);
+  userTriggered = TRUE;
+  nextScheduledBackup.text = \"\";
+  NEXT_BACKUP_BUTTON.enabled(FALSE);
+  backupAgeFactor.enabled(FALSE);
+  backupAgeInterval.enabled(FALSE);
+}
+" 0
+ E E E
+32 99
+"SPACER15"
+""
+1 916 308 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+90 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Ignored Expanding"
+"layoutAlignment" "AlignNone"
+ 916 308 1330 318 2
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 0 "LAYOUT_GROUP2" 1
+1 0 
+19 
+
+"S 19" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 1 "LAYOUT_GROUP3" 86
+1 1 
+20 
+0 
+"S 20" "1 0 1 1"
+"G 0" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 6 0
+4 2 "LAYOUT_GROUP4" 86
+2 0 
+23 52 
+
+"S 23" "0 0 1 1"
+"S 52" "1 0 1 1"
+"" ""
+0 1 0 0
+4 3 "LAYOUT_GROUP5" 85
+1 0 
+32 
+
+"S 32" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 5 "LAYOUT_GROUP7" 6
+1 0 
+34 
+
+"S 34" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 6 "LAYOUT_GROUP8" 86
+1 1 
+33 
+5 
+"S 33" "1 0 1 1"
+"G 5" "0 0 1 1"
+"" ""
+0 1 0 0
+4 7 "LAYOUT_GROUP9" 86
+2 0 
+35 53 
+
+"S 35" "0 0 1 1"
+"S 53" "1 0 1 1"
+"" ""
+0 1 0 0
+4 9 "LAYOUT_GROUP11" 45
+1 0 
+25 
+
+"S 25" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 11 "LAYOUT_GROUP13" 46
+1 0 
+28 
+
+"S 28" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 13 "LAYOUT_GROUP15" 47
+1 0 
+46 
+
+"S 46" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 15 "LAYOUT_GROUP17" 99
+1 0 
+42 
+
+"S 42" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 17 "LAYOUT_GROUP19" 100
+1 0 
+43 
+
+"S 43" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 34 "LAYOUT_GROUP1" 105
+2 0 
+55 54 
+
+"S 55" "1 0 1 1"
+"S 54" "0 0 1 1"
+"" ""
+0 2 0 1 1
+4 45 "LAYOUT_GROUP50" 101
+2 1 
+57 58 
+9 
+"S 57" "1 0 1 1"
+"S 58" "2 0 1 1"
+"G 9" "0 0 1 1"
+"" ""
+0 1 1 0 0 3 0 0
+4 46 "LAYOUT_GROUP51" 101
+2 1 
+59 60 
+11 
+"S 59" "1 0 1 1"
+"S 60" "2 0 1 1"
+"G 11" "0 0 1 1"
+"" ""
+0 1 0 0
+4 47 "LAYOUT_GROUP52" 101
+2 1 
+61 62 
+13 
+"S 61" "1 0 1 1"
+"S 62" "2 0 1 1"
+"G 13" "0 0 1 1"
+"" ""
+0 1 0 0
+3 53 "PANEL_REF1" 92
+"minimumSize" "-1 40"
+"maximumSize" "-1 40"
+"layoutAlignment" "AlignNone"
+"" ""
+"para/archive/NGA/objects/background.pnl" 71.07677341012942 527.0882308924948 T 65 4.849462365591204 0 1.222119647100002 -301.0389764297553 -55.16580590500025
+0
+4 58 "LAYOUT_GROUP62" 91
+1 0 
+73 
+
+"S 73" "0 0 1 1"
+"" ""
+0 1 1 0 0 8 0 0
+4 61 "LAYOUT_GROUP70" 104
+2 0 
+3 2 
+
+"S 3" "1 0 1 1"
+"S 2" "0 0 1 1"
+"" ""
+0 2 0 1 0
+4 62 "LAYOUT_GROUP73" 103
+2 0 
+49 48 
+
+"S 49" "1 0 1 1"
+"S 48" "0 0 1 1"
+"" ""
+0 2 1 0 0 0 0 1 0
+4 65 "LAYOUT_GROUP76" 91
+1 0 
+72 
+
+"S 72" "0 0 1 1"
+"" ""
+0 1 1 0 0 6 0 0
+4 68 "LAYOUT_GROUP79" 86
+2 0 
+76 78 
+
+"S 76" "0 0 1 1"
+"S 78" "1 0 1 1"
+"" ""
+0 1 0 0
+4 76 "LAYOUT_GROUP94" 91
+1 0 
+82 
+
+"S 82" "0 0 1 1"
+"" ""
+0 1 1 0 0 8 0 0
+4 77 "LAYOUT_GROUP99" 91
+1 0 
+83 
+
+"S 83" "0 0 1 1"
+"" ""
+0 1 1 0 0 6 0 0
+4 80 "LAYOUT_GROUP102" 99
+1 0 
+86 
+
+"S 86" "0 0 1 1"
+"" ""
+0 1 1 0 0 0 0 0
+4 84 "LAYOUT_GROUP107" 85
+1 0 
+31 
+
+"S 31" "0 0 1 1"
+"" ""
+0 1 1 6 0 0 0 0
+4 85 "LAYOUT_GROUP108" 86
+1 2 
+91 
+3 84 
+"S 91" "2 0 1 1"
+"G 3" "0 0 1 1"
+"G 84" "1 0 1 1"
+"" ""
+0 1 1 0 0 0 6 1 0
+4 86 "LAYOUT_GROUP109" 102
+1 6 
+18 
+1 2 6 7 68 85 
+"G 1" "0 0 1 1"
+"G 2" "4 0 1 1"
+"G 6" "2 0 1 1"
+"G 7" "5 0 1 1"
+"G 68" "3 0 1 1"
+"G 85" "1 0 1 1"
+"" ""
+1 2 1 9 9 6 9 1 0
+4 90 "LAYOUT_GROUP122" 91
+1 0 
+96 
+
+"S 96" "0 0 1 1"
+"" ""
+0 1 1 0 0 6 0 0
+4 91 "LAYOUT_GROUP123" 92
+5 5 
+74 68 67 69 71 
+90 77 76 65 58 
+"S 74" "4 0 1 1"
+"S 68" "3 0 1 1"
+"S 67" "2 0 1 1"
+"S 69" "1 0 1 1"
+"S 71" "0 0 1 1"
+"G 90" "7 0 1 1"
+"G 77" "6 0 1 1"
+"G 76" "5 0 1 1"
+"G 65" "9 0 1 1"
+"G 58" "8 0 1 1"
+"" ""
+0 1 1 6 6 0 0 1 0
+4 92 "LAYOUT_GROUP124" 105
+0 2 
+
+91 53 
+"G 91" "0 0 1 1"
+"G 53" "0 0 1 1"
+"" ""
+0 3 0 0
+4 99 "LAYOUT_GROUP134" 101
+2 2 
+85 98 
+15 80 
+"S 85" "2 0 1 1"
+"S 98" "3 0 1 1"
+"G 15" "0 0 1 1"
+"G 80" "1 0 1 1"
+"" ""
+0 1 0 1 6
+4 100 "LAYOUT_GROUP135" 101
+1 1 
+38 
+17 
+"S 38" "1 0 1 1"
+"G 17" "0 0 1 1"
+"" ""
+0 1 0 0
+4 101 "LAYOUT_GROUP136" 102
+2 5 
+24 99 
+45 46 47 99 100 
+"S 99" "5 0 1 1"
+"G 45" "0 0 1 1"
+"G 46" "1 0 1 1"
+"G 47" "3 0 1 1"
+"G 99" "2 0 1 1"
+"G 100" "4 0 1 1"
+"" ""
+1 2 1 9 9 6 2 0
+4 102 "LAYOUT_GROUP137" 103
+0 2 
+
+101 86 
+"G 101" "1 0 1 1"
+"G 86" "0 0 1 1"
+"" ""
+0 1 1 3 3 0 0 1 3
+4 103 "LAYOUT_GROUP138" 104
+1 2 
+17 
+102 62 
+"S 17" "0 0 1 1"
+"G 102" "1 0 1 1"
+"G 62" "2 0 1 1"
+"" ""
+0 2 0 1 5
+4 104 "LAYOUT_GROUP139" 105
+0 2 
+
+103 61 
+"G 103" "1 0 1 1"
+"G 61" "0 0 1 1"
+"" ""
+0 1 0 1 0
+4 105 "LAYOUT_GROUP140" -1
+0 3 
+
+104 34 92 
+"G 104" "1 0 1 1"
+"G 34" "0 0 1 1"
+"G 92" "2 0 1 1"
+"" ""
+0 2 0 1 0
+0

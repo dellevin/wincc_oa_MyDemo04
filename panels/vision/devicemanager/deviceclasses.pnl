@@ -1,0 +1,2166 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+E E "main(int x, int y)
+{
+//   DebugN(classname.text(), res_width.text(), res_height.text());
+}
+" 0
+ E E 1 -1 -1 0  560 10
+""0  1
+E "#uses \"dpDyn\"
+#uses \"wizardFramework\"
+
+string sDpe = \"_UiDeviceMgmt\";
+bool bShowColumns;
+bool bNewLine = false, bTextChanged = false, bAddClass = false;
+dyn_int diNumberDevices, diNumberPanels, diNumberNotResized;
+
+initTable()
+{
+  dyn_string dsName, dsDeviceName, dsIcons, dsDeviceClass, dsOrientation; 
+  dyn_int diWidth, diHeight;
+  dyn_bool dsShowColumn;
+  
+  //Bereinige Text Felder
+  setValue(\"classname\", \"text\", \"\");
+  setValue(\"res_width\", \"text\", \"\");
+  setValue(\"res_height\", \"text\", \"\");
+  Change_Button.text(getCatStr(\"deviceManager\",\"deviceclass_change\"));
+  
+  bShowColumns = FALSE;
+  
+  classtable.deleteAllLines();
+  
+  //===================GET DATA=====================  
+  
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dsShowColumn);
+  
+  dpGet(\"_UiDevices.DisplayName\", dsDeviceName,
+        \"_UiDevices.DeviceClass\", dsDeviceClass);
+  
+  for (int j = 1; j <= dynlen(dsName); j++)
+  {
+    diNumberDevices[j] = 0;
+    
+    //Get Number of Devices for each Device Class
+    for (int i = 1; i <= dynlen(dsDeviceName); i++)
+    {
+      if (dsDeviceClass[i] == dsName[j])
+        diNumberDevices[j]++;
+    } 
+    
+    diNumberPanels[j] = getNumberOfPanels(dsName[j]);
+    diNumberNotResized[j] = getNumberOfPanels(dsName[j], TRUE);
+  }
+  
+  //================================================
+ 
+  //Hinzufügen der DeviceClasses zu der Tabelle 
+  for (int i = 1; i <= dynlen(dsName); i++)
+  {
+    if ( dsOrientation[i] == \"\" ) 
+      dsOrientation[i] = \"Portrait\";    
+    
+    classtable.appendLine(\"name\", dsName[i],
+                          \"Width\", diWidth[i] ,
+                          \"Height\", diHeight[i],
+                          \"orientation\", dsOrientation[i],
+                          \"numberDevices\", diNumberDevices[i],
+                          \"numberPanels\", diNumberPanels[i],
+                          \"numberWrongSize\", diNumberNotResized[i],
+                          \"visible\", dsShowColumn[i]);
+    
+    classtable.cellWidgetRC(i-1, \"orientation\", \"ComboBox\", makeDynString(\"\",\"Portrait\", \"Landscape\"));
+    
+    
+    if (dsIcons[i] != \"---\")
+    {
+      classtable.cellFillRC(i-1,\"Icon\", \"[pattern,[fit,any,\"+dsIcons[i]+\"]]\");
+    }
+  } 
+  
+  classtable.appendLine(\"name\", \"+\");
+  classtable.cellWidgetRC(classtable.lineCount-1, \"name\", \"PushButton\", \"+\");
+  
+  
+  // Enable von benötigen Elementen
+  setMultiValue(\"txtNodeDrop\", \"visible\", TRUE,
+                \"txtNodeDrop\", \"visible\", TRUE,
+                \"classtable\", \"enabled\", TRUE,
+                \"cmdDown\", \"enabled\", TRUE,
+                \"cmdUp\", \"enabled\", TRUE,
+                \"removeClass\", \"enabled\", TRUE,
+                \"recNodeDrop\", \"fill\", \"[solid]\");
+   
+  //Disablen von nicht benötigten Elementen
+  setMultiValue(\"NewEdit\", \"enabled\", FALSE,  
+//                 \"Add_Button\", \"enabled\", FALSE,   
+                \"Change_Button\", \"enabled\", FALSE,   
+                \"recNodeDrop\", \"enabled\", FALSE,
+                \"cancel\", \"enabled\", FALSE);
+  
+  //Sichtbarschalten der Bsp textfelder
+  setMultiValue(\"TEXT_FIELD1\", \"visible\", TRUE,  
+                \"TEXT_FIELD2\", \"visible\", TRUE,   
+                \"TEXT_FIELD3\", \"visible\", TRUE);
+  
+  
+}
+
+//Funktion zum erstellen von Deviceclassen
+
+int createDeviceClass(string sClassname, int iWidth, int iHeight)
+{
+  int idx = 1;
+  dyn_string dsName, dsClassnames, dsIcons, dsOrientation;
+  dyn_int diWidth, diHeight;
+  dyn_bool dbShowColumn; 
+  string sOrientation;
+
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+  
+//   if ( sClassname == \"\")
+//   {
+//     while( dynContains(dsName, \"class\"+idx ))
+//     {
+//       idx++;
+//     }
+//     sClassname = \"class\"+idx;
+//   }
+  
+  if ( iWidth == 0 )
+    iWidth = 600;
+  if ( iHeight == 0)
+    iHeight = 800;
+  
+  if ( nameCheck(sClassname, NAMETYPE_DP) != 0 ) // , . : ; ! ? < > ( ) [ ] { } / \\ \\\\ I * % @ \\t $ % \" '
+  {
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_illegalchar\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+    return -1;
+  }
+  
+  if ( iWidth <= 0 || iHeight <= 0 )
+  {
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_resolution\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+    return -2;
+  }
+  
+  sClassname = strtolower(sClassname);
+  
+  //Check if the class is already avaiable
+  for (int i = 1; i <= dynlen(dsName); i++)
+  {
+   
+    if (sClassname == dsName[i])
+    {
+      notificationBar_newMsg(\"deviceManager\", \"deviceManager_classexists\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+      return -3;
+    }
+  }
+  
+  //Icon auslesen falls vorhanden
+  string sNodeDropFill = recNodeDrop.fill();
+  string sIcon = \"---\";
+  int iReplacements;
+  
+  //Prüfen ob leer
+  if ( sNodeDropFill == \"[solid]\" )
+    sIcon = \"---\";
+  
+  //Aufbereiten für Weiterverwendung
+  iReplacements = strreplace(sNodeDropFill, \"[pattern,[fit,any,\", \"\");
+  
+  if ( iReplacements >= 1)
+    iReplacements = strreplace(sNodeDropFill, \"]]\", \"\"); 
+  
+  if ( iReplacements >= 1)
+  {
+    sIcon = sNodeDropFill;      
+  }
+  
+  if ( portrait.toggleState() == TRUE )
+  {
+    sOrientation = \"Portrait\";
+  }
+  else
+  {
+    sOrientation = \"Landscape\";
+  }
+  
+  if ( iWidth > iHeight )
+  {
+    int iTemp = iWidth;
+    iWidth = iHeight;
+    iHeight = iTemp;    
+  }
+  
+  //Prüfen ob Klasse einen Namen besitzt
+  if (sClassname != \"\")
+  {    
+    //Daten auf den Datenpunkt _UiDeviceMgmt speichern
+    dynAppend(dsName, sClassname);
+    dynAppend(diWidth, iWidth);
+    dynAppend(diHeight, iHeight);
+    dynAppend(dsIcons, sIcon);
+    dynAppend(dsOrientation, sOrientation);
+    dynAppend(dbShowColumn, TRUE);
+
+    dpSet(sDpe + \".Name\", dsName,
+          sDpe + \".Resolution.Width\", diWidth,
+          sDpe + \".Resolution.Height\", diHeight,
+          sDpe + \".Icon\", dsIcons,
+          sDpe + \".Orientation\", dsOrientation,
+          sDpe + \".ShowColumn\", dbShowColumn);
+    
+    //erstellen der Ordnerstruktur 
+    createDeviceClassFolderStructer(sClassname);
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_newClass\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+    return 0;
+    
+  }
+  else
+  {
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_noName\", NOTIFICATION_BAR_PRIO_ERROR, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+    return -4;
+  }  
+
+  
+}
+
+//Funktion zum erstellen der Ordnerstruktur
+
+int createDeviceClassFolderStructer(string sClass)
+{
+  
+  return mkdir(getPath(PANELS_REL_PATH)+\"/deviceClass/\"+sClass, \"777\");
+  
+}
+
+//Funktion zum löschen der der Deviceclasse
+
+deleteDeviceClass()
+{
+  
+  dyn_string dsClassnames, dsName, dsIcons, dsAnswer, dsOrientation; 
+  dyn_int diWidth, diHeight; 
+  dyn_int ilines, ilinecount;
+  dyn_uint duManNum;
+  dyn_float dfAnswer;
+  dyn_bool dbShowColumn;
+  int iTemp;
+
+  //Lesen der selektieren Zeilen
+  getValue (\"classtable\", \"getSelectedLines\", ilines,\"getColumnN\", 1, dsClassnames);
+  getValue (\"classtable\", \"lineCount\", ilinecount); 
+  
+  ilines[1]++;
+  
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+  
+  
+//   DebugN(ilines[1],ilinecount);
+  
+  if ( ilines[1] == ilinecount[1] )
+    return;
+  
+  dpDynRefGet(\"_UiDevices.DeviceClass\", dsClassnames[ilines[1]], makeDynString(\"_UiDevices.ManagerNumber\"), duManNum);
+  
+//   DebugTN(duManNum);
+  
+  if ( dynlen(duManNum) == 0 )
+  {
+    wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Warning\", getCatStr(\"deviceManager\", \"deviceManager_deleteClassWarning\"),
+                           dsAnswer, dfAnswer);    
+    
+    if ( dsAnswer == \"TRUE\" )
+    {
+      classtable.deleteLineN(ilines[1]-1);
+      dynRemove(dsName, ilines[1]);
+      dynRemove(diWidth, ilines[1]);
+      dynRemove(diHeight, ilines[1]);
+      dynRemove(dsIcons, ilines[1]);
+      dynRemove(dsOrientation, ilines[1]);
+      dynRemove(dbShowColumn, ilines[1]);
+
+      dpSet(sDpe + \".Name\", dsName,
+            sDpe + \".Resolution.Width\", diWidth,
+            sDpe + \".Resolution.Height\", diHeight,
+            sDpe + \".Icon\", dsIcons,
+            sDpe + \".Orientation\", dsOrientation,
+            sDpe + \".ShowColumn\", dbShowColumn);
+  
+      //Löschen der Ordnerstruktur
+      deleteDeviceClassFolderStructer(dsClassnames[ilines[1]]);
+      notificationBar_newMsg(\"deviceManager\", \"deviceManager_deleteClass\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+     }
+  }
+  else
+  {
+    notificationBar_newMsg(\"deviceManager\", \"deviceManager_deleteClassError\", NOTIFICATION_BAR_PRIO_ERROR, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+  }
+}
+
+//Funktion zum löschen der Ordnerstruktur
+
+deleteDeviceClassFolderStructer(string sClass)
+{
+  
+   rmdir(getPath(PANELS_REL_PATH)+\"/deviceClass/\"+sClass, TRUE);
+   rmdir(getPath(IMAGES_REL_PATH)+\"/deviceClass/\"+sClass, TRUE);
+  
+}
+
+
+
+//Funktion zum nach-oben verschieben
+
+increaseHierarchy()
+{
+  
+  dyn_int ilines, diWidth, diHeight;
+  dyn_string dsName, dsIcons, dsOrientation;
+  dyn_bool dbShowColumn;
+  
+  getValue (\"classtable\", \"getSelectedLines\", ilines);
+  ilines[1]++;
+  
+  if ( (ilines[1] == 1) || (ilines[1] == classtable.lineCount()) )
+     return;
+  
+  //get Data
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+  
+  //swap Elements
+  
+  dynSwapElements(dsName, ilines[1], ilines[1]-1);
+  dynSwapElements(diWidth, ilines[1], ilines[1]-1);
+  dynSwapElements(diHeight, ilines[1], ilines[1]-1);
+  dynSwapElements(dsIcons, ilines[1], ilines[1]-1);
+  dynSwapElements(dsOrientation, ilines[1], ilines[1]-1);
+  dynSwapElements(dbShowColumn, ilines[1], ilines[1]-1);
+
+  //set Data
+  dpSet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+   
+  classtable.deleteAllLines;
+  initTable();
+ 
+  classtable.selectLineN(ilines[1]-2);
+}
+
+
+//Funktion zum nach-unten verschieben 
+ 
+decreaseHierarchy()
+{
+  
+  dyn_int ilines, diWidth, diHeight;
+  dyn_string dsName, dsIcons, dsOrientation;
+  dyn_bool dbShowColumn;
+
+  getValue (\"classtable\", \"getSelectedLines\", ilines);
+  ilines[1]++;
+  
+
+  if ( (ilines[1] == classtable.lineCount()) || (ilines[1] == (classtable.lineCount()-1)) )
+     return;
+  
+  
+  //get Data
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+  
+  //swap Elements
+  
+  dynSwapElements(dsName, ilines[1]+1, ilines[1]);
+  dynSwapElements(diWidth, ilines[1]+1, ilines[1]);
+  dynSwapElements(diHeight, ilines[1]+1, ilines[1]);
+  dynSwapElements(dsIcons, ilines[1]+1, ilines[1]);
+  dynSwapElements(dsOrientation, ilines[1]+1, ilines[1]);
+  dynSwapElements(dbShowColumn, ilines[1]+1, ilines[1]);
+
+  //set Data
+  dpSet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight,
+        sDpe + \".Icon\", dsIcons,
+        sDpe + \".Orientation\", dsOrientation,
+        sDpe + \".ShowColumn\", dbShowColumn);
+   
+  classtable.deleteAllLines;
+  initTable();
+ 
+  classtable.selectLineN(ilines[1]);
+   
+}
+
+int SaveTabletoDatapoints()
+{
+  dyn_string dsName, dsDpes, dsName_old, dsOrientation; 
+  dyn_int diWidth, diHeight;
+  dyn_bool dbShowColumn;
+  int iCount;
+  string sDpe = \"_UiDeviceMgmt\";
+      
+  
+   getValue(\"classtable\", \"getColumnN\", 1, dsName,
+                          \"getColumnN\", 2, diWidth,
+                          \"getColumnN\", 3, diHeight,
+                          \"getColumnN\", 4, dsOrientation,
+                          \"getColumnN\", 8, dbShowColumn);
+
+   
+   dsDpes = makeDynString( \"_UiDeviceMgmt.Resolution.Width\",
+                           \"_UiDeviceMgmt.Resolution.Height\",
+                           \"_UiDeviceMgmt.Orientation\",
+                           \"_UiDeviceMgmt.ShowColumn\");
+   
+   for (int i = 1; i <= classtable.lineCount()-1; i++)
+   {
+     dpDynRefSet(\"_UiDeviceMgmt.Name\", dsName[i], dsDpes, makeDynAnytype(diWidth[i], diHeight[i], dsOrientation[i], dbShowColumn[i]));
+   }
+
+   notificationBar_newMsg(\"deviceManager\", \"deviceManager_saveDevicesClass\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+   
+   return 0;
+}
+
+dynSwapElements(dyn_anytype &aDyn, int iPos1, int iPos2)
+{
+  anytype temp;
+  temp = aDyn[iPos1];
+  aDyn[iPos1] = aDyn[iPos2];
+  aDyn[iPos2] = temp;
+}
+
+SaveChangesToDatapoint(string name)
+{
+  dyn_int diselctedLine;
+  string sClassname, sOrientation, sNodeDropFill = recNodeDrop.fill(), sIcon = \"---\";
+  dyn_string dsPaths, dsClassnames, dsIcons, dsName;
+  int iWidth, iHeight, ilines, iPos, iReplacements;
+  
+  getValue (\"classtable\", \"getSelectedLines\", diselctedLine, \"getColumnN\", 1, dsClassnames);  
+  
+  if(dynlen(diselctedLine) > 0)
+  {
+    if (diselctedLine[1] >= 0)
+    {
+      switch (name)
+      {
+        case \"classname\":
+        
+          if ( nameCheck(sClassname, NAMETYPE_PROJ) != 0 )
+          {
+            notificationBar_newMsg(\"deviceManager\", \"deviceManager_illegalchar\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+            return;
+          }
+  
+          sClassname = strtolower(classname.text());
+          
+          if ( dynContains(dsClassnames,sClassname) > 0 )
+          {
+            notificationBar_newMsg(\"deviceManager\", \"deviceManager_classexists\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+            return;
+          }
+          
+          dpDynIdxSet(diselctedLine[1]+1, \"_UiDeviceMgmt.Name\", makeDynString(sClassname));
+          rename(getPath(PANELS_REL_PATH)+\"deviceclass/\"+dsClassnames[diselctedLine[1]+1],getPath(PANELS_REL_PATH)+\"deviceclass/\"+sClassname);
+          classtable.cellValueRC(diselctedLine[1],\"name\", sClassname);
+          
+        break;
+  
+        case \"res_width\":
+        
+          if ( (int)res_width.text() > (int)res_height.text() ) // in Breite & Höhe in Portrait abspeichern
+          {
+            iWidth = res_height.text(); 
+          }
+          else
+          {
+            iWidth = res_width.text();  
+          }      
+        
+          if ( iWidth <= 0 )
+          {
+            notificationBar_newMsg(\"deviceManager\", \"deviceManager_resolution\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+            return;
+          }        
+              
+          dpDynIdxSet(diselctedLine[1]+1, \"_UiDeviceMgmt.Resolution.Width\", makeDynString(iWidth));
+          classtable.cellValueRC(diselctedLine[1],\"Width\", iWidth);
+        break;
+  
+        case \"res_height\":
+        
+          if ( (int)res_width.text() > (int)res_height.text() ) // in Breite & Höhe in Portrait abspeichern
+          {
+            iHeight = res_width.text(); 
+          }
+          else
+          {
+            iHeight = res_height.text();    
+          }    
+        
+            if (iHeight <= 0 )
+            {
+              notificationBar_newMsg(\"deviceManager\", \"deviceManager_resolution\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+              return;
+            } 
+            
+          dpDynIdxSet(diselctedLine[1]+1, \"_UiDeviceMgmt.Resolution.Height\", makeDynString(iHeight));
+          classtable.cellValueRC(diselctedLine[1],\"Height\", iHeight);
+        break;
+        
+        case \"orientation\":
+        
+          if ( portrait.toggleState() == TRUE )
+          {
+            sOrientation = \"Portrait\";
+          }         
+          else
+          {
+            sOrientation = \"Landscape\";
+          }
+        
+          dpDynIdxSet(diselctedLine[1]+1, \"_UiDeviceMgmt.Orientation\", makeDynString(sOrientation));
+          classtable.cellValueRC(diselctedLine[1],\"orientation\", sOrientation);
+        break;
+        
+        case \"icon\":
+        
+          getValue (\"classtable\", \"getSelectedLines\", ilines,\"getColumnN\", 1, dsClassnames);
+        
+          if (ilines < 0)
+            return;
+        
+          dpGet(sDpe + \".Name\", dsName,
+                sDpe + \".Icon\", dsIcons);
+        
+          iPos = dynContains(dsName, dsClassnames[ilines+1]);
+      
+          if ( iPos > 0)
+          {
+            //Prüfen ob leer
+            if ( sNodeDropFill == \"[solid]\" )
+              sIcon = \"---\";
+  
+            //Aufbereiten für Weiterverwendung
+            iReplacements = strreplace(sNodeDropFill, \"[pattern,[fit,any,\", \"\");
+  
+            if ( iReplacements >= 1)
+              iReplacements = strreplace(sNodeDropFill, \"]]\", \"\"); 
+  
+            if ( iReplacements >= 1)
+            {
+              sIcon = sNodeDropFill;      
+            }
+            
+            dsIcons[iPos] = sIcon; //dsPaths[i];
+            dpSet(sDpe + \".Icon\", dsIcons);
+//             notificationBar_newMsg(\"deviceManager\", \"deviceclass_newIcon\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+          }
+        
+        break;
+      }  
+    }
+  } 
+}
+
+int getNumberOfPanels(string sClass , bool notResized = FALSE)
+{
+  string sPath = getPath(PANELS_REL_PATH)+\"deviceClass/\"+sClass+\"/\";
+  dyn_int diNumberPanles, diWidth, diHeight;
+  dyn_string dsName;
+  int index;
+  
+  
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Resolution.Width\", diWidth,
+        sDpe + \".Resolution.Height\", diHeight);
+        
+  index = dynContains(dsName, sClass);
+ 
+  if ( index <= 0)
+    return -1;
+  
+  diNumberPanles = returnNumberClassPanels(sPath, makeDynInt(diWidth[index],diHeight[index]));
+  
+  if ( !notResized ) 
+    return diNumberPanles[1];
+  else
+    return diNumberPanles[2];
+  
+}
+
+dyn_int returnNumberClassPanels(string sPanelPath , dyn_int diSize , string sFolder = \"\" )
+{
+  dyn_string dsDeviceClasses, dsPanels, dsDeviceClassPanels, dsFolder;
+  dyn_int diSize_Panel, diTemp = makeDynInt(0,0), diNumberPanels = makeDynInt(0,0);
+  string sPanelsPath;  
+  
+  // get Panels and Folder
+  dsPanels = getFileNamesRev(sPanelPath, \"*.bak\");
+  dsFolder = getFileNamesRev(sPanelPath, \".*\", FILTER_DIRS);
+  
+  diNumberPanels[1] = dynlen(dsPanels); 
+  
+  for ( int i = 1; i <= dynlen(dsPanels); i++ )
+  {     
+    diSize_Panel = getPanelSize(sPanelPath + dsPanels[i]);
+
+    
+    if ( !( (diSize[1] == diSize_Panel[1] && diSize[2] == diSize_Panel[2]) || (diSize[1] == diSize_Panel[2] && diSize[2] == diSize_Panel[1]) ) )
+    {
+        diNumberPanels[2]++;
+    }
+  }
+    
+  
+  sPanelsPath = getPath(PANELS_REL_PATH);
+  
+  
+  for (int i = 1; i <= dynlen(dsFolder); i++)
+  {
+    
+    if ( dsFolder[i] == \"deviceClass\")
+      continue;
+    
+    diTemp = returnNumberClassPanels(sPanelPath + dsFolder[i] + \"/\", diSize, sFolder +\"/\"+ dsFolder[i]);
+    
+    diNumberPanels[1] += diTemp[1];
+    diNumberPanels[2] += diTemp[2];
+  }
+
+  return diNumberPanels;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 145
+"RECTANGLE4"
+""
+1 681.5425596638696 240 E E E 1 E 1 E N "WF_FrameDark" E N "WF_Frame" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.005982267432908 0 0.7826506117957528 -7.077169858818248 -14.83614683098068 1 E 681.5425596638696 240 1105 185
+14 15
+"classname"
+"WF"
+1 840.7712798319354 37.81750400563294 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+"main()
+{
+  TEXT_FIELD1.visible(false);
+}" 0
+ E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"textChangedCB" "main(string newText)
+{
+  int iline;
+  dyn_string dsClassnames  ;
+  
+  getValue (\"classtable\", \"getSelectedLines\", iline,\"getColumnN\", 1, dsClassnames);
+  
+  if(dynlen(dsClassnames) >= 1)
+    if( newText != dsClassnames[iline+1] && newText != \"\" )
+      bTextChanged = TRUE;
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  839 18 1061 47
+3 "0s" 0 0 0 2 0 -1  E E E
+25 3
+"classtable"
+"WF"
+1 -2.387423592153937e-012 -0.7465745224112652 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E "main()
+{
+//      SaveTabletoDatapoints();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"acceptDrops" ""
+"ELangChanged" "main()
+{
+  this.deleteAllLines();
+}"
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  dyn_string dsPaths, dsClassnames, dsIcons, dsName;
+  int iPos;
+  
+  // Read Classnames of the table
+  getValue (\"classtable\",\"getColumnN\", 1, dsClassnames);
+
+ 
+  if ( row < 0)
+    return;
+  
+  //Get Names and Icons from the DP
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Icon\", dsIcons);
+  
+  //Check if the Name is available
+  iPos = dynContains(dsName, dsClassnames[row+1]);
+
+  
+  if ( iPos > 0)
+  {
+      
+    recNodeDrop.fill(\"[pattern,[fit,any,\"+information+\"]]\"); //Fill Dropzone with the new icon
+    txtNodeDrop.visible(FALSE);    
+    classtable.cellFillRC(row,\"Icon\",\"[pattern,[fit,any,\"+information+\"]]\"); //Fill Row with the new icon
+     
+    // Save the new icon on the DP
+    dsIcons[iPos] = information; //dsPaths[i];
+    dpSet(sDpe + \".Icon\", dsIcons);
+      
+    //Notification for the User
+    notificationBar_newMsg(\"deviceManager\", \"deviceclass_newIcon\", NOTIFICATION_BAR_PRIO_INFO, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+
+   }
+}"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_string dpDeviceNames, dsDeviceClass, dsName, dsClassNames, dsIcons, dsOrientation;
+  dyn_int diselctedLine, diWidth, diHeight;
+  string sClass;
+  int iPos;
+    
+  if ( this.lineCount() == 1 || this.selectLineN() == this.lineCount()-1 )
+    return;
+  
+  //Beispieltexte usichtbar schalten
+  TEXT_FIELD1.visible(false);
+  TEXT_FIELD2.visible(false);
+  TEXT_FIELD3.visible(false);
+  
+  //Aktivieren der benötigeten Elemente
+  setValue(\"NewEdit\", \"enabled\", TRUE);
+  Change_Button.enabled(TRUE);
+  recNodeDrop.enabled(TRUE);
+  cancel.enabled(TRUE);
+  bTextChanged = FALSE;
+  //Get selected Line
+  getValue (\"classtable\", \"getSelectedLines\", diselctedLine);
+  devicelist.deleteAllItems(); 
+
+  
+  if(dynlen(diselctedLine) > 0)
+  {
+    if (diselctedLine[1] >= 0)
+    {
+      sClass = this.cellValueRC(diselctedLine[1],\"name\");
+    
+      dpGet(sDpe + \".Name\", dsClassNames,
+            sDpe + \".Resolution.Width\", diWidth,
+            sDpe + \".Resolution.Height\", diHeight,
+            sDpe + \".Icon\", dsIcons,
+            sDpe + \".Orientation\", dsOrientation);
+
+    
+      iPos = dynContains(dsClassNames, sClass);
+    
+      if (iPos > 0) // If avaible then fill textfield & icon
+      {
+        classname.text(dsClassNames[iPos]);
+        res_height.text(diHeight[iPos]);
+        res_width.text(diWidth[iPos]);        
+        
+        if (dsIcons[iPos] != \"---\")
+        {
+          recNodeDrop.fill(\"[pattern,[fit,any,\"+dsIcons[iPos]+\"]]\");
+          txtNodeDrop.visible(FALSE);
+        }
+        else 
+        {
+          recNodeDrop.fill(\"[solid]\");
+          txtNodeDrop.visible(\"TRUE\");
+        }
+        
+        if ( dsOrientation[iPos] == \"Portrait\" )
+        {
+          portrait.toggleState(TRUE);
+          landscape.toggleState(FALSE);
+//           setValue(\"Info_Portrait\", \"visible\", TRUE);
+//           setValue(\"Info_Landscape\", \"visible\", FALSE);
+        }
+        else
+        {
+          portrait.toggleState(FALSE);
+          landscape.toggleState(TRUE);
+//           setValue(\"Info_Portrait\", \"visible\", FALSE);
+//           setValue(\"Info_Landscape\", \"visible\", TRUE);
+        }
+      }    
+    
+      dpGet(\"_UiDevices.DisplayName\", dsName,
+            \"_UiDevices.DeviceClass\", dsDeviceClass);
+  
+//       for (int i = 1; i <= dynlen(dsName); i++)
+//       {
+//         if (dsDeviceClass[i] == sClass)
+//           devicelist.appendItem(dsName[i]);
+//       } 
+//       
+//       if ( devicelist.itemCount == 0 )
+//           devicelist.appendItem(getCatStr(\"deviceManager\", \"deviceManager_noDevice\")); 
+    }
+  }
+}
+
+
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -2 -2 681 529
+"main()
+{
+  // ==== Einstellungen Tabelle ====
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  this.tableMode(TABLE_SELECT_BROWSE);
+  this.selectByClick(TABLE_SELECT_LINE);
+  this.sortOnClick(FALSE);
+  this.blankNonExistingRows(true);
+  this.columnStretchable(0, FALSE); 
+  
+  // ==== Intialisieren der Tabelle ===
+  initTable();
+ 
+  
+}" 0
+"main(int row, string column, string value)
+{
+  
+  //Anzahl der \"brauchbaren\" Zeilen
+  int iLine = classtable.lineCount()-1;  
+ 
+  if ( column == \"visible\" ) 
+  {
+    dpDynIdxSet(row+1,makeDynString(\"_UiDeviceMgmt.ShowColumn\"), makeDynAnytype(value));
+  }
+  
+  
+  if ( row == (iLine) && column == \"name\" )
+  {
+    dyn_anytype daData;
+    dyn_string dsClassNames;
+    int idx = 1;
+    
+    if ( this.lineCount() == 1 )
+    {
+      getValue(\"classtable\", \"getLineN\",(iLine), daData);
+    }
+    else
+    {
+      getValue(\"classtable\", \"getLineN\",(iLine-1), daData);
+    }
+    
+    getValue(\"classtable\", \"getColumnN\",1, dsClassNames);
+    
+    if ( daData[2] != \"\" && !bNewLine ) // Hinzufügen einer neuen Klasse
+    {
+      classtable.insertLineN(iLine);
+      classtable.selectLineN(iLine);
+      classtable.deleteLineN(iLine+1);
+      
+      bAddClass = TRUE;
+      Change_Button.text(getCatStr(\"deviceManager\", \"deviceclass_addpanel\"));
+      
+      //==== Setzen der Beispiel Daten ====
+      
+      
+      while( dynContains(dsClassNames, \"class\"+idx ))
+      {
+        idx++;
+      }
+      classname.text(\"class\"+idx);
+      res_width.text(1280);
+      res_height.text(800);     
+      landscape.toggleState(FALSE);
+      portrait.toggleState(TRUE);
+     
+      //==== Disabeln der nicht benötigten Elemente 
+      
+      classtable.enabled(FALSE);
+      cmdDown.enabled(FALSE);
+      cmdUp.enabled(FALSE);
+      removeClass.enabled(FALSE);
+      
+      // ==== Enablen der benötigten Elemente
+      Change_Button.enabled(TRUE);
+      setValue(\"NewEdit\", \"enabled\", TRUE);
+      txtNodeDrop.enabled(TRUE);
+      txtNodeDrop.visible(TRUE);
+      recNodeDrop.enabled(TRUE);
+      recNodeDrop.fill(\"[solid]\");
+      cancel.enabled(TRUE);
+    }
+  }
+}
+
+" 0
+ 1 0 1 9 0 "Icon" 1 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+25 "name" 17 1 0 "s" 4
+LANG:10001 9 Classname
+LANG:10004 9 类名称
+LANG:10000 11 Klassenname
+LANG:10027 19 Имя класса
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "Width" 4 1 0 "[0d,False,False,ALIGNMENT_END,False]" 4
+LANG:10001 5 Width
+LANG:10004 6 宽度
+LANG:10000 6 Breite
+LANG:10027 12 Ширина
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "Height" 4 1 0 "[0d,False,False,ALIGNMENT_END,False]" 4
+LANG:10001 6 Height
+LANG:10004 6 高度
+LANG:10000 5 Höhe
+LANG:10027 12 Высота
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "orientation" 12 1 0 "[0s,,,ALIGNMENT_CENTER]" 4
+LANG:10001 11 Orientation
+LANG:10004 6 方向
+LANG:10000 12 Orientierung
+LANG:10027 20 Ориентация
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "numberDevices" 4 1 0 "[0d,False,False,ALIGNMENT_CENTER,False]" 4
+LANG:10001 7 Devices
+LANG:10004 6 设备
+LANG:10000 7 Geräte
+LANG:10027 14 Устр.-ва
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "numberPanels" 4 1 0 "[0d,False,False,ALIGNMENT_CENTER,False]" 4
+LANG:10001 6 Panels
+LANG:10004 6 面板
+LANG:10000 6 Panels
+LANG:10027 12 Панели
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "numberWrongSize" 8 0 0 "[0d,False,False,ALIGNMENT_CENTER,False]" 4
+LANG:10001 11 Not Resized
+LANG:10004 15 未调整大小
+LANG:10000 15  Nicht angepast
+LANG:10027 24 Не масштабир.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "visible" 5 1 1 "[0d,False,False,ALIGNMENT_CENTER,False]" 4
+LANG:10001 7 Visible
+LANG:10004 6 可见
+LANG:10000 8 Sichtbar
+LANG:10027 10 Видим
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+63 
+25 25 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+17 4
+"devicelist"
+""
+1 1493.673766678738 30.09561633007002 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Expanding Expanding"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1492 28 1706 556
+0
+
+"main()
+{
+  this.alternatingRowColors(TRUE);
+  this.appendItem(getCatStr(\"deviceManager\", \"deviceManager_nonselected\"));
+}" 0
+
+E
+E
+
+0 0
+13 8
+"cmdUp"
+""
+1 26.00000000000085 529.3175040056329 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+7 1 0 0 38 0
+E E E
+1
+4
+LANG:10001 40 Increase hierarchy of the selected class
+LANG:10004 24 增加所选类的结构
+LANG:10000 42 Hierarchie der selektieren Klasse erhöhen
+LANG:10027 66 Повысить выбранный класс в иерархии
+
+4
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  24 527 54 557
+
+P 
+4294967295
+"pictures/wf/buttons/up.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  increaseHierarchy();
+}" 0
+ E E E
+13 9
+"cmdDown"
+""
+1 52.00000000000085 529.3175040056329 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+8 1 0 0 40 0
+E E E
+1
+4
+LANG:10001 40 Decrease hierarchy of the selected class
+LANG:10004 30 减少所选类的层次结构
+LANG:10000 44 Hierarchie der selektieren Klasse verringern
+LANG:10027 66 Понизить выбранный класс в иерархии
+
+4
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  50 527 80 557
+
+P 
+4294967295
+"pictures/wf/buttons/down.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  decreaseHierarchy();
+}" 0
+ E E E
+13 10
+"removeClass"
+""
+1 8.526512829121202e-013 529.3175040056329 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+9 0 0 0 16777219 0
+E E E
+1
+4
+LANG:10001 21 Remove selected class
+LANG:10004 21 删除选定的课程
+LANG:10000 30 Ausgewählten Klasse entfernen
+LANG:10027 44 Удалить выбранный класс
+
+4
+"hoverbclr" "N \"_Transparent\""
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  -2 527 28 557
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteDeviceClass();
+  classtable.deleteAllLines();
+  initTable();
+}" 0
+ E E E
+6 11
+"RECTANGLE1"
+""
+1 915 50 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.5725397551101484 0 0.6790823211875843 969.7943236540539 -4.850346013068943 1 E 915 50 1280 0
+2 13
+"PRIMITIVE_TEXT2"
+""
+1 1502.673766678738 4.626712016620665 E E E 1 E 1 E N "WF_CardInactive" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 1502.673766678738 4.626712016620665 1695 20
+0 2 2 "0s" 0 0 0 192 0 0  1502.673766678738 4.626712016620665 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 29 Devices of the selected Class
+LANG:10004 6 设备
+LANG:10000 31 Geräte der selektierten Klasse
+LANG:10027 54 Устройства выбранного класса
+2 14
+"PRIMITIVE_TEXT3"
+""
+1 718.7712798319354 24.81750400563294 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 718.7712798319354 24.81750400563294 803 40
+0 2 2 "0s" 0 0 0 192 0 0  718.7712798319354 24.81750400563294 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Classname:
+LANG:10004 9 类名称
+LANG:10000 12 Klassenname:
+LANG:10027 20 Имя класса:
+2 22
+"PRIMITIVE_TEXT7"
+""
+1 718.7712798319354 53.81750400563294 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 718.7712798319354 53.81750400563294 777 69
+0 2 2 "0s" 0 0 0 192 0 0  718.7712798319354 53.81750400563294 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Resolution
+LANG:10004 9 分辨率
+LANG:10000 10 Auflösung
+LANG:10027 31 Разреш.по ширине:
+14 23
+"res_width"
+"WF"
+1 840.9061931107938 76.81750400563294 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+"main()
+{
+  TEXT_FIELD2.visible(false);
+}" 0
+ "main()
+{
+//   SaveChangesToDatapoint(this.name());
+}" 0
+ E
+0
+4
+LANG:10001 22 Must be greater than 0
+LANG:10004 13 必须大于0
+LANG:10000 24 Muss größer als 0 sein
+LANG:10027 36 должно быть больше 0
+
+1
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  839 47 932 76
+3 "0d" 0 1 0 2 0 -1  E E E
+14 25
+"res_height"
+"WF"
+1 969.8127181085681 66.8175040056329 E E E 0 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+"main()
+{
+  TEXT_FIELD3.visible(false);
+}" 0
+ "main()
+{
+//   SaveChangesToDatapoint(this.name());
+}" 0
+ E
+0
+4
+LANG:10001 22 Must be greater than 0
+LANG:10004 13 必须大于0
+LANG:10000 24 Muss größer als 0 sein
+LANG:10027 36 должно быть больше 0
+
+1
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  968 47 1061 76
+3 "0d" 0 1 0 2 0 -1  E E E
+6 26
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_FrameDark" E N "WF_Frame" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.772845953002614 0 0.9670233062880325 -40.77545691906011 40.43796203263743 1 E 23 503 406 536
+2 29
+"txtNodeDrop"
+"WF"
+1 1194 62.99050672268908 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 1158 62.99050672268908 1230 186
+0 2 2 "0s" 0 0 0 193 0 0  1194 62.99050672268908 7
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Drop 
+LANG:10004 21 拖放图标到这里
+LANG:10000 11 Klassenicon
+LANG:10027 20 Перетащите
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 class icon 
+LANG:10004 0 
+LANG:10000 6  hier 
+LANG:10027 12 значок
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 here
+LANG:10004 0 
+LANG:10000 10 reinziehen
+LANG:10027 23 значок здесь
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+1 164 0 "" 0
+31 "transform" 0 0 0.9540468541354614 0 1.297909407665504 59.22505035858774 -61.60305111067716
+0
+1 167 0 "" 3
+31 "transform" 0 0 1.100684248000879 0 1.299307958477507 -68.50102580260898 -61.61168102037335
+0
+1 168 0 "" 4
+31 "transform" 0 0 0.9999999999999999 0 0.9999999999999999 6.876670072386901 86.47436573873408
+0
+4 71
+"LINE3"
+""
+1 680.2712798319357 174 E E E 1 E 1 E N "WF_FrameDark" E N {255,255,255} E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  680.2712798319357 174 1286.271279831936 174
+4 72
+"LINE4"
+""
+1 1106.000000000002 -0.09124799718354293 E E E 1 E 1 E N "WF_FrameDark" E N {255,255,255} E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E  1106.000000000002 -0.09124799718354293 1106.000000000002 260
+6 81
+"recWarning"
+""
+1 312 40 E E E 0 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 108 Please consider that the subsequent change of the class name will  results in renaming the folder structure.
+LANG:10004 63 请考虑后续更改类名将导致重命名文件夹结构。
+LANG:10000 98 Bitte beachten Sie, dass beim nachträglichen Ändern des Namen die Ordnerstruktur umbenannt wird.
+LANG:10027 134 Изменение имени класса приведет к изменению имен в структуре директорий.
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 2 1 1 E 1.308888888888889 0 1.563025470588235 652.7000843604133 -45.0522567884847 2  1 0  "pictures/StandardIcons/info_32.png" 4294967295 E 312 40 335 59
+6 30
+"recNodeDrop"
+"WF"
+1 280 200 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType)
+{
+  
+  dyn_string dsPaths, dsClassnames, dsIcons, dsName;
+  int ilines;
+  int iPos;
+  
+  getValue (\"classtable\", \"getSelectedLines\", ilines,\"getColumnN\", 1, dsClassnames);
+  
+  if( ilines == classtable.lineCount()-1)
+  { 
+    this.fill(\"[pattern,[fit,any,\"+information+\"]]\");
+    txtNodeDrop.visible(FALSE);
+    return;
+  }
+  
+  dpGet(sDpe + \".Name\", dsName,
+        sDpe + \".Icon\", dsIcons);
+  
+  iPos = dynContains(dsName, dsClassnames[ilines+1]);
+      
+  if ( iPos > 0)
+  {
+    this.fill(\"[pattern,[fit,any,\"+information+\"]]\");
+    classtable.cellFillRC(ilines,\"Icon\",\"[pattern,[fit,any,\"+information+\"]]\");
+    txtNodeDrop.visible(FALSE);
+  }
+}
+
+
+
+
+
+"
+"sizePolicy" "Preferred Preferred"
+"dashclr"N {0,0,0}
+"antiAliased" "0"
+E E 0 1 1 1 1 E 1.316664453781513 0 1.316983109243698 -333.3307663865554 41.25738504201681 1 E 1130 7 1190 67
+2 90
+"PRIMITIVE_TEXT9"
+""
+1 1068.511279831936 53.81750400563294 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 1068.511279831936 53.81750400563294 1084 69
+0 2 2 "0s" 0 0 0 192 0 0  1068.511279831936 53.81750400563294 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 px
+LANG:10004 2 px
+LANG:10000 2 px
+LANG:10027 9 пикс.
+14 93
+"TEXT_FIELD1"
+"WF"
+1 840.7712798319354 31.65960926879084 E E E 0 E 1 E N {80,90,100,57} E N "_Transparent" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  839 18 1061 47
+3 "0s" 0 0 0 2 0 -1  E "main()
+{
+  this.text(\"z.B.: Smartphone, Tablet\");
+}" 0
+ E
+14 94
+"TEXT_FIELD2"
+"WF"
+1 840.906623417625 66.81750400563294 E E E 0 E 1 E N {80,90,100,57} E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  839 47 932 76
+3 "0d" 0 0 0 2 0 -1  E "main()
+{
+  this.text(\"1280\");
+}" 0
+ E
+14 95
+"TEXT_FIELD3"
+"WF"
+1 969.906623417625 66.8175040056329 E E E 0 E 1 E N {80,90,100,57} E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"sizePolicy" "Expanding Fixed"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  968 47 1061 76
+2 "0d" 0 0 0 2 0 -1  E "main()
+{
+  this.text(\"800\");
+}" 0
+ E
+13 122
+"Change_Button"
+"WF"
+1 916.9827855495055 141.3858601784332 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  915 137 1003 165
+
+T 
+4
+LANG:10001 6 Change
+LANG:10004 6 更改
+LANG:10000 7 Ändern
+LANG:10027 16 Изменить
+"main()
+{
+  if ( bAddClass ) 
+  {
+    string sClassName = classname.text();
+  
+    if ( nameCheck(sClassName, NAMETYPE_DP) != 0 ) // , . : ; ! ? < > ( ) [ ] { } / \\ \\\\ I * % @ \\t $ % \" '
+    {
+      notificationBar_newMsg(\"deviceManager\", \"deviceManager_illegalchar\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+      classname.text = sClassName;
+      return;
+    }    
+  
+    if ( 0 <= createDeviceClass(classname.text(), res_width.text(), res_height.text()) )
+    {
+      this.enabled(FALSE);
+      setValue(\"PANEL_REF0\", \"enabled\", TRUE);
+      recNodeDrop.enabled(FALSE);
+      txtNodeDrop.enabled(FALSE);
+      this.text(getCatStr(\"deviceManager\",\"deviceclass_change\"));
+      bAddClass = FALSE;
+  
+      initTable();
+    }
+  }
+  else
+  {
+    dyn_float dfResult;
+    dyn_string dsResult;
+    string sClassName = classname.text;
+  
+    if ( nameCheck(sClassName, NAMETYPE_DP) != 0 ) // , . : ; ! ? < > ( ) [ ] { } / \\ \\\\ I * % @ \\t $ % \" '
+    {
+      notificationBar_newMsg(\"deviceManager\", \"deviceManager_illegalchar\", NOTIFICATION_BAR_PRIO_WARNING, \"\", makeDynAnytype(), TRUE, makeDynString(), TRUE);
+      classname.text = sClassName;
+      return;
+    }  
+  
+    if ( bTextChanged )
+    {
+    
+      //POPUP
+  //     ChildPanelOnCentralModalReturn(\"vision/MessageDevice.pnl\" ,\"Name\",makeDynString(\"$1:\" + getCatStr(\"deviceManager\", \"deviceclass_changeName\") ,\"$2:\" + getCatStr(\"general\", \"yes\") ,\"$3:\" + getCatStr(\"general\", \"no\")), dfResult, dsResult);    
+      wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"Warning\", getCatStr(\"deviceManager\", \"deviceclass_changeName\"),dsResult, dfResult);       
+      //SAVE
+      if ( dynlen(dfResult) >= 1)
+        if ( dfResult[1] == 1)
+          SaveChangesToDatapoint(\"classname\");
+    
+      bTextChanged = FALSE;
+    }
+
+    SaveChangesToDatapoint(\"res_height\");
+    SaveChangesToDatapoint(\"res_width\");
+    SaveChangesToDatapoint(\"orientation\");
+    SaveChangesToDatapoint(\"icon\");
+  
+    recNodeDrop.enabled(FALSE);
+    this.enabled(FALSE);
+    
+    
+    initTable();
+  }
+}" 0
+ E E E
+13 131
+"portrait"
+"WF"
+1 898.5425596638697 24.95437600140826 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+50 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 8 Portrait
+LANG:10004 6 模型
+LANG:10000 10 Hochformat
+LANG:10027 14 Книжная
+
+2
+"sizePolicy" "Minimum Fixed"
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  897 80 940 123
+
+P 
+4294967295
+"pictures/wf/icons/phone_portrait_icon_40.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  landscape.toggleState(FALSE);
+  portrait.toggleState(TRUE);
+//   setValue(\"Info_Portrait\", \"visible\", TRUE);
+//   setValue(\"Info_Landscape\", \"visible\", FALSE);
+}
+
+//
+
+
+" 0
+ E E "main()
+{
+  portrait.toggleState(TRUE);
+}" 0
+
+13 132
+"landscape"
+"WF"
+1 865.8138394958052 34.95437600140815 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 9 Landscape
+LANG:10004 9 Landscape
+LANG:10000 10 Querformat
+LANG:10027 18 Альбомная
+
+1
+"isToggle" ""
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  963 80 1006 123
+
+P 
+4294967295
+"pictures/wf/icons/phone_landscape_icon_40.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  landscape.toggleState(TRUE);
+  portrait.toggleState(FALSE);
+
+//   setValue(\"Info_Portrait\", \"visible\", FALSE);
+//   setValue(\"Info_Landscape\", \"visible\", TRUE);
+}
+
+//
+
+
+" 0
+ E E E
+2 142
+"PRIMITIVE_TEXT13"
+""
+1 717 93.9087520028165 E E E 0 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E U  0 E 717 93.9087520028165 874 109
+0 2 2 "0s" 0 0 0 192 0 0  717 93.9087520028165 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 26 Default Panel Orientation:
+LANG:10004 19 默认面板方向:
+LANG:10000 27 Default Panel Orientierung:
+LANG:10027 43 Оринтация по умолчанию:
+13 154
+"cancel"
+"WF"
+1 1010.965571099011 141.7717203568665 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1009 137 1097 165
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  bAddClass = FALSE;
+  
+  recNodeDrop.enabled(FALSE);
+  cancel.enabled(FALSE);
+
+  initTable();
+}" 0
+ E E E
+2 163
+"PRIMITIVE_TEXT16"
+""
+1 945 54 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 945 54 954 69
+0 2 2 "0s" 0 0 0 192 0 0  945 54 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 X
+LANG:10004 1 X
+LANG:10000 1 X
+LANG:10027 1 X
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"vision/wf/objects_parts/ref_pictureFlow.pnl" 774 195.3125 T 32 0.8450818007855412 0 0.9373914985228632 26.26162912220462 -9.108468757764289
+0
+1 1 "NewEdit" -1
+13 0 
+15 14 22 23 25 90 93 94 95 131 132 142 163 
+
+"" ""
+0

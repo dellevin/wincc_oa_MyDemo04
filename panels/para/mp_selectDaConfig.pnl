@@ -1,0 +1,1413 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 559 390 N "_3DFace" 1
+"$dpe"
+"main()
+{
+  int        dpeType = dpElementType($dpe), i, j, iType, iDPT;
+  bool       bStruct = (dpElementType($dpe) == DPEL_STRUCT), b, bCommon, bState;
+  string     s, sConf, sDpe = $dpe;
+  dyn_string dsConfigs, dsPossibleConfigs;
+  
+  if ( strpos(sDpe, \".\") < 1 ) sDpe += \".\";
+  iNOld = 0;
+  gMpConfigType = makeDynInt( DPATTR_ARCH_PROC_VALARCH,
+                              DPCONFIG_ALERT_NONBINARYSIGNAL,
+                              DPCONFIG_PERIPH_ADDR_MAIN,
+                              DPCONFIG_CONVERSION_ING_TO_RAW_MAIN,
+                              DPCONFIG_CONVERSION_RAW_TO_ING_MAIN,
+                              DPCONFIG_DEFAULTVALUE,
+                              DPCONFIG_DP_FUNCTION,
+                              DPCONFIG_MINMAX_PVSS_RANGECHECK,
+                              DPCONFIG_SMOOTH_SIMPLE_MAIN,
+                              DPCONFIG_USER_RANGECHECK,
+                              DPCONFIG_AUTH,
+                              DPCONFIG_NONE,
+                              DPCONFIG_GENERAL,
+                              DPCONFIG_NONE);
+  gMpConfigName = makeDynString( \"_archive\",
+                                 \"_alert_hdl\",
+                                 \"_address\",
+                                 \"_cmd_conv\",
+                                 \"_msg_conv\",
+                                 \"_default\",
+                                 \"_dp_fct\",
+                                 \"_pv_range\",
+                                 \"_smooth\",
+                                 \"_u_range\",
+                                 \"_auth\",
+                                 \"_common\",
+                                 \"_general\",
+                                 \"_DPT\");
+
+  for ( i = 1; i <= dynlen(gMpConfigName); i++ )
+  {
+    setValue(\"c\" + i, \"text\", 0, getCatStr(\"da\", gMpConfigName[i])); 
+  }
+
+  if ( !dpExists(\"_dt_\" + dpTypeName($dpe)) )
+    dpCreate( \"_dt_\" + dpTypeName($dpe), \"_DynamicDatapoints\" );
+
+  dpGet(\"_dt_\" + dpTypeName($dpe) + \".Leaf:_online.._value\", gDaLeaf,
+        \"_dt_\" + dpTypeName($dpe) + \".DynamicAttribute:_online.._value\", gDaAttr);
+
+  dsDaConfigs = makeDynString(\"_da_none\");
+  dsDaConfigNames = makeDynString(getCatStr(\"da\",\"_da_none\"));
+  dsDaSelectedValues = makeDynString(\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\");
+
+  dsConfigs = dpGetAllConfigs(dpeType);
+  
+  //_common
+  dynAppend(dsConfigs,\"_common\");
+  dynAppend(dsConfigs,\"_DPT\");
+  
+  for ( i = dynlen (dsConfigs); i > 0; i-- )
+  {
+    if ( !dynContains(gMpConfigName, dsConfigs[i]) ) dynRemove(dsConfigs, i);
+  }
+
+  if ( dpeType == DPEL_BOOL || dpeType == DPEL_DYN_BOOL )
+    gMpConfigType[2] = DPCONFIG_ALERT_BINARYSIGNAL;
+  else
+  if ( dpeType != DPEL_UINT  &&  dpeType != DPEL_DYN_UINT &&  
+       dpeType != DPEL_INT   &&  dpeType != DPEL_DYN_INT  &&
+       dpeType != DPEL_ULONG  &&  dpeType != DPEL_DYN_ULONG &&  
+       dpeType != DPEL_LONG   &&  dpeType != DPEL_DYN_LONG  &&
+       dpeType != DPEL_FLOAT &&  dpeType != DPEL_DYN_FLOAT &&
+       dpeType != DPEL_BIT32 && dpeType != DPEL_BIT64 &&
+       dpeType != DPEL_DYN_BIT32 && dpeType != DPEL_DYN_BIT64 )
+    gMpConfigType[2] = DPCONFIG_SUM_ALERT;
+  else
+    gMpConfigType[2] = DPCONFIG_ALERT_NONBINARYSIGNAL;
+
+  for ( i = 1; i <= dynlen(gMpConfigType); i++ )
+  {
+    if ( !dynContains(dsConfigs, gMpConfigName[i]) )
+    {
+      setValue(\"c\"+i, \"enabled\",    false,
+                      \"state\",   0, false );
+      
+      dsDaSelectedValues[i] = \"_da_notselectable\";
+      
+      continue;
+    }
+    else    
+    if ( i==8 && gMpConfigType[2] != DPCONFIG_ALERT_NONBINARYSIGNAL )
+    {
+      setValue(\"c\"+i, \"enabled\",    false,
+                      \"state\",   0, false );
+      continue;
+    }
+    // !!! IM 50524: general is not yet ready (no para panel)
+    else
+    if ( gMpConfigName[i] == \"_general\" )
+    {
+      setValue(\"c\"+i, \"enabled\",    false,
+                      \"state\",   0, false );
+      continue;
+    }
+    else
+    if ( i==14 )
+    {
+      dyn_string dsConfigsOfDaConfig,
+                 dsDpes = dpNames( \"_mp_\" + dpTypeName($dpe) + \".**;\", dpTypeName($dpe) );
+
+      mpPossibleDaConfigs(sDpe, gMpConfigName[i], gDaLeaf, gDaAttr, dsPossibleConfigs);
+      iDPT = dynContains(gDaAttr, \"_da_DPT_\" + dpTypeName($dpe));
+
+      if ( dynContains(gDaDynamicParaCtlIndex[1], \"_da_DPT_\" + dpTypeName($dpe) + \":DPT\") > 0 )
+      {
+        mpConfigsOfDaConfig( dpSubStr(sDpe, DPSUB_DP_EL), \"_da_DPT_\" + dpTypeName($dpe),
+                             dsConfigsOfDaConfig);
+        // checking if any of configs of DPT-PC already used
+        b = false;
+        for ( j = 1; j <= dynlen(dsConfigsOfDaConfig); j++ )
+        {
+          if ( dynContains(gDaLeaf, dsConfigsOfDaConfig[j]) )
+          {
+            b = true; break;
+          }
+        }
+      }
+
+      gIsDptPcEnabled = ( iDPT < 1 &&
+                          !b &&
+                          $dpe == dpSubStr($dpe,DPSUB_SYS_DP) + \".\" &&
+                          dynContains(gDaDynamicParaCtlIndex[1], \"_da_DPT_\" + dpTypeName($dpe) + \":DPT\") &&
+                          dynlen(dsPossibleConfigs) > 0 );
+      setValue(\"c\"+i, \"enabled\", gIsDptPcEnabled,
+                      \"state\",   0, ( iDPT > 0 ));
+      continue;
+    }
+    else    
+    {
+      if ( gMpConfigName[i] != \"_common\" )
+      {      
+        bCommon = false;
+        dpGet($dpe + \":\" + gMpConfigName[i] + \".._type\", iType);
+        bState = ( iType != DPCONFIG_NONE );
+      }
+      else
+      {
+        for(int k = 1; k <= dynlen(gDaLeaf); k++)//_common
+        {
+          if(strltrim(dpSubStr(gDaLeaf[k],DPSUB_CONF),\":\") == \"_common\" && // checks if _common powerconfig exists
+             strltrim(dpSubStr(gDaLeaf[k],DPSUB_SYS_DP_EL),\":\") == sDpe)   // IM 105010
+          {            
+            bCommon = true;
+            break;
+          }
+        }
+        bState = bCommon;
+      }
+    }
+
+    b = ( bState || (bStruct && i == 1 && i==2 && i==9 && i==11 ) );
+    setValue(\"c\"+i, \"enabled\",    (!b),
+                    \"state\",   0, bState);
+    if ( iType == DPCONFIG_NONE && ! bCommon ) continue;
+
+    // Displaying setting
+    mpGetDaSetting($dpe, gMpConfigName[i], sConf);
+    s =  getCatStr(\"da\", gMpConfigName[i]);
+    if ( sConf !=\"\" )
+    {
+      s += \" (\" + sConf + \")\";
+    }
+    setValue(\"c\"+i, \"text\", 0, s);
+  }
+}
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  10 120
+""0  1
+E "global dyn_int    gMpConfigType;
+global int        iN;
+global int        iNOld;
+global dyn_string gMpConfigName;
+global dyn_string dsDaConfigs;
+global dyn_string dsDaConfigNames;
+global dyn_string dsDaSelectedValues;
+global dyn_string gDaLeaf;
+global dyn_string gDaAttr;
+global dyn_string dsDPTPossibleConfigs;
+global dyn_bool   dbEnabledConfigs;
+global bool       gIsDptPcEnabled;
+
+mpCheckDaConfigs()
+{
+  int        i, j = 1, k = 0, iType, x, y;
+  bool       bState = this.state(0);
+  string     s, sN = this.name, sType, sCode, dpe = $dpe;
+  dyn_string dsPossibleConfigs, dsConfigsOfDaConfig;
+
+  strreplace(sN,\"c\",\"\"); iN = sN;
+  if ( cmbSelect.visible == true )
+  {
+    if ( iN == iNOld )
+    {
+      cmdOK.enabled = true;
+      cmdCancel.enabled = true;
+      cmdDummy.visible  = false;
+      cmbSelect.visible = false;
+    }
+    else
+    {
+      this.state(0) = !bState;
+      iN = iNOld;
+    }
+    c14.enabled = mpDptPcEnabled();
+    return;
+  }
+
+  // remove daConfig
+  if ( !bState )
+  {
+    cmdOK.enabled = true;
+    cmdCancel.enabled = true;
+    cmdDummy.visible  = false;
+    cmbSelect.visible = false;
+    dsDaSelectedValues[iN] = \"\";
+    s =  getCatStr(\"da\", gMpConfigName[iN]);
+    setValue(\"c\"+iN, \"text\", 0, s);
+    
+    i = dynContains(gDaLeaf, dpSubStr(dpe,DPSUB_DP_EL) + \":\" + gMpConfigName[iN]);
+    mpConfigsOfDaConfig(dpe, gDaAttr[i], dsConfigsOfDaConfig);
+    dynRemove(gDaLeaf, i);
+    dynRemove(gDaAttr, i);
+
+    for ( i = 1; i <= dynlen(dsConfigsOfDaConfig); i++ )
+    {
+      j = dynContains(gMpConfigName, dsConfigsOfDaConfig[i]);
+      if ( j > 0 )
+        setValue(\"c\"+j, \"enabled\", true,
+                        \"text\", 0, getCatStr(\"da\", gMpConfigName[j]),
+                        \"state\", 0, 0);
+    }
+    c14.enabled = mpDptPcEnabled();
+    return;
+  }
+
+  cmdOK.enabled = false;
+  cmdCancel.enabled = false;
+
+  getValue(\"\", \"position\", x, y);
+
+  setMultiValue(\"cmdDummy\" ,\"position\", x - 10, y + 18,
+                \"cmbSelect\",\"position\", x, y + 28,
+                \"cmbSelect\",\"text\", getCatStr(\"var_trend\",\"wartenKurve\"),
+                \"cmbSelect\",\"enabled\", false);
+  cmdDummy.visible  = true;
+  cmbSelect.visible = true;
+
+
+  dsDaConfigs = makeDynString(\"_da_none\");
+  dsDaConfigNames = makeDynString(getCatStr(\"da\",\"_da_none\"));
+
+  mpPossibleDaConfigs(dpe, gMpConfigName[iN], gDaLeaf, gDaAttr, dsPossibleConfigs);
+  for ( i = 1; i <= dynlen(dsPossibleConfigs); i++ )
+  {
+    j = dynContains(gDaConfigs, dsPossibleConfigs[i]);
+    dynAppend(dsDaConfigs, gDaConfigs[j]);
+    string sMsg = getCatStr(\"da\",gDaConfigs[j]);
+    
+    if ( dynlen(getLastError()) > 0 )
+      sMsg = getCatStr(\"da_project\",gDaConfigs[j]);
+    
+    dynAppend(dsDaConfigNames, sMsg);
+
+  }
+  setMultiValue(\"cmbSelect\",\"text\", \"\",
+                \"cmbSelect\",\"items\", dsDaConfigNames,
+                \"cmbSelect\",\"enabled\", true);
+
+  cmdDummy.visible  = true;
+  cmbSelect.visible = true;
+  iNOld = iN;
+  c14.enabled = mpDptPcEnabled();
+  
+  cmdOK.enabled = true;  
+  cmdCancel.enabled = true;
+  setInputFocus(myModuleName(), myPanelName(), \"cmbSelect\");
+}
+
+mpGetDaSetting(string dpe, string config, string &sConf)
+{
+  int        iPos;
+  
+  if ( ! dpExists(dpe) )
+  {
+    sConf = \"\";
+    return;
+  }
+
+  iPos = dynContains(gDaLeaf, dpSubStr(dpe,DPSUB_DP_EL) + \":\" + config);
+  if (iPos < 1)
+  {
+    sConf = \"\";
+    return;
+  }
+  sConf = getCatStr(\"da\",gDaAttr[iPos]);
+}
+
+bool mpDptPcEnabled()
+{
+  int  i, j = 0;
+  bool be, bs, bb;
+  
+  for ( i = 1; i <= 13; i++ )
+  {
+    getValue(\"c\"+i,\"enabled\", be,
+                   \"state\", 0, bs);
+    if ( be && bs ) j++;
+  }
+  bb = ( j == 0 && gIsDptPcEnabled );
+  
+  return ( bb );
+}
+
+cmbSelectChanged()
+{
+  int        i, iPos = dynContains(dsDaConfigNames, cmbSelect.text), iType;
+  string     sType, s;
+  dyn_string dsCode;
+  
+  if ( cmbSelect.text == \"\" || iPos < 1 )
+  {
+    setValue(\"c\" + iN, \"state\", 0, false);
+    cmbSelect.visible = false;
+    cmdDummy.visible  = false;
+    cmdOK.enabled = true;
+    cmdCancel.enabled = true;
+    iNOld = 0;
+    setInputFocus(myModuleName(), myPanelName(), \"c\" + iN);
+    return;
+  }
+
+  dsDaSelectedValues[iN] = dsDaConfigs[iPos];
+
+  iType = dpElementType($dpe);
+  
+  if (iType ==  DPEL_STRING)
+    sType = \"STRING\";
+  else if (iType == DPEL_BOOL)
+    sType = \"BOOL\";
+  else sType = \"FLOAT\";
+
+  // get fileinformation
+  daReadFile(dsDaConfigs[iPos], dsCode, sType);
+
+  for ( i = 1; i <= dynlen(gMpConfigName); i++ )
+  {
+    if ( (dsDaSelectedValues[i] != \"_da_notselectable\") )
+    {
+      if ( ( strpos(dsCode[2], gMpConfigName[i]) > 0 ||
+             ( gMpConfigName[i] == \"_common\" &&
+               strpos(dsCode[2], \"_unit\")    > 0 &&
+               strpos(dsCode[2], \"_format\")  > 0 &&
+               strpos(dsCode[2], \"_comment\") > 0
+             )
+           ) && (i != iN) )
+      {
+        setValue(\"c\" + i, \"state\", 0, true);
+        setValue(\"c\" + i, \"enabled\", false);
+        dsDaSelectedValues[i] = \"_da_notself\";
+      }
+      if ( dsDaSelectedValues[i] != \"\" )
+      {
+        string sMsg = getCatStr(\"da\", dsDaSelectedValues[i]);
+        
+        if ( dynlen(getLastError()) > 0 )
+          sMsg = getCatStr(\"da_project\", dsDaSelectedValues[i]);
+        
+        s =  getCatStr(\"da\", gMpConfigName[i]) + \" (\" + sMsg + \")\";
+        setValue(\"c\"+i, \"text\", 0, s);
+      }
+    }
+  }
+
+  dynAppend(gDaLeaf, dpSubStr($dpe, DPSUB_DP_EL) + \":\" + gMpConfigName[iN]);
+  dynAppend(gDaAttr, dsDaConfigs[iPos]);
+  cmbSelect.visible = false;
+  cmdDummy.visible  = false;
+  cmdOK.enabled = true;
+  cmdCancel.enabled = true;
+  iNOld = 0;
+}
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 5
+"Frame1"
+""
+1 10 325 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 20 550 330
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 23 Please select config(s)
+LANG:10004 15 请选择配置
+LANG:10000 31 Wählen Sie bitte Konfig(s) aus
+LANG:10027 44 Выберите конф.элемент(ы)
+20 20
+"c1"
+""
+1 20 40 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 38 542 62
+1
+T 
+4
+LANG:10001 16 Archive settings
+LANG:10004 12 归档设置
+LANG:10000 19 Archiveinstellungen
+LANG:10027 26 Архивирование
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 21
+"c2"
+""
+1 20 60 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 58 542 82
+1
+T 
+4
+LANG:10001 14 Alert handling
+LANG:10004 12 报警处理
+LANG:10000 15 Meldebehandlung
+LANG:10027 33 Обработка алармов
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 23
+"c3"
+""
+1 20 80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 78 542 102
+1
+T 
+4
+LANG:10001 17 Periphery address
+LANG:10004 12 物理地址
+LANG:10000 17 Peripherieadresse
+LANG:10027 31 Периферия (адрес)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 24
+"c4"
+""
+1 20 100 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 98 542 122
+1
+T 
+4
+LANG:10001 25 Convert ing. to raw value
+LANG:10004 30 转换.原始数值->工程值
+LANG:10000 27 Umrechnung Ing.- in Rohwert
+LANG:10027 85 Преобразование команд (инж.знач. => необр. знач.)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 25
+"c5"
+""
+1 20 120 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 118 542 142
+1
+T 
+4
+LANG:10001 25 Convert raw to ing. value
+LANG:10004 27 转换.工程值->原始值
+LANG:10000 28 Umrechnung Roh- in Ing.-Wert
+LANG:10027 90 Преобразование сообщений (необр.знач. => инж.знач.)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 26
+"c6"
+""
+1 20 140 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 138 542 162
+1
+T 
+4
+LANG:10001 13 Default value
+LANG:10004 9 默认值
+LANG:10000 10 Ersatzwert
+LANG:10027 37 Заменяющее значение
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 27
+"c7"
+""
+1 20 160 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 158 542 182
+1
+T 
+4
+LANG:10001 18 Datapoint function
+LANG:10004 17 数据点DP函数
+LANG:10000 18 Datenpunktfunktion
+LANG:10027 38 Функция точки данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 28
+"c8"
+""
+1 20 180 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 178 542 202
+1
+T 
+4
+LANG:10001 20 WinCC OA value range
+LANG:10004 21 WinCC OA 取值范围
+LANG:10000 21 WinCC OA-Wertebereich
+LANG:10027 28 Диап. знач. WinCC OA
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 29
+"c9"
+""
+1 20 200 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 198 542 222
+1
+T 
+4
+LANG:10001 9 Smoothing
+LANG:10004 6 平滑
+LANG:10000 9 Glättung
+LANG:10027 22 Сглаживание
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 30
+"c10"
+""
+1 20 220 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 218 542 242
+1
+T 
+4
+LANG:10001 16 User value range
+LANG:10004 18 用户数值范围
+LANG:10000 21 Benutzer-Wertebereich
+LANG:10027 66 Пользовательский диапазон значений
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 31
+"c11"
+""
+1 20 240 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 238 542 262
+1
+T 
+4
+LANG:10001 13 Authorization
+LANG:10004 12 权限设定
+LANG:10000 14 Berechtigungen
+LANG:10027 20 Полномочия
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+13 0
+"cmdOK"
+""
+1 365 355 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 353 451 381
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if (cmbSelect.visible())
+    cmbSelectChanged();
+  
+  int        i, j = 0, k, iState, dpeType, iPos, iType;
+  bool       bEnabled;
+  string     s;
+  dyn_bool   db;
+  dyn_float  df = makeDynFloat(0);
+  dyn_string ds = makeDynString(\"\"), dsX;
+  
+  string s_delimiter;
+  
+  // read the delimiter from the da.cat catalogue
+  s_delimiter = getCatStr(\"da\",DELIMITER);
+  
+  for ( i = 1; i <= dynlen(gMpConfigType); i++)
+  {
+    getValue( \"c\"+i, \"state\", 0, iState,
+                     \"enabled\", bEnabled);
+
+    if ( (iState && bEnabled) ||
+         (iState && !bEnabled && (dsDaSelectedValues[i] != \"\") && (dsDaSelectedValues[i] != \"_da_notselectable\") )
+       )
+    {
+      j++;
+      df[j] = gMpConfigType[i];
+      if ( i != 14 )
+      {
+        // use the delimiter
+        ds[j] = gMpConfigName[i] + s_delimiter + dsDaSelectedValues[i];
+      }
+      else
+      {
+        s = dsDaSelectedValues[i]+\":*\"; dsX = gDaDynamicParaCtlIndex[1];
+        db = patternMatch(s, dsX);
+        // use the delimiter
+        ds[j] = \"_DPT\" + s_delimiter + dsDaSelectedValues[i];
+
+        for ( k = 1; k <= dynlen(db); k++ )
+        {
+          if ( db[k] )
+          {
+            s = gDaDynamicParaCtlIndex[2][k]; s = dpSubStr(s, DPSUB_CONF); strreplace(s, \":\", \"\");
+            // _distrib not needed
+            if ( s == \"_distrib\" )
+              continue;
+            
+            dpeType = dpElementType(dpSubStr(gDaDynamicParaCtlIndex[2][k], DPSUB_DP_EL));
+            iPos = dynContains(gMpConfigName, s);
+            iType = gMpConfigType[iPos];
+            if ( iPos == 2 )
+            {
+              if ( dpeType == DPEL_BOOL || dpeType == DPEL_DYN_BOOL )
+                iType = DPCONFIG_ALERT_BINARYSIGNAL;
+              else
+              if ( dpeType != DPEL_UINT  &&  dpeType != DPEL_DYN_UINT &&  
+                   dpeType != DPEL_INT   &&  dpeType != DPEL_DYN_INT  &&
+                   dpeType != DPEL_ULONG  &&  dpeType != DPEL_DYN_ULONG &&  
+                   dpeType != DPEL_LONG   &&  dpeType != DPEL_DYN_LONG  &&
+                   dpeType != DPEL_FLOAT &&  dpeType != DPEL_DYN_FLOAT &&
+                   dpeType != DPEL_BIT32 && dpeType != DPEL_BIT64 &&
+		   dpeType != DPEL_DYN_BIT32 && dpeType != DPEL_DYN_BIT64 )
+                iType = DPCONFIG_SUM_ALERT;
+              else
+                iType = DPCONFIG_ALERT_NONBINARYSIGNAL;
+            }
+            
+            j++;
+            df[j] = iType;
+            // use the delimiter
+            ds[j] = gDaDynamicParaCtlIndex[2][k] + s_delimiter + \"_da_notself\";
+          }
+        }
+      }
+    }
+  }
+  PanelOffReturn( df, ds );
+}
+
+
+
+" 0
+ E E E
+13 1
+"cmdCancel"
+""
+1 455 355 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  453 353 541 381
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  if (cmbSelect.visible())
+    cmbSelectChanged();
+
+  PanelOffReturn(makeDynFloat(0),makeDynString(\"\"));
+}
+" 0
+ E E E
+13 2
+"cmdHelp"
+""
+1 20 355 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 353 106 381
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+
+{
+
+  std_help(\"mp_selectDaConfig\");
+
+}" 0
+ E E E
+20 32
+"c12"
+""
+1 20 260 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 258 542 282
+1
+T 
+4
+LANG:10001 25 Description, unit, format
+LANG:10004 20 描述,单位,格式
+LANG:10000 29 Beschreibung, Einheit, Format
+LANG:10027 47 Описание, единицы, формат 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 34
+"c13"
+""
+1 20 280 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 278 542 302
+1
+T 
+4
+LANG:10001 7 General
+LANG:10004 6 常规
+LANG:10000 9 Allgemein
+LANG:10027 12 Прочее
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  mpCheckDaConfigs();
+
+}" 0
+20 36
+"c14"
+""
+1 20 300 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 298 542 322
+1
+T 
+4
+LANG:10001 3 DPT
+LANG:10004 3 DPT
+LANG:10000 3 DPT
+LANG:10027 30 Тип точки данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+
+{
+
+  int        i, j = 1, k = 0, iType, x, y;
+
+  bool       b;
+
+  string     s, sN = this.name, sType, sCode, dpe = $dpe;
+
+  dyn_string dsPossibleConfigs, dsConfigsOfDaConfig;
+
+
+
+  // remove daConfig
+
+  if ( !state )
+
+  {
+
+    dsDaSelectedValues[14] = \"\";
+
+    for ( i = 1; i <= dynlen(dbEnabledConfigs); i++ ) setValue(\"c\"+i, \"enabled\", dbEnabledConfigs[i]);
+
+  }
+
+  else
+
+  {
+
+    dsDaSelectedValues[14] = \"_da_DPT_\" + dpTypeName($dpe);
+
+    for ( i = 1; i <= 13; i++ )
+
+    {
+
+      getValue(\"c\"+i, \"enabled\", b); dbEnabledConfigs[i] = b;
+
+      setValue(\"c\"+i, \"enabled\", false);
+
+    }
+
+  }
+
+  //this.enabled = (!state);
+
+}" 0
+13 35
+"cmdDummy"
+""
+1 10 0 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 -2 440 45
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+22 33
+"cmbSelect"
+""
+1 20 10 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 8 432 35
+0
+
+E
+"main()
+{
+  cmbSelectChanged();
+}
+
+
+" 0
+
+E
+ 0 0
+1 37 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 1 315 T 19 1.162324649298597 0 1 -16.1623246492986 30
+0
+0

@@ -1,0 +1,2467 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 876 499 N "_3DFace" 0
+"main()
+{
+
+openProgressBar(\"Initialisierung\", \"delay.gif\", \"Die Initialisierung wird vorbereitet\", \"\", \"\", 1);
+delay(0,100);
+showProgressBar(\"Initialisiere Variablen\", \"\", \"Schritt 1/4\", -1);
+initHDBArchiveVariables();
+showProgressBar(\"\", \"\", \"Schritt 2/4\", -1);
+initRaimaConversion();  // create Raima DP's
+showProgressBar(\"\", \"\", \"Schritt 3/4\", -1);
+initHDBConverter();      // fill dp
+showProgressBar(\"\", \"\", \"Schritt 4/4\", -1);
+initHDB();            
+closeProgressBar();
+
+}
+
+
+initHDB()
+{
+  string query, dp, dp2, name, tString;
+  dyn_dyn_anytype result;
+  int i, j, value, iperiod, state;
+  dyn_string ds, dsName;
+  string mySystem = getSystemName();
+  dyn_time startTime;
+  
+  addGlobal(\"gArchiveName\", DYN_STRING_VAR);
+  addGlobal(\"gArchiveDp\", DYN_STRING_VAR);
+  addGlobal(\"gArchiveCount\", DYN_FLOAT_VAR);
+  
+  dynClear(gArchiveName);
+  dynClear(gArchiveDp);
+  dynClear(gArchiveCount);
+    
+  ds = dpNames(\"_ValueArchive*\", \"_ValueArchive\");
+ 
+
+  for ( i= dynlen(ds); i>0;  i--)
+    if (isReduDp(ds[i]))
+      dynRemove(ds, i);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+  {
+    strreplace(ds[i], getSystemName() ,\"\");              // replace own systemname
+ 
+    dpGet(ds[i]+\".size.maxValuesGet:_original.._value\", value,
+        ds[i]+\".setMgmt.fileSwitch.switchTimeGet.interval:_original.._value\", iperiod,
+        ds[i]+\".general.arName:_online.._value\", name,
+        ds[i]+\".state:_online.._value\", state,
+        ds[i]+\".files.startTime:_online.._value\", startTime);
+        
+    if (state != 3)  // if ! deleted
+    {
+      dynAppend(dsName, name);
+      dynAppend(gArchiveDp, ds[i]);
+      dynAppend(gArchiveCount, iperiod>0?value*86400.0/iperiod:0);
+    }
+  }
+
+ gArchiveName = dsName;
+}
+
+initHDBConverter()
+{
+  dyn_anytype da;
+  int i, j, k, l;
+  int level;
+  string tempString;
+  string dp;
+  dyn_string ds, dDp, dsDpSource, dsTempDynString;
+  time t;
+  string mySystem = getSystemName();
+  bool bAdd;
+
+// setTrace(2);
+  
+  // copy dpID -> string
+  ds= dpNames(\"*.dpList:_original.._value\",\"_Archive\");
+
+  dp = ds[1];
+  strreplace (dp, \".._value\", \".._stime\");
+  strreplace (dp, \"dpList\",\"dpListString\");
+  dpGet (dp, t);
+
+  if (t < makeTime(1990,1,1))                              // if not set until 1990 -> set dpListString
+  {
+
+    DebugN(\"***** Ignore following errormessages\");
+    dpGet(ds, da);
+    DebugN(\"***** Ignore above errormessages\");
+
+    dDp = ds;
+
+    for ( i= 1; i<= dynlen(ds);i++)
+    {
+      strreplace(dDp[i], \".dpList\", \".dpListString\");
+      dsDpSource =  da[i];
+      for (j= dynlen(dsDpSource); j>0; j--)
+      {
+        if (dsDpSource[j] == \"\" )        // dp deleted
+        {
+          dynRemove(dsDpSource, j);     
+          bAdd = FALSE;
+          continue;
+        }
+        else if ( dsDpSource[j] == \"0\" || dpTypeName(dsDpSource[j]) == \"_Archive\")
+        {
+          dynRemove(dsDpSource, j);     // now j+1 !!
+          bAdd = TRUE;                  // parrent is calculated by LZA
+          continue;
+        }
+        else
+        {
+          strreplace(dsDpSource[j], mySystem, \"\");        // split DPE
+          dsTempDynString = strsplit(dsDpSource[j],\".\");
+          for (k = dynlen(  dsTempDynString); k>0; k--)
+          {
+            if (substr(dsTempDynString[k],0,1) == \"V\")    // old Verdichtungsstufe !!
+            {
+              level =   substr(dsTempDynString[k],1,1024);
+              if (level > 1)
+              {
+                if (bAdd)                 // parrent is calculated by LZA 
+                  level ++;
+                bAdd = FALSE;            // reset parentstate
+                dsTempDynString[k] = \"V\"+level;            
+              }
+            }
+          }
+          dsDpSource[j] = \"\";                                // rebuild DPE
+          for (k = 1; k<dynlen(  dsTempDynString); k++)
+          {
+             dsDpSource[j]+= (dsTempDynString[k] +\".\");
+          }        
+          dsDpSource[j] += dsTempDynString[dynlen(dsTempDynString)];
+        }    
+
+  //      DebugN(dsDpSource[j]);
+
+      }
+      da[i] = dsDpSource;
+    }
+    dpSet(dDp, da);
+  }
+}
+
+initRaimaConversion()
+{
+  int i, j, k, l;
+  bool bArchive;
+  int level;
+  string dp;
+  dyn_string ds, dDp, dsDpSource, dsTempDynString;
+  dyn_int di;
+  dyn_anytype da;
+  dyn_bool db;
+  time t;
+  string mySystem = getSystemName();
+  
+  // copy dpID -> string
+  ds= dpNames(\"HDB*.dpList:_original.._value\",\"_Archive\");
+ 
+  if (dynlen(ds) <= 0)    // first time -> create dp's
+  {
+    ds = dpNames(\"_ValueArchive*\", \"_ValueArchive\");  // generate one dp for each Archive
+    for ( i= dynlen(ds); i>0;  i--)
+    {
+        if (isReduDp(ds[i]))
+          dynRemove(ds, i);
+      else
+      {
+        strreplace(ds[i], \"_ValueArchive_\",\"\");  // remove _ValueArchive_
+        strreplace(ds[i], getSystemName(),\"\");  // remove own systemname
+        DebugN(\"Create \"+ ds[i]+\"_Archive\");
+        dpCreate(\"HDB_\"+ds[i],\"_Archive\"); 
+      }  
+       }    
+    }
+}
+
+
+
+initHDBArchiveVariables()
+{
+
+  dyn_int      diStructConstant = makeDynInt ( DPEL_STRUCT, DPEL_TYPEREF,DPEL_BIT32_STRUCT,DPEL_BLOB_STRUCT, DPEL_BOOL_STRUCT,DPEL_CHAR_STRUCT,DPEL_DPID_STRUCT,
+                                  DPEL_DYN_BIT32_STRUCT,DPEL_DYN_BLOB_STRUCT,DPEL_DYN_BOOL_STRUCT,DPEL_DYN_CHAR_STRUCT,DPEL_DYN_DPID_STRUCT,DPEL_DYN_FLOAT_STRUCT,
+                                  DPEL_DYN_INT_STRUCT,DPEL_DYN_LANGSTRING_STRUCT,DPEL_DYN_STRING_STRUCT,DPEL_DYN_TIME_STRUCT,DPEL_DYN_UINT_STRUCT,DPEL_FLOAT_STRUCT,
+                                  DPEL_INT_STRUCT,DPEL_LANGSTRING_STRUCT,DPEL_STRING_STRUCT,DPEL_UINT_STRUCT,
+                                  DPEL_BIT64_STRUCT,DPEL_DYN_BIT64_STRUCT,DPEL_LONG_STRUCT,DPEL_DYN_LONG_STRUCT,DPEL_ULONG_STRUCT,DPEL_DYN_ULONG_STRUCT);      
+  file f;
+  dyn_string dsDpSource;
+  string s, dummyString;
+  string path = PROJ_PATH + \"data/archive.asc\";
+  int i, k , level;  
+  dyn_string dsTempDynString;
+
+  
+  addGlobal(\"gRaimaDPEs\",DYN_STRING_VAR);
+  addGlobal(\"gdsTabDPE\",DYN_STRING_VAR);
+
+
+  
+  if (dynlen(gRaimaDPEs) < 1)
+  {
+    strreplace(path, \"\\\\\", \"/\");
+    
+    system(getComponentName(ASCII_COMPONENT) + \" -filter P:_archive -out \" + path);
+    
+    f = fopen(path, \"r\");
+    while (!feof(f))
+    {
+      fscanf(f,\"%s\", s);
+      fgets(dummyString, 1024, f);
+      dynAppend(dsDpSource, s);
+    }
+    fclose(f);
+    
+    dynSortAsc(dsDpSource);
+    dynUnique(dsDpSource);
+  
+    for (i = dynlen(dsDpSource); i> 0; i--)
+    {
+       if (strpos(dsDpSource[i], \"#\") == 0)                 // remive trash 
+      {
+        dynRemove(dsDpSource, i);
+      }
+      else if (strpos(dsDpSource[i], \"ElementName\") == 0)  // trash
+      {
+        dynRemove(dsDpSource, i);
+      }
+        else if (strpos(dsDpSource[i], \"_mp_\") == 0)       // remove _mp_*
+      {
+        dynRemove(dsDpSource, i);
+      }
+      else if (dynContains(diStructConstant, dpElementType(dsDpSource[i]))>0) // remuve if struct
+       {
+         dynRemove(dsDpSource, i);
+       }
+    }
+
+    deleteAllStoredArchiveData(dsDpSource);
+    deleteAllStoredLZAData(dsDpSource);
+    gRaimaDPEs = dsDpSource;
+
+  }
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(gRaimaDPEs), \"#1\", gRaimaDPEs);
+  tfDPECounter.text  = dynlen(gRaimaDPEs);
+  gdsTabDPE = gRaimaDPEs;
+  
+}
+
+
+deleteAllStoredArchiveData(dyn_string &dsArchiveProject)
+{
+  dyn_string dsArchiveDPE;
+  int i;
+  dyn_string ds=dpNames(\"HDB_*\", \"_Archive\");                       // find all archives od this group
+  dyn_string value;
+
+ // DebugN(ds);
+
+  for (i=1; (i<= dynlen(ds) ); i++)                         // use the earlierst archivation time
+  {
+    dpGet(ds[i]+\".dpListString:_online.._value\", value);
+  //  DebugN( value);
+     dynAppend(dsArchiveDPE, value);
+  }
+  
+  dynSortAsc(dsArchiveDPE);
+  dynUnique( dsArchiveDPE);
+
+ // DebugN(dsArchiveDPE);
+
+  for ( i=1; i<= dynlen(dsArchiveDPE); i++)
+    dynRemove( dsArchiveProject, dynContains(dsArchiveProject,dsArchiveDPE[i] ));    // remove shown 
+
+ // DebugN(dsArchiveDPE);
+ // DebugN(gArchiveDp);
+
+}
+
+deleteAllStoredLZAData(dyn_string &dsArchiveProject)
+{
+  dyn_string dsArchiveDPE;
+  int i, j;
+  dyn_string ds=dpNames(\"*\", \"_Archive\");                       // find all archives od this group
+  dyn_string value;
+
+  for (i=1; i<= dynlen(ds); i++)                         // use the earlierst archivation time
+  {
+    if (substr(ds[i], 0,4) !=  \"HDB_\")
+    {
+      dpGet(ds[i]+\".dpList:_online.._value\", value);
+      for ( j= 1; j<= dynlen(value); j++)
+        strreplace(value[j], getSystemName(), \"\");
+      
+       dynAppend(dsArchiveDPE, value);
+    }
+    else
+       DebugN(\"NICHT Gefunden:\" +ds[i]);
+  
+  }
+  
+  dynSortAsc(dsArchiveDPE);
+  dynUnique( dsArchiveDPE);
+
+  for ( i=1; i<= dynlen(dsArchiveDPE); i++)
+    dynRemove( dsArchiveProject, dynContains(dsArchiveProject,dsArchiveDPE[i] ));    // remove stored at LZA
+}
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  298 630
+""0  1
+E "
+void tfDPEFilter_command()
+{
+  string pattern = tfDPEFilter.text;
+  string patternDPT = tfDPTFilter.text;
+  dyn_string ds;
+  int i;
+
+  if (pattern != \"\")
+  {
+    for ( i = 1; i<= dynlen(gRaimaDPEs); i++)
+      if (patternMatch (pattern, gRaimaDPEs[i]))
+        dynAppend(ds, gRaimaDPEs[i]);
+  }
+  else
+    ds = gRaimaDPEs;
+  if (patternDPT != \"\")
+  for ( i = dynlen(ds); i> 0; i--)
+  {
+    if (!patternMatch(patternDPT, dpTypeName(ds[i])))
+        dynRemove(ds, i);
+  }
+
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(ds), \"#1\", ds);
+    tfDPECounter.text  = dynlen(ds);
+
+  gdsTabDPE = ds;
+}
+" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+1
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 8
+"Text2"
+""
+1 20 10 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 12 145 26
+0 2 0 "0s" 0 0 0 192 0 0  22 12 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 18 Nort assigned DPEs
+LANG:10004 16 Nort指定的DPE
+LANG:10000 18 unzugeorndete DPEs
+LANG:10027 30 Неназначенные DPE
+2 25
+"Text4"
+""
+1 30 390 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 392 90 406
+0 2 0 "0s" 0 0 0 192 0 0  32 392 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 DP filter
+LANG:10004 11 DP过滤器
+LANG:10000 10 DP Filter:
+LANG:10027 14 Фильт. DP
+2 35
+"Text5"
+""
+1 480 390 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 482 392 527 406
+0 2 0 "0s" 0 0 0 192 0 0  482 392 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Start time
+LANG:10004 12 开始时间
+LANG:10000 16 Archivstartzeit:
+LANG:10027 12 Начало
+2 39
+"Text1"
+""
+1 480 10 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 482 12 587 26
+0 2 0 "0s" 0 0 0 192 0 0  482 12 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 16 Selected archive
+LANG:10004 15 选定的归档
+LANG:10000 17 gewähltes Archiv
+LANG:10027 29 Выбранный архив
+2 41
+"Text3"
+""
+1 481 418 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 483 420 577 434
+0 2 0 "0s" 0 0 0 192 0 0  483 420 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Full endtime
+LANG:10004 12 结束时间
+LANG:10000 16 gesamte Endzeit:
+LANG:10027 26 Общ. окончание
+2 43
+"Text6"
+""
+1 30 420 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 32 422 89 436
+0 2 0 "0s" 0 0 0 192 0 0  32 422 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 DPT filter
+LANG:10004 12 DPT过滤器
+LANG:10000 11 DPT Filter:
+LANG:10027 12 Ф-тр. DPT
+2 45
+"Text7"
+""
+1 480 60 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 482 62 631 76
+0 2 0 "0s" 0 0 0 192 0 0  482 62 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Assigned DPEs!
+LANG:10004 13 指定的DPE!
+LANG:10000 27 dem Archiv zugeordnete DPEs
+LANG:10027 39 Назначенные архиву DPE
+2 46
+"Text8"
+""
+1 754 60 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 756 62 848 76
+0 2 0 "0s" 0 0 0 192 0 0  756 62 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Conversion J/N
+LANG:10004 10 转换J/N.
+LANG:10000 17 Konvertierung J/N
+LANG:10027 27 Конверт. Да/Нет
+2 47
+"Text9"
+""
+1 310 400 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 312 402 380 416
+0 2 0 "0s" 0 0 0 192 0 0  312 402 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Count of DPE
+LANG:10004 12 DPE的数量
+LANG:10000 13 Anz. der DPEs
+LANG:10027 15 Кол-во DPE
+2 48
+"Text10"
+""
+1 760 400 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 762 402 830 416
+0 2 0 "0s" 0 0 0 192 0 0  762 402 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 Count od DPEs
+LANG:10004 12 计算od DPE
+LANG:10000 13 Anz. der DPEs
+LANG:10027 15 Кол-во DPE
+2 52
+"Text11"
+""
+1 410 90 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 412 92 478 106
+0 2 0 "0s" 0 0 0 192 0 0  412 92 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 no conv.
+LANG:10004 10 无转换.
+LANG:10000 11 nicht konv.
+LANG:10027 20 не конверт.
+2 53
+"Text12"
+""
+1 405 152 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 407 154 465 168
+0 2 0 "0s" 0 0 0 192 0 0  407 154 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Convert
+LANG:10004 6 转换
+LANG:10000 12 konvertieren
+LANG:10027 18    конверт.
+2 55
+"Text14"
+""
+1 416 212 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 418 214 457 228
+0 2 0 "0s" 0 0 0 192 0 0  418 214 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Back
+LANG:10004 6 后退
+LANG:10000 7 zurück
+LANG:10027 11  назад
+2 56
+"Text15"
+""
+1 408 277 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 410 279 478 293
+0 2 0 "0s" 0 0 0 192 0 0  410 279 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 No archiving
+LANG:10004 24 未正在进行的归档
+LANG:10000 11 nicht arch.
+LANG:10027 20 не архивир.
+13 9
+"cmdDataConf"
+""
+1 165 460 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  168 458 312 488
+
+T 
+4
+LANG:10001 14 HDB parameters
+LANG:10004 9 HDB参数
+LANG:10000 13 HDB Parameter
+LANG:10027 32 Параметры Ист. БД 
+"main()
+{
+  ModuleOn(\"PVSS\", 100, 100, 681, 2, 1, 1, \"None\");
+  RootPanelOnModule(\"para/archive/archive_select.pnl\", \"\", \"PVSS\", makeDynString());
+}" 0
+ E E E
+25 22
+"tabDPE"
+""
+1 -515 -1042 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  18 28 402 372
+"main()
+{
+
+  setValue(\"\",\"selectByClick\",TABLE_SELECT_LINE ,
+    \"selectColors\",\"[60,60,60]\",\"[100,100,100]\",
+    \"tableMode\", TABLE_SELECT_MULTIPLE ,
+    \"sortOnClick\",TRUE);
+
+
+}" 0
+E 0 0 1 1 1 "#1" 61 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+435 
+25 25 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+14 23
+"tfDPEFilter"
+""
+1 90 390 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E "main()
+{
+  tfDPEFilter_command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  88 388 272 414
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  tfDPEFilter_command();
+}
+" 0
+
+14 24
+"tfDPECounter"
+""
+1 310 420 E E E 0 E 1 E N "_WindowText" E N "STD_panel_back" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  308 418 402 444
+3 "0s" 0 0 0 0 0 -1  E E E
+13 26
+"Button6"
+""
+1 408 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  408 168 438 195
+
+P 
+4294967295
+"pictures/arrowRight_bold.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines;
+  dyn_int di;
+  dyn_time dt;
+  time t=tfArchiveStartTime.text;
+
+  if ( t== 0)
+    inputTime();
+
+  t=tfArchiveStartTime.text;  
+  if (t==0)
+    t=60;
+  
+  di = tabDPE.getSelectedLines;
+  
+  tabArchiveInfo.deleteAllLines  ;
+  
+  dynUnique(di);
+  
+  for ( i = dynlen(di); i> 0; i--)
+  {
+    dynAppend( dLines, tabDPE.cellValueRC(di[i], \"#1\"));
+    dynRemove( gdsTabDPE, dynContains(gdsTabDPE,dLines[dynlen(dLines)] ));    // remove shown 
+     dynRemove( gRaimaDPEs, dynContains(gRaimaDPEs,dLines[dynlen(dLines)] ));    // remove global
+  }  
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  dynAppend( ds,  dLines);
+  for ( i = dynlen(dt)+1; i <= dynlen(ds); i++)
+    dt[i]=t; 
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", ds,
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);  // set new Date
+
+  showArchive();
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(gdsTabDPE), \"#1\", gdsTabDPE);                    // show new info
+  tfDPECounter.text = dynlen(gdsTabDPE);
+
+
+}
+
+
+inputTime()
+{
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+  string timeHeader = \"Zeitangabe\";
+  string value = tfArchiveStartTime.text;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_time dt;
+  int i;
+
+  time t = value;
+  
+  if ( t == 0)
+    t = makeTime(2000,1,1);
+
+  value = t;
+  dateTimePicker(value, t);
+  if ( t> 0)
+  {
+    dpGet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+    for ( i= 1; i<= dynlen( dt); i++)
+      if (dt[i] != 0)              // exept Time 0 !!!
+        dt[i] = t;
+    dpSet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+    tfArchiveStartTime.text = t;
+  }
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+
+
+
+
+
+" 0
+ E E E
+13 27
+"Button7"
+""
+1 438 230 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  438 230 468 257
+
+P 
+4294967295
+"pictures/arrowLeft_bold_grey.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines;
+  dyn_int di;
+  dyn_time dt;
+  time t=tfArchiveStartTime.text;
+  string dp, dp2;
+  int pos;
+  
+  di = tabArchiveInfo.getSelectedLines;
+  dynUnique(di);
+
+   dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  for ( i = dynlen(di); i> 0; i--)
+  {
+    dp = tabArchiveInfo.cellValueRC(di[i], \"#1\");
+    dp2 = dp;
+    
+    dynAppend( gdsTabDPE, dp);    
+    dynAppend( gRaimaDPEs, dp2 );
+    pos = dynContains(ds,dp);
+     dynRemove( ds, pos);    // remove from dp
+     dynRemove( dt, pos);    // remove from dp
+  }  
+
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(gdsTabDPE), \"#1\", gdsTabDPE);                    // show new info
+  tfDPECounter.text = dynlen(gdsTabDPE);
+
+  showArchive(); 
+
+
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+" 0
+ E E E
+13 28
+"Button8"
+""
+1 422 295 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  422 295 452 322
+
+P 
+4294967295
+"pictures/dpeMon_del.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  dyn_float dfReturn;
+  dyn_string dsReturn;
+
+
+  addGlobal(\"gRaimaDPEs\",DYN_STRING_VAR);
+  addGlobal(\"gdsTabDPE\",DYN_STRING_VAR);
+
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",  \"Frage\",
+                makeDynString(\"Soll die Archivierung der selektierten Datenpunkte\\nwirklich aufgehoben werden?\", 
+                getCatStr(\"general\",\"OK\"), getCatStr(\"va\",\"cancel\")), dsReturn, dfReturn);
+  
+   if(dsReturn[1]==\"1\")        // OK
+  {
+    for ( i= 1; i<= dynlen(gdsTabDPE); i++)
+    {
+      dynRemove(gRaimaDPEs, dynContains(gRaimaDPEs, gdsTabDPE[i]));
+      dpSet(gdsTabDPE[i]+\":_archive.._archive\", FALSE);    // Archiviertung abschalten !!
+    
+    }
+    tabDPE.deleteAllLines;
+    tfDPECounter.text = 0;
+    dynClear(gdsTabDPE);
+  }
+}
+" 0
+ E E E
+25 29
+"tabArchiveInfo"
+""
+1 -85 -3095 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  478 78 862 372
+"main()
+{
+
+  setValue(\"\",\"selectByClick\",TABLE_SELECT_LINE ,
+    \"selectColors\",\"[60,60,60]\",\"[100,100,100]\",
+    \"tableMode\", TABLE_SELECT_MULTIPLE ,
+    \"sortOnClick\",TRUE);
+
+
+}" 0
+E 0 0 1 2 1 "#1" 47 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+340 "#2" 4 1 0 "s" 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+40 
+25 25 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 0 1 0 1 7
+1 0
+22 30
+"cboArchives"
+""
+1 480 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  478 28 862 54
+0
+
+"main()
+{
+  int i;
+  addGlobal(\"gArchiveName\", DYN_STRING_VAR);
+  addGlobal(\"gArchiveDp\", DYN_STRING_VAR);
+  addGlobal(\"gArchiveCount\", DYN_FLOAT_VAR);
+
+  while (dynlen(gArchiveName)<= 0)
+    delay(1);
+
+  this.items  =   gArchiveName;
+
+  this.selectedPos  = 1;  
+  showArchive();
+
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+
+" 0
+
+"main()
+{
+showArchive();
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+" 0
+
+E
+ 0 0
+13 31
+"Button9"
+""
+1 438 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  438 168 468 195
+
+P 
+4294967295
+"pictures/arrowRight_bold_pattern.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines;
+  dyn_int di;
+  dyn_time dt;
+  time t = tfArchiveStartTime.text ;
+
+  if ( t == 0)
+    inputTime();
+
+  tabArchiveInfo.deleteAllLines  ;
+    
+  t=tfArchiveStartTime.text;
+  if (t==0)
+    t=60;
+
+  for ( i = dynlen(gdsTabDPE); i> 0; i--)
+  {
+     dynRemove( gRaimaDPEs, dynContains(gRaimaDPEs,gdsTabDPE[i] ));    // remove global
+  }  
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  dynAppend( ds,  gdsTabDPE);    // remove shown  gdsTabDPE is empty 
+
+  for ( i = dynlen(dt)+1; i <= dynlen(ds); i++)
+    dt[i]=t; 
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", ds,
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);  // set new Date
+
+  showArchive();
+
+
+  tabDPE.deleteAllLines;
+  tfDPECounter.text = dynlen(gdsTabDPE);
+  
+}
+
+
+inputTime()
+{
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+  string timeHeader = \"Zeitangabe\";
+  string value = tfArchiveStartTime.text;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_time dt;
+  int i;
+
+  time t = value;
+  
+  if ( t == 0)
+    t = makeTime(2000,1,1);
+
+  value = t;
+  
+  dateTimePicker(value, t);
+  if ( t> 0)
+  {
+    dpGet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+    for ( i= 1; i<= dynlen( dt); i++)
+      if (dt[i] != 0)              // exept Time 0 !!!
+        dt[i] = t;
+    dpSet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+    tfArchiveStartTime.text = t;
+  }
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+" 0
+ E E E
+14 33
+"tfArchiveCounter"
+""
+1 760 420 E E E 0 E 1 E N "_WindowText" E N "STD_panel_back" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  758 418 852 444
+3 "0s" 0 0 0 0 0 -1  E E E
+14 34
+"tfArchiveStartTime"
+""
+1 582 390 E E E 1 E 1 E N "_WindowText" E N "STD_inputfield_back" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  580 388 724 414
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+  string timeHeader = \"Zeitangabe\";
+  string value = this.text;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_time dt;
+  int i;
+
+  time t;
+  
+  dateTimePicker(value, t);
+  if ( t> 0)
+  {
+    dpGet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+    for ( i= 1; i<= dynlen( dt); i++)
+      if (dt[i] != 0)              // exept Time 0 !!!
+        dt[i] = t;
+    dpSet(  \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+    this.text = t;
+  }
+}" 0
+ "main()
+{
+
+}" 0
+ E
+13 36
+"Button10"
+""
+1 408 230 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  408 230 438 257
+
+P 
+4294967295
+"pictures/arrowLeft_bold_pattern.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines, ds2;
+  dyn_int di;
+  dyn_time dt;
+  time t=tfArchiveStartTime.text;
+  string dp;
+  
+  di = tabArchiveInfo.getSelectedLines;
+  dynUnique(di);
+
+   dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds);  // get new info
+   
+  ds2 = ds;   
+  dynAppend( gdsTabDPE, ds);    
+   dynAppend( gRaimaDPEs, ds2 );
+
+  dynSortAsc(gRaimaDPEs);
+  dynUnique( gRaimaDPEs);
+  dynSortAsc(gdsTabDPE);
+  dynUnique( gdsTabDPE);
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", makeDynString(),  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", makeDynTime());
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(gdsTabDPE), \"#1\", gdsTabDPE);                    // show new info
+  tfDPECounter.text = dynlen(gdsTabDPE);
+
+  tabArchiveInfo.deleteAllLines  ;
+  tfArchiveCounter.text = 0;
+ 
+
+
+}" 0
+ E E E
+13 38
+"Button3"
+""
+1 320 460 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  318 458 462 488
+
+T 
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 7 Refresh
+LANG:10027 16 Обновить
+"// SimpleCtrlScriptStart {invalid}
+main()
+{
+  EP_childPanelOn();
+}
+
+EP_childPanelOn()
+{
+  RootPanelOn(\"vision/LTA-CONVERT_raima.pnl\", \"\", makeDynString(\"\"));
+}
+
+// SimpleCtrlScript {EP_childPanelOn}
+// Function {RootPanelOn}
+// File {VKB.pnl}
+// Panel {}
+// Parent {}
+// Module {}
+// OffsetX {0}
+// OffsetY {0}
+// SimpleCtrlScriptEnd {EP_childPanelOn}
+" 0
+ E E E
+13 40
+"Button1"
+""
+1 628 760 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  468 458 602 488
+
+T 
+4
+LANG:10001 7 Convert
+LANG:10004 6 转换
+LANG:10000 17 Exportiere Raima 
+LANG:10027 20 Экспорт RAIMA
+"string sFilePath;
+
+main()
+{
+
+  dyn_string ds=dpNames(\"HDB_*\", \"_Archive\");                       // find all archives od this group
+
+  int iMaxElements , i, j;
+
+  time tMinimumTimestamp, 
+       tStartTime= tfArchiveStartTime.text,               
+       tEndTime = tfArchiveEndTime.text;          // possible to set
+
+  dyn_dyn_anytype daArchiveData;             // dyn_dyn_anytype daArchiveData;
+
+  bool bUseValueArchive;
+    
+  dpGet(\"_DataManager.UseValueArchive:_online.._value\", bUseValueArchive);
+  
+  if (!dpExistsDPE(\"_DataManager.UseValueArchive\") || bUseValueArchive)
+  {
+    DebugN( \"Die Datenbank läuft nicht im Raima Modus !!! \");
+    ChildPanelOnCentral(\"vision/MessageInfo1\", \"Abbruch\",makeDynString( \"Die Datenbank läuft nicht im Raima Modus oder\\ndas Projekt ist noch nicht nachgezogen!\\nExport kann nicht gestartet werden!\", \"Abbruch\"));
+    return;
+  
+  }
+
+  if (dynlen(gRaimaDPEs)>0)
+  {
+    DebugN( \"Noch nicht alle DPE's zugeordnet !!! \");
+    ChildPanelOnCentral(\"vision/MessageInfo1\", \"Abbruch\",makeDynString( \"Exportvorgang kann noch nicht gestartet werden!\\nEs sind noch nciht alle DPE's zugeordnet!\", \"Abbruch\"));
+    return;
+  }
+
+  cmdDataConf.enabled  = FALSE;
+  Button1.enabled  = FALSE;
+  Button10.enabled  = FALSE;
+  Button2.enabled  = FALSE;
+  Button3.enabled  = FALSE;
+  Button4.enabled  = FALSE;
+  Button6.enabled  = FALSE;
+  Button7.enabled  = FALSE;
+  Button8.enabled  = FALSE;
+  Button9.enabled  = FALSE;
+
+
+  openProgressBar(\"Raima Export\", \"export.gif\", \"Der Exportvorgang wird vorbetreitet\", \"\", \"\", 2);
+  
+  showProgressBar(\"\", \"\", \"Setze automatische Komprimierung\", 1);
+  
+  sFilePath = PROJ_PATH + \"db/raimasave\";    // path where to store
+  strreplace(sFilePath, \"\\\\\", \"/\");
+  if (_WIN32) strreplace( sPath, \"/\", \"\\\\\" ); 
+  
+  system( \"mkdir \"+sFilePath);              // genreate directory
+
+
+  DebugN(\"START:\", getCurrentTime());
+
+  for (i=1; (i<= dynlen(ds) && i<= dynlen(gArchiveDp)); i++)                         // use the earlierst archivation time
+  {
+
+    dpGet( gArchiveDp[i]+\".size.maxDpElGet:_original.._value\",iMaxElements);
+    
+    showProgressBar(\"Exportiere\", \"Archiv \"+ gArchiveDp[i] + \" (#\"+i+\" von \" + dynlen(gArchiveDp)+ \")\", \"\", -1);
+  
+    // get alle DPE's of this archive
+    hdbInitdaArchiveData( daArchiveData, iMaxElements, ds[i], gArchiveDp[i]);
+
+   // for each DPE
+   
+   tStartTime = getCurrentTime();
+
+   for ( j= 1; j<= dynlen( daArchiveData); j++)
+    {
+      if ((  daArchiveData[j][9] >= 3600) && ( daArchiveData[j][9] < tStartTime))    // find StartTime
+        tStartTime = daArchiveData[j][9];
+  }      
+
+
+   for ( j= 1; j<= dynlen( daArchiveData); j++)
+    {
+      showProgressBar(\"\", \"\", \"Datenpunktelement \"+j+\"/\"+dynlen( daArchiveData), (100.0*j/dynlen( daArchiveData)));
+      hdbRefillData(daArchiveData, tStartTime, tEndTime, j);
+    }  
+    // all dpe's written find optimal timestamp für fileswitch  
+
+    hdbFindSwitchTime( daArchiveData, iMaxElements, tStartTime, gArchiveDp[i]);
+
+    hdbSetArchivesFromRaimaToHDB(daArchiveData, gArchiveDp[i]);
+
+    dynClear(daArchiveData);
+    
+  }
+
+  cmdDataConf.enabled  = TRUE;
+  Button1.enabled  = TRUE;
+  Button10.enabled  = TRUE;
+  Button2.enabled  = TRUE;
+  Button3.enabled  = TRUE;
+  Button4.enabled  = TRUE;
+  Button6.enabled  = TRUE;
+  Button7.enabled  = TRUE;
+  Button8.enabled  = TRUE;
+  Button9.enabled  = TRUE;
+
+
+  DebugN(\"****************************\");
+  DebugN(\"****    R E A D Y     ******\");
+  DebugN(\"****************************\");
+  DebugN(\"ENDE :\", getCurrentTime());  
+  closeProgressBar();
+
+}
+
+
+
+///////////////////////////////////////////////////////
+//
+//  function initializes daArchiveData 
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+time hdbInitdaArchiveData (dyn_dyn_anytype &daArchiveData , int &iMaxElements,  string sSourceDp, string sArchive)
+{
+  //organisation of daArchiveData
+  //daArchiveData[j][1] = 1;                  // Position 
+  //daArchiveData[j][2] = 1;                   // length of data
+  //daArchiveData[j][3] = dsArchivDPE[j];     // DPE
+  //daArchiveData[j][4] = dtArchivTime[j];     // planned endtime of getPeriod
+  //daArchiveData[j][5] = daData;              // all data
+  //daArchiveData[j][6] = dtData;              // all timestamps
+  //daArchiveData[j][7] = diData;              // all statusbits
+  //daArchiveData[j][8] = FALSE;              // got more than nessesary ?
+
+  int code;
+  int pos;
+
+  dyn_time dtArchiveStartTime, dtArchivTime;
+  dyn_anytype da;
+
+  dyn_string value;
+  dyn_string dps, dsArchivDPE; 
+  dyn_string dsArchiveDPE;
+
+  dyn_anytype daData;
+  dyn_time dtData;
+  dyn_int diData;
+  
+  int i, j, k;
+
+  dpGet(sSourceDp+\".dpListString:_online.._value\", dsArchivDPE,
+        sSourceDp+\".archiveCreateDate:_online.._value\", dtArchivTime);
+  
+  
+  dpGet( sArchive + \".size.maxValuesSet:_online.._value\", iMaxElements);
+  iMaxElements --;         // one less than iMaxElements !!
+
+  DebugN(\"SIZE: \", iMaxElements);
+
+//  for ( j = 3; j > 0 ; j--)
+  for ( j = dynlen(dsArchivDPE); j > 0 ; j--)  // !!!
+    {
+      daArchiveData[j][1] = 0;                // Position 
+      daArchiveData[j][2] = 0;                 // length of data
+      daArchiveData[j][3] = dsArchivDPE[j];   // DPE
+      daArchiveData[j][4] = getCurrentTime(); // planned endtime of getPeriod
+      daArchiveData[j][5] = \"\";                // all data
+      daArchiveData[j][6] = makeDynTime();    // all timestamps
+      daArchiveData[j][7] = makeDynInt();      // all statusbits
+      daArchiveData[j][8] = TRUE;              // got more than nessesary ?
+      daArchiveData[j][9] = dtArchivTime[j];  // starttime
+   }
+}
+
+///////////////////////////////////////////////////////
+//
+//  function finds starttime
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbFindSwitchTime (   dyn_dyn_anytype &daArchiveData , int iMaxElements,  time tStartTime, string sArchive)
+{
+  //organisation of daArchiveData
+  //daArchiveData[j][1] = 1;                  // Position 
+  //daArchiveData[j][2] = 1;                   // length of data
+  //daArchiveData[j][3] = dsArchivDPE[j];     // DPE
+  //daArchiveData[j][4] = dtArchivTime[j];     // planned endtime of getPeriod
+  //daArchiveData[j][5] = daData;              // all data
+  //daArchiveData[j][6] = dtData;              // all timestamps
+  //daArchiveData[j][7] = diData;              // all statusbits
+  //daArchiveData[j][8] = FALSE;              // got more than nessesary ?
+
+  
+  //
+  //  for each timearray 
+  //  find minimum time at iMaxElements
+  //  
+  
+  int i, j;
+  time tCheckTime = getCurrentTime();
+  time tReferenceTime = tCheckTime;
+  int iCheckElement;
+  int iStartElement;
+  bool bExit = FALSE;
+  file f;
+  string s;
+
+  f = fopen(PROJ_PATH + \"db\\\\raimasave_switch.\" +sArchive,\"w\");
+  s = tStartTime;
+  fprintf(f,\"%s\\n\",s );                                      // Write starttime ->  fileswitch?
+
+
+  showProgressBar(\"\", \"\", \"Berechne Filewechsel ... bitte warten ...\", -1);
+
+
+  while (!bExit)
+  {
+    bExit = TRUE;
+    tCheckTime = tReferenceTime;
+
+    //  1st step : Find youngest time
+    for ( i = 1; i<= dynlen( daArchiveData); i++)                // check whole array
+    {
+      iCheckElement = daArchiveData[i][1] + iMaxElements ;
+      if ( dynlen(daArchiveData[i][6]) >= iCheckElement)
+      {
+        if (daArchiveData[i][6][iCheckElement] < tCheckTime)
+        {
+          tCheckTime =  daArchiveData[i][6][iCheckElement];      // tCheckTime is youngest Element
+          bExit = FALSE;                                        // do not exit and check again
+        }
+      }
+    }
+  
+    // 2nd step next state element
+    for ( i = 1; i<= dynlen( daArchiveData); i++)                // check whole array
+    {
+      iCheckElement = daArchiveData[i][1] + iMaxElements ;
+      iStartElement = daArchiveData[i][1];
+
+      daArchiveData[i][1] = iCheckElement;
+      
+      if ( dynlen(daArchiveData[i][6]) >= iCheckElement)
+      {
+        for ( j=   iCheckElement; j > iStartElement; j--)
+        {      
+          if (daArchiveData[i][6][j] > tCheckTime)              // element not in this fileswitch
+            daArchiveData[i][1] = j;                            // this is the next startpoint
+        }
+      }
+    }
+  
+    // is time correct?
+    if (tCheckTime < tReferenceTime)
+    {
+      s = tCheckTime;
+      fprintf(f,\"%s\\n\",s );                                      // Write data to file including flush?
+    }
+    DebugN(\" Timeswitch found:\", tCheckTime);
+//    for ( i = 1; i<= dynlen( daArchiveData); i++)  // check whole array
+//      DebugN(i, daArchiveData[i][1], dynlen (daArchiveData[i][6]));
+  }
+
+  fclose(f); 
+}
+
+
+///////////////////////////////////////////////////////
+//
+//  function writes data to files;
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbWriteData(string dp,   dyn_anytype daData,  dyn_time dtData, dyn_int diData)
+{
+  int i, j;
+  file f;
+  bool bIsFileOpen;  
+  string s1, s2, s3, s;
+
+  DebugN(\"Export...\", getCurrentTime() );
+
+  f = fopen(sFilePath + \"/\" + dp,\"w\");
+
+  if (f != 0)
+  {
+    for ( i = 1; i<= dynlen( daData); i++)
+    {
+      s1 = \"\";                                                  // clear s1
+      for ( j = i; (j < i+100)&&(j<= dynlen( daData)); j++)      // try to add 100 Elements
+      {
+        s = dtData[j];
+        s1 =  s1 + daData[j] + \"\\t\"+ s + \"\\t\"+diData[j]+\"\\n\";    // add more element
+      }
+      i = i + (j-i);                                            // add j -i
+    
+      fprintf(f,\"%s\",s1 );                                      // Write data to file including flush?
+    }
+    fclose(f);
+  }
+  DebugN(\" Export \"+dp+ \" fertig \", getCurrentTime());
+}
+
+
+///////////////////////////////////////////////////////
+//
+//  check all DPE and refill if dynlen < iMaxElements if possible !
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+hdbRefillData(dyn_dyn_anytype &daArchiveData, time tStartTime, time tEndTime, int position)
+{
+  int i;
+  dyn_anytype daData;
+  dyn_time dtData, dtData2;
+  dyn_int diData;
+  dyn_int diEval;
+  
+  int code;
+ 
+  //organisation of daArchiveData
+  //daArchiveData[j][1] = 1;                  // Position 
+  //daArchiveData[j][2] = 1;                   // length of data
+  //daArchiveData[j][3] = dsArchivDPE[j];     // DPE
+  //daArchiveData[j][4] = dtArchivTime[j];     // planned endtime of getPeriod
+  //daArchiveData[j][5] = daData;              // all data
+  //daArchiveData[j][6] = dtData;              // all timestamps
+  //daArchiveData[j][7] = diData;              // all statusbits
+  //daArchiveData[j][8] = FALSE;              // got more than nessesary ?
+
+  if (daArchiveData[position][9] > 0)                                                            // if time > 0 -> get data !!
+  {
+    code = dpGetPeriod(tStartTime, tEndTime,0,daArchiveData[position][3]+\":_offline.._status\" ,diData, dtData, diEval, daArchiveData[position][3]+\":_offline.._value\" ,daData, dtData2);
+  }
+
+  if (code >= 0)
+  {
+    //check
+    //sort in daArchiveData
+    if ( dynlen( daData) > 0)
+    {
+      DebugN(position + \"/\"+ dynlen(daArchiveData) ,\"Elementanzahl:\"+ dynlen(daData),\"erstes Element:\" + dtData[1], \"letztes Element:\" +dtData[dynlen(daData)], daArchiveData[position][3]);
+      daArchiveData[position][6] = dtData;
+      daArchiveData[position][2] = dynlen( daData);
+      
+      DebugN(\"Anzahl der Zeiteinträge:\",dynlen(daArchiveData[position][6]));
+      
+      hdbWriteData(daArchiveData[position][3], daData, dtData, diData);
+      
+    }
+    else
+    {
+      DebugN(position + \"/\"+ dynlen(daArchiveData) ,dynlen(daData),\" NO DATA ! \"); 
+      daArchiveData[position][2] = 0;
+    }
+  }
+  else
+  {
+      DebugN(position + \"/\"+ dynlen(daArchiveData) ,daArchiveData[position][3],\" ERROR: zu viele Daten !!! -> SKIP \"); 
+      daArchiveData[position][2] = 0;
+  }
+  
+}
+
+///////////////////////////////////////////////////////
+//
+//  check all DPE and refill if dynlen < iMaxElements if possible !
+//
+//  Author TS 4/2001
+//
+///////////////////////////////////////////////////////
+
+hdbSetArchivesFromRaimaToHDB(dyn_dyn_anytype &daArchiveData, string sArchive)
+{
+ int i;
+ string dp;
+ 
+ for ( i= 1; i<= dynlen(daArchiveData); i++)
+ {
+    dp =  daArchiveData[i][3];
+    dpSetWait(dp+\":_archive.._type\", 45,
+               dp+\":_archive.._archive\", 1,
+               dp+\":_archive.1._type\", 15, 
+               dp+\":_archive.1._class\", sArchive);
+    
+ }
+}
+
+
+" 0
+ E E E
+14 42
+"tfArchiveEndTime"
+""
+1 582 418 E E E 1 E 1 E N "_WindowText" E N "STD_inputfield_back" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  580 416 724 442
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  dyn_string dsReturn;
+  dyn_float dfReturn;
+  string timeHeader = \"Zeitangabe\";
+  string value = this.text;
+  time t;
+  
+  dateTimePicker(value, t);
+  this.text = t;
+}" 0
+ "main()
+{
+
+this.text  = getCurrentTime();
+
+}" 0
+ E
+13 49
+"Button2"
+""
+1 408 108 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  408 108 438 135
+
+P 
+4294967295
+"pictures/arrowRight_bold_crossed.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines;
+  dyn_int di;
+  dyn_time dt;
+  time t=0  ;        // marked with \"-\"
+  
+  di = tabDPE.getSelectedLines;
+  
+  tabArchiveInfo.deleteAllLines  ;
+  
+  dynUnique(di);
+  
+  for ( i = dynlen(di); i> 0; i--)
+  {
+    dynAppend( dLines, tabDPE.cellValueRC(di[i], \"#1\"));
+    dynRemove( gdsTabDPE, dynContains(gdsTabDPE,dLines[dynlen(dLines)] ));    // remove shown 
+     dynRemove( gRaimaDPEs, dynContains(gRaimaDPEs,dLines[dynlen(dLines)] ));    // remove global
+  }  
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  dynAppend( ds,  dLines);
+  for ( i = dynlen(dt)+1; i <= dynlen(ds); i++)
+    dt[i]=t; 
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", ds,
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);  // set new Date
+
+  showArchive();
+
+  tabDPE.deleteAllLines;
+  tabDPE.appendLines(dynlen(gdsTabDPE), \"#1\", gdsTabDPE);                    // show new info
+  tfDPECounter.text = dynlen(gdsTabDPE);
+
+
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+
+
+
+" 0
+ E E E
+13 50
+"Button4"
+""
+1 438 108 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  438 108 468 135
+
+P 
+4294967295
+"pictures/arrowRight_bold_pattern_crossed.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  int selectedPos = cboArchives.selectedPos;
+  dyn_string ds, dLines;
+  dyn_int di;
+  dyn_time dt;
+  time t=0;  // marked with \"-\"
+   
+  
+  tabArchiveInfo.deleteAllLines  ;
+
+  for ( i = dynlen(gdsTabDPE); i> 0; i--)
+  {
+     dynRemove( gRaimaDPEs, dynContains(gRaimaDPEs,gdsTabDPE[i] ));    // remove global
+  }  
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);
+
+  dynAppend( ds,  gdsTabDPE);    // remove shown  gdsTabDPE is empty 
+
+  for ( i = dynlen(dt)+1; i <= dynlen(ds); i++)
+    dt[i]=t; 
+
+  dpSet(\"HDB_\"+(selectedPos-1)+\".dpListString:_original.._value\", ds,
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_original.._value\", dt);  // set new Date
+
+  showArchive();
+
+
+  tabDPE.deleteAllLines;
+  tfDPECounter.text = dynlen(gdsTabDPE);
+
+
+
+}
+
+showArchive()
+{
+  int selectedPos =  cboArchives.selectedPos;
+  dyn_string ds, dsArchivString;
+  dyn_time dt;
+  int i;
+  int pos= 1;
+  
+  tabArchiveInfo.deleteAllLines;                                      // clear info
+  dpGet(\"HDB_\"+(selectedPos-1)+\".dpListString:_online.._value\", ds,  // get new info
+        \"HDB_\"+(selectedPos-1)+\".archiveCreateDate:_online.._value\", dt);
+
+  for ( i= 1; i<= dynlen( ds); i++)
+    dsArchivString[i] = (dt[i] == 0 ? \"N\": \"J\");                      // set \"A\" or \"-\"
+
+  for ( i= 1; i<= dynlen(  ds); i++)
+    if (dt[i] != 0 )
+    {
+      pos = i;
+      break;
+    }
+
+  tabArchiveInfo.appendLines(dynlen(ds), \"#1\", ds, \"#2\", dsArchivString );                    // show new info
+  tfArchiveCounter.text = dynlen(ds);
+  tfArchiveStartTime.text  = dt[pos];
+}
+
+
+" 0
+ E E E
+22 51
+"tfDPTFilter"
+""
+1 90 420 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  88 418 272 444
+0
+
+"main()
+{
+dyn_string ds = makeDynString(\"*\");
+
+ds = dynAppend(ds, dpTypes());
+
+this.items  = ds;
+this.text = \"*\";
+}" 0
+
+"main()
+{
+string pattern = tfDPEFilter.text;
+string patternDPT = tfDPTFilter.text;
+dyn_string ds;
+int i;
+
+if (pattern != \"\")
+{
+  for ( i = 1; i<= dynlen(gRaimaDPEs); i++)
+    if (patternMatch (pattern, gRaimaDPEs[i]))
+      dynAppend(ds, gRaimaDPEs[i]);
+}
+else
+  ds = gRaimaDPEs;
+
+if (patternDPT != \"\")
+for ( i = dynlen(ds); i> 0; i--)
+{
+  if (!patternMatch(patternDPT, dpTypeName(ds[i])))
+      dynRemove(ds, i);
+}
+
+
+tabDPE.deleteAllLines;
+tabDPE.appendLines(dynlen(ds), \"#1\", ds);
+  tfDPECounter.text  = dynlen(ds);
+
+gdsTabDPE = ds;
+}
+" 0
+
+E
+ 1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

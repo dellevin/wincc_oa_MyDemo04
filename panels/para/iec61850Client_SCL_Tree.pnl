@@ -1,0 +1,870 @@
+V 14
+4
+LANG:10001 24 IEC 61850/61400 scl tree
+LANG:10004 22 IEC 61850/61400 scl树
+LANG:10000 24 IEC 61850/61400 scl tree
+LANG:10027 32 IEC 61850/61400 дерево scl
+PANEL,-1 -1 810 580 N "_3DFace" 0
+"main()
+{
+  // Initialize CDC LookUp Table
+  iec61850Ed2_listDataObjectCDCInfo(dataObjectList);
+  tagTreeView_PanelRefresh(\"\");
+  //Setting progress bar to false
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+  showWaitModule(0);
+
+  tagNameColumn = 1;
+  dpeColumn = 2;
+  dataTypeColumn = 3;
+  cdcColumn = 4;
+  ValueEmpty = getCatStr(\"iec61850\",\"ColumnValueEmpty\");
+  SCLTreeView.addColumn(getCatStr(\"iec61850\",\"ColumnIED\"));
+  SCLTreeView.addColumn(getCatStr(\"iec61850\",\"ColumnTagName\"));
+  SCLTreeView.addColumn(getCatStr(\"iec61850\",\"ColumnDPE\"));
+  SCLTreeView.addColumn(getCatStr(\"iec61850\",\"ColumnDatatype\"));
+  SCLTreeView.addColumn(getCatStr(\"iec61850\",\"ColumnCDC\"));
+
+  SCLTreeView.setColumnWidthMode(0,TREE_WIDTH_MANUAL);
+  SCLTreeView.setColumnWidthMode(1,TREE_WIDTH_MANUAL);
+  SCLTreeView.setColumnWidthMode(2,TREE_WIDTH_MANUAL);
+  SCLTreeView.setColumnWidthMode(3,TREE_WIDTH_MANUAL);
+  SCLTreeView.setColumnWidthMode(4,TREE_WIDTH_MANUAL);
+
+  SCLTreeView.setColumnWidth(0,250);
+  SCLTreeView.setColumnWidth(1,210);
+  SCLTreeView.setColumnWidth(2,100);
+  SCLTreeView.setColumnWidth(3,100);
+  SCLTreeView.setColumnWidth(4,100);
+}
+" 0
+ E E E E 1 -1 -1 0  480 50
+""0  1
+E "#uses \"iec61850_plugin.ctl\"
+
+dyn_dyn_string treeElementsList, dataObjectList, deviceTagInfoList, addedItemDataTypeList;
+dyn_string itemsLocList, dsLogicalDevices, dsCDCDOList, finalTagsList, treeIDList, DataSetMembersList, mandatoryListWithDatatype;
+dyn_string dsAppendedList, mandatoryTagsList;
+string connectedIDPName, ValueEmpty;
+int addRefCount, tagNameColumn, dpeColumn, dataTypeColumn, cdcColumn;
+dyn_dyn_string ldLnList, ddsLnFcList, ddsFcDoList, ddsDoDaList;
+
+dyn_anytype iec61850TreeObjects;
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Function to refresh tree structure according to device change
+void tagTreeView_PanelRefresh(string sIed)
+{
+  bool DeviceState;
+  string sIedDp, ldName;
+  dyn_string TagsList, dsDOList, dsTempTagsList, mandatoryList;
+  int idrvNum;
+
+  uint uiBrowseSource, uiBrowseError;
+
+  SCLTreeView.clear();
+
+  dynClear(dsCDCDOList);
+  dynClear(deviceTagInfoList);
+  dynClear(finalTagsList);
+  dynClear(dsLogicalDevices);
+  dynClear(addedItemDataTypeList);
+  dynClear(itemsLocList);
+  dynClear(dsAppendedList);
+
+  addRefCount = 0;
+
+  if ( connectedIDPName != \"\" )
+  {
+    dpDisconnect(\"connectDPMatch\", connectedIDPName);
+    connectedIDPName = \"\";
+  }
+
+  if ( sIed != \"\" )
+  {
+    sIedDp = iec61850_getIedDpName(sIed);
+
+    if ( !dpExists(sIedDp) )
+    {
+      SCLTreeView.clear();
+
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceNotFound\"));
+      return;
+    }
+
+    //Initialize Tree Widget Box
+    SCLTreeView.clear();
+
+    // ETM: scheduled for later --> advanced engineering
+    enableAdvEngShapes(true);
+
+    dpGet(sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource,
+          sIedDp + IEC61850_DPE_IDP_BROWSE_ERROR , uiBrowseError);
+
+    // device already browsed, read from the database
+    if ( uiBrowseSource > 0 )
+    {
+      // Setting progress bar to true
+      setValue(myModuleName() + \".\" + myPanelName() + \":txtProgress\", \"text\", \"1\");
+      showWaitModule(1);
+
+      dpGet(sIedDp + IEC61850_DPE_IDP_TAGSLIST, TagsList,
+            sIedDp + IEC61850_DPE_IDP_CDCINFO , dsCDCDOList);
+
+      // List Tag lists for tree view
+      iec61850_treeView_getFinalTagsList(TagsList, finalTagsList);
+/*
+      iec61850_treeView_readIEC61850Tags(finalTagsList,
+                                         ldLnList,
+                                         ddsLnFcList,
+                                         ddsFcDoList,
+                                         ddsDoDaList,
+                                         dsDOList);
+*/
+      //doberger TODO
+      //dsAppendedList brauch ma des noch?
+      iec61850_treeView_readIEC61850TagsNew(finalTagsList, iec61850TreeObjects);
+
+/*
+      // List data set members dsTempTagsList
+      iec61850_getDataSetmembersList(sIedDp, dsTempTagsList);
+      iec61850_treeView_getFinalTagsList(dsTempTagsList, DataSetMembersList);
+*/
+      if ( dynlen(dsCDCDOList) < 1 )
+      {
+        dynUnique(dsDOList);
+
+        iec61850_treeView_listCDCDOInfo(dsDOList, dsCDCDOList, dataObjectList);
+        dpSet(sIedDp + IEC61850_DPE_IDP_CDCINFO, dsCDCDOList);
+      }
+
+      // Forming tree view for Logical Devices and Logical Nodes
+      //iec61850_sclTreePnl_formTreeView(ldLnList, finalTagsList, dsAppendedList, mandatoryListWithDatatype, mandatoryTagsList, dsCDCDOList);
+      iec61850_sclTreePnl_formTreeViewNew(iec61850TreeObjects);
+
+      // Setting progress bar to false
+      setValue(myModuleName() + \".\" + myPanelName() + \":txtProgress\", \"text\", \"0\");
+      showWaitModule(0);
+
+      enableAdvEngShapes(true);
+      return;
+    }
+    else
+    {
+      enableAdvEngShapes(false);
+      SCLTreeView.clear();
+    }
+  }
+  else
+  {
+    SCLTreeView.clear();
+    enableAdvEngShapes(false);
+    connectedIDPName = \"\";
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectDPMatch(string dpName, dyn_string dpList)
+{
+  addRefCount++;
+  string dpName, dpNameList, prevToolTip;
+
+  if ( addRefCount && addRefCount <= dynlen(treeIDList) )
+  {
+    if ( dynlen(dpList) )
+    {
+      dpNameList = \"\";
+
+      for ( int iLoop = 1; iLoop <= dynlen(dpList); iLoop++ )
+      {
+        strreplace(dpList[iLoop], \":_address\", \"\");
+
+        if ( dpNameList == \"\" )
+          dpNameList = dpList[iLoop];
+        else
+          dpNameList = dpNameList + \"\\n\" +dpList[iLoop];
+      }
+      dpName = dpList[1];
+    }
+    else
+      dpName = ValueEmpty;
+
+    if ( SCLTreeView.itemExists(treeIDList[addRefCount]) )
+    {
+      SCLTreeView.getToolTip(treeIDList[addRefCount], dpeColumn, prevToolTip);
+      SCLTreeView.setText(treeIDList[addRefCount], dpeColumn, dpName);
+
+      if ( prevToolTip != \"\" )
+        prevToolTip = prevToolTip + \"\\n\" + dpNameList;
+      else
+        prevToolTip = dpNameList;
+
+      SCLTreeView.setToolTip(treeIDList[addRefCount], dpeColumn, prevToolTip);
+    }
+  }
+
+  if ( addRefCount >= dynlen(treeIDList) )
+  {
+    dynClear(treeIDList);
+
+    if ( connectedIDPName != \"\" )
+    {
+      dpDisconnect(\"connectDPMatch\", connectedIDPName);
+      connectedIDPName = \"\";
+    }
+
+    addRefCount = 0;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//ETM: scheduled for later --> advanced engineering
+void enableAdvEngShapes(bool bState)
+{
+  setMultiValue(\"btnCreateDP\", \"enabled\", bState,
+                \"btnRemoveAllTags\", \"enabled\", bState,
+                \"btnRemoveSel\", \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(780, 541);
+  dyn_int diBcPos  = makeDynInt( 10,  13);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(330, 330);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 4
+"SCLTreeView"
+""
+1 -54 60.30897703549061 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 SCL tag list
+LANG:10004 12 SCLTag列表
+LANG:10000 12 SCL Tagliste
+LANG:10027 27 список тэгов SCL
+
+6
+"allColumnsShowFocus" "bool TRUE"
+"headerHidden" "bool FALSE"
+"alternatingRowColors" "bool TRUE"
+"itemsExpandable" "bool TRUE"
+"acceptDrops" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10 13 789 553
+10 TreeWidget
+1
+0 "expanded" "(string id)"
+"  int i = 1;
+  shared_ptr<IEC61850TreeElement> elementPtr = nullptr;
+  while (elementPtr == nullptr && i <= dynlen(iec61850TreeObjects))
+  {
+    shared_ptr<IEC61850TreeElement> ldPtr = iec61850TreeObjects[i++];
+    if (ldPtr.getName() == id)
+      elementPtr = ldPtr;
+    else
+      elementPtr = ldPtr.findChildById(id);
+  }
+
+  if (elementPtr != nullptr)
+  {
+    iec61850_sclTreePnl_appendNodeElementOnExpandNew(elementPtr, dsAppendedList);
+  }
+  /*
+
+  dyn_string dsElements = strsplit(id, \"$\");
+  int len = dynlen(dsElements);
+
+  if ( dynContains(dsAppendedList, id) < 1 )
+  {
+    dynAppend(dsAppendedList, id);
+
+    switch (len)
+    {
+      case 1:
+        treeElementsList = ddsLnFcList;
+      break;
+      case 2:
+        treeElementsList = ddsFcDoList;
+      break;
+      default:
+        treeElementsList = ddsDoDaList;
+      break;
+    }
+
+    // Function to append tag elements on expanding Nodes in Tags tree view
+    iec61850_sclTreePnl_appendNodeElementOnExpand(id, txtSCLTreeDevName.text, addedItemDataTypeList, treeElementsList, finalTagsList, dsAppendedList, mandatoryTagsList);
+  }
+  */
+  int idrvNum;
+  dpGet(iec61850_getIedDpName(txtSCLTreeDevName.text) + IEC61850_DPE_IDP_CONFIG_DRVNUM, idrvNum);
+
+  // Update Tree view with DPE information
+  iec61850_Engineering_updateDPE_information(iec61850_getIedDpName(txtSCLTreeDevName.text), addedItemDataTypeList, idrvNum, connectedIDPName, treeIDList );"
+E14 150
+"txtSCLTreeDevName"
+""
+1 160 560.901691331924 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+150 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  tagTreeView_PanelRefresh(newText);
+}
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  158 553 186 581
+3 "0s" 0 0 0 0 0 -1  E E E
+20 152
+"chkSCLProgress"
+""
+1 100 554.6067653276955 E E E 0 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+152 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  98 553 126 581
+1
+T 
+4
+LANG:10001 8 progress
+LANG:10004 8 progress
+LANG:10000 8 progress
+LANG:10027 20 выполнение
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE21 165
+"licenseState"
+""
+1 130 559.8033826638477 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+165 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  128 553 156 581
+0
+
+E
+E
+E
+
+N 0 1 1 0 1 1
+13 166
+"btnCreateDP"
+""
+1 10 579 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+166 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 36 Create DPE for the selected elements
+LANG:10004 24 为所选元素创建DPE
+LANG:10000 42 DPE(s) für selektierte Elemente erstellen
+LANG:10027 63 Создать DPE для выбранных устройств
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  8 553 36 581
+
+T 
+4
+LANG:10001 20 Import selected tags
+LANG:10004 15 导入所选Tag
+LANG:10000 16 Tags importieren
+LANG:10027 35 Импортировать тэги
+"main()
+{
+  // ETM: will be used later
+  /*
+  dyn_string ds, selectedTags;
+  string selectedIED, DeviceName;
+  int idrvNum, iRet;
+  bool DeviceState;
+  dyn_float df;
+  dyn_dyn_string TagsInfoList;
+
+  DeviceName = txtSCLTreeDevName.text;
+  if(DeviceName == \"\")
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DeviceSelect\"));
+    return;
+  }
+
+  selectedIED = iec61850_getIedDpName(DeviceName);
+
+  // Get selected tags in the tree view
+  selectedTags = SCLTreeView.getCheckedItems();
+  if(dynlen(selectedTags) < 1)
+  {
+    if(!iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\",\"ImportMandatory\")))
+      return;
+  }
+
+  dpGet(selectedIED + IEC61850_DPE_IDP_CONFIG_DRVNUM, idrvNum);
+  if(!iec61850_check_runningDriverInstance(idrvNum, 0))
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DrvInstNotRunning\"));
+    return;
+  }
+
+  // Check whether device is connected or not
+  dpGet(selectedIED + IEC61850_DPE_IDP_DEVICE_STATE, DeviceState);
+
+  if(!DeviceState)  // Device state
+  {
+   if(!iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\",\"DeviceNotActiveDP\")))
+     return;
+  }
+
+  //Setting progress bar to true
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+  iec61850_treeView_getSelectedTagsInTreeView( SCLTreeView.getCheckedItems(), finalTagsList, TagsInfoList, mandatoryListWithDatatype, \"SCLTreeView\");
+
+  // Import selected tags
+  iRet = iec61850_Engineering_importSelectedTags(DeviceName, TagsInfoList, dsCDCDOList, DataSetMembersList, idrvNum);
+
+  //Setting progress bar to false
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+
+  if(iRet > 0)
+  {
+    iec61850_Engineering_updateDPE_information(iec61850_getIedDpName(txtSCLTreeDevName.text), addedItemDataTypeList, idrvNum, connectedIDPName, treeIDList );
+    iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\",\"TagsImportingCompleted\"));
+  }
+  else
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"TagsImportFailed\"));
+  }
+  return;
+  */
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 167
+"btnRemoveSel"
+""
+1 382 540 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+167 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Deselect selected elements
+LANG:10004 24 取消选择所选元素
+LANG:10000 28 Gewählte Tags deselektieren
+LANG:10027 66 Снять отметку с выбранных устройств
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  38 553 66 581
+
+T 
+4
+LANG:10001 20 Remove selected tags
+LANG:10004 15 删除所选Tag
+LANG:10000 19 Selektion entfernen
+LANG:10027 33 Удалить выбр. тэги
+"//-------------------------------------------------------------------------------------------------
+// Creator: Ankit Narayan
+// Date:    20-03-2013
+// Version: v1.0
+// Purpose: List the selected tags in the List Widget
+//-------------------------------------------------------------------------------------------------
+
+main()
+{
+  // ETM: will be used later
+  /*
+  dyn_dyn_string TagsInfoList, selectedTagsInfo;
+  dyn_string ds, createdTagsInfoList, selectedTagsInfo, CDCTypeList, tagElements;
+  dyn_float df;
+  int idrvNum;
+  string selectedIED = \"\";
+
+  if(txtSCLTreeDevName.text == \"\")
+    return;
+
+  selectedIED = iec61850_getIedDpName(txtSCLTreeDevName.text);
+
+  dpGet(selectedIED + IEC61850_DPE_IDP_CONFIG_DRVNUM, idrvNum);
+  if(!iec61850_check_runningDriverInstance(idrvNum, 0))
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DrvInstNotRunning\"));
+    return;
+  }
+
+  if(SCLTreeView.getCheckedItems() < 1)//check to show any device selected or not
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"NoTagsSelected\"));
+    return;
+  }
+
+  dpGet(selectedIED + IEC61850_ENGG_DPNAME_PREFIX + IEC61850_ENGG_DPE_CREATED_TAGS, createdTagsInfoList);
+  if(dynlen(createdTagsInfoList) < 1)//check to show no tag imported
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"NoTagsImported\"));
+    return;
+  }
+
+  if(!iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\",\"ToRemoveTags\")))
+    return;
+
+  //Setting progress bar to true
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+  iec61850_treeView_getSelectedTagsInTreeView(SCLTreeView.getCheckedItems(), finalTagsList, TagsInfoList, makeDynString(), \"SCLTreeView\");
+
+  for(int iLoop = 1; iLoop <= dynlen(TagsInfoList); iLoop++)
+  {
+    for(int nLoop = 1; nLoop <= dynlen(createdTagsInfoList); nLoop++)
+    {
+      if(strpos(createdTagsInfoList[nLoop], TagsInfoList[iLoop][1]) >= 0)
+      {
+        tagElements = strsplit(createdTagsInfoList[nLoop], \"|\");
+        if(dpExists(tagElements[3]))
+        {
+          dynAppend(selectedTagsInfo, tagElements[3]);
+          dynAppend(CDCTypeList, tagElements[4]);
+        }
+        dynRemove(createdTagsInfoList, nLoop);
+        nLoop--;
+        break;
+      }
+    }
+  }
+
+  if(iec61850_Engineering_removeSelectedTags(createdTagsInfoList, selectedTagsInfo, CDCTypeList) == 0)
+  {
+    dpSet(selectedIED + IEC61850_ENGG_DPNAME_PREFIX + IEC61850_ENGG_DPE_CREATED_TAGS, createdTagsInfoList);
+    iec61850_Engineering_updateDPE_information( iec61850_getIedDpName(txtSCLTreeDevName.text), addedItemDataTypeList, idrvNum, connectedIDPName, treeIDList );
+
+    iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\",\"TagsDeletionCompleted\"));
+  }
+  //Setting progress bar to false
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+  */
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 168
+"btnRemoveAllTags"
+""
+1 384 540 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+168 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Delete all DPE configured under this device
+LANG:10004 36 删除此设备下配置的所有DPE
+LANG:10000 47 Alle DPE(s) des konfigurierten Geräts löschen
+LANG:10027 68 Удалить все DPE для данного устройства
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  68 553 96 581
+
+T 
+4
+LANG:10001 15 Remove all tags
+LANG:10004 15 删除所有Tag
+LANG:10000 19 Alle Tags entfernen
+LANG:10027 30 Удалить все тэги
+"//-------------------------------------------------------------------------------------------------
+// Creator: Ankit Narayan
+// Date:    20-03-2013
+// Version: v1.0
+// Purpose: Delete DPE information all the selected tags
+//-------------------------------------------------------------------------------------------------
+
+main()
+{
+  // ETM: will be used later
+  /*
+  dyn_dyn_string TagsInfoList, selectedTagsInfo;
+  dyn_string ds, createdTagsInfoList, selectedTagsInfo, CDCTypeList, tagElements;
+  dyn_float df;
+  int idrvNum;
+  string selectedIED = \"\";
+
+  if(txtSCLTreeDevName.text == \"\")
+    return;
+
+  selectedIED = iec61850_getIedDpName(txtSCLTreeDevName.text);
+
+  dpGet(selectedIED + IEC61850_DPE_IDP_CONFIG_DRVNUM, idrvNum);
+  if(!iec61850_check_runningDriverInstance(idrvNum, 0))
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DrvInstNotRunning\"));
+    return;
+  }
+
+  dpGet(selectedIED + IEC61850_ENGG_DPNAME_PREFIX + IEC61850_ENGG_DPE_CREATED_TAGS, createdTagsInfoList);
+  if(dynlen(createdTagsInfoList) < 1)
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"NoTagsImported\"));
+    return;
+  }
+
+  if(!iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\",\"ToRemoveAllTags\")))
+    return;
+
+  //Setting progress bar to true
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+  iec61850_treeView_getSelectedTagsInTreeView(makeDynString(), finalTagsList, TagsInfoList, makeDynString(), \"SCLTreeView\", true);
+
+  for(int iLoop = 1; iLoop <= dynlen(TagsInfoList); iLoop++)
+  {
+    for(int nLoop = 1; nLoop <= dynlen(createdTagsInfoList); nLoop++)
+    {
+      if(strpos(createdTagsInfoList[nLoop], TagsInfoList[iLoop][1]) >= 0)
+      {
+        tagElements = strsplit(createdTagsInfoList[nLoop], \"|\");
+        if(dpExists(tagElements[3]))
+        {
+          dynAppend(selectedTagsInfo, tagElements[3]);
+          dynAppend(CDCTypeList, tagElements[4]);
+        }
+        dynRemove(createdTagsInfoList, nLoop);
+        nLoop--;
+        break;
+      }
+    }
+  }
+
+  if(iec61850_Engineering_removeSelectedTags(createdTagsInfoList, selectedTagsInfo, CDCTypeList) == 0)// Function to remove selected tags
+  {
+    dpSet(selectedIED + IEC61850_ENGG_DPNAME_PREFIX + IEC61850_ENGG_DPE_CREATED_TAGS, createdTagsInfoList);
+    iec61850_Engineering_updateDPE_information( iec61850_getIedDpName(txtSCLTreeDevName.text), addedItemDataTypeList, idrvNum, connectedIDPName, treeIDList );
+    iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\",\"TagsDeletionCompleted\"));
+  }
+  //Setting progress bar to false
+  setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+  */
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+29 169
+"ewoAe"
+""
+1 25 80 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+169 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  10 10 109 109
+19 AttentionEffect.ewo
+0
+E29 170
+"ewoBc"
+""
+1 10 10 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+170 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  10 10 109 109
+19 BackgroundCover.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

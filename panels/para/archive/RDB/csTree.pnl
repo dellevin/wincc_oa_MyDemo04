@@ -1,0 +1,891 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 312 288 N "_3DFace" 1
+"$modus"
+"main()
+{
+  if ($modus == \"display\")
+    txtComprDpe.visible = true;
+}" 0
+ E E E E 1 -1 -1 0  110 80
+""0  1
+E "#uses \"sfp_statfuncpara.ctl\"
+mapping mObjectType; // -> objecttype (sys, dp, node, elem, stat, stat-sw)
+mapping mObjectId;   // -> objectid (sysid, dpid, elementid)
+mapping mActives;    // -> stores the Active-Bits
+mapping mCountNotShownSons; // -> how many compressed DPEs belong to the datapointType
+
+string gCsDptFilter, gCsDpFilter;
+bool fwdElements = true;
+//--------------------------------------------------------------------------------------
+// void setSelection(string sel)
+// {
+//   gSel = sel;
+// }
+//--------------------------------------------------------------------------------------
+// string getSelection()
+// {
+//   return gSel;
+// }
+//--------------------------------------------------------------------------------------
+// void setDptFilter(string filter)
+// {
+//   gCsDptFilter = filter;
+// }
+//--------------------------------------------------------------------------------------
+// void setDpFilter(string filter)
+// {
+//   gCsDpFilter = filter;
+// }
+//--------------------------------------------------------------------------------------
+int getLevel(string id)
+{
+  int level=0;
+  id = tvCompr.parent(id);
+  while (tvCompr.itemExists(id))
+  {
+    level++;
+    id = tvCompr.parent(id);
+  }
+  return level;
+}
+//--------------------------------------------------------------------------------------
+// stores path in reverse order
+dyn_string rememberPath(string id)
+{
+  dyn_string path;
+  if (id != \"\")
+  {
+    int wayup = 1;
+    do {
+      path[wayup]=id;
+      wayup++;
+      id = tvCompr.parent(id);
+    } while (tvCompr.itemExists(id));
+  }  
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"rememberPath\",path);
+  return path;
+}
+//--------------------------------------------------------------------------------------
+string getBaseFromElementId(string elemid)
+{
+  return sf_getBaseFromElementId(elemid);
+}
+//--------------------------------------------------------------------------------------
+string getStepFromElementId(string elemid)
+{
+  return substr(elemid, 0, strlen(elemid)-20);
+}
+//--------------------------------------------------------------------------------------
+string getStatFuncFromDpe(string name)
+{
+  return sf_getStatFuncFromDpe(name);
+}
+//--------------------------------------------------------------------------------------
+bool isValidStatFunc(string detail)
+{
+  return sf_isValidStatFunc(detail);
+}
+//--------------------------------------------------------------------------------------
+bool isMasterDP(string dp)
+{ //name pattern matching - is there \"_mp_*\" or \"*:_mp_*\"?
+  bool bret;
+  int pos = strpos(dp, \"_mp_\");
+  if (pos == 0)                           //_mp at start or ...
+    bret = true;
+  else if (pos > 0 && dp[pos-1] == \":\")   // ... double-point before _mp (e.g when prefixed by system name)
+    bret = true;
+  else
+    bret = false;
+  return bret;
+}
+//--------------------------------------------------------------------------------------
+void refreshTree(string id=\"\")
+{
+  if (id == \"\")
+  {
+    //DebugN(\"1 - fillTreeCompr(0)\");
+    fillTreeCompr(0);
+  }
+  else
+  {
+    dyn_string path = rememberPath(id);
+    int len = dynlen(path)+1;
+    path[len]=\"\"; //empty id for starting with the root which has no parent
+    for (int i=len;i>0;i--)
+    {
+      //Debug(\"2 - \", len-1, path[i], true); 
+      fillTreeCompr(len-i, path[i], true);
+      if (isDbgFlag(\"CS\"))
+        DebugN(\"PATHup\", len-i, path[i], true);
+      if (tvCompr.itemExists(path[i]))      
+        tvCompr.setOpen(path[i], true);
+    }
+    if (tvCompr.itemExists(id))      
+    {
+      tvCompr.setSelectedItem(id);
+      tvCompr.setVisible(id, true);
+    }
+    if (isDbgFlag(\"CS\"))
+      DebugN(\"Mappings\", mObjectType, mObjectId);
+  }
+}
+//--------------------------------------------------------------------------------------
+
+void extractChildNodes(string id =\"\")
+{
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"ExtractNode\", mObjectId[id]);
+  
+  if (id != \"\")
+  {
+    tvCompr.setOpen(id, true);
+    setOpenChilds(id);
+  }
+}
+
+//open all subtrees
+void setOpenChilds(string id)
+{
+  int i = 0;
+  dyn_string childs;
+  childs = tvCompr.children(id);
+  for (i = 1; i <= dynlen(childs); i++)
+  {
+    tvCompr.setOpen(childs[i], true);
+    setOpenChilds(childs[i]);
+  }
+}
+
+void fillTreeCompr(int level, string id=\"\", bool loadchild=true)
+{
+  //DebugN(\"3 - \", level, id, loadchild);   
+  fillTreeCompr2(level, id, loadchild);
+  //DebugTN(\"fillTreeCompr\", level, id, loadchild);
+  //tvCompr.hideColumn(\"1\");
+  //tvCompr.hideColumn(\"2\");
+}
+    
+//--------------------------------------------------------------------------------------
+// level ... tree level, root is 0, next level is 1 ...
+// id    ... unique ID for every tree item
+// loadchild ... flag whether one level of children shall be loaded or not, necessary for the \"+\"-expand symbol
+void fillTreeCompr2(int level, string id=\"\", bool loadchild=true, bool loadOnlyMasterDp=true)
+{
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"fillTreeCompr2(\"+level+\",\"+id+\",\"+loadchild+\")\");
+  //column 0 -> short name
+  //id -> long name including system
+  //column 1 -> objecttype (sys, dp, node, elem, stat, stat-sw)
+  //column 2 -> objectid (sysid, dpid, elementid)
+  string newid, newname;
+  dyn_string ids, names;
+  int err, i, j;
+  if (level == 0)
+  { // system, id ignored, always placed at root
+    //DebugN(\"4 - \", \"level 0\");    
+    tvCompr.clear();
+    newid = getSystemName(); // name is also used for object_id
+    //DebugN(\"fill\"+level,newid);
+    tvCompr.appendItem(\"\", newid, newid);
+    if (isDbgFlag(\"CS\"))    
+      DebugN(\"  appendItem \"+newid);
+    tvCompr.setIcon(newid, 0, \"dptree/system.png\");
+    //tvCompr.setText(newid, 1, \"sys\");
+    //tvCompr.setText(newid, 2, getSystemId());
+    mObjectType[newid] = \"sys\";
+    mObjectId[newid] = getSystemId();
+    fillTreeCompr2(1, newid, false); //load also children
+  }
+  else if (level == 1)
+  { // datapoint types, id may be \"\" -> type as root
+    if (id == \"\")
+    {
+      tvCompr.clear();
+      loadchild = false;
+    }
+    //err = getCompressedDPTs(getSystemName(), ids, names, gCsDptFilter);
+    //DebugN(\"5 - \", \"level 1, DPTs\");      
+    err = getCompressedDPTs(getSystemName(), ids, names);
+    //DebugN(\"DPTs\",names, ids);
+    bool enough = false;
+    for (i = 1; i<=dynlen(names) && !enough; i++)
+    {
+      newid = names[i];       // name is also used for object_id
+      //DebugN(\"fill\"+level,newid);
+      if (!tvCompr.itemExists(newid))
+      {
+        tvCompr.appendItem(id, newid, newid);
+        if (isDbgFlag(\"CS\"))    
+          DebugN(\"  appendItem \"+newid, \"Super: \"+id);
+        tvCompr.setIcon(newid, 0, \"dptree/dptype.png\");
+        //tvCompr.setText(newid, 1, \"dpt\");
+        //tvCompr.setText(newid, 2, ids[i]);
+        mObjectType[newid] = \"dpt\";
+        mObjectId[newid] = ids[i];
+        enough = !loadchild;
+      }
+      if (loadchild)
+        fillTreeCompr2(level+1, newid, false);
+    }
+  }
+  else if (level == 2)
+  { // datapoints
+    if (id != \"\") //id from type
+    {
+      //DebugN(\"6 - \", \"level 2, DPs\", id, loadchild); 
+      err = getCompressedDPs(id, ids, names, gCsDpFilter); // id contains the parent id -> name of type
+      //DebugN(ids, names); 
+
+      int masterDpFoundPos = 0;
+      if (loadOnlyMasterDp)
+      {
+        mCountNotShownSons[id] = dynlen(names);
+        for (i = 1; i<=dynlen(names) && masterDpFoundPos == 0; i++)
+        {
+          if (strpos(names[i], \":_mp_\", 0) > 0)
+          {
+            masterDpFoundPos = i; 
+            newid = names[i];       // name is also used for object_id
+            //DebugN(\"fill\"+level,newid);
+            if (!tvCompr.itemExists(newid))
+            {
+              newname = dpSubStr(names[i], DPSUB_DP);
+              tvCompr.appendItem(id, newid, newname);
+              if (isDbgFlag(\"CS\"))    
+                DebugN(\"  appendItem \"+newid, \"Super: \"+id, newname);
+              tvCompr.setIcon(newid, 0, \"dptree/dp.png\");
+              //tvCompr.setText(newid, 1, \"dp\"); // object type
+              //tvCompr.setText(newid, 2, ids[i]);
+              mObjectType[newid] = \"dp\";
+              mObjectId[newid] = ids[i];
+            }
+            if (loadchild)
+              fillTreeCompr2(level+1, newid, false);
+          }
+        }      
+      }
+        //err = getCompressedDPs(id, ids, names); // id contains the parent id -> name of type
+      //DebugN(\"DPs\",names,ids);
+      //DebugN(dynlen(names));
+     /* if (!loadOnlyMasterDp && dynlen(names) > 1000) 
+      { 
+        dyn_string ds;
+        dyn_int    df;
+        ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", 
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"RDBArchive\",\"sureLoadAll\"),getCatStr(\"para\",\"OK\"),getCatStr(\"para\",\"cancel\")),
+        df,ds);
+  
+        if (ds[1] != \"true\")
+          return;
+      }*/
+      bool enough = false;
+      for (i = 1; i<=dynlen(names) && !enough && masterDpFoundPos == 0; i++)
+      {
+        mCountNotShownSons[id] = 0;
+        newid = names[i];       // name is also used for object_id
+        //DebugN(\"fill\"+level,newid);
+        if (!tvCompr.itemExists(newid))
+        {
+          newname = dpSubStr(names[i], DPSUB_DP);
+          tvCompr.appendItem(id, newid, newname);
+          if (isDbgFlag(\"CS\"))    
+            DebugN(\"  appendItem \"+newid, \"Super: \"+id, newname);
+          tvCompr.setIcon(newid, 0, \"dptree/dp.png\");
+          //tvCompr.setText(newid, 1, \"dp\"); // object type
+          //tvCompr.setText(newid, 2, ids[i]);
+          mObjectType[newid] = \"dp\";
+          mObjectId[newid] = ids[i];
+          enough = !loadchild;
+        }
+        if (loadchild)
+          fillTreeCompr2(level+1, newid, false);
+      }
+    }
+  }
+  else if (level == 3) // datapoint elements (and through them also statistical function elements - loads everything till the end)
+  {
+    string dp = id;  //object id
+    string parenttype = mObjectType[dp];//tvCompr.getText(dp, 1);  //object type of parent
+    //DebugN(parenttype);
+    if (parenttype == \"dp\") // add element under datapoint
+    {
+      string dpelementid;
+      dyn_string elids, elnames;
+      string parentid, nodeid;
+      bool enough = false;
+
+      //DebugN(\"7 - \", \"level 3, childs for dp\"); 
+      err = getCompressedElementsForDp(dp, elids, elnames);
+      //DebugN(\"DPEs\",dp,elids,elnames);
+      for (i = 1; i<=dynlen(elnames) && !enough; i++)
+      {
+        string dpelem = dpSubStr(elnames[i], DPSUB_SYS_DP_EL); // without (pseudo) config (for stat. func.)
+        newid = dpelem;
+        string statfunc = getStatFuncFromDpe(elnames[i]);
+        //DebugN(\"fill\"+level,newid);
+        //if (!tvCompr.itemExists(newid))
+        {
+          dpelementid = getBaseFromElementId(elids[i]);
+          dyn_string hierdpe = strsplit(newid, \".\");
+          if (dynlen(hierdpe) <= 0)
+            DebugN(\"Could not split: \"+newid);
+          else
+          {
+            parentid = dp;
+            //DebugN(\"hier\",hierdpe, newid, statfunc);
+            //skip first element of hierdpe as it is the dp itself
+            nodeid = hierdpe[1];
+            for (j = 2; j<dynlen(hierdpe) && !enough; j++)
+            {
+              nodeid += \".\"+hierdpe[j];
+              if (!tvCompr.itemExists(nodeid))
+              {
+                tvCompr.appendItem(parentid, nodeid, hierdpe[j]);
+                if (isDbgFlag(\"CS\"))    
+                  DebugN(\"  appendItem \"+nodeid, \"Super: \"+parentid, j, hierdpe[j], loadchild);
+                tvCompr.setIcon(nodeid, 0, \"dptree/dpstruct.png\"); 
+                //tvCompr.setText(nodeid, 1, \"node\");
+                mObjectType[nodeid] = \"node\";
+                mObjectId[nodeid] = 0;
+                enough = !loadchild;  //for indicating the plus it is enough to load only one item
+              }
+              parentid = nodeid;
+            }
+            if (!tvCompr.itemExists(newid))
+            {
+              tvCompr.appendItem(parentid, newid, hierdpe[dynlen(hierdpe)] + \":_offline.._value\");
+              if (isDbgFlag(\"CS\"))    
+                DebugN(\"  appendItem \"+newid, \"Super: \"+parentid, hierdpe[dynlen(hierdpe)]);
+              //tvCompr.setIcon(newid, 0, \"dptree/....png\"); // do not know datatype of dp-element - would need case statement to match type to picture file
+              //tvCompr.setText(newid, 1, \"elem\");
+              //tvCompr.setText(newid, 2, dpelementid);
+              mObjectType[newid] = \"elem\";
+              mObjectId[newid] = dpelementid;
+            }
+          } //dynlen(hierdpe)
+        }
+        //if (loadchild)
+        //  fillTreeCompr2(level+1, newid, false); -> not necessary, already everything loaded
+      
+        //statistical functions' part
+        if (isValidStatFunc(statfunc) && loadchild)
+        {
+          dyn_string lStatIds, lStatNames, lSuperIds, lSuperNames;
+          dyn_bit32 lActives;
+          //dyn_bit32 lActives;
+          //DebugN(\"8 - \", \"getCompressionCalculationsTree\");
+          dpelementid = getBaseFromElementId(elids[i]);
+          int lRet = getCompressionCalculationsTree(dpelem, lStatIds, lStatNames, lSuperIds, lSuperNames, lActives);
+          //int lRet = getCompressionCalculationsTree(dpelementid, lStatIds, lStatNames, lSuperIds, lSuperNames);
+          //DebugN(\"getCompressionCalculationsTree\", dpelementid, lStatIds, lStatNames, lSuperIds, lSuperNames);
+          
+          for(j=1;j<=dynlen(lStatIds);j++)
+          {
+            if (!tvCompr.itemExists(lStatNames[j]))
+            {
+              bool isTop = (dpelementid == lSuperIds[j]);
+              if (isTop)
+              {
+                tvCompr.appendItem(newid, lStatNames[j], getStatFuncFromDpe(lStatNames[j]));
+                if (isDbgFlag(\"CS\"))
+                  DebugN(\"  appendItem \"+newid, \"Super: \"+lStatNames[j], getStatFuncFromDpe(lStatNames[j]));
+              }
+              else
+              {
+                tvCompr.appendItem(lSuperNames[j], lStatNames[j], getStatFuncFromDpe(lStatNames[j]));
+                if (isDbgFlag(\"CS\"))
+                  DebugN(\"  appendItem \"+lSuperNames[j], \"Super: \"+lStatNames[j], getStatFuncFromDpe(lStatNames[j]));
+              }
+
+              if (lActives[j] >= 7)
+              {
+                tvCompr.setIcon(lStatNames[j], 0, \"dptree/statistics-16x16.png\");
+                //tvCompr.setText(lStatNames[j], 1, \"stat\");
+                mObjectType[lStatNames[j]] = \"stat\";
+              }
+              else
+              {
+                tvCompr.setIcon(lStatNames[j], 0, \"dptree/statistics-16x16-sw.png\");
+                //tvCompr.setText(lStatNames[j], 1, \"stat-sw\");
+                mObjectType[lStatNames[j]] = \"stat-sw\";
+              }
+              mActives[lStatNames[j]] = lActives[j];
+              //tvCompr.setText(lStatNames[j], 2, lStatIds[j]);
+              mObjectId[lStatNames[j]] = lStatIds[j];
+            }
+          }
+        }
+      }
+    }
+  }
+}
+//--------------------------------------------------------------------------------------
+void mpMassPara(string mpId)
+{ //finds type for the passed master-datapoint and copies the compressions from it to all other datapoints of the type
+  int ret = startCompressionMassPara(mpId);
+  if (isDbgFlag(\"CS\"))    
+    DebugN(\" MASTER \", mpId, ret);
+}
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 8
+"tvCompr"
+""
+1 5 5.000000000000032 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"allColumnsShowFocus" "bool TRUE"
+"resizeMode" "enum 0"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  5 5 305 255
+10 TreeWidget
+6
+0 "clicked" "(string id, int column)"
+"  if (isDbgFlag(\"CS\"))
+    DebugN(\"clicked\", id, column);"
+0 "expanded" "(string id)"
+"  int level = getLevel(id);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"expanded\", id, \"Level: \"+level);
+  fillTreeCompr(level+1, id);"
+0 "collapsed" "(string id)"
+"  if (isDbgFlag(\"CS\"))
+    DebugN(\"collapsed\",id);"
+0 "selectionChanged" "(string id)"
+"  string sel;
+  int level = getLevel(id); 
+  if (level > 2)
+    //sel = dpSubStr(id,DPSUB_DP_EL_CONF_DET_ATT);
+    sel = id;
+  else
+    sel = \"\";
+  if ($modus == \"display\")
+    sel = sf_convert2QueryFormat(sel);
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"selectionChanged\",id,level,sel);
+  txtComprDpe.text = sel;"
+0 "rightClicked" "(string id, int column)"
+"  if (isDbgFlag(\"CS\"))
+    DebugN(\"rightClicked\", id, column, $modus);
+
+  if ($modus == \"param\")
+  {
+    // prepare menu
+    int k, answer, err, ret;
+    dyn_string ds;
+    dyn_float df;
+    //Level 0 -> System -> new DPE, refresh (always)
+    //Level 1 -> Type -> new DPE, refresh
+    //Level 2+ -> DP-Element -> new, new DPE, refresh
+    //Level 3+ -> Stat-Element -> new, new DPE, delete, refresh
+  
+    string dpe, stat;
+    bool isDirect = useQueryRDBDirect();
+    char newOK = isDirect ? '1' : '0';
+    
+    const int CS_M_NEW = 1, CS_M_ACTIVATE = 2, CS_M_DEACTIVATE = 3, CS_M_DELETE = 4, CS_M_NEWDPE = 5, CS_M_REFRESH = 6, CS_M_TAKEOVER = 7, 
+              CS_M_INFO_ACTIVE_CALC = 8, CS_M_INFO_ACTIVE_STEP = 9, CS_M_INFO_ACTIVE_INTERVAL = 10, CS_M_EXTRACT = 11, CS_M_EXTRACT_MP_NODES = 12;
+    string lMenuNew        = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuNew\")              +\",\"+CS_M_NEW+\",       <active>\";
+    string lMenuActivate   = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuActivate\")         +\",\"+CS_M_ACTIVATE+\",  <active>\";
+    string lMenuDeactivate = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuDeactivate\")       +\",\"+CS_M_DEACTIVATE+\",<active>\";
+    string lMenuDelete     = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuDelete\")           +\",\"+CS_M_DELETE+\",    <active>\";
+    string lMenuExtract    = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuExtract\")          +\",\"+CS_M_EXTRACT+\",   <active>\";
+    string lMenuExtractMP  = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuExtractMpNodes\")   +\",\"+CS_M_EXTRACT_MP_NODES+\",   <active>\";
+    string lSeparator      = \"SEPARATOR\";
+    string lMenuNewDPE     = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuNewDPE\")    +\",\"+CS_M_NEWDPE+\",\" +   newOK;
+    string lMenuRefresh    = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuRefresh\")   +\",\"+CS_M_REFRESH+\",   1\";
+    string lMenuTakeover   = \"PUSH_BUTTON,\"+getCatStr(\"RDBArchive\",\"csMenuTakeover\")  +\",\"+CS_M_TAKEOVER+\",  <active>\";
+    string lMenuActiveInfoCalc = \"PUSH_BUTTON,\"+ \"<Text_Active>\"  +                    \",\"+CS_M_INFO_ACTIVE_CALC+\",  0\";
+    string lMenuActiveInfoStep = \"PUSH_BUTTON,\"+ \"<Text_Active>\"  +                    \",\"+CS_M_INFO_ACTIVE_STEP+\",  0\";
+    string lMenuActiveInfoInterval = \"PUSH_BUTTON,\"+ \"<Text_Active>\"  +                \",\"+CS_M_INFO_ACTIVE_INTERVAL+\",  0\";
+
+    // choose menu
+    if (id != \"\")
+    {
+      string nodetype = mObjectType[id];//tvCompr.getText(id, 1);
+        
+      if (nodetype == \"dp\")
+      {
+        strreplace(lMenuNew, \"<active>\", 0);
+        strreplace(lMenuDelete, \"<active>\", 0);
+        strreplace(lMenuTakeover, \"<active>\", isMasterDP(id) ? '1' : '0');
+        popupMenu(makeDynString(lMenuNew, lMenuDelete, lSeparator, lMenuNewDPE, lMenuRefresh, lSeparator, lMenuTakeover),
+                  answer);
+        dpe = id;
+      }
+      else if (nodetype == \"elem\" || nodetype == \"node\")
+      {
+        strreplace(lMenuNew, \"<active>\", newOK);
+        strreplace(lMenuDelete, \"<active>\", 0);
+        //strreplace(lMenuTakeover, \"<active>\", isMasterDP(id) ? '1' : '0');
+        //popupMenu(makeDynString(lMenuNew, lMenuDelete, lSeparator, lMenuNewDPE, lMenuRefresh, lSeparator, lMenuTakeover),
+        popupMenu(makeDynString(lMenuNew, lMenuDelete, lMenuExtract, lSeparator, lMenuNewDPE, lMenuRefresh),
+                  answer);
+        dpe = id;
+      }
+      else if (nodetype == \"stat\" || nodetype == \"stat-sw\")
+      {
+        //calculation active-info          
+        if (mActives[id][0])
+          strreplace(lMenuActiveInfoCalc, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csCalculationActive\"));
+        else
+          strreplace(lMenuActiveInfoCalc, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csCalculationInActive\"));
+                      
+        //step active-info
+        if (mActives[id][1])
+          strreplace(lMenuActiveInfoStep, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csStepActive\"));
+        else
+          strreplace(lMenuActiveInfoStep, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csStepInActive\"));
+          
+        //interval active-info
+        if (mActives[id][2])
+          strreplace(lMenuActiveInfoInterval, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csIntervalActive\"));
+        else
+          strreplace(lMenuActiveInfoInterval, \"<Text_Active>\", getCatStr(\"RDBArchive\",\"csIntervalInActive\"));
+        
+        
+        strreplace(lMenuNew, \"<active>\", newOK);
+        //if (nodetype == \"stat\")
+        if (mActives[id][0])
+        {
+          strreplace(lMenuDelete, \"<active>\", 0); // do not delete active calculations
+          strreplace(lMenuDeactivate, \"<active>\", newOK);
+          popupMenu(makeDynString(lMenuNew, lMenuDeactivate, lMenuDelete, lMenuExtract, lSeparator, lMenuNewDPE, lMenuRefresh, 
+                                  lSeparator, lMenuActiveInfoCalc, lMenuActiveInfoStep, lMenuActiveInfoInterval),
+                    answer);
+        }
+        else
+        {
+          strreplace(lMenuDelete, \"<active>\", newOK);
+          popupMenu(makeDynString(lMenuNew, lMenuActivate, lMenuDelete, lMenuExtract, lSeparator, lMenuNewDPE, lMenuRefresh, 
+                                  lSeparator, lMenuActiveInfoCalc, lMenuActiveInfoStep, lMenuActiveInfoInterval),
+                    answer);
+        }   
+
+        stat = id;
+        dpe = dpSubStr(id, DPSUB_SYS_DP_EL);
+      }
+      else if (nodetype == \"dpt\")
+          
+      {
+        //DebugN(mCountNotShownSons[id], id);
+        strreplace(lMenuNew, \"<active>\", 0);
+        strreplace(lMenuDelete, \"<active>\", 0);
+        strreplace(lMenuExtractMP, \"<active>\", mCountNotShownSons[id] == \"0\" ? 0 : 1);
+        strreplace(lMenuExtractMP, \"%1\", mCountNotShownSons[id]);
+        popupMenu(makeDynString(lMenuNew, lMenuDelete, lSeparator, lMenuNewDPE, lMenuRefresh, lMenuExtractMP),
+                  answer);
+      }
+      else 
+          
+      {
+        strreplace(lMenuNew, \"<active>\", 0);
+        strreplace(lMenuDelete, \"<active>\", 0);
+        popupMenu(makeDynString(lMenuNew, lMenuDelete, lSeparator, lMenuNewDPE, lMenuRefresh),
+                  answer);
+      }
+      if (isDbgFlag(\"CS\"))
+          DebugN(\"rightClicked-Node: \"+nodetype, \"direct: \"+isDirect, \"Statistic: \"+stat, \"DPE: \"+dpe, \"ID: \"+id, \"Answer is \"+answer);
+    }
+    else // click in empty area
+    {
+      popupMenu(makeDynString(lMenuNewDPE, lMenuRefresh), answer);
+    }
+      
+    // action
+    if (answer == CS_M_NEW || answer == CS_M_NEWDPE)
+    {
+      if (answer == CS_M_NEWDPE)  // new dpe over DP Selector
+      {
+        err = dpSelector(dpe, false);
+        string suffix = getStatFuncFromDpe(dpe);
+        if (suffix != \"\")
+          stat = dpe;
+        dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+        if (isDbgFlag(\"CS\"))
+          DebugN(\"rightClicked-DpSelector\", \"Statistic: \"+stat, \"DPE: \"+dpe, suffix);
+      }
+      else if (getLevel(dpe) == 2 && strpos(dpe, \".\") < 0)
+        dpe += \".\";  // Punkt dazugeben, wenn DP keine Strutur hat
+
+      if (dpe != \"\")
+      {
+        if (fwdElements)          
+        {
+          // if dbHost2 is configured, forward the configuration to the other database beofore creating calculations
+          // if the elements are not forwarded before creating the cscalculations the cscalculation can't be created
+          string dbHosts, dbHost1, dbHost2, sSql;
+          int pos;
+          dpGet(\"_RDBArchive.db.host:_original.._value\",dbHosts); 
+  
+          strreplace(dbHosts, \" \", \"\");
+          pos = strpos(dbHosts, \",\", 0);
+          if (pos > 0)
+          {
+            dbHost1 = substr(dbHosts, 0, pos);
+            dbHost2 = substr(dbHosts, pos + 1, strlen(dbHosts)- (pos+1));
+    
+            setUseOnlyThisDbName(dbHost1);
+            int    ret;
+            // cleaning everything done and older than 60 minutes and forwarding of configuration data
+            sSql = \"begin\" +
+                   \"  ArcUtils.setRunningJobNr('MANUAL');\" +
+                   \"  syncForwardLink.cleanQueue;\" +
+                   \"  syncForwardLink.fwdElements;\" +
+                   \"end;\";
+            //if (isDbgFlag(DBGFLAG_IMPEXP))
+            //  DebugN(sSql);
+            ret = runRealSQL(sSql);
+            DebugN(\"forwarding elements from dbHost1 to dbHost2, before creating Compression, ret: \", ret);
+            
+            setUseOnlyThisDbName(dbHost2);
+            int    ret;
+            // cleaning everything done and older than 60 minutes and forwarding of configuration data
+            sSql = \"begin\" +
+                   \"  ArcUtils.setRunningJobNr('MANUAL');\" +
+                   \"  syncForwardLink.cleanQueue;\" +
+                   \"  syncForwardLink.fwdElements;\" +
+                   \"end;\";
+            //if (isDbgFlag(DBGFLAG_IMPEXP))
+            //  DebugN(sSql);
+            ret = runRealSQL(sSql);
+            DebugN(\"forwarding elements from dbHost2 to dbHost1, before creating Compression, ret: \", ret);
+          }
+          fwdElements = false;
+          setUseOnlyThisDbName(usedDBName);
+        }
+
+        ChildPanelOnCentralModalReturn(\"para/archive/RDB/csCreateCalculation.pnl\", 
+                                     getCatStr(\"RDBArchive\",\"csCreateCalculation\"), 
+                                     makeDynString(\"$DPE:\"+dpe, \"$STEP:\"+stat), df, ds);
+        if (dynlen(ds) == 1 && ds[1] == \"OK\")
+          refreshTree(id);
+        if (isDbgFlag(\"CS\"))
+          DebugN(\"rightClicked-Ausgabe der Rückgabewerte vom Childpanel\", df, ds, \"Statistic: \"+stat, \"DPE: \"+dpe, err);
+      }
+    }
+    else if (answer == CS_M_DELETE)
+    {
+      string elemid = mObjectId[id];//tvCompr.getText(id, 2);
+      string stepid = getStepFromElementId(elemid);
+      ret = delCompressionCalculation(elemid, stepid);
+      if (isDbgFlag(\"CS\"))
+        DebugN(\"rightClicked-delCompressionCalculation\", ret, elemid, stepid);
+
+      if (ret>0)
+      {
+        ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\",
+                                 makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteCalcSuccess\")));
+        tvCompr.removeItem(id);
+      }
+      else if (ret==0)
+      {
+        ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\",
+                                 makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteCalcNotFound\")));
+        tvCompr.removeItem(id);
+      }
+      else if (ret==-5)
+      {
+        ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\",
+                                 makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteCalcChildFound\")));
+      }
+      else
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+                                 makeDynString(getCatStr(\"RDBArchive\", \"csOutcomeDeleteCalcFailure\")));
+      }
+    }
+    else if (answer == CS_M_REFRESH)
+    {
+      if (id != \"\")
+        refreshTree(id);
+      else
+        fillTreeCompr(0);
+    }
+    else if (answer == CS_M_ACTIVATE)
+    {
+      string elemid = mObjectId[id];//tvCompr.getText(id, 2);
+      if (isDbgFlag(\"CS\"))
+        DebugN(\"Activate\", id, elemid);
+      int ret = setCompressionCalculationState(elemid, TRUE); 
+      if (ret == 1)
+      {
+        //tvCompr.setIcon(id, 0, \"dptree/statistics-16x16.png\");
+        //tvCompr.setText(id, 1, \"stat\");
+        //mObjectType[id]=\"stat\";
+        //refresh(); //either refresh or manual set-functions
+        //mActives[id][0] = 1;
+        refreshTree(id);
+      }
+    }
+    else if (answer == CS_M_DEACTIVATE)
+    {
+      string elemid = mObjectId[id];//tvCompr.getText(id, 2);
+      if (isDbgFlag(\"CS\"))
+        DebugN(\"Deactivate\", id, elemid);
+      int ret = setCompressionCalculationState(elemid, FALSE); 
+      if (ret == 1)
+      {
+        //DebugN(\"XXXX\",id, 0, \"dptree/statistics-16x16-sw.png\");
+        //tvCompr.setIcon(id, 0, \"dptree/statistics-16x16-sw.png\");
+        //tvCompr.setText(id, 1, \"stat-sw\");
+        //mObjectType[id]=\"stat-sw\";
+        //refresh(); //either refresh or setting manually
+        //mActives[id][0] = 0;        
+        refreshTree(id);
+      }
+    }
+    else if (answer == CS_M_EXTRACT)
+    {
+      extractChildNodes(id);
+    }    
+    else if (answer == CS_M_TAKEOVER)
+    {
+      mpMassPara(id);
+      refreshTree(id);
+    }
+    else if (answer == CS_M_EXTRACT_MP_NODES)
+    {
+      fillTreeCompr2(2, id, true, false);
+    }
+  }"
+0 "doubleClicked" "(string id, int column)"
+"  if (isDbgFlag(\"CS\"))
+    DebugN(\"doubleClicked\", id, column, \"Level: \"+getLevel(id));"
+"main()
+{
+  if (isDbgFlag(\"CS\"))
+    DebugN(\"Initialize tvCompr\");
+  tvCompr.addColumn(\"name\"); 
+  tvCompr.showHeader(false);
+  fillTreeCompr(0);
+  tvCompr.setColumnWidthMode(0, TREE_WIDTH_MAXIMUM);
+}" 0
+14 9
+"txtComprDpe"
+""
+1 5 260 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  3 258 307 285
+3 "0s" 0 0 0 0 0 -1  E E E
+14 11
+"cmbRefreshTree"
+""
+1 20 240 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  refreshTree(txtComprDpe.text);
+}"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  18 238 32 252
+3 "0s" 0 0 0 0 0 -1  E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

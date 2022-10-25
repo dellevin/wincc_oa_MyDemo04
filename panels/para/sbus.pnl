@@ -1,0 +1,1689 @@
+V 13
+4
+LANG:10001 21 SBUS parameterization
+LANG:10004 16 SBUS参数配置
+LANG:10000 19 SBUS-Parametrierung
+LANG:10027 37 Параметрирование SBUS
+PANEL,-1 -1 554 475 N "_3DFace" 0
+"main()
+{
+  int        i;
+  string     sOldPlc = \"\", sOldPlc2 = \"\", sPlc = \"\", sPlc2 = \"\";
+  dyn_string dsPlc, ds;
+  
+  dsPlc = dpNames(getSystemName()+\"*\",\"_SBusDevice\");     // get list of PLCs from IDP \"_SBusDevice\" - with redu dps
+
+  // remove redu dps from list of PLCs
+  for ( i = dynlen(dsPlc); i > 0; i-- )
+  {
+    ds = strsplit(dsPlc[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsPlc,i);
+      continue;
+    }
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+    
+    if ( strpos(dsPlc[i], \"_\", 0) != -1 )
+      dsPlc[i] = strltrim(dsPlc[i], \"_\");
+  }
+
+  if ( dynlen(dsPlc) < 1 )
+  {
+    sbusShapesEnabled(FALSE);
+    cmbPlc.text = \"\";
+    return;
+  }
+  else
+    sPlc = dsPlc[1];
+
+  cmbPlc.items = dsPlc;
+  cmbPlc.text  = sPlc;
+
+  while ( true )
+  {
+    sPlc = cmbPlc.text;
+    if ( sPlc != \"\" ) sPlc = \"_\" + sPlc;
+    
+    if ( sPlc != sOldPlc )
+    {
+      if ( sOldPlc != \"\" && dpExists(sOldPlc) )
+      {
+        dpDisconnect( \"sbusWork\",
+                      sOldPlc + \".State.Connected:_online.._value\",
+                      sOldPlc + \".State.PCDStatus:_online.._value\",
+                      sOldPlc + \".State.Firmware:_online.._value\");
+      }
+      if ( sPlc != \"\" || sPlc != \"_\" && dpExists(sPlc) )
+      {
+        dpConnect( \"sbusWork\",
+                   sPlc + \".State.Connected:_online.._value\",
+                   sPlc + \".State.PCDStatus:_online.._value\",
+                   sPlc + \".State.Firmware:_online.._value\");
+        readDpWritePanel(sPlc);
+      }
+      sOldPlc = sPlc;
+    }
+    
+    if ( isRedundant() )
+    {
+      frState2.enabled = true;
+      txtConnected2.enabled = true;
+      txtPCDStatus2.enabled = true;
+      txtFirmware2.enabled = true;
+      
+      sPlc2 = cmbPlc.text + \"_2\";
+      if ( sPlc2 != \"_2\" ) sPlc2 = \"_\" + sPlc2;
+      
+      if ( sPlc2 != sOldPlc2 )
+      {
+        if ( sOldPlc2 != \"\" && dpExists(sOldPlc2) )
+        {
+          dpDisconnect( \"sbusWork2\",
+                        sOldPlc2 + \".State.Connected:_online.._value\",
+                        sOldPlc2 + \".State.PCDStatus:_online.._value\",
+                        sOldPlc2 + \".State.Firmware:_online.._value\");
+        }
+        if ( sPlc2 != \"_2\" || sPlc2 != \"__2\" )
+        {
+          dpConnect( \"sbusWork2\",
+                     sPlc2 + \".State.Connected:_online.._value\",
+                     sPlc2 + \".State.PCDStatus:_online.._value\",
+                     sPlc2 + \".State.Firmware:_online.._value\");
+          readDpWritePanel2(sPlc2);
+        }
+        sOldPlc2 = sPlc2;    
+      }
+    }
+    else
+    {
+      frState2.enabled = false;
+      txtConnected2.enabled = false;
+      txtPCDStatus2.enabled = false;
+      txtFirmware2.enabled = false;
+    }
+    delay(0,501);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+sbusWork( string dp1, bool bConnected,
+          string dp2, char cPCDStatus,
+          string dp3, string sFirmware)
+{
+  tfConnected.text = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected);
+  tfPCDStatus.text = cPCDStatus;
+  tfFirmware.text  = sFirmware;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+sbusWork2( string dp1, bool bConnected2,
+           string dp2, char cPCDStatus2,
+           string dp3, string sFirmware2)
+{
+  tfConnected2.text = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected2);
+  tfPCDStatus2.text = cPCDStatus2;
+  tfFirmware2.text  = sFirmware2;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "sbusCreateNewDp(string dp)
+{
+  dpCreate(dp, \"_SBusDevice\");
+  dpSet( dp + \".Config.Host:_original.._value\",     \"\",
+         dp + \".Config.Port:_original.._value\",     5050,
+         dp + \".Config.Station:_original.._value\",  0,
+         dp + \".Config.CPU:_original.._value\",      0,
+         dp + \".Config.Timeout:_original.._value\",  5000,
+         dp + \".Config.Active:_original.._value\",   false,
+         dp + \".State.Connected:_original.._value\", false, // .State values from driver
+         dp + \".State.PCDStatus:_original.._value\", \"\",
+         dp + \".State.Firmware:_original.._value\",  \"\",
+         dp + \".Command.GQ:_original.._value\",      0);
+  
+  // create redundant dp
+  dpCreate(dp + \"_2\", \"_SBusDevice\");
+  dpSet( dp + \"_2.Config.Host:_original.._value\",     \"\",
+         dp + \"_2.Config.Port:_original.._value\",     5050,
+         dp + \"_2.Config.Station:_original.._value\",  0,
+         dp + \"_2.Config.CPU:_original.._value\",      0,
+         dp + \"_2.Config.Timeout:_original.._value\",  5000,
+         dp + \"_2.Config.Active:_original.._value\",   false,
+         dp + \"_2.State.Connected:_original.._value\", false,
+         dp + \"_2.State.PCDStatus:_original.._value\", \"\",
+         dp + \"_2.State.Firmware:_original.._value\",  \"\",
+         dp + \"_2.Command.GQ:_original.._value\",      0);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+void sbusSetDp()
+{
+  string sHost=\"\", sUsedHost; 
+  int    iPort=0, iStation=0, iCPU=0, iTimeout=0, iContains;
+  bool   bActive=false, bUsedHost=false;
+  
+  string     sDp, sDp2;
+  dyn_string dsPlc = cmbPlc.items, ds, dsRemoveCurrent;
+  
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+  sDp = \"_\" + cmbPlc.text;
+  sDp2 = sDp+\"_2\";
+  
+  if ( sDp == \"\" ) return;  
+  
+  if ( !dpExists(sDp) )
+  {
+    dpCreate(sDp, \"_SBusDevice\");
+    
+    if ( !dpExists(sDp2) )
+      dpCreate(sDp2, \"_SBusDevice\");
+  }
+  
+  sHost    = tfHost.text;
+  iPort    = spbPort.text;
+  iStation = tfStation.text;
+  iCPU     = tfCPU.text;
+  iTimeout = spbTimeout.text;
+  bActive  = chkActive.state(0);
+  
+  for ( int i = 1; i <= dynlen(dsPlc); i++ )
+    dsPlc[i] = \"_\" + dsPlc[i];
+  
+  dsRemoveCurrent = dsPlc;
+  iContains = dynContains(dsRemoveCurrent, sDp);
+
+  if ( iContains != 0 )
+    dynRemove(dsRemoveCurrent, iContains);
+  
+  for ( int i = 1; i <= dynlen(dsRemoveCurrent); i++ )
+  {
+    dpGet(dsRemoveCurrent[i]+\".Config.Host:_online.._value\", sUsedHost);
+    if ( sUsedHost == sHost )
+      bUsedHost = true;
+  }
+  
+  if ( bUsedHost )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", 
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"usedHost\")));
+    return;
+  }
+  
+  dpSet( sDp + \".Config.Host:_original.._value\",    sHost,
+         sDp + \".Config.Port:_original.._value\",    iPort,
+         sDp + \".Config.Station:_original.._value\", iStation,
+         sDp + \".Config.CPU:_original.._value\",     iCPU,
+         sDp + \".Config.Timeout:_original.._value\", iTimeout,
+         sDp + \".Config.Active:_original.._value\",  bActive);
+  
+  // remove redu dps from list of PLCs
+  for ( int i = dynlen(dsPlc); i > 0; i-- )
+  {
+    ds = strsplit(dsPlc[i],\"_\");
+    if ( dynlen(ds) >= 2 && ds[dynlen(ds)] == \"2\" )
+    {
+      dynRemove(dsPlc,i);
+      continue;
+    }
+    dsPlc[i] = dpSubStr(dsPlc[i],DPSUB_DP);
+    sDp = dpSubStr(sDp,DPSUB_DP);
+    
+    if ( strpos(dsPlc[i], \"_\", 0) != -1 )
+      dsPlc[i] = strltrim(dsPlc[i], \"_\");
+  }
+  
+  return;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+readDpWritePanel(string sPlc)
+{
+  string sHost, sFirmware, sFirmware2;  
+  int    iPort=0, iStation=0, iCPU=0, iTimeout=0;
+  bool   bActive=false, bConnected=false, bConnected2=false;
+  char   cPCDStatus, cPCDStatus2;
+
+  dpGet( sPlc + \".Config.Host:_online.._value\",     sHost,
+         sPlc + \".Config.Port:_online.._value\",     iPort,
+         sPlc + \".Config.Station:_online.._value\",  iStation,
+         sPlc + \".Config.CPU:_online.._value\",      iCPU,
+         sPlc + \".Config.Timeout:_online.._value\",  iTimeout,
+         sPlc + \".Config.Active:_online.._value\",   bActive,
+         sPlc + \".State.Connected:_online.._value\", bConnected,
+         sPlc + \".State.PCDStatus:_online.._value\", cPCDStatus,
+         sPlc + \".State.Firmware:_online.._value\",  sFirmware);
+
+  tfHost.text        = sHost;
+  spbPort.text       = iPort;
+  tfStation.text     = iStation;
+  tfCPU.text         = iCPU;
+  spbTimeout.text    = iTimeout;
+  chkActive.state(0) = bActive;
+  tfConnected.text   = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected);
+  tfPCDStatus.text   = cPCDStatus;
+  tfFirmware.text    = sFirmware;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+readDpWritePanel2(string sPlc2)
+{
+  string sFirmware2;  
+  bool   bConnected2=false;
+  char   cPCDStatus2;
+
+  dpGet( sPlc2 + \".State.Connected:_online.._value\", bConnected2,
+         sPlc2 + \".State.PCDStatus:_online.._value\", cPCDStatus2,
+         sPlc2 + \".State.Firmware:_online.._value\",  sFirmware2);
+    
+  tfConnected2.text  = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected2);
+  tfPCDStatus2.text  = cPCDStatus2;
+  tfFirmware2.text   = sFirmware2;  
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+sbusShapesEnabled(bool state)
+{
+  cmbPlc.enabled      = state;
+  chkActive.enabled   = state;
+  cmdRemoveDp.enabled = state;
+  tfHost.enabled      = state;
+  tfStation.enabled   = state;
+  tfCPU.enabled       = state;
+  spbPort.enabled     = state;
+  spbTimeout.enabled  = state;
+  cmdGQ.enabled       = state;
+  cmdApply.enabled    = state;
+  cmdOk.enabled       = state;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+  
+  
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 63
+"frPLC"
+""
+1 10 90 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+63 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.003780718336484 0 1.73469387755102 -0.03780718336484057 -63.38775510204081 0 E 10 40 540 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Connection
+LANG:10004 6 连接
+LANG:10000 10 Verbindung
+LANG:10027 22 Подключение
+13 19
+"cmdApply"
+""
+1 335 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  333 438 431 466
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+    return;
+  else
+    sbusSetDp();
+}
+
+
+" 0
+ E E E
+13 20
+"cmdCancel"
+""
+1 435 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 46 Panel schließen, ohne eine Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  433 438 531 466
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 47
+"cmdHelp"
+""
+1 9 438 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 438 106 466
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"sbus_para\" );  
+}
+
+
+" 0
+ E E E
+22 59
+"cmbPlc"
+""
+1 20 24 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Select connection
+LANG:10004 12 选择连接
+LANG:10000 21 Verbindung auswählen
+LANG:10027 37 Выбрать подключение
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 23 532 49
+0
+
+E
+"main()
+{ 
+  string sHost, sFirmware, sFirmware2;  
+  int    iPort=0, iStation=0, iCPU=0, iTimeout=0;
+  bool   bActive=false, bConnected=false, bConnected2=false;
+  char   cPCDStatus, cPCDStatus2;
+             
+  int pos;
+  dyn_string dsPlc, dsTemp;
+  
+  cmbPlc.enabled = false;
+
+  dsPlc = cmbPlc.items;
+  pos = cmbPlc.selectedPos;
+  
+  if ( dynlen(dsPlc) > 0 )
+  {
+    dpGet( \"_\" + dsPlc[pos] + \".Config.Host:_online.._value\",     sHost,
+           \"_\" + dsPlc[pos] + \".Config.Port:_online.._value\",     iPort,
+           \"_\" + dsPlc[pos] + \".Config.Station:_online.._value\",  iStation,
+           \"_\" + dsPlc[pos] + \".Config.CPU:_online.._value\",      iCPU,
+           \"_\" + dsPlc[pos] + \".Config.Timeout:_online.._value\",  iTimeout,
+           \"_\" + dsPlc[pos] + \".Config.Active:_online.._value\",   bActive,
+           \"_\" + dsPlc[pos] + \".State.Connected:_online.._value\", bConnected,
+           \"_\" + dsPlc[pos] + \".State.PCDStatus:_online.._value\", cPCDStatus,
+           \"_\" + dsPlc[pos] + \".State.Firmware:_online.._value\",  sFirmware);
+  }
+  
+  cmbPlc.text        = dsPlc[pos];
+
+  tfHost.text        = sHost;
+  spbPort.text       = iPort;
+  tfStation.text     = iStation;
+  tfCPU.text         = iCPU;
+  spbTimeout.text    = iTimeout;
+  chkActive.state(0) = bActive;
+  tfConnected.text   = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected);
+  tfPCDStatus.text   = cPCDStatus;
+  tfFirmware.text    = sFirmware;
+  
+  if ( isRedundant() )
+  {
+    if ( dynlen(dsPlc) > 0 )
+    {
+      dpGet( \"_\" + dsPlc[pos] + \"_2.State.Connected:_online.._value\", bConnected2,
+             \"_\" + dsPlc[pos] + \"_2.State.PCDStatus:_online.._value\", cPCDStatus2,
+             \"_\" + dsPlc[pos] + \"_2.State.Firmware:_online.._value\",  sFirmware2);
+    }
+    
+    tfConnected2.text  = getCatStr(\"applicom\", \"ConnState\"+(int)bConnected2);
+    tfPCDStatus2.text  = cPCDStatus2;
+    tfFirmware2.text   = sFirmware2;
+  }
+  
+  cmbPlc.enabled = true;
+}
+
+
+
+
+
+" 0
+
+E
+ 0 0
+20 72
+"chkActive"
+""
+1 20 55 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Establish connection to PLC
+LANG:10004 21 建立与PLC的连接
+LANG:10000 28 Verbindung zu SPS herstellen
+LANG:10027 53 Установить подключение к ПЛК
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 53 147 80
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE1 128 0 "" 0
+0
+2 90
+"txtHost"
+""
+1 28 -886 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9999999999999999 0 1 3.552713678800501e-015 -25 0 E 30 150 62 165
+0 2 0 "0s" 0 0 0 192 0 0  30 150 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Host:
+LANG:10004 7 主机:
+LANG:10000 5 Host:
+LANG:10027 9 Хост:
+2 91
+"txtStation"
+""
+1 28 158 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+86 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 160 85 175
+0 2 0 "0s" 0 0 0 192 0 0  30 160 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 Station:
+LANG:10004 4 站:
+LANG:10000 8 Station:
+LANG:10027 15 Станция:
+2 92
+"txtCPU"
+""
+1 39 360 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+87 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 195 63 210
+0 2 0 "0s" 0 0 0 192 0 0  30 195 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 CPU:
+LANG:10004 16 中央处理器:
+LANG:10000 4 CPU:
+LANG:10027 4 CPU:
+2 93
+"txtTimeout"
+""
+1 284 158 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+88 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 286 160 337 175
+0 2 0 "0s" 0 0 0 192 0 0  286 160 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Timeout
+LANG:10004 6 超时
+LANG:10000 8 Timeout:
+LANG:10027 14 Таймаут
+2 94
+"txtMSec"
+""
+1 481 324 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+89 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 483 159 509 174
+0 2 0 "0s" 0 0 0 192 0 0  483 159 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 [msec]
+LANG:10004 6 [msec]
+LANG:10000 6 [msec]
+LANG:10027 6 [мс]
+30 95
+"frSettings"
+""
+1 10 327 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+90 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.003780718336484 0 0.5606796087081174 -0.03780718336484061 44.53883521626943 0 E 10 90 540 330
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+21 96
+"spbTimeout"
+""
+1 350 155 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+91 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 32 Enter timeout (in milli seconds)
+LANG:10004 32 输入超时(以毫秒为单位)
+LANG:10000 35 Timeout eingeben (in Millisekunden)
+LANG:10027 61 Введите таймаут (в миллисекундах)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  348 153 477 180
+0
+
+E
+E
+E
+
+N 0 99999 1 5000 1 1
+14 97
+"tfHost"
+""
+1 120 120 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+92 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Enter hostname / IP address
+LANG:10004 24 输入主机名/IP地址
+LANG:10000 30 Hostname / IP Adresse eingeben
+LANG:10027 42 Введите имя или IP хоста
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 118 247 145
+3 "0s" 0 0 0 0 0 -1  E E E
+2 99
+"txtPort"
+""
+1 300 125 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+94 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 284 125 316 140
+0 2 2 "0s" 0 0 0 193 0 0  300 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Port:
+LANG:10004 7 端口:
+LANG:10000 5 Port:
+LANG:10027 9 Порт:
+21 100
+"spbPort"
+""
+1 350 120 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+95 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Enter port number
+LANG:10004 15 输入端口号
+LANG:10000 20 Port Nummer eingeben
+LANG:10027 36 Введите номер порта
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  348 118 477 145
+0
+
+E
+E
+E
+
+N 0 99999 1 5050 1 1
+14 101
+"tfStation"
+""
+1 120 155 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+96 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Enter station number
+LANG:10004 18 输入电台号码
+LANG:10000 27 Nummer der Station eingeben
+LANG:10027 40 Введите номер станции
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 153 247 180
+3 "0s" 0 0 0 0 0 -1  E E E
+14 102
+"tfCPU"
+""
+1 120 190 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+97 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 Enter CPU
+LANG:10004 9 输入CPU
+LANG:10000 12 CPU eingeben
+LANG:10027 18 Введите CPU
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 188 247 215
+3 "0s" 0 0 0 0 0 -1  E E E
+13 103
+"cmdGQ"
+""
+1 -300 157 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+98 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 General Query
+LANG:10004 15 总召唤数值
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  28 253 157 280
+
+T 
+4
+LANG:10001 13 General Query
+LANG:10004 15 总召唤数值
+LANG:10000 14 Generalabfrage
+LANG:10027 21 Общий опрос
+"main()
+{
+  string sDp;
+  int    iGQ;
+  
+  sDp = \"_\" + cmbPlc.text;
+  dpSet(sDp + \".Command.GQ:_original.._value\", 0);
+}
+
+
+
+" 0
+ E E E
+30 104
+"frCommands"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+99 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.003780718336484 0 0.5555555555555556 -0.03780718336484061 46.11111111111111 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Commands
+LANG:10004 8 Commands
+LANG:10000 7 Befehle
+LANG:10027 14 Команды
+2 105
+"txtConnected"
+""
+1 28 317 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+100 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 319 102 350
+0 2 0 "0s" 0 0 0 192 0 0  30 319 2
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Conn. State:
+LANG:10004 19 通讯连接状态:
+LANG:10000 13 Verb. Status:
+LANG:10027 20 Сост.подкл.
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 106
+"txtFirmware"
+""
+1 28 377 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+101 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 379 89 394
+0 2 0 "0s" 0 0 0 192 0 0  30 379 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 Firmware:
+LANG:10004 6 固件
+LANG:10000 9 Firmware:
+LANG:10027 9 Firmware:
+2 107
+"txtPCDStatus"
+""
+1 28 347 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+102 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 349 98 364
+0 2 0 "0s" 0 0 0 192 0 0  30 349 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 PCD State:
+LANG:10004 10 PCD状态:
+LANG:10000 11 PCD Status:
+LANG:10027 14 Сост. PCD:
+30 108
+"frState"
+""
+1 10 440 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+103 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4877126654064272 0 1.202020202020202 5.122873345935727 -113.6868686868687 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 9 Сост.
+14 109
+"tfConnected"
+""
+1 122 317 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+104 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Connection state
+LANG:10004 12 连接状态
+LANG:10000 17 Verbindungsstatus
+LANG:10027 41 Состояние подключения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  120 315 249 340
+3 "0s" 0 0 0 0 0 -1  E E E
+14 110
+"tfFirmware"
+""
+1 123 365 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+105 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 8 Firmware
+LANG:10004 6 固件
+LANG:10000 8 Firmware
+LANG:10027 8 Firmware
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  121 375 250 400
+3 "0s" 0 0 0 0 0 -1  E E E
+14 111
+"tfPCDStatus"
+""
+1 122 347 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+106 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 PCD state
+LANG:10004 9 PCD状态
+LANG:10000 10 PCD Status
+LANG:10027 22 Состояние PCD
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  120 345 249 370
+3 "0s" 0 0 0 0 0 -1  E E E
+13 114
+"cmdNewDp"
+""
+1 539 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+107 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Create a new connection with default settings
+LANG:10004 6 创建
+LANG:10000 48 Neue Verbindung mit Grundeinstellungen erstellen
+LANG:10027 98 Создать новое подключение с настройками по умолчанию
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  403 53 532 80
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  string     sPlc = \"_\" + cmbPlc.text, sInput = cmbPlc.text;
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+  
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+    getCatStr(\"da\",\"createdp\"),
+    makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), sInput),df,ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 ) return;
+
+  sPlc = (dynlen(ds)>0)?ds[1]:\"\";
+  sPlc = strrtrim(strltrim(sPlc));
+  
+  if ( strpos(sPlc, \" \") != -1 || strpos(sPlc, \"__\") != -1 ||
+       patternMatch(\"*_1\", sPlc) || patternMatch(\"*_2\", sPlc) || patternMatch(\"*_\", sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name invalid
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"dpNameInvalid\")));
+    return;
+  }
+  else if ( (sPlc == \"\") || (sPlc == \"_\") )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"para\",\"apc_dpleer\")));
+    return;
+  }
+  else if ( dpExists(\"_\"+sPlc) || dpExists(sPlc) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp exists
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"sim\",\"sim_exists\")));
+    return;
+  }
+  
+  if ( strpos(sPlc, \"_\", 0) != -1 )
+    sPlc = strltrim(sPlc, \"_\");
+  
+  // enable the shapes again, because the first PLC has been created
+  if (dynlen(dsPlc) < 1)
+    sbusShapesEnabled(TRUE);
+
+  if (sPlc != \"\" || sPlc != \"_\")
+    sbusCreateNewDp(\"_\" + sPlc);
+  
+  readDpWritePanel(\"_\" + sPlc);
+
+  cmbPlc.text = sPlc;
+  dsPlc = cmbPlc.items;
+  
+  dynAppend(dsPlc, sPlc);
+  dynSortAsc(dsPlc);
+  dynUnique(dsPlc); 
+  
+  cmbPlc.items = dsPlc;  
+  cmbPlc.selectedPos = dynContains(dsPlc,sPlc);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 115
+"cmdRemoveDp"
+""
+1 449 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 Remove connection
+LANG:10004 6 删除
+LANG:10000 20 Verbindung entfernen
+LANG:10027 37 Удалить подключение
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  268 53 397 80
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        iPos = cmbPlc.selectedPos;
+  string     sPlc = cmbPlc.text, sPlc2 = sPlc + \"_2\",
+             dp = \"_\" + sPlc, dp_2 = dp + \"_2\";
+  dyn_float  df;
+  dyn_string dsPlc = cmbPlc.items, ds;
+  
+  if ( sPlc == \"\" ) return;
+  
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"para\",\"information\"),
+    makeDynString(getCatStr(\"diskspace\",\"dpDelete\"),
+                  getCatStr(\"para\",\"yes\"),
+                  getCatStr(\"para\",\"no\")),
+    df, ds);
+
+  if (!df[1]) return;
+  
+  dynRemove(dsPlc, iPos);
+  cmbPlc.items = dsPlc;
+  
+  if ( dynlen(dsPlc) < 1 )
+  {
+    cmbPlc.text = \"\";
+    sbusShapesEnabled(FALSE);
+  }
+  else
+  {
+    if ( iPos < 1 ) iPos = 1;
+    if ( iPos > dynlen(dsPlc) ) iPos = dynlen(dsPlc);
+    
+    cmbPlc.selectedPos(iPos);
+    cmbPlc.text = dsPlc[iPos];
+  }
+  
+  delay(0,501);
+  
+  if ( dpExists(dp) )   dpDelete(dp);
+  if ( dpExists(dp_2) ) dpDelete(dp_2);
+}
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 118
+"txtConnected2"
+""
+1 301 317.0000000000001 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 303 319.0000000000001 375 350
+0 2 0 "0s" 0 0 0 192 0 0  303 319.0000000000001 2
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Conn. State:
+LANG:10004 19 通讯连接状态:
+LANG:10000 13 Verb. Status:
+LANG:10027 20 Сост.подкл.
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 119
+"txtFirmware2"
+""
+1 301 377.0000000000001 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 303 379.0000000000001 362 394
+0 2 0 "0s" 0 0 0 192 0 0  303 379.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 Firmware:
+LANG:10004 6 固件
+LANG:10000 9 Firmware:
+LANG:10027 9 Firmware:
+2 120
+"txtPCDStatus2"
+""
+1 301 347.0000000000001 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 303 349.0000000000001 371 364
+0 2 0 "0s" 0 0 0 192 0 0  303 349.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 PCD State:
+LANG:10004 10 PCD状态:
+LANG:10000 11 PCD Status:
+LANG:10027 14 Сост. PCD:
+30 121
+"frState2"
+""
+1 10 440 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+112 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.4877126654064272 0 1.202020202020202 278.1228733459357 -113.6868686868686 0 E 10 340 540 440
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 State - Redundant Host
+LANG:10004 6 状态
+LANG:10000 25 Status - Redundanter Host
+LANG:10027 37 Состояние рез. хоста
+14 122
+"tfConnected2"
+""
+1 395 317.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Connection state (redundant host)
+LANG:10004 6 连接
+LANG:10000 36 Verbindungsstatus (redundanter Host)
+LANG:10027 83 Состояние подключения (резервированный хост)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  393 315 522 340
+3 "0s" 0 0 0 0 0 -1  E E E
+14 123
+"tfFirmware2"
+""
+1 396 365.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Firmware (redundant host)
+LANG:10004 6 固件
+LANG:10000 27 Firmware (redundanter Host)
+LANG:10027 25 Firmware (redundant host)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  394 375 523 400
+3 "0s" 0 0 0 0 0 -1  E E E
+14 124
+"tfPCDStatus2"
+""
+1 395 347.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 PCD state (redundant host)
+LANG:10004 9 PCD状态
+LANG:10000 29 PCD Status (redundanter Host)
+LANG:10027 37 Состояние PCD (резерв)
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  393 345 522 370
+3 "0s" 0 0 0 0 0 -1  E E E
+13 127
+"cmdOk"
+""
+1 235 440 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  233 438 331 466
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( cmbPlc.text == \"\" )
+  {
+    PanelOff();
+    return;
+  }
+  else
+  {
+    PanelOff();
+    sbusSetDp();
+  }
+}
+
+
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 650 T 71 1.142284569138277 0 1 -5 -220
+0
+0

@@ -1,0 +1,1174 @@
+V 14
+4
+LANG:10001 21 Licensing information
+LANG:10004 15 许可证信息
+LANG:10000 19 Lizenzinformationen
+LANG:10027 19 Лицензия...
+PANEL,-1 -1 557 631 N "_3DFace" 0
+"main()
+{
+  int    err, iC = 10;
+  char   c = iC;
+  bool   bLicense = false;
+  file   fd;
+  string s, fName = getPath(CONFIG_REL_PATH, \"license_address.txt\"), licenseAddress = \"\";
+  dyn_string ds, dss;
+  string code, sHw;
+  string host;
+  string command;
+
+  g_TempFile = tmpnam();
+  command = PVSS_PATH+\"bin/\"+getComponentName(GETHW_COMPONENT)+\" > \"+g_TempFile;
+  if ( _WIN32 )
+    strreplace(command, \"/\", \"\\\\\");
+
+  system(command);
+  fileToString(g_TempFile , s);
+
+  ds = strsplit (  s, \"=\");
+
+  if (dynlen(ds) > 1 )   code = ds[2];
+  dss = strsplit(code, \"\\n\");
+  if ( dynlen(dss) > 0 ) code = dss[1];
+
+  strreplace(code, \" \\\"\", \"\");
+  strreplace(code, \"\\\"\", \"\");
+  strreplace(code, \"\\n\", \"\");
+
+  txtCode.text = code;
+
+  host = getHostname();
+  txtHost.text = host;
+
+  ds = strsplit(s, \"\\n\");
+
+  if ( access(fName, R_OK) == 0 )
+  {
+    fd = fopen(fName, \"r\");
+    if ( fd != 0 )
+    {
+      fgets(licenseAddress, 65535, fd);
+      fclose(fd);
+      strrtrim(strltrim(licenseAddress));
+      strreplace(licenseAddress, \"\\n\", \"\");
+      strreplace(licenseAddress, \"\\r\", \"\");
+    }
+  }
+
+  g_OnlySearchLocalContainers = true;
+  populateContainerDropDown();
+  populateTableWithCodeMeterLicenseData(ContainerDropDown.selectedText);
+}
+" 0
+ "main()
+{
+  if ( access(g_TempFile, F_OK) == 0 )
+    remove(g_TempFile);
+
+}
+" 0
+ E E E 1 -1 -1 0  20 160
+""0  1
+E "#uses \"classes/cm/CmUtility32App\"
+#uses \"classes/cm/CmContainerDataProcessor\"
+
+CmContainer g_container;
+
+int    g_busyThread;
+string g_TempFile;
+bool   g_OnlySearchLocalContainers;
+
+void enableLicensingShapes(bool enabled)
+{
+  ContainerNameLabel.enabled = enabled;
+  ContainerDropDown.enabled = enabled;
+  AddContainerButton.enabled = enabled;
+  ProductTable.enabled = enabled;
+  CheckBoxList.enabled = enabled;
+}
+
+void populateContainerDropDown()
+{
+  enableLicensingShapes(false);
+
+  ContainerDropDown.deleteAllItems();
+
+  CmContainerDataProcessor dataProcessor;
+  vector<string> containerList = dataProcessor.getContainerListSerials(g_OnlySearchLocalContainers, true);
+
+  for (int i = 0; i < containerList.count(); i++)
+  {
+    ContainerDropDown.appendItem(containerList[i]);
+  }
+
+  enableLicensingShapes(true);
+}
+
+string getExpirationTime(const CmProduct &product)
+{
+  vector<CmItem> items = product.items;
+
+  for (int i = 0; i < items.count(); i++)
+  {
+    CmItem item = items[i];
+
+    if (item.id == \"_mcmExpirationTime\")
+    {
+      string itemValue = item.value;
+      itemValue.replace(\":00.000\", \"\"); // it is enough to display hh:mm
+      itemValue.replace(\":59.000\", \"\"); //             - \" -
+
+      return itemValue;
+    }
+  }
+
+  return \"\";
+}
+
+void adjustTextColorIfNeeded(int row, const CmProduct &product)
+{
+  if (getExpirationTime(product) == \"n/a\")
+    return;
+
+  time now = getCurrentTime();
+  time expirationTime = getExpirationTime(product);
+
+  if (now > expirationTime)
+  {
+    int columnCount = ProductTable.columnCount;
+
+    for (int i = 0; i < columnCount; i++)
+    {
+      string columnName = ProductTable.columnToName(i);
+      ProductTable.cellForeColRC(row, columnName, \"red\");
+    }
+  }
+}
+
+void populateTableWithCodeMeterLicenseData(string serialNumber)
+{
+  enableLicensingShapes(false);
+
+  // clear table
+  ProductTable.deleteAllLines();
+
+  CmContainerDataProcessor dataProcessor;
+  g_container = dataProcessor.getContainerData(serialNumber, g_OnlySearchLocalContainers, true);
+
+  vector<CmFirmLicense> firmLicenses = g_container.firmLicenes;
+
+  // some plausiblity checks
+  if (firmLicenses.count() == 0)
+  {
+    // empty container - we can exit here without error
+    enableLicensingShapes(true);
+    return;
+  }
+
+  if (firmLicenses.count() != 1)
+  {
+    errClass error = makeError(0, PRIO_INFO, ERR_PARAM, 0, \"\", 0, 0, __FILE__ + \": Invalid container, contains more than one firm license\");
+    throwError(error);
+    return;
+  }
+
+  if (firmLicenses[0].id != 6000802)
+  {
+    errClass error = makeError(0, PRIO_INFO, ERR_PARAM, 0, \"\", 0, 0, __FILE__ + \": Invalid container, contains more than one firm code: \" + firmLicenses[0].id);
+    throwError(error);
+    return;
+  }
+
+  // populate table with license products
+  CmFirmLicense firmLicense = firmLicenses[0];
+  vector<CmProduct> products = firmLicense.products;
+
+  for (int i = 0; i < products.count(); i++)
+  {
+    CmProduct product = products[i];
+
+    ProductTable.appendLine(
+        \"productCode\", product.id, // not visible (only for testing/debugging purposes
+        \"name\", product.name,
+        \"expirationTime\", getExpirationTime(product),
+        \"used\", CmContainerDataProcessor::usedLicenses(product),
+        \"available\", CmContainerDataProcessor::freeLicenses(product),
+        \"extend\", \"...\");
+
+    adjustTextColorIfNeeded(i, product);
+  }
+
+  // sort by product name
+  ProductTable.sort(\"name\");
+
+  enableLicensingShapes(true);
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" "main()
+{
+  dyn_anytype da, daa;
+
+  remove(g_TempFile);
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa[1] = 0.0; daa[2] = \"false\";
+  da[3] = daa;
+
+  if ( isEvConnOpen() )
+    PanelOffReturn(makeDynFloat(0),makeDynString(\"false\"));
+  else
+    panelOff(da);
+
+}
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 32
+"RECTANGLE2"
+""
+1 0 350 E E E 1 E 1 E N "_ButtonBarBackground" E N "_ButtonBarBackground" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.114228456913828 0 1.022727272727273 0 585 1 E 0 0 499 44
+30 0
+"Frame1"
+""
+1 10 80 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.286063569682152 0 2.159420289855072 2.139364303178479 -6.594202898550719 0 E 10 10 420 80
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 27  Hardware Code Information 
+LANG:10004 18 硬件代码信息
+LANG:10000 26  Hardwarecode-Information 
+LANG:10027 28  Аппаратный код
+2 3
+"Text1"
+""
+1 247.5 91.5 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9947643979057398 0 0.9743589743589743 -217.7041884816706 13.34615384615385 0 E 249.5 93.5 341 109
+0 2 0 "0s" 0 0 0 192 0 0  249.5 93.5 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 14 Hardware code:
+LANG:10004 13 硬件代码:
+LANG:10000 13 Hardwarecode:
+LANG:10027 28 Аппаратный код:
+2 4
+"Text2"
+""
+1 247.5 37.5 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9923664122137262 0 0.9743589743589743 -217.1106870228973 7.96153846153846 0 E 249.5 39.5 311 55
+0 2 0 "0s" 0 0 0 192 0 0  249.5 39.5 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 Localhost:
+LANG:10004 13 本地主机:
+LANG:10000 10 Localhost:
+LANG:10027 28 Локальный хост:
+30 8
+"Frame2"
+""
+1 10 350 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.286063569682152 0 1.513513513513522 2.139364303178479 34.78378378378301 0 E 10 90 420 350
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 License Information
+LANG:10004 12 授权信息
+LANG:10000 18 Lizenz Information
+LANG:10027 45 Лицензионная информация
+13 6
+"ClosePanelButton"
+""
+1 466 596.0416666666665 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 27 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignBottom"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  464 595 542 622
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 9 可用的
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  dyn_anytype da, daa;
+
+  remove(g_TempFile);
+  da[1] = myModuleName();
+  da[2] = myPanelName();
+  daa[1] = 0.0; daa[2] = \"false\";
+  da[3] = daa;
+
+  if ( isEvConnOpen() )
+    PanelOffReturn(makeDynFloat(0),makeDynString(\"false\"));
+  else
+    panelOff(da);
+}
+" 0
+ E E E
+14 5
+"txtHost"
+""
+1 28 70 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  26 68 492 93
+2 "0s" 0 0 0 0 0 -1  E E E
+13 29
+"cmdSaveFile"
+""
+1 497 127.6153846153846 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 Save hw.txt in WinCC OA path
+LANG:10004 32 在WinCC OA路径中保存hw.txt
+LANG:10000 33 hw.txt in WinCC OA-Pfad speichern
+LANG:10027 58 Сохранить hw.txt в директории WinCC OA
+
+5
+"hoverbclr" "N \"STD_hover\""
+"minimumSize" "24 24"
+"maximumSize" "24 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  495 126.5 530 153.5
+
+P 
+4294967295
+"pictures/StandardIcons/save.svg"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if ( access(g_TempFile, F_OK) == 0 )
+    copyFile(g_TempFile, getPath(LOG_REL_PATH, \"\", getActiveLang(), SEARCH_PATH_LEN) + \"hw.txt\");
+}
+" 0
+ E E E
+14 2
+"txtCode"
+""
+1 28 129.5 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  26 127.5 492 152.5
+2 "0s" 0 0 0 0 0 -1  E E E
+32 33
+"SPACER1"
+""
+1 194 596 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 194 596 459.9999999999898 619 1
+32 39
+"SPACER7"
+""
+1 130 102 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 130 102 528.0000000000172 121 1
+32 40
+"SPACER8"
+""
+1 100 44 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 100 44 527.9999999999842 63 1
+32 41
+"SPACER9"
+""
+1 497 70 E E E 1 E 1 E N {0,0,0} E N "STD_valve_open" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"minimumSize" "24 27"
+"maximumSize" "24 27"
+"sizePolicy" "Fixed Ignored"
+"layoutAlignment" "AlignNone"
+ 497 70 528 96 1
+13 42
+"AddContainerButton"
+""
+1 548 196.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 28 Create new license container
+LANG:10004 21 创建新授权容器
+LANG:10000 32 Neuen Lizenz Container erstellen
+LANG:10027 28 Create new license container
+
+4
+"minimumSize" "24 24"
+"maximumSize" "24 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  495 198.5 530 225.5
+
+P 
+4294967295
+"pictures/add.svg"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 7 按钮1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"#uses \"panel\"
+#uses \"std\"
+
+const string INFORMATION = getCatStr(\"general\", \"information\");
+const string WARNING = getCatStr(\"general\", \"warning\");
+
+main(mapping event)
+{
+  if(ContainerDropDown.itemCount > 0)
+  {
+    dyn_string dollarParams = makeDynString(\"$1:\" + getCatStr(\"pa\", \"lifFileContainerExists\"),
+                                            \"$2:\" + getCatStr(\"general\", \"yes\"),
+                                            \"$3:\" + getCatStr(\"general\", \"no\"));
+    dyn_float resultFloat;
+    dyn_string resultString;
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2.pnl\", WARNING, dollarParams, resultFloat, resultString);
+    if(resultFloat[1] == 1)
+    {
+      importContainer();
+    }
+  }
+  else
+  {
+    importContainer();
+  }
+}
+
+void importContainer()
+{
+  CmUtility32App cmuUtility;
+
+  if (! cmuUtility.runCreateContainerCommand(WINCCOA_PATH + \"/data/license/ETM_pc_-_A_Siemens_Company.WibuCmLif\"))
+  {
+    // display error
+    ChildPanelOnCentralModal(\"vision/MessageWarning.pnl\", WARNING, makeDynString(\"$1:\" + getCatStr(\"pa\", \"lifFileNotCreated\")));
+  }
+  else
+  {
+    // display success
+    ChildPanelOnCentralModal(
+        \"vision/MessageInfo1.pnl\",
+        INFORMATION,
+        makeDynString(\"$1:\" + getCatStr(\"pa\", \"lifFileCreated\")));
+
+    // update container information
+    populateContainerDropDown();
+    populateTableWithCodeMeterLicenseData(ContainerDropDown.selectedText);
+  }
+}" 0
+ E E E
+25 44
+"ProductTable"
+""
+1 28 229 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  26 227 530 530
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"_Window\",\"_WindowAlternate\"));
+  this.columnStretchable(1, true);
+}" 0
+"void getItemDetails(ulong productCode, string productName)
+{
+  ChildPanelOnCentralModal(
+      \"projAdmin/project_admin_gethw_cm.pnl\",
+      getCatStr(\"pa\", \"cmu:productItemsPanelName\"),
+      makeDynString(
+          \"$containerId:\" + g_container.id,
+          \"$containerName:\" + g_container.name,
+          \"$productCode:\" + productCode,
+          \"$productName:\" + productName,
+          \"$localOnly:\" + g_OnlySearchLocalContainers));
+}
+
+main(int row, string column, string value)
+{
+  if (column == \"extend\")
+  {
+    dyn_anytype rowData = ProductTable.getLineN(row);
+    getItemDetails(rowData[1], rowData[2]);
+  }
+}
+" 0
+ 1 0 1 6 0 "productCode" 0 0 0 "s" 4
+LANG:10001 12 Product Code
+LANG:10004 12 产品代码
+LANG:10000 11 Produktcode
+LANG:10027 23 Код продукта
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "name" 15 1 0 "s" 4
+LANG:10001 4 Name
+LANG:10004 6 名称
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "expirationTime" 9 1 0 "s" 4
+LANG:10001 15 Expiration Time
+LANG:10004 9 有效期
+LANG:10000 13 Verfallsdatum
+LANG:10027 27 Время действия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+110 "used" 6 1 0 "s" 4
+LANG:10001 4 Used
+LANG:10004 6 使用
+LANG:10000 6 Belegt
+LANG:10027 24 Использовано
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "available" 6 1 0 "s" 4
+LANG:10001 9 Available
+LANG:10004 15 当前可用的
+LANG:10000 10 Verfügbar
+LANG:10027 16 Доступно
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "extend" 1 1 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+24 
+22 22 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 0 7
+1 0
+22 45
+"ContainerDropDown"
+""
+1 170 180.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 22"
+"maximumSize" "-1 22"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  190 199.5 492 224.5
+0
+
+E
+"main()
+{
+  populateTableWithCodeMeterLicenseData(ContainerDropDown.selectedText);
+}
+" 0
+
+E
+ 0 0
+2 46
+"ContainerNameLabel"
+""
+1 162 180 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"minimumSize" "-1 22"
+"maximumSize" "-1 22"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeading|AlignVCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.185714285714332 0 0.8500000000000519 -324.0857142857218 50.49999999999064 0 E 162 180 232 200
+0 2 2 "0s" 0 0 0 64 0 0  162 180 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 24 Container Serial Number:
+LANG:10004 18 容器序列号：
+LANG:10000 24 Container Serial Number:
+LANG:10027 42 Серийный № контейнера:
+20 47
+"CheckBoxList"
+""
+1 28 534.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  26 532.5 530.00000000001 552.5000000000006
+1
+T 
+4
+LANG:10001 30 Also search LAN for containers
+LANG:10004 45 同时搜索局域网内的可用授权容器
+LANG:10000 35 Auch LAN nach Container durchsuchen
+LANG:10027 66 Искать контейнеры по локальной сети
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"
+bool DisplayWarningAndAskIfReallyContinue()
+{
+  dyn_float resultFloat;
+  dyn_string resultText;
+
+  ChildPanelOnCentralModalReturn(
+      \"vision/MessageWarning2\",
+      getCatStr(\"general\", \"warning\"),
+      makeDynString(
+          getCatStr(\"pa\", \"cmu:reallySearchLANContainer\"),
+          getCatStr(\"general\", \"yes\"),
+          getCatStr(\"general\", \"no\")),
+      resultFloat,
+      resultText);
+
+  return (bool)resultFloat[1];
+}
+
+main(int button, int state)
+{
+  g_OnlySearchLocalContainers = (bool)(!state);
+
+  if (!g_OnlySearchLocalContainers)
+  {
+    if (!DisplayWarningAndAskIfReallyContinue())
+    {
+      CheckBoxList.state(0, false);
+      return;
+    }
+  }
+
+  populateContainerDropDown();
+  populateTableWithCodeMeterLicenseData(ContainerDropDown.selectedText);
+}
+" 0
+13 49
+"OpenHelpButton"
+""
+1 16 596.0416666666665 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 27 0
+E E E
+8
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignBottom"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  14 595 92 622
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 12 救命啊！
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"project_admin_licenseInfo\");
+}" 0
+ E E E
+13 50
+"OpenWebDepotButton"
+""
+1 96 596.0416666666665 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+40 0 0 0 27 0
+E E E
+8
+4
+LANG:10001 29 Opens Wibu CodeMeter WebAdmin
+LANG:10004 36 使用 Wibu CodeMeter WebAdmin打开
+LANG:10000 31 Wibu CodeMeter WebAdmin öffnen
+LANG:10027 29 Opens Wibu CodeMeter WebAdmin
+
+1
+"layoutAlignment" "AlignBottom"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  94 595 190.0000000000011 622
+
+T 
+4
+LANG:10001 14    Web Depot  
+LANG:10004 18 授权导入管理
+LANG:10000 14    Web Depot  
+LANG:10027 15 Веб-Депо
+"main()
+{
+  string url = \"http://lc.codemeter.com/45845/depot/index.php\";
+
+  // get current language and adjust it for Wibu web page which only expects language code (without country code) for the language
+  // INFO: This does not work \"Quick-Test\" / Vision
+  string language = getLocale(getActiveLangId(), LOCALE_FORMAT_HTTP);
+  if (strlen(language) == 5) // format: lc-CC (e.g. en-US)
+  {
+    dyn_string languageParts = strsplit(language, \"-\");
+
+    if (dynlen(languageParts) == 2)
+    {
+      language = languageParts[1];
+      url += \"?lang=\" + language;
+    }
+  }
+
+  // open Wibu CodeMeter WebAdmin page using system default app (browser)
+  std_help(url);
+}" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 0 "layout_bottom" 24
+5 0 
+32 6 33 49 50 
+
+"S 6" "3 0 1 1"
+"S 33" "2 0 1 1"
+"S 49" "0 0 1 1"
+"S 50" "1 0 1 1"
+"" ""
+1 1 1 15 15 10 10 1 5
+4 4 "layout_snmp" 19
+3 0 
+42 45 46 
+
+"S 42" "2 0 1 1"
+"S 45" "1 0 1 1"
+"S 46" "0 0 1 1"
+"" ""
+0 1 0 0
+4 10 "LAYOUT_GROUP10" 14
+2 0 
+2 29 
+
+"S 2" "0 0 1 1"
+"S 29" "1 0 1 1"
+"" ""
+0 1 0 0
+4 11 "LAYOUT_GROUP11" 14
+2 0 
+3 39 
+
+"S 3" "0 0 1 1"
+"S 39" "1 0 1 1"
+"" ""
+0 1 0 0
+4 12 "LAYOUT_GROUP12" 21
+2 0 
+40 4 
+
+"S 40" "1 0 1 1"
+"S 4" "0 0 1 1"
+"" ""
+0 1 0 0
+4 14 "layout_HW" 22
+0 2 
+
+10 11 
+"G 10" "1 0 1 1"
+"G 11" "0 0 1 1"
+"" ""
+0 2 0 0
+4 19 "layout_mail" 23
+3 1 
+8 44 47 
+4 
+"S 44" "1 0 1 1"
+"S 47" "2 0 1 1"
+"G 4" "0 0 1 1"
+"" ""
+1 2 1 10 10 10 10 1 5
+4 20 "LAYOUT_GROUP20" 21
+2 0 
+5 41 
+
+"S 5" "0 0 1 1"
+"S 41" "1 0 1 1"
+"" ""
+0 1 0 0
+4 21 "layout_host" 22
+0 2 
+
+20 12 
+"G 20" "1 0 1 1"
+"G 12" "0 0 1 1"
+"" ""
+0 2 0 0
+4 22 "layout_hw_code" 23
+1 2 
+0 
+14 21 
+"G 14" "1 0 1 1"
+"G 21" "0 0 1 1"
+"" ""
+1 2 1 10 10 10 10 1 5
+4 23 "layout_top" 24
+0 2 
+
+22 19 
+"G 22" "0 0 1 1"
+"G 19" "1 0 1 1"
+"" ""
+0 2 1 15 15 15 15 0
+4 24 "LAYOUT_GROUP22" 25
+0 2 
+
+0 23 
+"G 0" "2 0 1 1"
+"G 23" "0 0 1 1"
+"" ""
+0 2 0 0
+4 25 "LAYOUT_GROUP26" 26
+0 1 
+
+24 
+"G 24" "0 0 1 1"
+"" ""
+0 1 0 0
+4 26 "LAYOUT_GROUP28" -1
+0 1 
+
+25 
+"G 25" "0 0 1 1"
+"" ""
+0 1 0 0
+0

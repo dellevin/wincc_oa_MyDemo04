@@ -1,0 +1,1441 @@
+V 13
+4
+LANG:10001 25 Event Manager Connections
+LANG:10004 21 事件管理器连接
+LANG:10000 26 Event-Manager-Verbindungen
+LANG:10027 54 Соединения менеджера событий
+PANEL,-1 -1 637 528 N "_3DFace" 3
+"$Connection"
+"$System"
+"$hostNumber"
+"
+dyn_string dsActiveManagerDPs;
+string gSystem;
+
+main() 
+{
+  int   myHostNr;
+  int   dp1,dp2;
+
+  string     hostname;
+  dyn_string dsHosts;
+  
+  myHostNr = myReduHostNum();
+  hostname = myReduHost();
+  
+  if ( isDollarDefined(\"$System\") )
+    gSystem = getDollarValue(\"$System\");
+  else
+    gSystem = \"\";
+  
+  
+  
+  bool bIsRedundant = false;
+  
+  if( gSystem == getSystemName() )
+  {
+    bIsRedundant = isRedundant();
+  }
+  else
+  {
+    int iAnswer;
+    
+    isRemoteSystemRedundant(iAnswer,gSystem);
+    
+    if( iAnswer )
+      bIsRedundant = true;      
+  }
+  
+  dsHosts = getRemoteSystemHosts(gSystem);
+
+  if(bIsRedundant)
+  {
+    if( hostname == dsHosts[1] || hostname == dsHosts[2] && myHostNr > 0)  //it happens on Host1 or Host2
+    {
+      if($hostNumber == 2) //takes effect to tab 2
+      {
+        if(hostname == dsHosts[1])
+          dpConnect(\"show_regTab\",gSystem + \"_ReduManager.PeerErrorStatus:_online.._value\");//-1 if no connection to Host2
+        else
+          show_regTab(\"\",1);
+        setValue(\"name_of_host\",\"text\",dsHosts[2]+((isDistributed() && gSystem!=\"\")?\" (\"+gSystem+\")\":\"\"));
+      }
+      else
+      {
+        setValue(\"name_of_host\",\"text\",dsHosts[1]+((isDistributed() && gSystem!=\"\")?\" (\"+gSystem+\")\":\"\"));
+        if(hostname == dsHosts[2])
+          dpConnect(\"show_regTab\",gSystem + \"_ReduManager_2.PeerErrorStatus:_online.._value\");
+        else
+          show_regTab(\"\",1);
+      }
+    }
+    else             //it happens neither on Host 1 nor on Host 2
+    {
+      dpConnect(\"abgesetztesUi\",gSystem + \"_ReduManager.PeerErrorStatus:_online.._value\",
+                                gSystem + \"_ReduManager_2.PeerErrorStatus:_online.._value\");
+      if($hostNumber == 1) //takes effect to tab 1
+        setValue(\"name_of_host\",\"text\",dsHosts[1]+((isDistributed() && gSystem!=\"\")?\" (\"+gSystem+\")\":\"\"));
+
+      if($hostNumber == 2) //takes effect to tab 2
+        setValue(\"name_of_host\",\"text\",dsHosts[2]+((isDistributed() && gSystem!=\"\")?\" (\"+gSystem+\")\":\"\"));
+    }
+  }
+  else		//stand alone
+  {
+    Button1.visible = FALSE; //1st tab always visible
+    setValue(\"name_of_host\",\"text\",dsHosts[1]+((isDistributed() && gSystem!=\"\")?\" (\"+gSystem+\")\":\"\"));
+  }
+
+  dpConnect(\"work\",gSystem + $Connection+\".Event.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Driver.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Data.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Ui.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Ctrl.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Ascii.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Api.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Device.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Dde.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Redu.ManNums:_online.._value\", 
+                   gSystem + $Connection+\".Dist.ManNums:_online.._value\" );
+}
+
+abgesetztesUi(string dp1, int x1, string dp2, int x2)
+{
+  if (x1==-1 && x2 != -1)   		// left
+  {
+    if($hostNumber == 2) //takes effect for 2nd tab
+      Button1.visible = TRUE;
+  }
+  else if (x2==-1 && x1 != -1)   	// right
+  { 
+    if($hostNumber == 1) //takes effect for 1st tab
+      Button1.visible = TRUE;
+  }
+  else if (x1!=-1 && x2!=-1)	// both
+  { 
+      Button1.visible = FALSE; //both tabs visible
+  }
+}
+
+show_regTab(string dp1, int errStat)
+{
+  if(errStat == -1)
+      Button1.visible = TRUE;
+    else
+      Button1.visible = FALSE;
+}
+
+work(string dp1, dyn_int event,
+     string dp2, dyn_int driver,
+     string dp3, dyn_int data,
+     string dp4, dyn_int ui,
+     string dp5, dyn_int ctrl,
+     string dp6, dyn_int ascii,
+     string dp7, dyn_int api,
+     string dp8, dyn_int device,
+     string dp9, dyn_int dde,
+     string dp10, dyn_int redu,
+     string dp11, dyn_int dist )
+{
+
+  DisconnectTable(event, \"event\");
+  DisconnectTable(driver,\"driver\");
+  DisconnectTable(data,  \"data\");
+  DisconnectTable(ui,    \"ui\");
+  DisconnectTable(ctrl,  \"ctrl\");
+  DisconnectTable(ascii, \"ascii\");
+  DisconnectTable(api,   \"api\");
+  DisconnectTable(device,\"device\");
+  DisconnectTable(dde,   \"dde\");
+  DisconnectTable(redu,  \"redu\");
+  DisconnectTable(dist,  \"dist\");
+
+  dpCheckAndCreate(event, \"event\");
+  mgr_active( event, \"event\");
+  dpCheckAndCreate(driver, \"driver\");
+  mgr_active( driver, \"driver\");
+  dpCheckAndCreate(data, \"data\");
+  mgr_active( data, \"data\");
+  dpCheckAndCreate(ui, \"ui\");
+  mgr_active( ui, \"ui\");
+  dpCheckAndCreate(ctrl, \"ctrl\");
+  mgr_active( ctrl, \"ctrl\");
+  dpCheckAndCreate(ascii, \"ascii\");
+  mgr_active( ascii, \"ascii\");
+  dpCheckAndCreate(api, \"api\");
+  mgr_active( api, \"api\");
+  dpCheckAndCreate(device, \"device\");
+  mgr_active( device, \"device\");
+  dpCheckAndCreate(dde, \"dde\");
+  mgr_active( dde, \"dde\");
+  dpCheckAndCreate(redu, \"redu\");
+  mgr_active( redu, \"redu\");
+  dpCheckAndCreate(dist, \"dist\");
+  mgr_active( dist, \"dist\");
+}
+
+mgr_active(dyn_int mgrnum, string mgrname)
+{
+  string     dpName;
+  int        i;
+  unsigned   uStat1, uStat2;
+
+  if(mgrname == \"dist\")
+  {
+    dynClear(mgrnum);
+    dynAppend(mgrnum, 1);   // add own   
+  }
+  else if ( mgrname == \"event\" )
+  {
+    i = dynContains(mgrnum, 128);
+    
+    if ( i )
+      dynRemove(mgrnum, i); //do not display manager 128
+    
+    dynAppend(mgrnum, 0); // add own
+  }
+  
+  dynSortAsc( mgrnum );
+
+
+  if( dynlen( mgrnum ) != 0 )
+  {
+
+
+    // Set graphic attributes
+    setMultiValue( mgrname + \"Box\",    \"foreCol\", \"Green\",
+                   mgrname + \".table\", \"visible\", TRUE,
+                   mgrname + \".table\", \"deleteAllLines\",
+                   mgrname + \".table\", \"appendLines\", dynlen( mgrnum ),
+                                       \"man\", mgrnum );
+    if( mgrname != \"event\" )
+      setValue( mgrname + \"Line\", \"foreCol\", \"Green\" );
+
+
+    // Loop for all manager numbers
+    for( i = 1; i <= dynlen( mgrnum ); i ++ )
+    {
+      // Try some connects
+      switch($hostNumber)
+      {
+        case 1 : dpName = gSystem + \"_Stat_event_0_to_\" + mgrname + \"_\" + mgrnum[i];		//host 1 
+                 break;
+
+        case 2 : dpName = gSystem + \"_Stat_2_event_0_to_\" + mgrname + \"_\" + mgrnum[i]; 	//host 2
+                 break;
+
+        default: return;	//no valid host
+      }
+      
+      if(dynContains(dsActiveManagerDPs,dpName) > 0)
+      {
+        if(dpExists(dpName))
+        {
+          dpGet(dpName+\".SndTotal:_online.._value\",uStat1,
+                dpName+\".RcvTotal:_online.._value\",uStat2);
+          //Refresh Table after deleting all lines
+          RefreshTable(dpName,uStat1,uStat2);
+        }
+        continue; //still connected
+      }
+      else
+      {
+        if( dpExists( dpName ) )
+          dpConnect( \"workStat\", true, dpName + \".SndTotal:_online.._value\",
+                                       dpName + \".RcvTotal:_online.._value\" );
+        dynAppend(dsActiveManagerDPs,dpName);
+      }
+    }
+  }
+}
+
+DisconnectTable(dyn_int mgrnum, string mgrname)
+{
+  string     dpName;
+  int        i;
+
+  dynSortAsc( mgrnum );
+  if( dynlen( mgrnum ) == 0 ) //Disconnect table if there are no more connections
+  {
+    setMultiValue( mgrname + \"Box\",    \"foreCol\", \"darkgrey\",
+                   mgrname + \".table\", \"visible\", FALSE );
+
+    if( mgrname != \"event\" )
+      setValue( mgrname + \"Line\", \"foreCol\", \"darkgrey\");
+  }
+}
+
+RefreshTable( string dpName, unsigned uStat1, unsigned uStat2)
+{
+dyn_string dsParts;
+string     sManagerName;
+int        iManagerNumber;
+
+int        i;
+int        iCountLines;
+string     sAssistance;
+int        iManagerTable;
+
+  // Filter elements
+  sAssistance = dpSubStr( dpName, DPSUB_DP_EL ); //_Stat_event_0_to_xxx_y.SndTotal:
+  dsParts = strsplit( sAssistance, \"_\" ); //Stat event 0 ...
+
+  if($hostNumber == 2)
+  {
+    sManagerName = dsParts[7]; //xxx
+    sAssistance = dsParts[8];  //y.SndTotal
+  }
+  else
+  {
+    sManagerName = dsParts[6]; //xxx
+    sAssistance = dsParts[7];  //y.SndTotal
+  }
+  
+  dsParts = strsplit( sAssistance, \".\" );//y
+  iManagerNumber = dsParts[1];
+
+
+  // Check all Manager
+  getValue( sManagerName + \".table\", \"lineCount\", iCountLines );
+  for( i = 1; i <= iCountLines; i ++ )
+  {
+    getValue( sManagerName + \".table\", \"cellValueRC\", i-1, \"man\", iManagerTable );
+    if( iManagerTable == iManagerNumber )
+    {
+      // Write changes
+      setValue( sManagerName + \".table\", \"cellValueRC\", i-1, \"snd\", uStat1,
+                                         \"cellValueRC\", i-1, \"rcv\", uStat2 );
+    }
+  }
+}
+
+workStat( string dpSndTotal, unsigned uStat1,
+          string dpRcvTotal, unsigned uStat2 )
+{
+dyn_string dsParts;
+string     sManagerName;
+int        iManagerNumber;
+
+int        i;
+int        iCountLines;
+string     sAssistance;
+int        iManagerTable;
+
+  // Filter elements
+  sAssistance = dpSubStr( dpSndTotal, DPSUB_DP_EL ); //_Stat_event_0_to_xxx_y.SndTotal:
+  dsParts = strsplit( sAssistance, \"_\" ); //Stat event 0 ...
+
+  if($hostNumber == 2)
+  {
+    sManagerName = dsParts[7]; //xxx
+    sAssistance = dsParts[8];  //y.SndTotal
+  }
+  else
+  {
+    sManagerName = dsParts[6]; //xxx
+    sAssistance = dsParts[7];  //y.SndTotal
+  }
+  
+  dsParts = strsplit( sAssistance, \".\" );//y
+  iManagerNumber = dsParts[1];
+
+
+  // Check all Manager
+  getValue( sManagerName + \".table\", \"lineCount\", iCountLines );
+  for( i = 1; i <= iCountLines; i ++ )
+  {
+    getValue( sManagerName + \".table\", \"cellValueRC\", i-1, \"man\", iManagerTable );
+    if( iManagerTable == iManagerNumber )
+    {
+      // Write changes
+      setValue( sManagerName + \".table\", \"cellValueRC\", i-1, \"snd\", uStat1,
+                                         \"cellValueRC\", i-1, \"rcv\", uStat2 );
+    }
+  }
+}
+
+// The following function originally was defined at ST_StatisticsRefresh.ref DP-Create Button (W.G.)
+dpCheckAndCreate(dyn_int mgrnum, string mgrname)
+{
+int        i;
+string     dpName;
+
+  switch($hostNumber)
+  {
+    case 1 : dpName = \"_Stat_\";            
+             break;
+    case 2 : dpName = \"_Stat_2_\";
+             break;
+    default: return;
+  }
+
+  for( i = 1; i <= dynlen( mgrnum ); i ++ )
+  {
+     // Check if DP is still there
+     if( !dpExists(gSystem+dpName + \"event_0_to_\" + mgrname + \"_\" + mgrnum[i] ) )
+     {
+       dpCreate(dpName + \"event_0_to_\" + mgrname + \"_\" + mgrnum[i],
+                 \"_Statistics_Connections\", getSystemId(gSystem) );
+     }
+
+     if( !dpExists(gSystem+dpName + \"Configs_\" + mgrname + \"_\" + mgrnum[i] ) )
+     {
+       if( mgrname == \"data\" )
+       {
+         dpCreate(dpName + \"Configs_\" + mgrname + \"_\" + mgrnum[i],
+                   \"_Statistics_DataConfigs\", getSystemId(gSystem) );
+       }          
+       else if( mgrname == \"event\" )
+       {
+         dpCreate(dpName + \"Configs_\" + mgrname + \"_\" + mgrnum[i],
+                   \"_Statistics_EventConfigs\", getSystemId(gSystem) );
+       }          
+       else if( mgrname == \"driver\" )
+       {
+         dpCreate(dpName + \"Configs_\" + mgrname + \"_\" + mgrnum[i],
+                   \"_Statistics_DriverConfigs\", getSystemId(gSystem) );
+       }          
+     }
+  }
+
+}
+// End of dpCheck and Create
+" 0
+ E E E E 1 -1 -1 0  64 78
+""0  1
+E E 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 0
+"lblRow1"
+""
+1 12 453 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 14 453 193 468
+0 2 2 "0s" 0 0 0 192 0 0  14 453 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 24 Column 1: Manager number
+LANG:10004 23 第1列:管理器编号
+LANG:10000 24 Spalte 1: Manager-Nummer
+LANG:10027 47 Столбец 1: номер менеджера
+6 6
+"uiBox"
+""
+1 275 101 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 275 101 335 124
+2 7
+"uiText"
+""
+1 299 104 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 299 104 313 119
+0 2 2 "0s" 0 0 0 192 0 0  299 104 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 UI
+LANG:10004 2 UI
+LANG:10000 2 UI
+LANG:10027 2 UI
+6 8
+"ctrlBox"
+""
+1 49 101 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 49 101 110 124
+6 9
+"driverBox"
+""
+1 509 351 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 509 351 570 374
+6 10
+"reduBox"
+""
+1 509 301 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 509 301 570 324
+6 11
+"ddeBox"
+""
+1 275 351 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 275 351 336 374
+6 12
+"distBox"
+""
+1 509 161 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 509 161 570 184
+6 13
+"asciiBox"
+""
+1 49 161 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 49 161 110 184
+6 14
+"apiBox"
+""
+1 509 101 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 509 101 570 124
+2 15
+"ctrlText"
+""
+1 64 104 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 64 104 98 119
+0 2 2 "0s" 0 0 0 192 0 0  64 104 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 CTRL
+LANG:10004 18 脚本程序(CTRL)
+LANG:10000 4 CTRL
+LANG:10027 4 CTRL
+2 16
+"apiText"
+""
+1 528 104 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 528 104 551 119
+0 2 2 "0s" 0 0 0 192 0 0  528 104 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 API
+LANG:10004 3 API
+LANG:10000 3 API
+LANG:10027 3 API
+2 17
+"distText"
+""
+1 524 164 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 524 164 554 179
+0 2 2 "0s" 0 0 0 192 0 0  524 164 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 DIST
+LANG:10004 21 分布式系统(DIST)
+LANG:10000 4 DIST
+LANG:10027 4 DIST
+2 18
+"ddeText"
+""
+1 292 354 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 292 354 321 369
+0 2 2 "0s" 0 0 0 192 0 0  292 354 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 DDE
+LANG:10004 3 DDE
+LANG:10000 3 DDE
+LANG:10027 3 DDE
+6 19
+"dataBox"
+""
+1 49 301 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 49 301 111 324
+6 20
+"deviceBox"
+""
+1 49 349 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 49 349 110 374
+2 21
+"deviceText"
+""
+1 55 355 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 55 355 104 370
+0 2 2 "0s" 0 0 0 192 0 0  55 355 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 DEVICE
+LANG:10004 14 设备(DEVICE)
+LANG:10000 6 DEVICE
+LANG:10027 11 УСТ-ВО
+2 22
+"driverText"
+""
+1 515 355 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 515 355 579 370
+0 2 2 "0s" 0 0 0 192 0 0  515 355 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 DRIVER
+LANG:10004 20 驱动程序(DRIVER)
+LANG:10000 6 DRIVER
+LANG:10027 14 ДРАЙВЕР
+2 23
+"asciiText"
+""
+1 63 164 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 63 164 98 179
+0 2 2 "0s" 0 0 0 192 0 0  63 164 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 ASCII
+LANG:10004 26 数据导入/导出(ASCII)
+LANG:10000 5 ASCII
+LANG:10027 5 ASCII
+2 24
+"reduText"
+""
+1 521 304 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 521 304 559 319
+0 2 2 "0s" 0 0 0 192 0 0  521 304 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 REDU
+LANG:10004 18 冗余系统(REDU)
+LANG:10000 4 REDU
+LANG:10027 4 REDU
+7 27
+"eliEvent"
+""
+1 305 241 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 305 241 76 76
+4 28
+"uiLine"
+""
+1 305 165 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E  305 165 305 125
+4 29
+"ddeLine"
+""
+1 305 351 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E  305 351 305 317
+10 30
+"deviceLine"
+""
+1 109 361 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 109 361
+189 361
+266 306
+189 361
+ 1
+10 31
+"driverLine"
+""
+1 509 361 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 509 361
+429 361
+343 306
+429 361
+ 1
+10 32
+"distLine"
+""
+1 509 171 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 508 171
+431 171
+370 199
+431 171
+ 1
+10 33
+"apiLine"
+""
+1 509 111 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 509 111
+429 111
+342 175
+429 111
+ 1
+10 34
+"ctrlLine"
+""
+1 109 111 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 109 111
+189 111
+266 175
+189 111
+ 1
+10 35
+"asciiLine"
+""
+1 109 171 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 4 109 172
+189 172
+241 199
+189 172
+ 1
+10 36
+"dataLine"
+""
+1 110 311 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 6 113 311
+189 311
+241 283
+189 311
+189 311
+189 311
+ 1
+10 37
+"reduLine"
+""
+1 509 311 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 6 508 310
+430 310
+370 284
+430 310
+430 310
+430 310
+ 1
+2 38
+"lblRow2"
+""
+1 12 472 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 14 472 215 487
+0 2 2 "0s" 0 0 0 192 0 0  14 472 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 34 Column 2: Messages sent from event
+LANG:10004 32 第2列:从事件发送的消息
+LANG:10000 40 Spalte 2: Von Event gesendete Telegramme
+LANG:10027 47 Столбец 2: сообщения от EVENT
+2 39
+"lblRow3"
+""
+1 12 491 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 14 491 209 506
+0 2 2 "0s" 0 0 0 192 0 0  14 491 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 32 Column 3: Messages sent to event
+LANG:10004 32 第3列:发送到事件的消息
+LANG:10000 39 Spalte 3: An Event gesendete Telegramme
+LANG:10027 45 Столбец 3: сообщения к EVENT
+2 49
+"dataText"
+""
+1 63 305 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 63 305 97 320
+0 2 2 "0s" 0 0 0 192 0 0  63 305 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 DATA
+LANG:10004 12 数据(DATA)
+LANG:10000 4 DATA
+LANG:10027 4 DATA
+2 50
+"name_of_host"
+""
+1 331 423 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 282 421 324 444
+0 2 2 "0s" 0 0 0 193 0 0  303 421 1
+4
+LANG:10001 26 arial,-1,20,5,69,0,0,0,0,0
+LANG:10004 26 arial,-1,20,5,69,0,0,0,0,0
+LANG:10000 26 arial,-1,20,5,69,0,0,0,0,0
+LANG:10027 26 arial,-1,20,5,69,0,0,0,0,0
+0 4
+LANG:10001 4 ntap
+LANG:10004 4 ntap
+LANG:10000 4 ntap
+LANG:10027 4 ntap
+6 25
+"eventBox"
+""
+1 279 180 E E E 1 E 1 E N {102,102,102} E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 279 180 333 205
+2 26
+"eventText"
+""
+1 284 183 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 284 183 329 198
+0 2 2 "0s" 0 0 0 192 0 0  284 183 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 EVENT
+LANG:10004 22 事件管理器(EVENT)
+LANG:10000 5 EVENT
+LANG:10027 5 EVENT
+1 71 15 "" 0
+0
+1 70 14 "" 0
+0
+1 68 12 "" 0
+0
+1 61 0 "" 0
+0
+1 62 1 "" 0
+0
+1 63 2 "" 0
+0
+1 64 5 "" 0
+0
+1 65 7 "" 0
+0
+1 66 10 "" 0
+0
+1 67 11 "" 0
+0
+1 69 13 "" 0
+0
+13 60
+"Button1"
+""
+1 0 0 E E E 1 E 0 E N "_ButtonShadow" E N "_Button" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,18,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,18,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,18,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,18,5,40,0,0,0,0,0
+0  -2 -2 663 574
+
+T 
+4
+LANG:10001 21 No connection to host
+LANG:10004 27 无法与主机建立连接
+LANG:10000 24 Keine Verbindung zu Host
+LANG:10027 33 Нет связи с хостом
+E E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "ui" -1
+"" ""
+"vision/ST_ConnectTable.ref" 212 396 T 0 1 0 1.06329113924051 -1 -432.455696202532
+3
+"$ManagerType""ui"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 1 "ctrl" -1
+"" ""
+"vision/ST_ConnectTable.ref" -12 58 T 0 1 0 1.06329113924051 -4 -73.06329113924051
+3
+"$ManagerType""ctrl"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 2 "api" -1
+"" ""
+"vision/ST_ConnectTable.ref" 434 68 T 0 1 0 1.06329113924051 11 -83.6962025316456
+3
+"$ManagerType""api"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 5 "data" -1
+"" ""
+"vision/ST_ConnectTable.ref" 194 392 T 0 0.996680964052288 0 0.378367003367003 -208.54411764706 104.01430976431
+3
+"$ManagerType""data"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 7 "ascii" -1
+"" ""
+"vision/ST_ConnectTable.ref" -18 76 T 0 1 0 0.762159750111557 3 115.703034359661
+3
+"$ManagerType""ascii"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 10 "driver" -1
+"" ""
+"vision/ST_ConnectTable.ref" -18 76 T 0 1 0 1 463 284
+3
+"$ManagerType""driver"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 11 "dist" -1
+"" ""
+"vision/ST_ConnectTable.ref" -18 76 T 0 1 0 0.3748326639892903 463 153.2663989290496
+3
+"$ManagerType""dist"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 12 "event" -1
+"" ""
+"vision/ST_ConnectTable.ref" -18 76 T 0 0.976294302999613 0 0.375681262562119 222.237056970004 189.183236268912
+3
+"$ManagerType""event"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 13 "device" -1
+"" ""
+"vision/ST_ConnectTable.ref" -18 76 T 0 1 0 0.674698795180723 3 315.228915662651
+3
+"$ManagerType""device"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 14 "dde" -1
+"" ""
+"vision/ST_ConnectTable.ref" 194 392 T 0 0.889705882352941 0 0.375550375550376 41.2022058823528 225.171630838297
+3
+"$ManagerType""dde"
+"$System""$System"
+"$hostNumber""$hostNumber"
+3 15 "redu" -1
+"" ""
+"vision/ST_ConnectTable.ref" 194 392 T 0 0.98999183006536 0 0.378367003367003 252.940870098038 104.01430976431
+3
+"$ManagerType""redu"
+"$System""$System"
+"$hostNumber""$hostNumber"
+0

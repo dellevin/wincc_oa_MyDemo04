@@ -1,0 +1,1044 @@
+V 14
+4
+LANG:10001 28 IEC 61850/61400 address tree
+LANG:10004 24 IEC 61850/61400地址树
+LANG:10000 28 IEC 61850/61400 address tree
+LANG:10027 43 Дерево адресов IEC 61850/61400
+PANEL,-1 -1 420 550 N "_3DFace" 9
+"$dataset"
+"$do"
+"$ld"
+"$ln"
+"$p1"
+"$p2"
+"$panelMode"
+"$paneltype"
+"$tag"
+"main()
+{
+  initTree();
+}
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  40 10
+""0  1
+E "#uses \"iec61850_plugin.ctl\"
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+int iPanelType;
+string sDeviceName;
+string sCmdLd, sCmdLn, sCmdDo;
+
+dyn_string dsFinalTagsList;
+dyn_string dsExpandedNodeIDList;
+dyn_string dsCheckedOnInit;
+dyn_anytype iec61850TreeObjects;
+
+dyn_dyn_string dataObjectList;
+
+IEC61850AddressTreePanelMode panelMode;
+
+
+//shared_ptr<IEC61850TreeElement>
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// enable & disable shapes
+enableShapes(bool bState, bool bOkEnabled = true)
+{
+  setMultiValue(\"SCLTreeView\", \"enabled\", bState,
+                \"btnOK\",       \"enabled\", bState && bOkEnabled,
+                \"btnCancel\",   \"enabled\", bState,
+                \"frmAddRef\",   \"enabled\", bState,
+                \"cbFilter\",    \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string getCheckedItemsFCD()
+{
+  dyn_string checkedItems = SCLTreeView.getCheckedItems(TREE_NODES | TREE_LEAVES);
+
+  /* the items are sorted, e.g.
+     [dyn_string 5 items
+       1: \"ED2_REF_IEDLD1/ANCR1$MX$ADetun\"
+       2: \"ED2_REF_IEDLD1/ANCR1$MX$AResoPt\"
+       3: \"ED2_REF_IEDLD1/ANCR1$MX$AResoPt$instMag\"
+       4: \"ED2_REF_IEDLD1/ANCR1$MX$AResoPt$mag\"
+       5: \"ED2_REF_IEDLD1/ANCR1$MX$AResoPt$range\"
+     ]
+     so check for each item if all children are checked.
+     if so, remove all children (recursive) from the list,
+     if not, remove the actual item from the list
+  */
+
+  int i = 1;
+
+  while (i <= dynlen(checkedItems))
+  {
+    bool allChildrenChecked = true;
+    dyn_string children = SCLTreeView.children(checkedItems[i]);
+
+    for (int j = 1; allChildrenChecked && j <= dynlen(children); ++j)
+    {
+      allChildrenChecked = SCLTreeView.getCheckState(children[j]) == 1; //1..checked, exit on other value
+    }
+
+    if (allChildrenChecked)
+    {
+      removeAllItemsIncludingChildrensFromDynString(checkedItems, children);
+      ++i;
+    }
+    else
+    {
+      dynRemove(checkedItems, i);
+    }
+  }
+
+  return checkedItems;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+dyn_string getCheckedItemsFCDA()
+{
+  // get all tree leaves --> data attributes
+  dyn_string checkedItems = SCLTreeView.getCheckedItems(TREE_LEAVES);
+  dyn_string daItems;
+
+  for ( int i = 1; i <= dynlen(checkedItems); ++i )
+  {
+    string sIec61850Tag = checkedItems[i];
+
+    int index = 1;
+    shared_ptr<IEC61850TreeElement> elementPtr = nullptr;
+    while (elementPtr == nullptr && index <= dynlen(iec61850TreeObjects))
+    {
+      shared_ptr<IEC61850TreeElement> ldPtr = iec61850TreeObjects[index++];
+      elementPtr = ldPtr.findChildById(sIec61850Tag);
+    }
+
+    if (elementPtr != nullptr)
+    {
+      dyn_string daChildItems = elementPtr.getAllDAChildElements();
+      dynAppend(daItems, daChildItems);
+    }
+  }
+
+  return daItems;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void removeAllItemsIncludingChildrensFromDynString(dyn_string &items, const dyn_string &itemsToRemove)
+{
+  for (int i = 1; i <= dynlen(itemsToRemove); ++i)
+  {
+    dyn_string children = SCLTreeView.children(itemsToRemove[i]);
+    removeAllItemsIncludingChildrensFromDynString(items, children);
+
+    int idx = dynContains(items, itemsToRemove[i]);
+
+    if (idx > 0)
+    {
+      dynRemove(items, idx);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+initTree(int iOption = 0)
+{
+  enableShapes(false);
+
+  bool bval, foundArray = false, tagFound = false, bOkEnabled = true;
+  int iPos;
+
+  SCLTreeView.clear();
+  SCLTreeView.removeColumn(IEC61850_TREE_TEXT);
+  SCLTreeView.addColumn(IEC61850_TREE_TEXT);
+  SCLTreeView.addColumn(\"DT\");
+
+  string sIed, sIedDp, sIec61850Tag, sDataset;
+  dyn_string dsIec61850TagList, dsElements, dsSelectedTags, dsCtlModelInfo;
+  uint uiBrowseSource;
+
+  if ( isDollarDefined(\"$p1\") )
+    sIed = $p1;
+
+  if ( sIed != \"\" )
+    sIedDp = iec61850_getIedDpName(sIed);
+
+  if ( isDollarDefined(\"$tag\") )
+    sIec61850Tag = $tag;
+
+  if ( isDollarDefined(\"$p2\") )
+    dsSelectedTags = strsplit($p2, \" | \");
+
+  if ( isDollarDefined(\"$dataset\") )
+    sDataset = $dataset;
+
+  // tfs 62225
+  // panel type either command object or controlled object
+  if ( isDollarDefined(\"$paneltype\") )
+    iPanelType = $paneltype;
+
+  // ld, ln, do selected from command object for preselection of controlled object
+  if ( isDollarDefined(\"$ld\") )
+    sCmdLd = $ld;
+  if ( isDollarDefined(\"$ln\") )
+    sCmdLn = $ln;
+  if ( isDollarDefined(\"$do\") )
+    sCmdDo = $do;
+
+  panelMode = IEC61850AddressTreePanelMode::Address;
+
+  if ( isDollarDefined(\"$panelMode\") )
+  {
+    if ((int)$panelMode == (int)IEC61850AddressTreePanelMode::Address)
+      panelMode = IEC61850AddressTreePanelMode::Address;
+    else if ((int)$panelMode == (int)IEC61850AddressTreePanelMode::FCD)
+      panelMode = IEC61850AddressTreePanelMode::FCD;
+    else if ((int)$panelMode == (int)IEC61850AddressTreePanelMode::FCDA)
+      panelMode = IEC61850AddressTreePanelMode::FCDA;
+  }
+
+  if ( iPanelType == 1 )
+    panelMode = (int)IEC61850AddressTreePanelMode::CMD;
+  else if ( iPanelType == 2 )
+    panelMode = (int)IEC61850AddressTreePanelMode::CTL;
+
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_TAGSLIST     , dsIec61850TagList,
+        sIedDp + IEC61850_DPE_IDP_CTLMODELINFO , dsCtlModelInfo,
+        sIedDp + IEC61850_DPE_IDP_BROWSE_SOURCE, uiBrowseSource);
+
+
+  if ( panelMode == IEC61850AddressTreePanelMode::Address ||
+       panelMode == IEC61850AddressTreePanelMode::CMD     ||
+       panelMode == IEC61850AddressTreePanelMode::CTL )
+  {
+    bOkEnabled = false;
+    SCLTreeView.position(25, 30);
+
+    if ( panelMode == IEC61850AddressTreePanelMode::CMD && uiBrowseSource == 1)
+      SCLTreeView.size(370, 415);
+    else
+      SCLTreeView.size(370, 445);
+
+    ptDatasetDescr.visible = false;
+    ptDataset.visible = false;
+    ptFcTypeDescr.visible = false;
+    ptFcType.visible = false;
+
+    if ( panelMode == IEC61850AddressTreePanelMode::CMD )
+      frmAddRef.text = getCatStr(\"iec61850\", \"SelectCmdObj\");
+
+    if ( panelMode == IEC61850AddressTreePanelMode::CTL )
+      frmAddRef.text = getCatStr(\"iec61850\", \"SelectCtlObj\");
+  }
+  else if (panelMode == IEC61850AddressTreePanelMode::FCD)
+  {
+    ptDataset.text = sDataset;
+    ptFcType.text = \"FCD\";
+  }
+  else if (panelMode == IEC61850AddressTreePanelMode::FCDA)
+  {
+    ptDataset.text = sDataset;
+    ptFcType.text = \"FCDA\";
+  }
+
+  sDeviceName = sIed;
+  iec61850Ed2_listDataObjectCDCInfo(dataObjectList);
+
+  if(sIed == \"\")
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DeviceSelect\"));
+    return;
+  }
+
+  dynClear(dsFinalTagsList);
+  //dynClear(dsExpandedNodeIDList);
+  //SCLTreeView.enabled = false;
+
+  //if the FCD mode is active, the array information should be removed, @see DS ED2_REF_IEDLD1/LLN0$DSFCD_HWYE
+  if ( panelMode == IEC61850AddressTreePanelMode::FCD ||
+       //panelMode == IEC61850AddressTreePanelMode::CMD ||
+       panelMode == IEC61850AddressTreePanelMode::CTL )
+    iec61850_treeView_getTagsListWithoutArrayInformation(dsIec61850TagList, dsFinalTagsList);
+  else if ( panelMode == IEC61850AddressTreePanelMode::CMD )
+    iec61850_treeView_getTagsListWithCtlModelInformation(dsIec61850TagList, dsFinalTagsList, dsCtlModelInfo, iOption);
+  else
+    iec61850_treeView_getFinalTagsList(dsIec61850TagList, dsFinalTagsList);
+
+  iec61850_treeView_readIEC61850TagsNew(dsFinalTagsList, iec61850TreeObjects, iPanelType, sCmdLd, sCmdLn, sCmdDo);
+
+  iec61850_addressTreeView_append_LDeviceLNodesNew(iec61850TreeObjects, panelMode);
+
+  // retrieving configured tag in the address panel
+  if ( sIec61850Tag != \"\" )
+  {
+    dsElements = strsplit(sIec61850Tag, \".\");
+
+    //if ( dynlen(dsElements) >= 1 )
+    //  sDevice = dsElements[1];
+
+    if ( dynlen(dsElements) >= 2 )
+    {
+      sIec61850Tag = dsElements[2];
+      expandAndCheckElement(sIec61850Tag);
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsSelectedTags); ++i )
+    if ( dsSelectedTags[i] != \"\" )
+      expandAndCheckElement(dsSelectedTags[i]);
+
+  if ( panelMode == IEC61850AddressTreePanelMode::FCD )
+    dsCheckedOnInit = getCheckedItemsFCD();
+  else if ( panelMode == IEC61850AddressTreePanelMode::FCDA )
+    dsCheckedOnInit = getCheckedItemsFCDA();
+
+  //SCLTreeView.enabled = true;
+  enableShapes(true, bOkEnabled);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void expandAndCheckElement(const string &sIec61850Tag)
+{
+  int i = 1;
+  shared_ptr<IEC61850TreeElement> elementPtr = nullptr;
+  while (elementPtr == nullptr && i <= dynlen(iec61850TreeObjects))
+  {
+    shared_ptr<IEC61850TreeElement> ldPtr = iec61850TreeObjects[i++];
+    if (ldPtr.getName() == sIec61850Tag)
+      elementPtr = ldPtr;
+    else
+      elementPtr = ldPtr.findChildById(sIec61850Tag);
+  }
+
+  if (elementPtr != nullptr)
+  {
+    dyn_anytype parentList;
+    shared_ptr<IEC61850TreeElement> iterator = elementPtr.getParent();
+    while (iterator != nullptr)
+    {
+      dynAppend(parentList, iterator);
+
+      //workaround for iterator = iterator.getParent();
+      shared_ptr<IEC61850TreeElement> tmp = iterator;
+      iterator = nullptr;
+      iterator = tmp.getParent();
+    }
+
+    for (int i = dynlen(parentList); i > 0; --i)
+    {
+      shared_ptr<IEC61850TreeElement> iterator = parentList[i];
+      string id = iterator.getId();
+      if (!SCLTreeView.isOpen(id))
+      {
+        SCLTreeView.setOpen(id, true);
+        delay(0, 100);
+      }
+    }
+
+    SCLTreeView.setChecked(elementPtr.getId(), true);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool checkAddressAvailability(string sIed, string sCtlVal)
+{
+  int iDrvNum = iec61850_getIedDrvNum(sIed);
+  string sOperVal, sCtlModel;
+
+  dyn_uint duiDrvNums = iec61850_checkDrvNums();
+  dyn_string dsDPMatchCtlVal, dsDPMatchOperVal, dsDPMatchCtlModel;
+
+  if ( dynlen(duiDrvNums) > 0 && dynContains(duiDrvNums, (uint)iDrvNum) > 0 )
+  {
+    dpSetWait(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.HWMask\", sIed + \".\" + sCtlVal);
+    delay(0, 50);
+    dpGet(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.DPMatch\", dsDPMatchCtlVal);
+
+    sOperVal = sCtlVal;
+    strreplace(sOperVal, \"ctlVal\", \"operVal\");
+
+    dpSetWait(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.HWMask\", sIed + \".\" + sOperVal);
+    delay(0, 50);
+    dpGet(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.DPMatch\", dsDPMatchOperVal);
+
+    sCtlModel = getCtlModelFromCmdObj(sIed, sCtlVal);
+
+    dpSetWait(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.HWMask\", sIed + \".\" + sCtlModel);
+    delay(0, 50);
+    dpGet(IEC61850_INTL + \"Driver\" + iDrvNum + \".AD.DPMatch\", dsDPMatchCtlModel);
+
+    if ( dynlen(dsDPMatchCtlVal) || dynlen(dsDPMatchOperVal) || dynlen(dsDPMatchCtlModel) )
+    {
+      dyn_string dsDPMatch = dsDPMatchCtlVal;
+      dynAppend(dsDPMatch, dsDPMatchOperVal);
+      dynAppend(dsDPMatch, dsDPMatchCtlModel);
+
+      for ( int i = 1; i <= dynlen(dsDPMatch); i++ )
+        dsDPMatch[i] = dpSubStr(dsDPMatch[i], DPSUB_DP_EL);
+
+      string sInfo = getCatStr(\"iec61850\", \"CmdAddressNA\");
+
+      string sMsg = dynStringToString(dsDPMatch);
+
+      dyn_float df;
+      dyn_string ds;
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfoList\",
+                                     getCatStr(\"para\", \"warning\"),
+                                     makeDynString(sInfo,
+                                                   sMsg,
+                                                   \"\"),
+                                     df, ds);
+
+      return false;
+    }
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getCtlModelFromCmdObj(string sIed, string sCmdObj)
+{
+  string sReturnCtlModel;
+
+  string sIedDp = iec61850_getIedDpName(sIed);
+  dyn_string dsCtlModelInfo;
+
+  dpGet(sIedDp + IEC61850_DPE_IDP_CTLMODELINFO, dsCtlModelInfo);
+
+  dyn_string dsCtlModelTags;
+
+  for ( int i = 1; i <= dynlen(dsCtlModelInfo); i++ )
+  {
+    dynAppend(dsCtlModelTags, strsplit(dsCtlModelInfo[i], \"|\")[1]);
+  }
+
+  for ( int i = 1; i <= dynlen(dsCtlModelTags); i++ )
+  {
+    string sTemp;
+    dyn_string dsTemp = strsplit(dsCtlModelTags[i], \"$\");
+
+    for ( int j = 1; j <= 3; j++ )
+      sTemp += dsTemp[j] + \"$\";
+
+    dsCtlModelTags[i] = sTemp;
+  }
+
+  strreplace(sCmdObj, \"$CO$\", \"$CF$\");
+
+  string sTemp;
+  dyn_string dsTemp = strsplit(sCmdObj, \"$\");
+
+  for ( int j = 1; j <= 3; j++ )
+    sTemp += dsTemp[j] + \"$\";
+
+  sCmdObj = sTemp;
+
+  int iPos = dynContains(dsCtlModelTags, sCmdObj);
+
+  if ( iPos > 0 )
+  {
+    sReturnCtlModel = dsCtlModelTags[iPos] + \"ctlModel\";
+  }
+  else
+  {
+    sReturnCtlModel = sCmdObj + \"ctlModel\";
+  }
+
+  return sReturnCtlModel;
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 24
+"cbFilter"
+""
+1 -540.9043624161073 914 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 448 376 474
+1
+T 
+4
+LANG:10001 43 Only show control model tags defined in SCL
+LANG:10004 44 仅显示 SCL 中定义的控制模型标签
+LANG:10000 39 Nur Control Model Tags in SCL definiert
+LANG:10027 43 Only show control model tags defined in SCL
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  initTree(state);
+}
+" 0
+29 2
+"SCLTreeView"
+""
+1 25 80 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 SCL address tree
+LANG:10004 13 SCL 地址树
+LANG:10000 14 SCL Adressbaum
+LANG:10027 35 Дерево устройств SCL
+
+5
+"alternatingRowColors" "bool TRUE"
+"headerHidden" "bool TRUE"
+"horizontalScrollBarPolicy" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  25 80 394 474
+10 TreeWidget
+2
+0 "clicked" "(string id, int column)"
+"  if ( panelMode == IEC61850AddressTreePanelMode::Address ||
+       panelMode == IEC61850AddressTreePanelMode::CMD     ||
+       panelMode == IEC61850AddressTreePanelMode::CTL )
+    btnOK.enabled = SCLTreeView.isExpandable(SCLTreeView.selectedItem()) == 0 &&
+                    dynlen(SCLTreeView.children(SCLTreeView.selectedItem())) == 0;"
+0 "expanded" "(string id)"
+"  int i = 1;
+  shared_ptr<IEC61850TreeElement> elementPtr = nullptr;
+  while (elementPtr == nullptr && i <= dynlen(iec61850TreeObjects))
+  {
+    shared_ptr<IEC61850TreeElement> ldPtr = iec61850TreeObjects[i++];
+    if (ldPtr.getName() == id)
+      elementPtr = ldPtr;
+    else
+      elementPtr = ldPtr.findChildById(id);
+  }
+
+  if ( elementPtr != nullptr )
+  {
+    iec61850_addressTreeView_appendElementsOnNodeExpandNew(elementPtr, panelMode);
+  }"
+E13 7
+"btnHelp"
+""
+1 9.978723404255231 513 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 513 106 541
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"address_IEC61850\", true, \"WinCC_OA_IEC61850.chm\");
+}
+" 0
+ E E E
+13 10
+"btnCancel"
+""
+1 315 515 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 33 Discard selection and close panel
+LANG:10004 27 放弃选择并关闭面板
+LANG:10000 38 Auswahl verwerfen und Panel schließen
+LANG:10027 58 Отменить выбор и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  313 513 411 541
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  dyn_string checkedItems;
+  if ( panelMode == IEC61850AddressTreePanelMode::FCD )
+    checkedItems = getCheckedItemsFCD();
+  else if ( panelMode == IEC61850AddressTreePanelMode::FCDA )
+    checkedItems = getCheckedItemsFCDA();
+
+  if ( panelMode == IEC61850AddressTreePanelMode::FCD || panelMode == IEC61850AddressTreePanelMode::FCDA )
+  {
+    if ( checkedItems != dsCheckedOnInit )
+    {
+      dyn_float df;
+      dyn_string ds;
+      ChildPanelOnCentralModalReturn( \"vision/MessageInfo\",
+                                      getCatStr(\"para\", \"information\"),
+                                      makeDynString(getCatStr(\"iec61850\", \"ToCloseDatasetTagsPnl\"),
+                                                    getCatStr(\"para\", \"yes\"),
+                                                    getCatStr(\"para\", \"no\")),
+                                      df, ds);
+
+      if ( dynlen(ds) && ds[1] == \"true\" )
+        PanelOffReturn(makeDynFloat(1), dynlen(dsCheckedOnInit) ? dsCheckedOnInit : makeDynString());
+    }
+    else
+      PanelOffReturn(makeDynFloat(1), dsCheckedOnInit);
+  }
+  else
+    PanelOffReturn(makeDynFloat(), makeDynString());
+}
+
+" 0
+ E E E
+13 11
+"btnOK"
+""
+1 211.5 515 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 32 Accept selection and close panel
+LANG:10004 27 接受选择并关闭面板
+LANG:10000 40 Auswahl übernehmen und Panel schließen
+LANG:10027 56 Принять выбор и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  207.5 513 305.5 541
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  dyn_string dsSelectedTags, dsElements;
+  string selectedTag, sTemp, sDataType, sTemp1, sTemp2;
+  bool foundArray = false;
+  int iPos, iDataType;
+
+  dsSelectedTags = SCLTreeView.getCheckedItems();
+
+  if ( dynlen(dsSelectedTags) == 0 &&
+       panelMode != IEC61850AddressTreePanelMode::Address &&
+       panelMode != IEC61850AddressTreePanelMode::CMD &&
+       panelMode != IEC61850AddressTreePanelMode::CTL)
+  {
+    // show pop up stating no node selected
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"NoTagsSelected\"));
+    return;
+  }
+  else if ( panelMode == IEC61850AddressTreePanelMode::Address )//&& dynlen(dsSelectedTags) == 1 )
+  {
+    string sSelItem = SCLTreeView.selectedItem();
+
+    if ( sSelItem == \"\" )
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"SelectOneNode\"));
+      return;
+    }
+
+    // check only one node is selected and returns the tag
+    //selectedTag = dsSelectedTags[1];
+    selectedTag = sSelItem;
+
+    strreplace(selectedTag, \"/$\", \"/\");
+
+    for ( int iLoop = 1; iLoop <= dynlen(dsFinalTagsList); iLoop++ )
+    {
+      // IM 118767 - strpos is not correct --> finds \"T\" in \"Test\" --> removed datatype and used string compare \"==\"
+      dsElements = strsplit(dsFinalTagsList[iLoop], \"|\");
+
+      //if ( strpos(dsFinalTagsList[iLoop], selectedTag) >= 0 )
+      if ( dsElements[1] == selectedTag )
+      {
+        if ( dynlen(dsElements) > 1 )
+        {
+          sDataType = dsElements[2];
+          iec61850_getDataTypeTransInfoOffline(sDataType, iDataType);
+        }
+        break;
+      }
+    }
+
+    strreplace(selectedTag, \"$[\", \"[\");
+    sTemp = selectedTag;
+    selectedTag = sDeviceName + \".\" + selectedTag;
+    iPos = strpos(sTemp, \"[\");
+
+    if ( iPos >= 0 )
+    {
+      sTemp1 = substr(sTemp, 0, iPos);
+      iPos = strpos(sTemp, \"]\");
+
+      if ( iPos >= 0 )
+      {
+        sTemp2 = substr(sTemp, iPos +1, strlen(sTemp));
+        sTemp = sTemp1 + sTemp2;
+        foundArray = true;
+
+        strreplace(sTemp, \",\", \"$\");
+        strreplace(sTemp2, \"$\", \",\");
+      }
+    }
+
+    if ( iDataType != 0 )
+    {
+      if ( foundArray )
+      {
+        dsElements = strsplit(selectedTag, \"]\");
+        sTemp1 = dsElements[1];
+        sTemp2 = dsElements[dynlen(dsElements)];
+
+        strreplace(sTemp2, \"$\", \",\");
+        selectedTag = sTemp1 + \"]\"+sTemp2;
+      }
+
+      // IM 118767 - INT64 is currently not supported
+      if ( iDataType == 99 )
+      {
+        iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatatypeNotSupported\"));
+        return;
+      }
+
+      //returns entire tag information from Tree
+      PanelOffReturn(makeDynFloat(1), selectedTag + \"-\" + iDataType);
+    }
+    else
+    {
+      // data type not found
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DatatypeNotFound\"));
+      PanelOffReturn(makeDynFloat(1), selectedTag);
+    }
+  }
+  else
+  {
+    if (panelMode == IEC61850AddressTreePanelMode::FCD)
+    {
+      dyn_string checkedItems = getCheckedItemsFCD();
+      PanelOffReturn(makeDynFloat(1), checkedItems);
+    }
+    else if (panelMode == IEC61850AddressTreePanelMode::FCDA)
+    {
+      dyn_string checkedItems = getCheckedItemsFCDA();
+      PanelOffReturn(makeDynFloat(1), checkedItems);
+    }
+    else if ( panelMode == IEC61850AddressTreePanelMode::CMD )
+    {
+      string sSelItem = SCLTreeView.selectedItem();
+      string sItemDT = SCLTreeView.getText(sSelItem, 1);
+      string sLd, sLn, sDo;
+      string sTempItem = sSelItem;
+      //strreplace(sTempItem, \"/$\", \"$\");
+      strreplace(sTempItem, \"/\", \"$\");
+      dyn_string dsTemp = strsplit(sTempItem, \"$\");
+
+      if ( dynlen(dsTemp) > 3 )
+      {
+        sLd = dsTemp[1];
+        sLn = dsTemp[2];
+        sDo = dsTemp[4];
+      }
+
+      if ( checkAddressAvailability(sDeviceName, sSelItem) )
+        PanelOffReturn(makeDynFloat(1), makeDynString(sSelItem, sLd, sLn, sDo, sItemDT));
+      else
+        PanelOffReturn(makeDynFloat(0), makeDynString());
+    }
+    else if ( panelMode == IEC61850AddressTreePanelMode::CTL )
+    {
+      string sSelItem = SCLTreeView.selectedItem();
+      string sItemDT = SCLTreeView.getText(sSelItem, 1);
+      //strreplace(sSelItem, \"/$\", \"/\");
+      PanelOffReturn(makeDynFloat(1), makeDynString(sSelItem, sItemDT));
+    }
+  }
+
+}
+
+" 0
+ E E E
+30 14
+"frmAddRef"
+""
+1 7 11 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+9 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.01269035532995 0 0.9938398357289526 2.911167512690355 -5.93223819301849 0 E 7 11 402 499
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 38 Select tag for adding reference string
+LANG:10004 36 选择标记以添加引用字符串
+LANG:10000 35 Tag für den Referenzstring wählen
+LANG:10027 83 Выбрать тэг для дополнительной строки ссылки
+2 17
+"ptFcType"
+""
+1 99.82050268133344 55 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 99.82050268133344 55 163 70
+0 2 2 "0s" 0 0 0 192 0 0  99.82050268133344 55 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 <FC type>
+LANG:10004 11 <FC 类型>
+LANG:10000 8 <FC-Typ>
+LANG:10027 9 <FC type>
+2 18
+"ptDataset"
+""
+1 99.82050268133344 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 99.82050268133344 30 162 45
+0 2 2 "0s" 0 0 0 192 0 0  99.82050268133344 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 <Dataset>
+LANG:10004 11 <数据集>
+LANG:10000 11 <Datensatz>
+LANG:10027 9 <Dataset>
+2 19
+"ptFcTypeDescr"
+""
+1 29.8205026813334 55 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 29.8205026813334 55 81 70
+0 2 2 "0s" 0 0 0 192 0 0  29.8205026813334 55 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 FC type:
+LANG:10004 10 FC 类型:
+LANG:10000 7 FC-Typ:
+LANG:10027 8 FC type:
+2 20
+"ptDatasetDescr"
+""
+1 29.8205026813334 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 29.8205026813334 30 80 45
+0 2 2 "0s" 0 0 0 192 0 0  29.8205026813334 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Dataset:
+LANG:10004 9 数据集
+LANG:10000 10 Datensatz:
+LANG:10027 8 Dataset:
+1 25 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 65 T 14 0.8402445104716105 0 1 0.1089946373331827 440
+0
+0

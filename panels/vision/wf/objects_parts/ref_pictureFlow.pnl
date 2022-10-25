@@ -1,0 +1,615 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 721 324 N "WF_PanelBackground" 0
+"main()
+{
+  delay(0,100);
+  wait_modul.visible=true;
+  delay(0,200);
+  
+  if ( treePictureDir.columns() == 0 )
+  {
+    int iWidth, iHeight;
+    treePictureDir.addColumn(\"ID\");
+    treePictureDir.addColumn(\"TYPE\");
+    treePictureDir.addColumn(\"INDEX\");
+    treePictureDir.alternatingRowColors = true;
+    treePictureDir.showHeader(false);
+    treePictureDir.hideColumn(1,true);
+    treePictureDir.hideColumn(2,true);
+    treePictureDir.setColumnWidthMode(0,TREE_WIDTH_MANUAL);
+    getValue(\"treePictureDir\",\"size\", iWidth, iHeight);
+    treePictureDir.setColumnWidth(0,iWidth-2);
+  }
+  
+  
+  dyn_string dsPaths;
+  
+  string sFirstIconset;
+  
+  for ( int i = 1; i <= SEARCH_PATH_LEN; i++)
+  {
+    dynAppend(dsPaths, getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i));
+    
+    dyn_string dsTemp = getFileNames(getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i), \"*\", FILTER_DIRS | FILTER_FILES );
+    
+    if ( dynlen(dsTemp) > 2 && sFirstIconset == \"\" )
+      sFirstIconset = getPath(PICTURES_REL_PATH, \"\", getActiveLang(), i);
+  }
+  
+//   DebugTN(\"sFirstIconset\", sFirstIconset);
+  
+  cmbNodePicturesDir.items(dsPaths);
+  
+  string sJumpTo = gsLastPicturePathIcon;
+  if ( gsLastPicturePath != \"\" && 0 == access(cmbNodePicturesDir.selectedText()+gsLastPicturePathIcon, F_OK))
+  {
+    cmbNodePicturesDir.text = gsLastPicturePath;
+    changeProjDir(gsLastPicturePath);
+    
+    if ( sJumpTo != \"\" )//go to icon
+    {
+      dyn_string dsPath = strsplit(sJumpTo, \"/\");
+      
+      string sPath = \"\";
+      
+      for(int i = 1; i <= dynlen(dsPath); i++)
+      {
+        if ( i == dynlen(dsPath) )
+          treePictureDir.setSelectedItem(sJumpTo,true);
+        else
+        {
+          if ( i == 1 )
+            sPath += dsPath[i];
+          else
+            sPath += \"/\"+dsPath[i];
+            
+          treePictureDir.setOpen(sPath, true);
+          expandDir(sPath);
+        }
+      }
+    }
+  }
+  else if ( sFirstIconset != \"\" )
+  {
+    cmbNodePicturesDir.text = sFirstIconset;
+    changeProjDir(sFirstIconset);
+  }
+  else
+    changeProjDir(cmbNodePicturesDir.selectedText);
+  
+  
+  
+
+  if ( treePictureDir.itemExists(\"wf\") && sJumpTo == \"\" )
+  {
+    treePictureDir.setOpen(\"wf\", true);
+    expandDir(\"wf\");
+    if ( treePictureDir.itemExists(\"wf/icons\") )
+    {
+      treePictureDir.setOpen(\"wf/icons\", true);
+      expandDir(\"wf/icons\");
+      treePictureDir.setSelectedItem(\"wf/icons\");
+      treePictureDir.ensureItemVisible(\"wf/icons\");
+    }
+  }
+//   expandDir(\"wf\");
+//   treePictureDir.setSelectedItem(\"icons\", true);
+  
+  wait_modul.visible=false;
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "string sActParent;
+
+
+void changeProjDir(string sProjPicturesPath)
+{
+  gsLastPicturePath = sProjPicturesPath;
+  sActParent = \"\";
+  tfIcon.text = \"\";
+  treePictureDir.clear();
+  treePictureDir.updatesEnabled = false;
+  
+  dyn_string dsDirs = getFileNames(sProjPicturesPath,\"*\", FILTER_DIRS);
+  dyn_string dsFiles = getFileNames(sProjPicturesPath,\"*.[pgjbsj][nipmvp][gfgpge]*\",FILTER_FILES);//
+  
+  dynRemove(dsDirs, dynContains(dsDirs, \".\"));
+  dynRemove(dsDirs, dynContains(dsDirs, \"..\"));
+
+  for ( int i = 1; i <= dynlen(dsDirs); i++ )
+  {
+    treePictureDir.appendItemNC(\"\",dsDirs[i],dsDirs[i]);
+    treePictureDir.setIcon(dsDirs[i],0,\"folder.png\");
+    treePictureDir.setExpandable(dsDirs[i], true);
+    treePictureDir.setText(dsDirs[i],1,\"DIR\");
+  }
+
+  pictureFlow.clear();  
+  pictureFlow.updatesEnabled = false;
+  
+  for ( int i = 1; i <= dynlen(dsFiles); i++ )
+  {
+    treePictureDir.appendItemNC(\"\",dsFiles[i],dsFiles[i]);
+    treePictureDir.setIcon(dsFiles[i],0,\"imagegallery.png\");
+    treePictureDir.setText(dsFiles[i],1,\"ICON\");
+    treePictureDir.setText(dsFiles[i],2,i-1);
+    treePictureDir.setDragEnabled(dsFiles[i],true);
+    
+    if ( i == 1 )
+      tfIcon.text = dsFiles[i];
+     
+    string s = dsFiles[i];
+    pictureFlow.addSlide(dsFiles[i]);
+    pictureFlow.setUserData(i-1,\"dir\",s);
+  }
+  
+  pictureFlow.updatesEnabled = true;
+  
+  treePictureDir.updatesEnabled = true;
+}
+
+void expandDir(string sDir)
+{
+  treePictureDir.updatesEnabled = false;
+  
+  string sProjPicturesPath = cmbNodePicturesDir.selectedText();
+  
+  dyn_string dsDirs = getFileNames(sProjPicturesPath + sDir,\"*\", FILTER_DIRS);
+  dyn_string dsFiles = getFileNames(sProjPicturesPath + sDir,\"*.[pgjbsj][nipmvp][gfgpge]*\",FILTER_FILES);//
+  
+  dynRemove(dsDirs, dynContains(dsDirs, \".\"));
+  dynRemove(dsDirs, dynContains(dsDirs, \"..\"));
+
+  for ( int i = 1; i <= dynlen(dsDirs); i++ )
+  {
+    if ( !treePictureDir.itemExists(sDir+\"/\"+dsDirs[i]) )
+    {
+      treePictureDir.appendItemNC(sDir,sDir+\"/\"+dsDirs[i],dsDirs[i]);
+      treePictureDir.setIcon(sDir+\"/\"+dsDirs[i],0,\"folder.png\");
+      treePictureDir.setExpandable(sDir+\"/\"+dsDirs[i], true);
+      treePictureDir.setText(sDir+\"/\"+dsDirs[i],1,\"DIR\");
+    }
+  }
+  
+  for ( int i = 1; i <= dynlen(dsFiles); i++ )
+  {
+    if ( !treePictureDir.itemExists(sDir+\"/\"+dsFiles[i]) )
+    {
+      treePictureDir.appendItemNC(sDir,sDir+\"/\"+dsFiles[i],dsFiles[i]);
+      treePictureDir.setIcon(sDir+\"/\"+dsFiles[i],0,\"imagegallery.png\");
+      treePictureDir.setText(sDir+\"/\"+dsFiles[i],1,\"ICON\");
+      treePictureDir.setText(sDir+\"/\"+dsFiles[i],2,i-1);
+      treePictureDir.setDragEnabled(sDir+\"/\"+dsFiles[i],true);
+    }
+  }
+  
+  treePictureDir.updatesEnabled = true;
+}
+
+void showChildrenInPictureFlow(dyn_string dsChildren)
+{
+  pictureFlow.clear();
+  pictureFlow.updatesEnabled = false;
+  int iIndex = 0;
+  for ( int i = 1; i <= dynlen(dsChildren); i++)
+  {
+    if ( treePictureDir.getText(dsChildren[i], 1) == \"ICON\" )
+    {
+      string sTemp = dsChildren[i];
+      pictureFlow.addSlide(dsChildren[i]);
+      pictureFlow.setUserData(iIndex,\"dir\",sTemp);
+      iIndex++;
+    }
+  }
+  pictureFlow.updatesEnabled = true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 0
+"pictureFlow"
+"WF"
+1 217 35 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+6
+"contextMenuPolicy" "enum 1"
+"centerIndex" "int 1"
+"layoutDirection" "enum 2"
+"slideBackgroundColor" "color _Transparent"
+"acceptDrops" ""
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  217 35 720 322
+15 PictureFlow.ewo
+1
+0 "centerIndexChanged" "(int index)"
+"  if ( this.userData(index,\"dir\") != \"\" )
+    tfIcon.text(strsplit(this.userData(index,\"dir\"), \"/\")[dynlen(strsplit(this.userData(index,\"dir\"), \"/\"))]);
+  else
+    tfIcon.text = \"\";"
+"main()
+{ 
+  this.slideSize = makeDynInt(120,120);
+  this.slideBackgroundColor(\"grey\");
+}
+
+" 0
+6 1
+"recNodePicturesFrame"
+"WT"
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 3.01255 0 1.0625 -180.852 -10.2915 1 E 60 10 299 42
+22 2
+"cmbNodePicturesDir"
+"WF"
+1 75 -5.76259 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  66 3 707 31
+0
+
+E
+"main()
+{
+  wait_modul.visible = true;
+  delay(0,200);
+  changeProjDir(this.selectedText);
+  wait_modul.visible = false;
+}" 0
+
+E
+ 0 0
+29 3
+"treePictureDir"
+"WF"
+1 4.32808 226.237 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+16
+"treeStepSize" "int 15"
+"textElideMode" "enum 1"
+"selectionBehavior" "enum 1"
+"horizontalScrollMode" "enum 1"
+"inputMethodHints" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"contextMenuPolicy" "enum 1"
+"editTriggers" "enum 10"
+"selectionMode" "enum 0"
+"horizontalScrollBarPolicy" "enum 0"
+"frameShadow" "enum 48"
+"verticalScrollMode" "enum 1"
+"layoutDirection" "enum 0"
+"frameShape" "enum 6"
+"DragStart" "main(int keys, string id)
+{  
+  dragStart(id);
+}"
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  0 34 216 323
+10 TreeWidget
+2
+0 "selectionChanged" "(string id)"
+"  tfIcon.text = \"\";
+  if (this.getText(id,1) == \"DIR\")
+  {
+    wait_modul.visible = true;
+    delay(0,200);
+  }
+  string sType = this.getText(id,1);
+  string sIndex = this.getText(id,2);
+    
+  if ( sType == \"DIR\" )
+  {
+    dyn_string dsChildren = treePictureDir.children(id);
+    
+    if ( dynlen(dsChildren) > 0 )
+    {
+      showChildrenInPictureFlow(dsChildren);
+      tfIcon.text(dsChildren[1]);
+    }
+    else
+    {
+      expandDir(id);
+      dsChildren = treePictureDir.children(id);
+      showChildrenInPictureFlow(dsChildren);
+      if (dynlen(dsChildren) > 0)
+        tfIcon.text(dsChildren[1]);
+    }
+    pictureFlow.centerIndex(0);
+  }
+  else
+  {
+    if ( sActParent == this.parent(id) )
+    {
+      pictureFlow.centerIndex(sIndex);
+      tfIcon.text(this.getText(id,0));
+    }
+    else
+    {
+      dyn_string dsChildren;
+      if (id != \"\")
+        dsChildren = treePictureDir.children(this.parent(id));
+      showChildrenInPictureFlow(dsChildren);
+      pictureFlow.centerIndex(sIndex);
+      tfIcon.text(this.getText(id,0));
+    }
+  }
+  
+  if ( sType == \"DIR\" )
+    sActParent = id;
+  else
+    sActParent = this.parent(id);
+  
+  if ( id != \"\" )
+    gsLastPicturePathIcon = id;
+  
+  wait_modul.visible = false;"
+0 "expanded" "(string id)"
+"  wait_modul.visible = true;
+  delay(0,200);
+  expandDir(id);
+  wait_modul.visible = false;"
+E14 4
+"tfIcon"
+"WF_Transparent"
+1 235.104 274.237 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 26 Arial,-1,16,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,16,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,16,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,16,5,75,0,0,0,0,0
+0  223 287 711 316
+2 "0s" 0 0 0 1 0 -1  E E E
+2 5
+"PRIMITIVE_TEXT1"
+"WT"
+1 15 10.2374 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  wf_shapes_init();
+}
+
+
+" 0
+ E 0 1 1 2 1 E U  0 E 15 10.2374 50 25
+0 2 2 "0s" 0 0 0 192 0 0  15 10.2374 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 5 Icons
+LANG:10004 6 图标
+LANG:10000 6 Bilder
+LANG:10027 12 Значки
+6 6
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_FrameDark" E N "WF_Frame" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.315705079584775 0 8.743036291641419 185.7387831695502 -4363.747254695632 1 E 23 503 406 536
+29 7
+"wait_modul"
+""
+1 -1.507369155232052e-014 0 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  0 0 114 68
+15 Canvas.Canvas.1
+0
+"main()
+{
+//   delay(0, 200);
+  this.backCol(\"WF_EwoWaitBackground\");
+  this.ModuleName = \"pls_wait\"+myModuleName()+myPanelName();
+
+  dyn_int diSize;
+
+  if ( this.refName != \"\" )//not a ref
+  {
+    getValue(\"pictureFlow\",\"size\",diSize[1],diSize[2]); //IM 116686
+  }
+  else//a ref
+    diSize = getPanelSize(panelFileName(myModuleName(), myPanelName()));
+
+  wait_modul.size(diSize[1],diSize[2]);
+
+  int x,y;
+  
+  getValue(\"pictureFlow\",\"position\",x,y);
+  wait_modul.position(x,y);
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\", \"pls_wait\"+myModuleName()+myPanelName(), \"pls_wait\"+myModuleName()+myPanelName(), 
+                    makeDynString(\"$1:\"+(diSize[1]-10),\"$2:\"+(diSize[2]-10)));
+  
+//   delay(2);
+  wait_modul.visible = false;
+}
+
+
+
+
+
+
+
+
+
+" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

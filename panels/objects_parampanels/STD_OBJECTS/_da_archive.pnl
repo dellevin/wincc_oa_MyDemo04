@@ -1,0 +1,610 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 600 380 N "_3DFace" 1
+"$name"
+E E E E E 1 -1 -1 0  0 0
+"refFileName"0  1
+E "string strDummy = \"------------------------------------------------------------\";
+int oldSelection;" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 56
+"Text7"
+""
+1 10 290 E E E 1 E 0 E N {255,0,0} E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  string     objectName = $name;
+  string     s, sOld;
+  dyn_string ds, dsOld;
+  int        lines, linesOld;
+  string     variable, value;
+  dyn_string dsSelectionList = makeDynString();
+  dyn_string dsArchiveClassDp = makeDynString(), dsRDBGroupDp;
+  int        i, iOK, state, iPos;
+  bool       bNewDB, bForwardRDB;
+  
+  dyn_string variables = makeDynString( \"_archive\");
+
+  //
+  //  Falls alte DB -> unsichtbar !!!
+  //
+  
+  iOK=dpGet(\"_DataManager.UseValueArchive:_online.._value\",bNewDB);
+  
+  //if (useValueArchive() /*&& !useRDBArchive()*/)  // nur wenn neue DB Aktiv
+  if (iOK!=-1 && bNewDB)  // nur wenn neue DB Aktiv
+  {
+    dynAppend(variables ,\"_class\");
+    
+    //if ( !useRDBArchive() )
+      dsArchiveClassDp = dpNames(\"*\",\"_ValueArchive\");
+
+    for (i=dynlen(dsArchiveClassDp);i>0;i--)    // Alle DP's
+    {
+     if (isReduDp(dsArchiveClassDp[i]))    // redundaten DP's wegfiltern
+        dynRemove(dsArchiveClassDp,i);  
+    }
+    for (i=dynlen(dsArchiveClassDp);i>0;i--)
+    {
+      dpGet(dsArchiveClassDp[i]+\".general.arName:_online.._value\",dsSelectionList[i],
+            dsArchiveClassDp[i]+\".general.forwardToRDB:_online.._value\", bForwardRDB,
+            dsArchiveClassDp[i]+\".state:_online.._value\",state);  // Namen holen
+      if (state == 3)  // Archiv gelöscht!!
+      {
+        dynRemove(dsSelectionList,i);
+        dynRemove(dsArchiveClassDp,i);
+      }
+      if ( bForwardRDB )
+        dsSelectionList[i]+= \" (fwd)\";
+
+    }
+  
+    //RDB  paCfgReadValue(getPath(CONFIG_REL_PATH, \"config\"), \"general\", \"useRDBArchive\", usingRDB);
+    if ( useRDBArchive() )
+    {
+      dyn_string dsAll = makeDynString(), ds;
+      int iNr;
+      bool isAlert;
+
+      dyn_string dsRDBGroupDp = dpNames(\"*\",\"_RDBArchiveGroups\");
+      for (i=dynlen(dsRDBGroupDp);i>0;i--)		// Alle DP's
+      {
+       	if (isReduDp(dsRDBGroupDp[i]))		// redundaten DP's wegfiltern
+        		dynRemove(dsRDBGroupDp,i);	
+      }
+      for (i=dynlen(dsRDBGroupDp);i>0;i--)
+      {
+        dpGet(dsRDBGroupDp[i]+\".groupName:_online.._value\",s,      // Name
+              dsRDBGroupDp[i]+\".managerNr:_online.._value\",iNr,    // Manager number
+              dsRDBGroupDp[i]+\".isAlert:_online.._value\",isAlert); // Alert group?
+
+        if ( isAlert ) continue;
+
+        //dynAppend(dsArchiveClassDp, dsRDBGroupDp[i]);
+        iNr += 2;
+        s = \"RDB-\" + iNr + \") \" + s;
+        dynAppend(dsAll, s + \"§\" + dsRDBGroupDp[i]);
+        //dynAppend(dsSelectionList, s);
+      }
+      dynSortAsc(dsAll);
+      for ( i = 1; i <= dynlen(dsAll); i++ )
+      {
+        ds = strsplit(dsAll[i], \"§\");
+
+        if ( /*usingVal &&*/ i == 1 )
+        {
+          dynAppend(dsSelectionList, strDummy);
+          dynAppend(dsArchiveClassDp, strDummy);
+        }
+
+        dynAppend(dsSelectionList, ds[1]);
+        dynAppend(dsArchiveClassDp, ds[2]);
+      }
+    }
+    
+    ar_name.items = dsSelectionList;
+    archiveClassDp.items = dsArchiveClassDp;
+  }
+
+  // wait for filling
+  while (lines < 1 || (lines > 1 && linesOld != lines))
+  {
+    linesOld = lines;
+    delay(0,100);
+    getValue(objectName,\"lineCount\", lines);
+  }
+
+  for ( i= 0; i<lines; i++)
+  {
+    getValue(objectName,\"getLineN\", i,ds);
+    value = ds[3];
+    variable = ds[1];
+    switch (variable)
+    {
+      case \"_class\"   : if ( dynlen(dsArchiveClassDp) > 0 ) 
+                        {
+                          iPos = dynContains(dsArchiveClassDp,value);
+                          if (iPos < 1)
+                          {
+                            iPos = dynContains(dsArchiveClassDp, strDummy);  // if no Archiving is selected
+                            setMultiValue(\"arch\", \"enabled\", false/*,
+                                          \"cmdOk\", \"enabled\", false,
+                                          \"cmdApply\", \"enabled\", false*/);
+                          }
+                          else
+                            arch.enabled(true);
+                          ar_name.text = dsSelectionList[iPos];
+                          ar_name.selectedPos = iPos;
+                          ar_name.visible = true;
+                          archiveClassDp.selectedPos = iPos;
+                          archiveClassDp.text = dsArchiveClassDp[iPos];
+                          p1.visible = true;
+                        }
+
+                        oldSelection = iPos;
+                        break;
+      case \"_archive\" : arch.state(0) = value; break;
+      default         : break;
+    }
+  }
+
+  ds = dsOld;  // first time
+  
+  while (1)
+  {
+    dsOld = ds;
+    delay(0,500);
+    ds[1]= arch.state(0);
+    if ( dynlen( variables) > 1)
+      ds[2]= (dynlen(dsArchiveClassDp)>0)?dsArchiveClassDp[ar_name.selectedPos]:\"\";
+    
+    if (dsOld != ds)
+    {
+      dsOld = ds;  
+      if ( dynlen (ds) > 1)   // only if !Raima
+         archiveClassDp.text= ds[2];
+      setValue(objectName,\"updateLines\", 1,\"#1\",variables, \"#3\", ds );
+    }    
+  }
+}
+
+
+
+
+
+" 0
+ E 0 1 1 0 1 E U  0 E 12 292 82 307
+0 2 0 "0s" 0 0 0 192 0 0  12 292 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 INITSCRIPT
+LANG:10004 15 初始化脚本
+LANG:10000 10 INITSCRIPT
+LANG:10027 10 INITSCRIPT
+30 69
+"Frame1"
+""
+1 100 170 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 100 70 500 170
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 66
+"arch"
+""
+1 108 128 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  108 128 264 156
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main()
+{
+  int iPos, iOK;
+  bool state, bNewDB;
+  //
+  //  Falls alte DB -> keine Funktion !!!
+  //
+
+  iOK=dpGet(\"_DataManager.UseValueArchive:_online.._value\",bNewDB);
+  if (iOK!=-1 && bNewDB)  // nur wenn neue DB Aktiv
+  {
+    getValue(\"\",\"state\",0,state);
+
+//    setValue(\"glaett\",\"visible\",state);
+    if (state)  
+    {
+      getValue(\"ar_name\",\"selectedPos\",iPos);
+      if (iPos <= 0)
+        setValue(\"ar_name\",\"selectedPos\",1);
+      getValue(\"ar_name\",\"selectedPos\",iPos);
+      if ( iPos > 0)
+      {
+        setValue(\"archiveClassDp\", \"selectedPos\", iPos);
+      }
+    }
+  }
+}" 0
+22 67
+"ar_name"
+""
+1 108 91 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  108 90 372 117
+0
+
+E
+"main()
+{
+  int iPos;
+  getValue(\"\",\"selectedPos\",iPos);
+  
+  if (this.selectedText == strDummy)
+    iPos = oldSelection;
+  else
+  {
+    oldSelection = iPos;
+    setMultiValue(\"arch\", \"enabled\", true/*,
+                  \"cmdOk\", \"enabled\", true,
+                  \"cmdApply\", \"enabled\", true*/);
+  }
+
+
+  if ( iPos >= 0)
+  {
+    setValue(\"archiveClassDp\", \"selectedPos\", iPos);
+    this.selectedPos(iPos);
+  }
+  if (this.selectedText != strDummy)
+    arch.enabled(true);
+}
+
+" 0
+
+E
+ 0 0
+13 68
+"p1"
+""
+1 378 88 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  378 88 492 118
+
+T 
+4
+LANG:10001 12 Configure...
+LANG:10004 9 配置...
+LANG:10000 16 Parametrieren...
+LANG:10027 21 Настроить...
+"main()
+{
+  int        typ,pos,Id=paMyModuleId(),ppos, iNr, i, iiNr;
+  string     s,drv_ident;
+  string     sArchivDp;
+  string     module = getCatStr(\"va\",\"Hauptfenster\");
+  string     dp1, UI, dp;
+  string     FileName = \"para/archive/archive_para.pnl\", Parameter = \"\"; 
+  dyn_string diSelectedLines, dsRDBs;
+  bool       _MOTIF = isMotif();
+
+  initHosts();
+
+  getValue(\"archiveClassDp\", \"text\", sArchivDp);
+
+  if (sArchivDp==\"\") sArchivDp = \"_ValueArchive_0\";				// Default Archiv!!
+  else               sArchivDp = dpSubStr(sArchivDp, DPSUB_SYS_DP);
+  // muß noch angepaßt werden
+  
+  
+  if ( dpTypeName(dpSubStr(sArchivDp, DPSUB_SYS_DP)) == \"_RDBArchiveGroups\" )
+  {
+    FileName = \"para/archive/RDB/RDBArchive.pnl\";
+    dpGet(sArchivDp + \".managerNr:_online.._value\", iNr);
+    // iNr += 2;
+    if ( !dpExists(dpSubStr(sArchivDp, DPSUB_SYS) + \"_RDBArchive_\" + iNr) )  // RDBArchiveGroup defined without Manager
+    {
+      dsRDBs = dpNames(dpSubStr(sArchivDp, DPSUB_SYS) + \"*\", \"_RDBArchive\");
+      for ( i = 1; i <= dynlen(dsRDBs); i++ )
+      {
+        dpGet(dsRDBs[i] + \".arNr:_online.._value\", iiNr);
+        if ( iNr == iiNr )
+        {
+          Parameter = \"$manager:\" + dpSubStr(dsRDBs[i], DPSUB_SYS_DP);
+          break;
+        }
+      }
+    }
+    else
+      Parameter = \"$manager:\" + \"_RDBArchive_\" + iNr;
+
+    if ( Parameter == \"\" )
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+        makeDynString(getCatStr(\"RDBArchive\", \"noManagerDefined\")));
+      return;
+    }
+  }
+  else
+  {
+    Parameter = \"$1:\"+sArchivDp;
+  }
+
+  if (dpExists(sArchivDp) && isModuleOpen(module) == false )
+  {
+    //Parameter = \"$1:\"+sArchivDp;
+
+    ModuleOnWithPanel(
+      module, 100, 110, 620 + (!_MOTIF ? 8 : 4), 480 + (!_MOTIF? 32 : 4),
+      1, 1, \"None\", FileName, UI, makeDynString(Parameter));
+  } 
+}
+
+
+
+
+" 0
+ E E E
+22 70
+"archiveClassDp"
+""
+1 379 121 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  378 120 492 147
+0
+
+E
+E
+E
+ 1 0
+25 71
+"tabDPE"
+""
+1 -427 -34 E E E 1 E 0 E N "_WindowText" E N {255,153,102} E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,13,5,40,0,0,0,0,0
+0  8 308 595 382
+"main()
+{
+//tabDPE.visible	= FALSE;
+this.name = $name;
+
+/*
+string dummy;
+setValue(\"\",\"selectByClick\",TABLE_SELECT_LINE ,
+	\"selectColors\",\"[0,0,0]\",\"[100,100,100]\",
+	\"tableMode\", TABLE_SELECT_BROWSE,
+	\"sortOnClick\",FALSE);
+*/
+} 
+
+" 0
+E 0 0 1 3 1 "#1" 17 1 0 "s" 4
+LANG:10001 10 Datenpunkt
+LANG:10004 2 DP
+LANG:10000 10 Datenpunkt
+LANG:10027 23 Точка данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "#2" 24 0 0 "s" 4
+LANG:10001 4 Wert
+LANG:10004 3 值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "#3" 50 1 0 "s" 4
+LANG:10001 4 Wert
+LANG:10004 3 值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+408 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,13,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,13,5,40,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

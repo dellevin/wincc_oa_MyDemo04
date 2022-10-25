@@ -1,0 +1,1892 @@
+V 13
+4
+LANG:10001 8 calendar
+LANG:10004 21 日历时间选择器
+LANG:10000 8 Calendar
+LANG:10027 18 Календарь
+PANEL,-1 -1 379 354 N "_3DFace" 5
+"$hh"
+"$mm"
+"$ms"
+"$ss"
+"$timeDTP"
+"main()
+{
+  int        i, y, y2;
+  bool       timeToo;
+  string     tPara;
+  
+  buVisible.visible(TRUE);
+  
+  //Enable, disable 
+  p_bTimeToo = (isDollarDefined(\"$timeToo\")? getDollarValue(\"$timeToo\") : TRUE);
+  p_bYearToo = (isDollarDefined(\"$yearToo\")? getDollarValue(\"$yearToo\") : TRUE);
+  p_bDateToo = (isDollarDefined(\"$dateToo\")? getDollarValue(\"$dateToo\") : TRUE);
+
+  if ( p_bDateToo == FALSE && p_bTimeToo == FALSE) // && p_bYearToo == FALSE )
+  {
+    setPanelSize(myModuleName(), myPanelName(), FALSE, 379, 354);  //Set panel size
+    p_bDateToo = TRUE;
+    p_bYearToo = TRUE;
+    p_bTimeToo = TRUE;
+  }
+  else
+  {
+    if ( p_bDateToo == TRUE && p_bTimeToo == TRUE)
+      setPanelSize(myModuleName(), myPanelName(), FALSE, 379, 354); //Set panel size
+    if ( p_bDateToo == FALSE && p_bTimeToo == TRUE )
+      noDate_enDis();
+    if ( p_bDateToo == TRUE && p_bYearToo == FALSE )    
+      noYear_enDis();
+    if ( p_bDateToo == TRUE && p_bTimeToo == FALSE )
+      noTime_enDis();
+  }
+    
+  //Clear calendar
+  tabCalendar.deleteAllLines();
+  
+  setValue(\"tabCalendar\", \"enableColumnResize\", FALSE,
+                          \"sortOnClick\", FALSE);
+
+  //Get the current time, year, month, day, weekday, hour, minute, second and millisecond
+  dateTime_getT2();
+  
+  //Set hour, min, sec, msec boxes visible or not
+  timeToo = (p_iHour!=0 || p_iMinute!=0 || p_iSecond!=0 || p_iMilliSecond!=0) || p_bTimeToo;
+  
+  //External time too boolean
+  if(p_bTimeToo == FALSE)
+  {
+    //Combime internal and external time too boolean
+    setValue(\"timeToo\",\"enabled\",p_bTimeToo);
+    timeToo = p_bTimeToo;
+  }
+
+  setMultiValue(\"timeToo\",\"state\",0,     timeToo,
+                \"hour\",\"visible\",        timeToo,
+                \"minute\",\"visible\",      timeToo,
+                \"second\",\"visible\",      timeToo,
+                \"millisecond\",\"visible\", timeToo,
+                \"now\",\"visible\",         timeToo,
+                \"t0\",\"visible\",          timeToo,
+                \"t1\",\"visible\",          timeToo,
+                \"t2\",\"visible\",          timeToo,
+                \"t3\",\"visible\",          timeToo,
+                \"t4\",\"visible\",          timeToo,
+                \"hour\",\"text\",           p_iHour,
+                \"minute\",\"text\",         p_iMinute,
+                \"second\",\"text\",         p_iSecond,
+                \"millisecond\",\"text\",    p_iMilliSecond); 
+              
+  //Enable, disable time boxes
+  time_enDis();            
+
+  //Set the current month and year in the comboboxes 
+  dynAppend(p_dsMonths, cbMonth.items());
+  cbMonth.text(p_dsMonths[p_iMonth]);
+  y = 1970;
+
+  for (i=0; i<=64; i++)
+  {
+    y2 = y+i;
+    cbYear.appendItem(y2);
+  }
+  cbYear.text(p_iYear);
+  
+  //Build up the calendar
+  dateTime_buildUpCalendar();
+   
+  //Fill the empty cells at the beginning an the end
+  //Previous month
+  if(cbYear.text()==1970 && p_iMonth==1)
+    ;
+  else
+    dateTime_previousMonth();
+
+  //Next month
+  if(cbYear.text()==2034 && p_iMonth==12)
+    ;
+  else
+    dateTime_nextMonth();
+  
+  txtMonthYear.text(cbMonth.text()+\" \"+cbYear.text());
+  
+  buVisible.visible(FALSE);
+}
+" 0
+ E E E E 1 -1 -1 0  300 340
+""0  1
+E "// ============================================================================
+// Panel Global Variables
+// ============================================================================
+  time       p_tTime,
+             p_tPara;
+  int        p_iYear, 
+             p_iMonth,
+             p_iDay,
+             p_iWeekDay,
+             p_iHour,
+             p_iMinute,
+             p_iSecond,
+             p_iMilliSecond,
+             p_iRow,
+             p_iRowToday;
+  bool       p_bDateToo,
+             p_bYearToo,
+             p_bTimeToo, 
+             DEBUG=false;            
+  string     p_sColumn,
+             p_sColumnToday,
+             p_sBackCol,
+             p_sForeCol,
+             p_sCbMonth,
+             p_sCbYear;
+  dyn_string p_dsMonths;
+// ============================================================================
+// Function: cbYearChange()
+// ============================================================================
+synchronized cbYearChange()
+{
+  //If nothing changed
+  if(p_sCbYear==cbYear.text())
+    return;
+    
+  tabCalendar.visible(FALSE);
+  tabCalendar.deleteAllLines();
+    
+  //If date contains current month and year mark the current day
+  dateTime_getT1();
+
+  if(p_iMonth==dynContains(p_dsMonths, cbMonth.text()) && p_iYear==cbYear.text())
+  {
+    dateTime_nowToday();
+    return; 
+  } 
+  
+  //Get the current time, year, month, day and weekday
+  dateTime_getT2();
+
+  //Build up the calendar
+  dateTime_buildUpCalendar();
+  
+  //Fill the empty cells at the beginning an the end
+  //Previous month
+  if(cbYear.text()==1970 && p_iMonth==1)
+    ;
+  else
+    dateTime_previousMonth();
+
+  //Next month
+  if(cbYear.text()==2034 && p_iMonth==12)
+    ;
+  else
+    dateTime_nextMonth();
+  
+  p_sCbYear=cbYear.text();
+  
+  //Beginn on defied cell in table
+  p_sBackCol = \"\";
+  p_sForeCol = \"\";
+  
+  tabCalendar.visible(TRUE);
+  txtMonthYear.text(cbMonth.text()+\" \"+cbYear.text()); 
+}  
+// ============================================================================
+// Function: cbMonthChange()
+// ============================================================================
+synchronized cbMonthChange()
+{
+  //If nothing changed
+  if(p_sCbMonth==cbMonth.text())
+    return;
+  
+  tabCalendar.visible(FALSE);
+  tabCalendar.deleteAllLines();
+  
+  //If date contains current month and year mark the current day
+  dateTime_getT1();
+  if(p_iMonth==dynContains(p_dsMonths, cbMonth.text()) && p_iYear==cbYear.text())
+  {
+    dateTime_nowToday();
+    return; 
+  }
+ 
+  //Get the current time, year, month, day and weekday
+  dateTime_getT2();
+
+  //Build up the calendar
+  dateTime_buildUpCalendar();
+  
+  //Fill the empty cells at the beginning an the end
+  //Previous month
+  if(cbYear.text()==1970 && p_iMonth==1)
+    ;
+  else
+    dateTime_previousMonth();
+
+  //Next month
+  if(cbYear.text()==2034 && p_iMonth==12)
+    ;
+  else
+    dateTime_nextMonth();
+  
+  p_sCbMonth=cbMonth.text();
+  
+  //Beginn on defied cell in table
+  p_sBackCol = \"\";
+  p_sForeCol = \"\";
+  
+  tabCalendar.visible(TRUE);
+  setValue(\"txtMonthYear\", \"text\", cbMonth.text()+\" \"+cbYear.text());
+  txtTime.text(cbMonth.text());
+}  
+// ============================================================================
+// Function: noTime_enDis()
+// ============================================================================
+noTime_enDis()
+{
+  if(p_bTimeToo == FALSE)
+  { 
+    //Set panel size
+    setPanelSize(myModuleName(), myPanelName(), FALSE, 379, 268);
+    //En dis objects
+    setMultiValue(\"timeToo\",     \"visible\",  FALSE,
+                  \"txtTime\",     \"visible\",  FALSE,
+                  \"hour\",        \"visible\",  FALSE,    //260,
+                  \"minute\",      \"visible\",  FALSE,    //260,
+                  \"second\",      \"visible\",  FALSE,    //260,
+                  \"millisecond\", \"visible\",  FALSE,    //260,
+                  \"t0\",          \"visible\",  FALSE,    //244,
+                  \"t1\",          \"visible\",  FALSE,    //241,
+                  \"t2\",          \"visible\",  FALSE,    //241,
+                  \"t3\",          \"visible\",  FALSE,    //241,
+                  \"t4\",          \"visible\",  FALSE,    //241,
+                  \"now\",         \"visible\",  FALSE,    //310,
+                  \"today\",       \"position\", 98, 232,   //310,
+                  \"ok\",          \"position\", 189,232,   //310,
+                  \"buCancel\",    \"position\", 279,232,
+                  \"PANEL_REF0\",  \"position\", 0,222);  //310);
+  }           
+}
+// ============================================================================
+// Function: noYear_enDis()
+// ============================================================================
+noYear_enDis()
+{
+  //cbYear
+  setMultiValue(\"cbYear\",\"visible\", p_bYearToo);
+  //cbMonth
+  if(p_bYearToo == FALSE)
+  {
+    setMultiValue(\"txtMonthYear\",\"visible\", FALSE,
+                  \"cbMonth\",     \"position\", 40, 20,
+                  \"mUp\",         \"position\", 157, 20,
+                  \"mDown\",       \"position\", 10, 20,
+                  \"yUp\",         \"visible\",  FALSE,
+                  \"yDown\",       \"visible\",  FALSE); 
+  }            
+}
+// ============================================================================
+// Function: noDate_enDis()
+// ============================================================================
+noDate_enDis()
+{
+  if(p_bDateToo == FALSE)
+  { 
+    //Set panel size
+    setPanelSize(myModuleName(), myPanelName(), FALSE, 350, 131);
+    //En dis objects
+    setMultiValue(\"txtMonthYear\",\"visible\",  FALSE,
+                  \"cbMonth\",     \"visible\",  FALSE,
+                  \"cbYear\",      \"visible\",  FALSE,
+                  \"timeToo\",     \"visible\",  FALSE,
+                  \"today\",       \"visible\",  FALSE,
+                  \"txtTime\",     \"visible\",  FALSE,
+                  \"mUp\",         \"visible\",  FALSE,
+                  \"mDown\",       \"visible\",  FALSE,
+                  \"yUp\",         \"visible\",  FALSE,
+                  \"yDown\",       \"visible\",  FALSE,
+                  \"tabCalendar\", \"position\", 10,150,
+                  \"hour\",        \"position\", 20, 35,   //260,
+                  \"minute\",      \"position\", 90,35,   //260,
+                  \"second\",      \"position\", 167,35,   //260,
+                  \"millisecond\", \"position\", 238,35,   //260,
+                  \"t0\",          \"position\", 10, 19,   //244,
+                  \"t0\",          \"size\"    , 327,55,
+                  \"t1\",          \"position\", 20, 16,   //241,
+                  \"t2\",          \"position\", 100,16,   //241,
+                  \"t3\",          \"position\", 180,16,   //241,
+                  \"t4\",          \"position\", 260,16,   //241,
+                  \"now\",         \"position\", 66, 97,   //310,
+                  \"ok\",          \"position\", 158,97,   //310,
+                  \"buCancel\",    \"position\", 249,97,   //310,
+                  \"PANEL_REF0\",  \"position\", 0, 87);  
+  }
+}    
+// ============================================================================
+// Function: time_enDis()
+// ============================================================================
+time_enDis()
+{
+  //Time spin buttons and time too
+  if(isDollarDefined(\"$hh\")&&isDollarDefined(\"$mm\")&&isDollarDefined(\"$ss\")&&isDollarDefined(\"$ms\"))
+  {
+    setMultiValue(\"hour\",\"enabled\", $hh,
+                  \"minute\",\"enabled\", $mm,
+                  \"second\",\"enabled\", $ss,
+                  \"millisecond\",\"enabled\", $ms);
+    // Set the sp-values \"0\", if sp is disabled
+    if(getDollarValue(\"$hh\") == FALSE)
+      setValue(\"hour\",\"text\",\"0\");
+    if(getDollarValue(\"$mm\") == FALSE)
+      setValue(\"minute\",\"text\",\"0\");
+    if(getDollarValue(\"$ss\") == FALSE)
+      setValue(\"second\",\"text\",\"0\");
+    if(getDollarValue(\"$ms\") == FALSE)
+      setValue(\"millisecond\",\"text\",\"0\");         
+  }               
+  else
+    setMultiValue(\"hour\",\"enabled\", TRUE,
+                  \"minute\",\"enabled\", TRUE,
+                  \"second\",\"enabled\", TRUE,
+                  \"millisecond\",\"enabled\", TRUE);
+}                  
+// ============================================================================
+// Function: dateTime_getT1()
+// ============================================================================
+dateTime_getT1()
+{
+  p_tTime=getCurrentTime();
+  p_iYear = year(p_tTime);
+  p_iMonth = month(p_tTime);
+  p_iDay = day(p_tTime); if (p_iDay==0) p_iDay=1;
+  p_iWeekDay = weekDay(p_tTime);
+  p_iHour=hour(p_tTime);
+  p_iMinute=minute(p_tTime);
+  p_iSecond=second(p_tTime);
+  p_iMilliSecond=milliSecond(p_tTime);
+}
+// ============================================================================
+// Function: dateTime_getT2()
+// ============================================================================
+dateTime_getT2()
+{
+  //If dollar parameter is defined, take it - if not take the current time
+  if(isDollarDefined(\"$timeDTP\"))
+    p_tPara=$timeDTP;
+  else
+    p_tPara=getCurrentTime();
+    
+  //If p_tPara == p_tPara == \"Thu Jan 01 01:00:00 1970 000\" work with current time
+  if (period(p_tPara)==0)
+    p_tTime=getCurrentTime();
+  else
+    p_tTime=p_tPara;
+
+  p_iYear = year(p_tTime);
+  p_iMonth = month(p_tTime);
+  p_iDay = day(p_tTime); if (p_iDay==0) p_iDay=1;
+  p_iWeekDay = weekDay(p_tTime);
+  p_iHour=hour(p_tTime);
+  p_iMinute=minute(p_tTime);
+  p_iSecond=second(p_tTime);
+  p_iMilliSecond=milliSecond(p_tTime);
+}  
+// ============================================================================
+// Function: dateTime_checkCombobox()
+// ============================================================================
+dateTime_checkCombobox()
+{
+  int i_cbYear, i_cbMonth;
+  //Get the current combobox settings
+  i_cbMonth = dynContains(p_dsMonths, cbMonth.text());
+  i_cbYear = cbYear.text();
+  
+  if(i_cbMonth!=p_iMonth)
+    p_iMonth = i_cbMonth;
+  if(i_cbYear!=p_iYear)
+    p_iYear = i_cbYear;
+}      
+// ============================================================================
+// Function: dateTime_buildUpCalendar()
+// ============================================================================
+dateTime_buildUpCalendar()
+{
+  int        i, wd, noOfLines, noOfDays, origM, origY;
+  string     s;
+  
+  origM = p_iMonth;
+  origY = p_iYear;
+  dateTime_checkCombobox();
+  dateTime_daysPerMonth(p_iMonth, wd, noOfDays);
+ 
+  //Build the calendar and mark the current day
+  tabCalendar.appendLine(\"su\", 1);
+
+  for (i=1; i<=noOfDays; i++)
+  {
+    noOfLines = tabCalendar.lineCount();
+    tabCalendar.currentCell(noOfLines-1, (wd==7)?0:wd);
+    tabCalendar.cellValue(i);
+    tabCalendar.cellBackCol(\"white\");
+    wd++;
+    if (wd == 7)
+    {
+      tabCalendar.currentCell(noOfLines-1, wd-1); 
+      tabCalendar.cellBackCol(\"lightgrey\");
+      tabCalendar.appendLine(\"su\", 1); 
+      tabCalendar.currentCell(noOfLines-1, 0); 
+      tabCalendar.cellBackCol(\"lightgrey\");
+    }
+    if (wd == 8)
+      wd = 1;
+    
+    //dateTime_getT2();
+    if (i==p_iDay && origM==dynContains(p_dsMonths, cbMonth.text()) && origY==cbYear.text())
+    {
+      tabCalendar.currentCell(noOfLines-1, wd-1); 
+      p_sBackCol = tabCalendar.cellBackCol();
+      p_sForeCol = tabCalendar.cellForeCol();
+      tabCalendar.cellBackCol(\"white\");
+      tabCalendar.cellForeCol(\"Red\");
+
+      //Get todays cell parameters
+      switch(wd-1) 
+      {
+        case 0 :s = \"su\"; break;
+        case 1 :s = \"mo\"; break;
+        case 2 :s = \"tu\"; break;
+        case 3 :s = \"we\"; break;
+        case 4 :s = \"th\"; break;
+        case 5 :s = \"fr\"; break;
+        case 6 :s = \"sa\"; break;
+      }
+      p_iRow = noOfLines-1;
+      p_sColumn = s;
+      p_iRowToday = p_iRow;
+      p_sColumnToday = p_sColumn;
+      tabCalendar.currentCell(noOfLines-1, 0); 
+      tabCalendar.cellBackCol(\"lightgrey\");
+    } 
+  }
+}
+// ============================================================================
+// Function: dateTime_daysPerMonth()
+// Return value:  int mont : month - current, previous, next
+//                int wd1 : weekday of the first monthday of statusbits
+//                int noOfDays: number of monthdays the month has
+// ============================================================================
+dateTime_daysPerMonth(int mont, int &wd1, int &noOfDays)
+{
+  time       t1, t2;
+  int        i, m;
+  
+  noOfDays = 0;
+  t1 = makeTime(p_iYear, mont, 1);
+  wd1 = weekDay(t1);
+  for (i=1; i<32; i++)
+  {  
+    t2 = makeTime(p_iYear, mont, i);
+    m = month(t2);
+ 
+    if (m == mont)
+    {
+        noOfDays++;
+    }
+    else
+    {
+      return;
+    }
+  }      
+}
+// ============================================================================
+// Function: dateTime_nextMonth()
+// ============================================================================
+dateTime_nextMonth()
+{
+  int i, b, a, value, noOfLines = tabCalendar.lineCount(), prevValue;
+  bool emptyCellFound;
+
+  if(noOfLines == 4)
+  {
+    tabCalendar.appendLines(2);
+    noOfLines = tabCalendar.lineCount();
+  }
+  if(noOfLines == 5)
+  {
+    tabCalendar.appendLine(\"su\", 1);
+    noOfLines = tabCalendar.lineCount();
+  }
+    
+  a=1;
+  for(i=0; i<(noOfLines); i++)
+  {
+    for(b=0; b<7; b++)
+    {
+      value = 0;
+      tabCalendar.currentCell(i, b);
+      value = tabCalendar.cellValue();
+      
+      if(b==0 || b==6)
+      {
+        if (tabCalendar.cellForeCol == \"Red\")
+          tabCalendar.cellBackCol(\"white\");
+        else
+          tabCalendar.cellBackCol(\"lightgrey\");  
+      }
+
+      if((value == 0 || emptyCellFound == TRUE || (value == 1 && (prevValue == 28 || prevValue == 29 || prevValue == 30 || prevValue == 31))) && i>1)
+      {
+        emptyCellFound = TRUE;
+        tabCalendar.cellValue(a);
+        tabCalendar.cellForeCol(\"darkgrey\");  
+        a++;
+      }
+      prevValue = value;
+    }
+  }  
+}
+// ============================================================================
+// Function: dateTime_previousMonth()
+// ============================================================================
+dateTime_previousMonth()
+{
+  int wd1, wd, noOfDays, z, i,m;
+  
+  dateTime_checkCombobox();
+  dateTime_daysPerMonth(p_iMonth, wd1, noOfDays);
+  //If starting day is a sunday
+  if(wd1==7)
+    return;
+  //Attention:If previous month is december (1-1=0 >> 12
+  m = p_iMonth-1;
+  dateTime_daysPerMonth((m<=0)?12:m, wd, noOfDays);
+  z = noOfDays;
+  for (i=1; i<=wd1; i++)
+  {
+    tabCalendar.currentCell(0, wd1-i); 
+    tabCalendar.cellValue(z); 
+    tabCalendar.cellForeCol(\"darkgrey\");
+    z=z-1;
+
+    if (wd1-i == 0)
+    {
+      tabCalendar.currentCell(0, 0); tabCalendar.cellBackCol(\"lightgrey\");
+    }
+  }
+}
+// ============================================================================
+// Function: dateTime_markDay()
+// ============================================================================
+dateTime_markDay(int row, string column, string backCol, string foreCol)
+{
+  int i;
+ 
+  switch(column) 
+  {
+    case \"su\" :i = 0; break;
+    case \"mo\" :i = 1; break;
+    case \"tu\" :i = 2; break;
+    case \"we\" :i = 3; break;
+    case \"th\" :i = 4; break;
+    case \"fr\" :i = 5; break;
+    case \"sa\" :i = 6; break;
+  }
+   
+  tabCalendar.currentCell(row, i); 
+  p_iRow = row;
+  p_sColumn = column;
+  p_sBackCol = tabCalendar.cellBackCol();
+  p_sForeCol = tabCalendar.cellForeCol();
+  
+  setValue (\"tabCalendar\", \"cellBackCol\", backCol,
+                           \"cellForeCol\", foreCol);
+}                  
+// ============================================================================
+// Function: dateTime_nowToday()
+// ============================================================================
+dateTime_nowToday()
+{
+  tabCalendar.visible(FALSE);
+  tabCalendar.deleteAllLines();  
+  
+  //Get the current time, year, month, day and weekday
+  dateTime_getT1();
+
+  //Set the current month and year in the comboboxes 
+  dynAppend(p_dsMonths, cbMonth.items());
+  cbMonth.text(p_dsMonths[p_iMonth]);
+
+  setValue(\"cbYear\", \"deleteAllItems\");
+  for (int y = 1970; y <= 2034; y++)
+    cbYear.appendItem(y);
+    
+  setValue(\"cbYear\", \"text\", p_iYear);
+
+  //Build up the calendar
+  dateTime_buildUpCalendar();
+  
+  //Fill the empty cells at the beginning an the end
+  //Previous month
+  if(cbYear.text()==1970 && p_iMonth==1)
+    ;
+  else
+    dateTime_previousMonth();
+
+  //Next month
+  if(cbYear.text()==2034 && p_iMonth==12)
+    ;
+  else
+    dateTime_nextMonth();
+
+  tabCalendar.visible(TRUE);
+  txtMonthYear.text(cbMonth.text()+\" \"+cbYear.text());
+} 
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 37
+"t0"
+""
+1 10 244 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.075757575757576 0 1 -0.7575757575757582 1 0 E 10 244 341 299
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 27
+"t1"
+""
+1 18 242 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 242 46 257
+0 2 2 "0s" 0 0 0 192 0 0  20 242 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 4 Hour
+LANG:10004 6 小时
+LANG:10000 6 Stunde
+LANG:10027 6 Час
+2 28
+"t2"
+""
+1 102 242 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 102 242 152 257
+0 2 2 "0s" 0 0 0 192 0 0  102 242 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Minute
+LANG:10004 6 分钟
+LANG:10000 6 Minute
+LANG:10027 12 Минута
+2 29
+"t3"
+""
+1 190 242 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 192 242 249 257
+0 2 2 "0s" 0 0 0 192 0 0  192 242 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Second
+LANG:10004 3 秒
+LANG:10000 7 Sekunde
+LANG:10027 14 Секунда
+2 30
+"t4"
+""
+1 280 242 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 282 242 321 257
+0 2 2 "0s" 0 0 0 192 0 0  282 242 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Millisec.
+LANG:10004 7 毫秒.
+LANG:10000 9 Millisek.
+LANG:10027 9 Мсек.
+2 40
+"txtTime"
+""
+1 10 10 E E E 1 E 0 E N "Blue" E N "_3DFace" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 12 12 118 38
+0 2 0 "0s" 0 0 0 64 0 0  12 12 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 11 Time picker
+LANG:10004 6 时间
+LANG:10000 11 Zeitauswahl
+LANG:10027 25 Выбор времени
+2 44
+"txtMonthYear"
+""
+1 10 10 E E E 1 E 0 E N "Blue" E N "_3DFace" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+
+}" 0
+ E 0 1 1 0 1 E U  1 E 12 12 138 38
+0 2 0 "0s" 0 0 0 64 0 0  12 12 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+25 21
+"tabCalendar"
+""
+1 10 50 E E E 1 E 1 E N "_3DText" E N "white" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 48 367 209
+E"main(int row, string column, string value)
+{
+  if(p_bDateToo ==  FALSE)
+    return;
+ 
+  if(p_sColumn == \"su\" || p_sColumn == \"sa\")
+  {
+    p_sBackCol = \"lightgrey\";
+  }
+  else
+  {
+    p_sBackCol = \"white\";
+  }
+if (DEBUG) DebugTN(\"AAAAp_iRow\",p_iRow,\"p_sColumn\",p_sColumn,\"p_sBackCol\",p_sBackCol,\"p_sForeCol\",p_sForeCol);
+  if(p_sBackCol!=\"\" || p_sForeCol!=\"\")
+    dateTime_markDay(p_iRow, p_sColumn, p_sBackCol, p_sForeCol);
+if (DEBUG) DebugTN(\"row\",row,\"column\",column);
+  dateTime_markDay(row, column, \"white\", \"Red\");
+}" 0
+ 1 0 1 7 6 "su" 3 1 0 "s" 4
+LANG:10001 2 Su
+LANG:10004 9 星期天
+LANG:10000 2 So
+LANG:10027 4 Вс
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+51 "mo" 3 1 0 "s" 4
+LANG:10001 2 Mo
+LANG:10004 9 星期一
+LANG:10000 2 Mo
+LANG:10027 4 Пн
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+51 "tu" 3 1 0 "s" 4
+LANG:10001 2 Tu
+LANG:10004 2 Tu
+LANG:10000 2 Di
+LANG:10027 4 Вт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+51 "we" 3 1 0 "s" 4
+LANG:10001 2 We
+LANG:10004 3 三
+LANG:10000 2 Mi
+LANG:10027 4 Ср
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+51 "th" 3 1 0 "s" 4
+LANG:10001 2 Th
+LANG:10004 3 四
+LANG:10000 2 Do
+LANG:10027 4 Чт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "fr" 3 1 0 "s" 4
+LANG:10001 2 Fr
+LANG:10004 3 五
+LANG:10000 2 Fr
+LANG:10027 4 Пт
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "sa" 3 1 0 "s" 4
+LANG:10001 2 Sa
+LANG:10004 3 六
+LANG:10000 2 Sa
+LANG:10027 4 Сб
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+49 
+22 22 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+8 98
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 0 0 1 7
+1 0
+13 1
+"buCancel"
+""
+1 279 318 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  278 318 366 346
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(0), makeDynString(0));
+}
+" 0
+ E E E
+13 2
+"ok"
+""
+1 189 318 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  188 318 276 346
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  int        i, e, nol, a, b, year,month,day,hour,minute,second,milliSecond;
+  bool       timeToo;
+  time       tResult;
+  string     sResult, col;
+  dyn_string ds; 
+ 
+  //Check if there is a cell selected
+  if(p_bDateToo == TRUE)
+  {
+    nol = tabCalendar.lineCount();
+
+    for(e=0; e<nol; e++)
+    {
+      for(b=0; b<7; b++)
+      {
+        tabCalendar.currentCell(e, b);
+        col = tabCalendar.cellForeCol();
+        if(col==\"Red\")
+         a++;
+      }
+    }
+  }  
+  
+  //Get selected month
+  month = dynContains(p_dsMonths, cbMonth.text());
+  //Get selected year
+  year = cbYear.text();
+  //Get selected day
+  switch(p_sColumn) 
+  {
+    case \"su\" :i = 0; break;
+    case \"mo\" :i = 1; break;
+    case \"tu\" :i = 2; break;
+    case \"we\" :i = 3; break;
+    case \"th\" :i = 4; break;
+    case \"fr\" :i = 5; break;
+    case \"sa\" :i = 6; break;
+  }
+  tabCalendar.currentCell(p_iRow, i);
+  //Day from previous month
+  if(p_sForeCol==\"darkgrey\" && p_iRow==0)
+  {
+    month = month-1;
+    if(month<1)
+    {
+      month = 12;
+      year = year-1;
+    }
+  }
+  //Day from next month
+  if(p_sForeCol==\"darkgrey\" && p_iRow!=0)
+  {
+    month = month+1;
+    if(month>12)
+    {
+      month = 1;
+      year = year+1;
+    }
+  }
+  day = tabCalendar.cellValue();
+  
+  //Time values
+  getMultiValue(\"timeToo\",\"state\",0,timeToo,
+                \"hour\",\"text\",hour,
+                \"minute\",\"text\",minute,
+                \"second\",\"text\",second,
+                \"millisecond\",\"text\",milliSecond);
+//DebugN(\"timeToo p_bDateToo\",timeToo,p_bDateToo,\"a\",a);
+//DebugN(\"1\",year,month,day,hour,minute,second,milliSecond);
+  //Time and date too
+  if (timeToo == TRUE)
+  {
+    if (p_bDateToo == TRUE && p_bYearToo == TRUE)
+      tResult = makeTime(year,month,day,hour,minute,second,milliSecond);
+    if (p_bDateToo == TRUE && p_bYearToo == FALSE)
+      tResult = makeTime(year,month,day,hour,minute,second,milliSecond);  //1970,month,day,hour,minute,second,milliSecond);      
+    if (p_bDateToo == FALSE)
+    {
+      // Not this way, because then the times from 00:00:00 to 00:59:59 get lost;
+      // - tResult = makeTime(1970, 1, 1, hour,minute,second,milliSecond);
+      // therefore use the current date;
+      tResult = makeTime(year(getCurrentTime()), month(getCurrentTime()), day(getCurrentTime()), hour,minute,second,milliSecond);
+    }    
+//DebugN((\"2 tResult\"),period(p_tPara), tResult, period(tResult));      
+  }
+  else
+  {
+    if (p_bDateToo == TRUE && p_bYearToo == TRUE)
+      tResult = makeTime(year,month,day);
+    if (p_bDateToo == TRUE && p_bYearToo == FALSE)
+      tResult = makeTime(1970,month,day); 
+    if (p_bDateToo == FALSE && p_bYearToo == FALSE)
+      tResult = makeTime(year,month,day,hour,minute,second,milliSecond);       
+//DebugN((\"3\"),period(p_tPara), tResult, period(tResult));
+  }
+  
+  if(p_bDateToo == TRUE)
+  {
+    if (a==0)
+      tResult = p_tPara;  
+//DebugN((\"4\"), period(p_tPara), tResult, period(tResult));  
+  }
+
+  sResult = tResult;
+  PanelOffReturn(makeDynFloat(0),makeDynString(sResult));
+}" 0
+ E E E
+20 4
+"timeToo"
+""
+1 9 208 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  10 208 102 241
+1
+T 
+4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 7 Uhrzeit
+LANG:10027 10 Время
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  bool timeToo;
+
+  getValue(\"\",\"state\",0,timeToo);
+  if (timeToo == TRUE)
+  {
+    //Set panel size
+    setPanelSize(myModuleName(), myPanelName(), FALSE, 379, 354);
+    //En dis objects
+    setMultiValue(\"hour\",        \"visible\",  TRUE,    //260,
+                  \"minute\",      \"visible\",  TRUE,    //260,
+                  \"second\",      \"visible\",  TRUE,    //260,
+                  \"millisecond\", \"visible\",  TRUE,    //260,
+                  \"t0\",          \"visible\",  TRUE,    //244,
+                  \"t1\",          \"visible\",  TRUE,    //241,
+                  \"t2\",          \"visible\",  TRUE,    //241,
+                  \"t3\",          \"visible\",  TRUE,    //241,
+                  \"t4\",          \"visible\",  TRUE,    //241,
+                  \"now\",         \"visible\",  TRUE,    //310,
+                  \"today\",       \"position\", 100, 318,   //310,
+                  \"ok\",          \"position\", 190,318,   //310,
+                  \"buCancel\",    \"position\", 280,318,  //310
+                  \"PANEL_REF0\",  \"position\", -10,310);  //310  
+  }
+  else
+  {
+    //Set panel size
+   setPanelSize(myModuleName(), myPanelName(), FALSE, 379, 290);
+    //En dis objects
+    setMultiValue(\"hour\",        \"visible\",  FALSE,    //260,
+                  \"minute\",      \"visible\",  FALSE,    //260,
+                  \"second\",      \"visible\",  FALSE,    //260,
+                  \"millisecond\", \"visible\",  FALSE,    //260,
+                  \"t0\",          \"visible\",  FALSE,    //244,
+                  \"t1\",          \"visible\",  FALSE,    //241,
+                  \"t2\",          \"visible\",  FALSE,    //241,
+                  \"t3\",          \"visible\",  FALSE,    //241,
+                  \"t4\",          \"visible\",  FALSE,    //241,
+                  \"now\",         \"visible\",  FALSE,    //310,
+                  \"today\",       \"position\", 100, 255,   //310,
+                  \"ok\",          \"position\", 190,255,   //310,
+                  \"buCancel\",    \"position\", 280,255,
+                  \"PANEL_REF0\",  \"position\", -10,245);  //310
+  }                              
+}" 0
+
+EE13 13
+"now"
+""
+1 8 318 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 318 96 346
+
+T 
+4
+LANG:10001 3 Now
+LANG:10004 6 现在
+LANG:10000 5 Jetzt
+LANG:10027 12 Сейчас
+"main()
+{
+  time     t = getCurrentTime();
+  dyn_bool db;
+  
+  dateTime_nowToday();
+  getMultiValue(\"hour\",       \"enabled\",db[1],
+                \"minute\",     \"enabled\",db[2],
+                \"second\",     \"enabled\",db[3],
+                \"millisecond\",\"enabled\",db[4]);
+  
+  if (db[1] == TRUE)
+    setMultiValue(\"hour\",\"text\",hour(t));
+  if (db[2] == TRUE)
+    setMultiValue(\"minute\",\"text\",minute(t));
+  if (db[3] == TRUE)
+    setMultiValue(\"second\",\"text\",second(t));
+  if (db[4] == TRUE)
+    setMultiValue(\"millisecond\",\"text\",milliSecond(t));
+}
+" 0
+ E E E
+13 14
+"today"
+""
+1 98 318 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  98 318 186 346
+
+T 
+4
+LANG:10001 5 Today
+LANG:10004 6 今天
+LANG:10000 5 Heute
+LANG:10027 14 Сегодня
+"main()
+{
+  dateTime_nowToday(); 
+}" 0
+ E E E
+22 16
+"cbYear"
+""
+1 200 20 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  198 18 302 45
+0
+
+E
+"main()
+{
+  cbYearChange();  
+}" 0
+
+E
+ 0 0
+22 17
+"cbMonth"
+""
+1 75 20 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  73 18 192 45
+12
+4
+LANG:10001 7 January
+LANG:10004 6 一月
+LANG:10000 6 Januar
+LANG:10027 12 Январь
+
+0
+4
+LANG:10001 8 February
+LANG:10004 6 二月
+LANG:10000 7 Februar
+LANG:10027 14 Февраль
+
+0
+4
+LANG:10001 5 March
+LANG:10004 6 三月
+LANG:10000 5 März
+LANG:10027 8 Март
+
+0
+4
+LANG:10001 5 April
+LANG:10004 6 四月
+LANG:10000 5 April
+LANG:10027 12 Апрель
+
+0
+4
+LANG:10001 3 May
+LANG:10004 6 五月
+LANG:10000 3 Mai
+LANG:10027 6 Май
+
+0
+4
+LANG:10001 4 June
+LANG:10004 6 六月
+LANG:10000 4 Juni
+LANG:10027 8 Июнь
+
+0
+4
+LANG:10001 4 July
+LANG:10004 6 七月
+LANG:10000 4 Juli
+LANG:10027 8 Июль
+
+0
+4
+LANG:10001 6 August
+LANG:10004 6 八月
+LANG:10000 6 August
+LANG:10027 12 Август
+
+0
+4
+LANG:10001 9 September
+LANG:10004 6 九月
+LANG:10000 9 September
+LANG:10027 16 Сентябрь
+
+0
+4
+LANG:10001 7 October
+LANG:10004 6 十月
+LANG:10000 7 Oktober
+LANG:10027 14 Октябрь
+
+0
+4
+LANG:10001 8 November
+LANG:10004 9 十一月
+LANG:10000 8 November
+LANG:10027 12 Ноябрь
+
+0
+4
+LANG:10001 8 December
+LANG:10004 9 十二月
+LANG:10000 8 Dezember
+LANG:10027 14 Декабрь
+
+0
+
+E
+"main()
+{
+  cbMonthChange();
+}" 0
+
+E
+ 0 0
+21 31
+"hour"
+""
+1 18 264 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  18 263 78 289
+0
+
+"main()
+{
+  this.sbMaximum(23);
+  this.sbMinimum(0);
+}" 0
+
+E
+E
+
+N 0 23 1 0 1 1
+21 32
+"minute"
+""
+1 91 261 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  98 262 158 288
+0
+
+"main()
+{
+  this.sbMaximum(59);
+  this.sbMinimum(0);
+
+}" 0
+
+E
+E
+
+N 0 59 1 0 1 1
+21 33
+"second"
+""
+1 175 261 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  188 263 248 289
+0
+
+"main()
+{
+  this.sbMaximum(59);
+  this.sbMinimum(0);
+
+}" 0
+
+E
+E
+
+N 0 59 1 0 1 1
+21 34
+"millisecond"
+""
+1 255 261 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  278 263 338 289
+0
+
+"main()
+{
+  this.sbMaximum(999);
+  this.sbMinimum(0);
+
+}" 0
+
+E
+E
+
+N 0 999 1 0 1 1
+13 41
+"yDown"
+""
+1 10 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Previous year
+LANG:10004 6 去年
+LANG:10000 12 Voriges Jahr
+LANG:10027 27 Предыдущий год
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  8 18 36 46
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int    i;
+  string s;
+
+  s = cbYear.text();
+  s = strltrim(s, \"\\\"\");
+  s = strrtrim(s, \"\\\"\");
+  i = s;
+  
+  if ( i != 1970)
+    cbYear.text() = i-1;
+  else
+    cbYear.text() = 2034;
+  
+  cbYearChange();
+}" 0
+ E E E
+13 42
+"mDown"
+""
+1 40 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 34 0
+E E E
+0
+4
+LANG:10001 14 Previous month
+LANG:10004 12 前一个月
+LANG:10000 13 Voriger Monat
+LANG:10027 31 Предыдущий месяц
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  38 18 66 46
+
+P 
+6737151
+"pictures/StandardIcons/arrow_single_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+
+  i = dynContains(p_dsMonths, cbMonth.text());
+  
+  if ( i != 1)
+    cbMonth.text() = p_dsMonths[i-1];
+  else
+    cbMonth.text() = p_dsMonths[12];
+  
+  cbMonthChange();
+}" 0
+ E E E
+13 50
+"mUp"
+""
+1 310 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 33 0
+E E E
+0
+4
+LANG:10001 10 Next month
+LANG:10004 9 下个月
+LANG:10000 15 Nächster Monat
+LANG:10027 29 Следующий месяц
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 18 336 46
+
+P 
+12303291
+"pictures/StandardIcons/arrow_single_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+
+  i = dynContains(p_dsMonths, cbMonth.text());
+  
+  if ( i != 12)
+    cbMonth.text() = p_dsMonths[i+1];
+  else
+    cbMonth.text() = p_dsMonths[1];
+  
+  cbMonthChange();
+}" 0
+ E E E
+13 51
+"yUp"
+""
+1 340 20 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 9 Next year
+LANG:10004 9 下一年
+LANG:10000 13 Nächtes Jahr
+LANG:10027 25 Следующий год
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  338 18 366 46
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int    i;
+  string s;
+
+  s = cbYear.text();
+  s = strltrim(s, \"\\\"\");
+  s = strrtrim(s, \"\\\"\");
+  i = s;
+  
+  if ( i != 2034)
+    cbYear.text() = i+1;
+  else
+    cbYear.text() = 1970;
+  
+  cbYearChange();
+}" 0
+ E E E
+13 35
+"buVisible"
+""
+1 150 15.08498583569405 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+33 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  -372 -2 10 357
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+1 52 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 5 295 T 49 1 0 1 -15 15
+0
+0

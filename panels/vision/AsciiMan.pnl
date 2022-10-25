@@ -1,0 +1,5190 @@
+V 14
+4
+LANG:10001 13 ASCII Manager
+LANG:10004 14 ASCII管理器
+LANG:10000 13 ASCII-Manager
+LANG:10027 22 Менеджер ASCII
+PANEL,-1 -1 1040 670 N "_3DFace" 1
+"$_javauiModuleId"
+"// Bitte bei InOut Meldung nachsehen
+// erstellt von Peter Meidl am 2.2.1999
+main()
+{
+  initHosts();
+  //IM 108050
+  initDataBGCheck();
+}" 0
+ E E E E 1 -1 -1 0  40 51
+""0  1
+E "#uses \"CtrlPv2Admin\"
+string sgUsername;
+string sgPassword;
+global bool waitForAscii = false;
+global dyn_string g_dsNoCnsDp;
+
+//IM 108050
+
+bool bDataBGisRunning1 = FALSE;
+bool bDataBGisRunning2 = FALSE;
+bool bActiveHost1 = FALSE;
+bool bActiveHost2 = FALSE;
+
+// IM 118172 - save the settings for the check boxes
+dyn_bool db_checkBoxStates;
+dyn_bool db_checkBoxVisibility;
+
+bool b_typeRef;
+bool b_pwrConfigs;
+bool b_linkedCNS;
+
+initDataBGCheck()
+{
+  if(isRedundant())
+    dpConnect(\"workDataBG\",TRUE,\"_DataManager_2.MultiUserMode.Status:_original.._value\",
+                                \"_ReduManager_2.Status.Active:_original.._value\");
+      
+   dpConnect(\"workDataBG\",TRUE,\"_DataManager.MultiUserMode.Status:_original.._value\",
+                               \"_ReduManager.Status.Active:_original.._value\");
+}
+
+workDataBG(string dp1, bool bConnDataBG, string dp2, bool bActive)
+{
+  if(isReduDp(dp2))
+  {
+    bActiveHost2 = bActive;
+    bDataBGisRunning2 = bConnDataBG;
+  }
+  else if(isRedundant())
+  {
+    bActiveHost1 = bActive;
+    bDataBGisRunning1 = bConnDataBG;
+  }
+  else
+  {
+    bActiveHost1 = TRUE;//nur einer da, also aktiv
+    bDataBGisRunning1 = bConnDataBG;
+  }
+}
+
+bool checkDataBG()
+{
+  //Linux does not need this
+  if(!_WIN32)
+    return TRUE;
+	
+  if(isRedundant())
+    return bActiveHost2?bDataBGisRunning2:bDataBGisRunning1;// keine Berücksichtigung des Splitmodes
+  else
+    return bDataBGisRunning1;
+}
+//IM 108050 End
+
+lockDpList()
+{
+  return;
+}
+
+buildHostConnectString(string &answer, bool bOther = false, bool bSplitModeActive = false)
+{
+  dyn_string dsEventHosts = eventHost();
+  dyn_string dsDataHosts = dataHost();
+  unsigned udataPort = dataPort();
+  unsigned ueventPort = eventPort();
+  int hostNum =  1;
+  
+  if ( bOther )
+  {
+    if ( hostNum == 1)
+      hostNum = 2;
+  }
+  
+  if ( bSplitModeActive )
+    hostNum = myReduHostNum();
+
+  answer = \" -data \"+dsDataHosts[hostNum]+ \":\"+udataPort+\" -event \"+dsEventHosts[hostNum]+\":\"+ueventPort;
+}
+
+//IM 99785 -->
+getSubTypes(dyn_string &dpt)
+{
+  dyn_dyn_string dds;  
+  dyn_string ds,sub;
+  
+  for(int i = 1; i <= dynlen(dpt); i++)
+  {
+    dds = dpGetDpTypeRefs(dpt[i]);
+    ds = getDynString(dds,1);
+    dynUnique(ds);
+    dynAppend(sub,ds);
+  }
+  dynAppend(sub,dpt);
+  dpt = sub;
+  dynUnique(dpt);
+}
+//--> IM 99785
+
+void outversClicked()
+{
+  string lang;
+  int num;
+  bool n, m, l, a, b, c;
+  bool young, young2;
+
+  getValue(\"outvers\",\"number\",num);
+  n = (num == 0);  // regular output
+  m = (num == 1);  // ASCII Format2
+  l = (num > 1);   // Powerconfig
+  a = FilterOptionen.state(1); // --> IM 99785; subtypes
+  b = FilterOptionen.state(2); // --> IM 99785; powerconfigs
+  c = FilterOptionen.state(7);
+  
+  young = n || m;
+   
+  setMultiValue(\"langliste\",\"visible\",m,
+                \"listelang\",\"visible\",m,
+                \"langadd\",\"visible\",m,
+                \"langdel\",\"visible\",m,
+                \"rspr\",\"visible\",m,
+                \"tspr\",\"visible\",m,
+                \"ryoung\", \"visible\", (n||m),
+                \"younger\", \"visible\", (n||m),
+                \"FilterOptionen\", \"visible\", (n||m),
+                \"rout\", \"visible\", (n||m), 
+                \"subTypen\", \"visible\", ((n||m)&&a), // --> IM 99785
+                \"pwrConfigs\", \"visible\", ((n||m)&&b), // -->I M 99785
+                \"linkedDps\", \"visible\", ((n||m)&&c)
+                );
+ 
+
+if ( !young)  {                                              // -> Format 3 or 4 sedelect Filter 
+          FilterOptionen.state(0) = FALSE;
+          FilterOptionen.state(1) = FALSE;
+					FilterOptionen.state(2) = FALSE;
+					FilterOptionen.state(3) = FALSE;
+					FilterOptionen.state(4) = FALSE;
+					FilterOptionen.state(5) = FALSE;
+					FilterOptionen.state(6) = FALSE;
+					FilterOptionen.state(7) = FALSE;
+					subTypen.state(0)       = FALSE; // --> IM 99785
+          pwrConfigs.state(0)     = FALSE; // --> IM 99785
+          linkedDps.state(0)      = FALSE;
+					
+    
+           setMultiValue(\"rk\",\"visible\",0,
+                        \"konfig\",\"visible\",0,
+                        \"konfigliste\",\"visible\",0,
+                        \"kadd\",\"visible\",0,
+                        \"kdel\",\"visible\",0,
+                        \"subTypen\",\"visible\", 0,//-->IM 99785
+                        \"pwrConfigs\",\"visible\", 0//-->IM 99785
+                        );
+                        
+                        
+        }
+ 
+  if (young) 
+    getValue(\"younger\",\"state\",0,young2);
+  young &= young2;
+
+  setMultiValue(\"YY\",\"visible\",young,
+                \"TJ\",\"visible\",young,
+                \"MM\",\"visible\",young,
+                \"TM\",\"visible\",young,
+                \"DD\",\"visible\",young,
+                \"TT\",\"visible\",young,
+                \"hh\",\"visible\",young,
+                \"Ts\",\"visible\",young,
+                \"mm\",\"visible\",young,
+                \"Tm\",\"visible\",young,
+                \"jetzt\",\"visible\",young);
+  
+  
+  
+  
+  
+  if (l)    // set only Masterdps 
+  {
+    dyn_string ds;
+    int i;
+    dyn_string dsTypes;
+    
+    dsTypes = dpNames(\"_mp_*\");
+    
+    for ( i= 1; i<= dynlen(dsTypes); i++)
+    {
+       strreplace(dsTypes[i], \"_mp_\", \"\");
+       ds = strsplit( dsTypes[i], \":\");    // remove sys:
+       dsTypes[i] = ds[2];
+    }
+    dynSortAsc(dsTypes);
+    
+    dptyp.items=dsTypes;
+  }
+  else
+    dptyp.items= dpTypes();
+  
+  lockDpList();
+}
+
+
+
+void checkCnsDps(bool state)
+{
+  dyn_string dsD, dsC, dsDC;
+  string spr = getCatStr(\"general\", \"all\");
+  
+  // IM 118172 - variable to store the dplist
+  dyn_string ds_dplist;
+  
+  getMultiValue(\"dp\",     \"items\", dsD,
+                \"cnsSel\", \"items\", dsC);  
+  
+  //IM 118879 initialize global states if not done yet
+  if(dynlen(db_checkBoxStates) <= 0)
+  {
+    db_checkBoxStates[1] = FilterOptionen.state(1);
+    db_checkBoxStates[2] = FilterOptionen.state(2);
+    db_checkBoxStates[3] = subTypen.state(0);
+    db_checkBoxStates[4] = pwrConfigs.state(0);
+    db_checkBoxVisibility[1] = subTypen.visible;
+    db_checkBoxVisibility[2] = pwrConfigs.visible;
+  }
+
+  if ( state )
+  {
+    // IM 118172 - save the settings for the check boxes
+    db_checkBoxStates[1] = FilterOptionen.state(1);
+    db_checkBoxStates[2] = FilterOptionen.state(2);
+    db_checkBoxStates[3] = subTypen.state(0);
+    db_checkBoxStates[4] = pwrConfigs.state(0);
+
+    db_checkBoxVisibility[1] = subTypen.visible;
+    db_checkBoxVisibility[2] = pwrConfigs.visible;
+    //DebugTN(\"db_checkBoxStates\",db_checkBoxStates);
+    //DebugTN(\"db_checkBoxVisibility\",db_checkBoxVisibility);
+    
+    FilterOptionen.state(1,true);
+    FilterOptionen.state(2,true);
+    subTypen.visible(true);
+    pwrConfigs.visible(true);
+    subTypen.state(0,true);
+    pwrConfigs.state(0,true);
+    
+    ds_dplist = g_dsNoCnsDp;
+    
+    if ( dsC[1] != spr )//not all
+    {
+      
+      for ( int i = 1; i <= dynlen(dsC); i++)
+      {       
+        dyn_string dsTemp; 
+        if ( dsC[i][0] == \".\" )
+        {
+          cnsGetIdSet(cnsSubStr(dsC[i], CNSSUB_SYS)+dsC[i]+\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsTemp);
+        }
+        else
+        {
+          cnsGetIdSet(dsC[i]+\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsTemp);
+        }
+        dynAppend(dsDC,dsTemp);
+      }
+    }
+    else//all
+    {
+      cnsGetIdSet(\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsDC);
+    }
+
+    if ( dynlen(dsD) > 1 && dsD[1] != spr )
+      dp.deleteAllItems();
+
+    if ( dsD[1] == spr && dynlen(dsDC) )
+      setValue(\"dp\", \"deleteAllItems\");
+  
+    if ( dynlen(dsDC) )
+    {
+      for ( int i = 1; i <= dynlen(dsDC); i++)
+      {
+        dynAppend(ds_dplist,dpSubStr(dsDC[i], DPSUB_DP));
+      }
+      dynUnique(ds_dplist);
+      setValue(\"dp\",\"items\",ds_dplist);
+    }
+  }
+  else
+  {
+    setValue(\"dp\", \"deleteAllItems\");
+
+    // IM 118172 - restore the settings for the check boxes
+    FilterOptionen.state(1,db_checkBoxStates[1]);
+    FilterOptionen.state(2,db_checkBoxStates[2]);
+    subTypen.visible(db_checkBoxVisibility[1]);
+    pwrConfigs.visible(db_checkBoxVisibility[2]);
+    subTypen.state(0,db_checkBoxStates[3]);
+    pwrConfigs.state(0,db_checkBoxStates[4]);
+
+    //DebugTN(\"g_dsNoCnsDp\",g_dsNoCnsDp);
+    
+    if ( !dynlen(g_dsNoCnsDp) )
+      setValue(\"dp\", \"appendItem\", spr);
+    else
+      setValue(\"dp\",\"items\",g_dsNoCnsDp);
+//      for ( int i = 1; i <= dynlen(g_dsNoCnsDp); i++ )
+//        setValue(\"dp\", \"appendItem\", g_dsNoCnsDp[i]);
+  }
+}
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+20 6
+"infilter"
+""
+1 30.71875 168 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  31 166 327 253
+3
+T 
+4
+LANG:10001 39 Automatically update existing DP types 
+LANG:10004 26 自动更新现有DP类型
+LANG:10000 35 Bestehende DP-Typen autom. ändern 
+LANG:10027 63 Автоматически обновить сущ. типы DP
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 29 Load data with alert handling
+LANG:10004 18 导入报警属性
+LANG:10000 36 Daten mit Alarmbehandlung einspielen
+LANG:10027 70 Загрузить данные с обработкой алармов
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 36 Alert handling without alert history
+LANG:10004 27 不导入报警历史数据
+LANG:10000 40 Meldebehandlung ohne Parametrierhistorie
+LANG:10027 70 Обработка алармов без ведения истории
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+2
+E E
+E E
+EE20 88
+"FilterOptionen"
+""
+1 31 166 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  31 166 275 373
+8
+T 
+4
+LANG:10001 31 Set/clear all filters (TDAOPHC)
+LANG:10004 37 设置/清除所有过滤器(TDAOPHC)
+LANG:10000 37 Alle Filter setzen/löschen (TDAOPHC)
+LANG:10027 51 Уст./сброс всех фильтр. (TDAOPHC)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 19 Datapoint types (T)
+LANG:10004 20 数据点DP类型(T)
+LANG:10000 19 Datenpunkttypen (T)
+LANG:10027 36 Типы точек данных (T)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Datapoints (D)
+LANG:10004 14 数据点DP(D)
+LANG:10000 15 Datenpunkte (D)
+LANG:10027 28 Точки данных (DP)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 24 Aliases and comments (A)
+LANG:10004 18 别名和备注(A)
+LANG:10000 25 Aliase und Kommentare (A)
+LANG:10027 50 Псевдонимы и комментарии (A)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 19 Original values (O)
+LANG:10004 12 原始值(O)
+LANG:10000 17 Originalwerte (O)
+LANG:10027 45 Оригинальные значения (O)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 19 Parametrization (P)
+LANG:10004 15 参数配置(P)
+LANG:10000 18 Parametrierung (P)
+LANG:10027 36 Параметрирование (P)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 38 Parametrization including history (PH)
+LANG:10004 28 参数配置包括历史(PH)
+LANG:10000 34 Parametrierung inkl. Historie (PH)
+LANG:10027 50 Параметрир., вкл. историю (PH)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Plantmodel (C)
+LANG:10004 21 被控对象模型(C)
+LANG:10000 18 Anlagenmodell  (C)
+LANG:10027 29 Модель данных (C)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+7
+E E
+E E
+E E
+E E
+E E
+E E
+E E
+E"main(int button, bool state)
+{
+  int      i;
+  bool     p,ph, bAll = true;
+
+  if ( button == 0 )
+  {
+    this.state(0) = state;
+    this.state(1) = state;
+    this.state(2) = state;
+    this.state(3) = state;
+    this.state(4) = state;
+    this.state(5) = state;
+    this.state(6) = state;
+    this.state(7) = state;
+    subTypen.state(0) = state; // IM 99785 -->
+    subTypen.visible = state;
+    pwrConfigs.state(0) = state;
+    pwrConfigs.visible = state; // --> IM 99785
+    linkedDps.state(0) = state;
+    linkedDps.visible = state;
+    
+    // set global variables
+    b_typeRef = state;
+    b_pwrConfigs = state;
+    b_linkedCNS = state;
+    
+    db_checkBoxStates[1] = state;
+    db_checkBoxStates[2] = state;
+    db_checkBoxStates[3] = state;
+    db_checkBoxStates[4] = state;
+    db_checkBoxVisibility[1] = state;
+    db_checkBoxVisibility[2] = state;
+  }
+  else
+  {
+    for ( i = 1; i <= 7; i++ )
+      bAll &= this.state(i);
+    
+    if(bAll && b_typeRef && b_pwrConfigs && b_linkedCNS)
+      this.state(0) = 1;
+    else
+      this.state(0) = 0;
+    
+    // IM 99785 -->
+    if(button == 1) // DPT
+    {
+      subTypen.visible = this.state(1);
+      subTypen.state(0) = b_typeRef;
+    }
+    if(button == 2) // DP
+    {
+      pwrConfigs.visible = this.state(2);
+      pwrConfigs.state(0) = b_pwrConfigs;
+    }
+    // --> IM 99785
+    if(button == 7) // CNS
+    {
+      linkedDps.visible = this.state(7);
+      linkedDps.state(0) = b_linkedCNS;
+    }
+  }
+  
+  // IM 111157 -->
+  if ( this.state(1) == FALSE ) // DPT
+    subTypen.state(0) = FALSE;
+  if ( this.state(2) == FALSE ) // DP
+    pwrConfigs.state(0) = FALSE;
+  // --> IM 111157
+  if ( this.state(7) == FALSE ) // CNS
+    linkedDps.state(0) = FALSE;
+  
+  getValue(\"\",\"state\",5,p,
+              \"state\",6,ph);
+
+  p = p || ph;
+
+  setMultiValue(\"rk\",\"visible\",p,
+                \"konfig\",\"visible\",p,
+                \"konfigliste\",\"visible\",p,
+                \"kadd\",\"visible\",p,
+                \"kdel\",\"visible\",p);
+}
+
+
+
+
+
+
+
+
+" 0
+30 118
+"rin"
+""
+1 15 148 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+100 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186274509803923 0 1.833062330623306 -32.79411764705885 -123.2932249322493 0 E 15 148 118 209
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 92
+"txtASCIIField"
+""
+1 136 506 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  134 504 668 531
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  /*
+    27.11.2013  mPokorny  :
+    IM 113518, call function setConnection with correctly params   
+  */
+  
+  bool bAnswer;
+  if ( isRedundant())
+  {
+      isSplitModeActive(bAnswer, getSystemName());
+
+      if (!bAnswer)
+        dpConnect(\"setConnectionCB\", \"_ReduManager.EvStatus:_online.._value\",\"_ReduManager_2.EvStatus:_online.._value\");
+      else
+        setConnection(TRUE, TRUE);
+  }
+  else
+    setConnection(TRUE, FALSE);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  @name   :setConnectionCB
+  @author :mPokorny
+  @Desc   :call setConnection() to update connection string on event state change
+  @Notes  :
+  @param  :dp - _ReduManager.EvStatus:_online.._value
+  @param  :state - event state
+  @return :void
+  @History:
+    27.11.2013   : mpokorny , created (IM 113518)
+  @to do  :
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*/
+setConnectionCB(string dp, bool state,
+                string dp2, bool state2)
+{
+  if(state != state2)
+    setConnection(state, FALSE);
+  else
+  {
+    int manId = convManIdToInt(EVENT_MAN,0);	    
+
+    if(isConnOpen(manId))     
+      setConnection(TRUE, FALSE);
+    else
+      setConnection(FALSE, FALSE);
+  }
+}
+/*------------------------------------------------------------------------------------------------------------------------------------
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  @name   :setConnection
+  @author :mPokorny
+  @Desc   :write connection string in to shape \"txtASCIIField\"
+  @Notes  :
+  @param  :state - event state
+  @param  :bSplitModeActive - split mode state
+  @return :void
+  @History:
+    27.11.2013   : mpokorny , created (IM 113518)
+  @to do  :
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*/
+void setConnection(bool state, bool bSplitModeActive = false)
+{  
+  string s;
+  buildHostConnectString(s, !state, bSplitModeActive);
+  this.text	= s;
+}
+
+
+" 0
+ E
+19 19
+"InOut"
+""
+1 31 86 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  31 84 104 136
+2
+T 
+4
+LANG:10001 6 Import
+LANG:10004 6 导入
+LANG:10000 6 Import
+LANG:10027 12 Импорт
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 6 Export
+LANG:10004 6 导出
+LANG:10000 6 Export
+LANG:10027 14 Экспорт
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+"main()
+{
+  dyn_dyn_anytype confliste;
+  string filteropt, filter, mod,confname,lang,spr;
+  bool f,s,young,p,ph;
+  int x,inout,dpinout,l;
+
+  getValue(\"\",\"number\", inout);
+  getValue(\"FilterOptionen\",\"state\",4,p,
+                       \"state\",5,ph);
+  setMultiValue(\"listelang\",\"deleteAllItems\",
+                \"dp\",       \"deleteAllItems\",
+                \"dptypsel\", \"deleteAllItems\",
+                \"cnsSel\",   \"deleteAllItems\",
+                \"konfig\",   \"deleteAllItems\");
+  spr=getCatStr(\"general\",\"all\");
+  p = p || ph;
+  setMultiValue(\"FilterOptionen\",\"visible\",inout,
+                \"rout\",\"visible\",inout,
+                \"outvers\",\"visible\",inout,
+                \"dp\",\"visible\",inout,
+                \"dp\",\"appendItem\",spr,
+                \"delsel\",\"visible\",inout,
+                \"dpsel\",\"visible\",inout,
+                \"dptypsel\",\"visible\",inout,
+                \"dptyp\",\"visible\",inout,
+                \"dptypsel\",\"appendItem\",spr,
+                \"dptadd\",\"visible\",inout,
+                \"dpadd\",\"visible\",inout,
+                \"dptext\",\"visible\",inout,
+                \"dptdel\",\"visible\",inout,
+                \"rdp\",\"visible\",inout,
+                \"rdpt\",\"visible\",inout,
+                \"confliste\",\"text\",\"\",
+                \"younger\",\"visible\",inout,
+                \"ryoung\",\"visible\",inout,
+                \"listelang\",\"appendItem\",spr,
+                \"konfig\",\"appendItem\",spr,
+                //\"cnsViewsSel\",\"appendItem\",spr,
+                \"cnsSel\",\"appendItem\",spr);
+
+  if (inout == 0)
+  {
+    setMultiValue(\"langliste\",\"visible\",0,
+                  \"listelang\",\"visible\",0,
+                  \"infilter\",\"visible\",1,
+                  \"langadd\",\"visible\",0,
+                  \"langdel\",\"visible\",0);
+    setMultiValue(\"rin\",\"visible\",1,
+                  \"rvers1\",\"visible\",0,
+                  \"rspr\",\"visible\",0,
+                  \"tspr\",\"visible\",0);
+    setMultiValue(\"YY\",\"visible\",0,
+                  \"TJ\",\"visible\",0,
+                  \"MM\",\"visible\",0,
+                  \"TM\",\"visible\",0,
+                  \"DD\",\"visible\",0,
+                  \"TT\",\"visible\",0,
+                  \"hh\",\"visible\",0,
+                  \"Ts\",\"visible\",0,
+                  \"mm\",\"visible\",0,
+                  \"Tm\",\"visible\",0,
+                  \"jetzt\",\"visible\",0);
+    setMultiValue(\"rk\",\"visible\",0,
+                  \"konfig\",\"visible\",0,
+                  \"konfigliste\",\"visible\",0,
+                  \"kadd\",\"visible\",0,
+                  \"kdel\",\"visible\",0);
+  }
+  else
+  {
+    getValue(\"outvers\",\"number\",s);
+    setMultiValue(\"langliste\",\"visible\",s,
+                  \"listelang\",\"visible\",s,
+                  \"langadd\",\"visible\",s,
+                  \"langdel\",\"visible\",s,
+                  \"infilter\",\"visible\",0);
+    setMultiValue(\"rin\",\"visible\",0,
+                  \"rvers1\",\"visible\",1,
+                  \"rspr\",\"visible\",s,
+                  \"tspr\",\"visible\",s);
+    getValue(\"younger\",\"state\",0,young);
+    setMultiValue(\"YY\",\"visible\",young,
+                  \"TJ\",\"visible\",young,
+                  \"MM\",\"visible\",young,
+                  \"TM\",\"visible\",young,
+                  \"DD\",\"visible\",young,
+                  \"TT\",\"visible\",young,
+                  \"hh\",\"visible\",young,
+                  \"Ts\",\"visible\",young,
+                  \"mm\",\"visible\",young,
+                  \"Tm\",\"visible\",young,
+                  \"jetzt\",\"visible\",young);
+    setMultiValue(\"rk\",\"visible\",p,
+                  \"konfig\",\"visible\",p,
+                  \"konfigliste\",\"visible\",p,
+                  \"kadd\",\"visible\",p,
+                  \"kdel\",\"visible\",p);
+  }
+  setValue(\"langliste\",\"deleteAllItems\");
+  for (l=1;l<=getNoOfLangs();l++)
+  {
+    lang=getLocale((l-1));
+    setValue(\"langliste\",\"appendItem\",lang);
+  }
+
+  setMultiValue(\"confliste\",\"deleteAllItems\",
+                \"confdp\",\"deleteAllItems\");
+  if (inout==0)
+    dpQuery(\"SELECT '_original.._value' FROM 'i*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+  else
+    dpQuery(\"SELECT '_original.._value' FROM 'o*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+
+  for (x=2;x<=dynlen(confliste);x++)
+  {
+    mod=dpSubStr(confliste[x][1],DPSUB_DP);
+    setValue(\"confliste\",\"appendItem\",confliste[x][2]);
+    setValue(\"confdp\",\"appendItem\",mod);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+  dyn_dyn_anytype confliste;
+  string filteropt, filter, mod,confname,lang,spr;
+  bool f,s,young,p,ph;
+  int x,inout,dpinout,l;
+  getValue(\"\",\"number\", inout);
+  getValue(\"FilterOptionen\",\"state\",4,p,
+                            \"state\",5,ph);
+  spr=getCatStr(\"general\",\"all\");
+  p = p || ph;
+  
+  setMultiValue(\"FilterOptionen\",\"visible\",inout,
+                \"rout\",\"visible\",inout,
+                \"outvers\",\"visible\",inout,
+                \"dp\",\"visible\",inout,
+                \"delsel\",\"visible\",inout,
+                \"dpsel\",\"visible\",inout,
+                \"dptypsel\",\"visible\",inout,
+                \"dptyp\",\"visible\",inout,
+                \"dptadd\",\"visible\",inout,
+                \"dpadd\",\"visible\",inout,
+                \"dptext\",\"visible\",inout,
+                \"dptdel\",\"visible\",inout,
+                \"rdp\",\"visible\",inout,
+                \"rdpt\",\"visible\",inout,
+                \"rcns\",\"visible\",inout,
+                //\"tview\",\"visible\",inout,
+                \"delcnssel\",\"visible\",inout,
+                //\"viewadd\",\"visible\",inout,
+                \"cnsSel\",\"visible\",inout,
+                //\"cnsViewsSel\",\"visible\",inout,
+                \"cnsadd\",\"visible\",inout,
+                //\"cnsdel\",\"visible\",inout,
+                \"cnssel\",\"visible\",inout,
+                \"cnsText\",\"visible\",inout,
+                //\"cnsView\",\"visible\",inout,
+                \"confliste\",\"text\",\"\",
+                \"younger\",\"visible\",inout,
+                \"ryoung\",\"visible\",inout,
+                //\"rvers1\", \"visible\", inout, 
+                \"outvers\",\"number\", 0);
+
+  if (inout == 0)  // in
+  {
+    setMultiValue(\"langliste\",\"visible\",0,
+                  \"listelang\",\"visible\",0,
+                  \"infilter\",\"visible\",1,
+                  \"langadd\",\"visible\",0,
+                  \"langdel\",\"visible\",0);
+    setMultiValue(\"rin\",\"visible\",1,
+                  \"rvers1\",\"visible\",0,
+                  \"rspr\",\"visible\",0,
+                  \"tspr\",\"visible\",0);
+    setMultiValue(\"YY\",\"visible\",0,
+                  \"TJ\",\"visible\",0,
+                  \"MM\",\"visible\",0,
+                  \"TM\",\"visible\",0,
+                  \"DD\",\"visible\",0,
+                  \"TT\",\"visible\",0,
+                  \"hh\",\"visible\",0,
+                  \"Ts\",\"visible\",0,
+                  \"mm\",\"visible\",0,
+                  \"Tm\",\"visible\",0,
+                  \"jetzt\",\"visible\",0);
+    setMultiValue(\"rk\",\"visible\",0,
+                  \"konfig\",\"visible\",0,
+                  \"konfigliste\",\"visible\",0,
+                  \"kadd\",\"visible\",0,
+                  \"kdel\",\"visible\",0);
+
+    // IM 102257 -->
+    // Make checkboxes invisible when switching to \"Import\"
+    if (subTypen.visible) subTypen.visible = false;
+    if (pwrConfigs.visible) pwrConfigs.visible = false;
+    // --> IM 102257
+    if (linkedDps.visible) linkedDps.visible = false;
+  }
+  else
+  {
+    getValue(\"outvers\",\"number\",s);
+    setMultiValue(\"langliste\",\"visible\",s,
+                  \"listelang\",\"visible\",s,
+                  \"langadd\",\"visible\",s,
+                  \"langdel\",\"visible\",s,
+                  \"infilter\",\"visible\",0);
+    setMultiValue(\"rin\",\"visible\",0,
+                  \"rvers1\",\"visible\",1,
+                  \"rspr\",\"visible\",s,
+                  \"tspr\",\"visible\",s);
+    getValue(\"younger\",\"state\",0,young);
+    setMultiValue(\"YY\",\"visible\",young,
+                  \"TJ\",\"visible\",young,
+                  \"MM\",\"visible\",young,
+                  \"TM\",\"visible\",young,
+                  \"DD\",\"visible\",young,
+                  \"TT\",\"visible\",young,
+                  \"hh\",\"visible\",young,
+                  \"Ts\",\"visible\",young,
+                  \"mm\",\"visible\",young,
+                  \"Tm\",\"visible\",young,
+                  \"jetzt\",\"visible\",young);
+    setMultiValue(\"rk\",\"visible\",p,
+                  \"konfig\",\"visible\",p,
+                  \"konfigliste\",\"visible\",p,
+                  \"kadd\",\"visible\",p,
+                  \"kdel\",\"visible\",p);
+    
+    // IM 102257 -->
+    // Make checkboxes visible again (if they were before importing)
+    if (FilterOptionen.state(1)) subTypen.visible = true;
+    if (FilterOptionen.state(2)) pwrConfigs.visible = true;
+    // --> IM 102257
+    if (FilterOptionen.state(7)) linkedDps.visible = true;
+  }
+
+  setMultiValue(\"confliste\",\"deleteAllItems\",
+                \"confdp\",\"deleteAllItems\");
+  if (inout==0)
+    dpQuery(\"SELECT '_original.._value' FROM 'i*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+  else
+    dpQuery(\"SELECT '_original.._value' FROM 'o*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+  
+  for (x=2;x<=dynlen(confliste);x++)
+  {
+    mod=dpSubStr(confliste[x][1],DPSUB_DP);
+    setValue(\"confliste\",\"appendItem\",confliste[x][2]);
+    setValue(\"confdp\",\"appendItem\",mod);
+  }
+  dptypsel.items=makeDynString(spr);
+  dp.items=makeDynString(spr);
+//   cnsViewsSel.items=makeDynString(spr);
+  cnsSel.items=makeDynString(spr);
+  
+lockDpList();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+2 40
+"tspr"
+""
+1 374 152 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 376 152 433 167
+0 2 2 "0s" 0 0 0 192 0 0  376 152 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 9 Languages
+LANG:10004 6 语言
+LANG:10000 8 Sprachen
+LANG:10027 10 Языки
+2 53
+"TJ"
+""
+1 251 395 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 253 395 279 410
+0 2 2 "0s" 0 0 0 192 0 0  253 395 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Year
+LANG:10004 3 年
+LANG:10000 4 Jahr
+LANG:10027 6 Год
+2 54
+"TM"
+""
+1 313 395 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 313 395 351 410
+0 2 2 "0s" 0 0 0 192 0 0  313 395 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Month
+LANG:10004 3 月
+LANG:10000 5 Monat
+LANG:10027 10 Месяц
+2 55
+"TT"
+""
+1 361 395 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 363 395 385 410
+0 2 2 "0s" 0 0 0 192 0 0  363 395 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 Day
+LANG:10004 3 日
+LANG:10000 3 Tag
+LANG:10027 8 День
+2 56
+"Ts"
+""
+1 463 395 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 465 395 508 410
+0 2 2 "0s" 0 0 0 192 0 0  465 395 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Hour
+LANG:10004 6 小时
+LANG:10000 6 Stunde
+LANG:10027 6 Час
+2 57
+"Tm"
+""
+1 513 395 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 515 395 556 410
+0 2 2 "0s" 0 0 0 192 0 0  515 395 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Minutes
+LANG:10004 6 分钟
+LANG:10000 6 Minute
+LANG:10027 12 Минута
+2 90
+"txtDB"
+""
+1 129 478 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 65 480 131 495
+0 2 0 "0s" 0 0 0 194 0 0  131 480 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Database:
+LANG:10004 10 数据库:
+LANG:10000 10 Datenbank:
+LANG:10027 22 База данных:
+2 91
+"txtASCII"
+""
+1 129 508 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 63 510 131 525
+0 2 0 "0s" 0 0 0 194 0 0  131 510 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Connection:
+LANG:10004 9 连接：
+LANG:10000 11 Verbindung:
+LANG:10027 21 Соединение:
+14 8
+"Datei"
+""
+1 22.83730158730159 29 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 28 572 55
+3 "0s" 0 0 0 0 0 -1  E E E
+13 12
+"FileSelect"
+""
+1 578 28 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  578 28 606 56
+
+P 
+4294967295
+"pictures/StandardIcons/Open_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string datei,ext;
+  bool isExport = (InOut.number == 0);
+
+  fileSelector(datei, getPath(DPLIST_REL_PATH), true, \"\", isExport);
+  if (datei!=\"\");
+    setValue(\"Datei\",\"text\",datei);
+}" 0
+ E E E
+13 15
+"cmdNotepad"
+""
+1 617 21 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 28 636 56
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string datei;
+  int i;
+
+  getValue(\"Datei\",\"text\",datei);
+
+  if (datei == \"\")
+  {
+   ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",makeDynString(getCatStr(\"general\",\"file\")));
+  }
+  else
+  {
+    if ((strpos(datei,\"/\") < 0) && (strpos(datei,\"\\\\\") < 0))
+      datei = getPath(DPLIST_REL_PATH, datei);
+    if (datei == \"\")
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",makeDynString(getCatStr(\"general\",\"file\")));
+      return;
+    }
+    fileEditor(datei, false);
+  }
+}" 0
+ E E E
+13 73
+"cmdExcel"
+""
+1 642 21 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  638 28 666 56
+
+P 
+13160660
+"pictures/StandardIcons/export_to_excel_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string datei;
+  int    i;
+
+  getValue( \"Datei\", \"text\", datei );
+
+  if( datei == \"\" )
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",makeDynString(getCatStr(\"general\",\"file\")));
+  else
+  {
+    if((strpos(datei,\"/\") < 0) && (strpos(datei,\"\\\\\") < 0))
+      datei = getPath(DPLIST_REL_PATH,datei);
+
+    if (isJavaUI())
+    {
+      string content;
+      dyn_mixed dsResult;
+
+      fileToString(datei, content);
+      xmlrpcSendRequest(\"javaui.tableEditor\", 
+          makeDynMixed((int) $_javauiModuleId, content, true), dsResponse, \"\", false);
+    }
+    else if( _WIN32 )
+    {
+      strreplace( datei, \"/\", \"\\\\\" );  // Falls NT -> umwandeln
+
+      system(\"cmd /c start excel \\\"\" + datei+ \"\\\"\");
+    }
+  }
+}
+" 0
+ E E "main()
+{
+  setValue( \"\", \"enabled\", _WIN32 || isJavaUI() );
+}" 0
+
+20 13
+"lokalzeit"
+""
+1 158 93 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158 93 284 122
+1
+T 
+4
+LANG:10001 18 Type of local time
+LANG:10004 21 当地时间的类型
+LANG:10000 16 Lokalzeit-Format
+LANG:10027 44 Формат местного времени
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE19 14
+"outvers"
+""
+1 365 84 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  363 83 675 170
+4
+T 
+4
+LANG:10001 15 Regular export 
+LANG:10004 12 常规导出
+LANG:10000 19 Normales Ausspielen
+LANG:10027 29 Обычный экспорт
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 32 Multi language export (Format 2)
+LANG:10004 31 多语言环境导出 (格式2)
+LANG:10000 36 Mehrsprachiges Ausspielen (Format 2)
+LANG:10027 56 Многоязычный экспорт (формат 2)
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 38 PowerConfig output 1 DP/line (Format3)
+LANG:10004 41 PowerConfig 导出,每行1个DP (格式3)
+LANG:10000 45 PowerConfig Ausspielen (1 DP/Zeile, Format 3)
+LANG:10027 58 Вывод PowerConfig (1 DP/строка (Формат3))
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 39 PowerConfig output 1 DPE/line (Format4)
+LANG:10004 42 PowerConfig 导出,每行1个DPE (格式4)
+LANG:10000 46 PowerConfig Ausspielen (1 DPE/Zeile, Format 4)
+LANG:10027 59 Вывод PowerConfig (1 DPE/строка (Формат4))
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  outversClicked();
+}
+
+
+" 0
+
+17 21
+"listelang"
+""
+1 362.6616915422886 203 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 201 602 233
+0
+
+E
+E
+E
+
+0 0
+22 20
+"langliste"
+""
+1 368.5074626865672 229 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 233 602 259
+0
+
+E
+E
+E
+ 1 0
+13 22
+"langadd"
+""
+1 608 232 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 232 636 260
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string lang,spr;
+  dyn_string langlist;
+
+  getValue(\"langliste\",\"text\",lang);
+  getValue(\"listelang\",\"items\",langlist);
+
+  if (dynContains(langlist, lang));
+  else
+  {
+    if (lang != \"\")
+    {
+      spr = getCatStr(\"general\",\"all\");
+      if (langlist[1] == spr)
+        setValue(\"listelang\",\"replacePos\",1,lang);
+      else
+        setValue(\"listelang\",\"appendItem\",lang);
+    }
+  }
+}" 0
+ E E E
+13 23
+"langdel"
+""
+1 638 232 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  638 232 666 260
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string lang, langs,spr;
+  dyn_string x;
+  int y;
+
+  getValue(\"listelang\",\"selectedPos\",y);
+  setValue(\"listelang\",\"deletePos\",y);
+  getValue(\"listelang\",\"items\",x);
+  if (dynlen(x)==0)
+  {
+    spr=getCatStr(\"general\",\"all\");
+    setValue(\"listelang\",\"items\",spr);
+  }
+}" 0
+ E E E
+17 67
+"konfig"
+""
+1 362.6616915422885 288.8561403508772 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 287 602 340
+0
+
+E
+E
+E
+
+0 0
+22 66
+"konfigliste"
+""
+1 356.8159203980099 332 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  363 341 602 367
+16
+4
+LANG:10001 8 _address
+LANG:10004 8 _address
+LANG:10000 8 _address
+LANG:10027 8 _address
+
+1
+4
+LANG:10001 13 _archiv_class
+LANG:10004 13 _archiv_class
+LANG:10000 13 _archiv_class
+LANG:10027 13 _archiv_class
+
+0
+4
+LANG:10001 12 _alert_class
+LANG:10004 12 _alert_class
+LANG:10000 12 _alert_class
+LANG:10027 12 _alert_class
+
+0
+4
+LANG:10001 10 _alert_hdl
+LANG:10004 10 _alert_hdl
+LANG:10000 10 _alert_hdl
+LANG:10027 10 _alert_hdl
+
+0
+4
+LANG:10001 8 _archive
+LANG:10004 8 _archive
+LANG:10000 8 _archive
+LANG:10027 8 _archive
+
+0
+4
+LANG:10001 5 _auth
+LANG:10004 5 _auth
+LANG:10000 5 _auth
+LANG:10027 5 _auth
+
+0
+4
+LANG:10001 9 _cmd_conv
+LANG:10004 9 _cmd_conv
+LANG:10000 9 _cmd_conv
+LANG:10027 9 _cmd_conv
+
+0
+4
+LANG:10001 8 _default
+LANG:10004 8 _default
+LANG:10000 8 _default
+LANG:10027 8 _default
+
+0
+4
+LANG:10001 8 _distrib
+LANG:10004 8 _distrib
+LANG:10000 8 _distrib
+LANG:10027 8 _distrib
+
+0
+4
+LANG:10001 7 _dp_fct
+LANG:10004 7 _dp_fct
+LANG:10000 7 _dp_fct
+LANG:10027 7 _dp_fct
+
+0
+4
+LANG:10001 8 _general
+LANG:10004 8 _general
+LANG:10000 8 _general
+LANG:10027 8 _general
+
+0
+4
+LANG:10001 7 _logger
+LANG:10004 7 _logger
+LANG:10000 7 _logger
+LANG:10027 7 _logger
+
+0
+4
+LANG:10001 9 _msg_conv
+LANG:10004 9 _msg_conv
+LANG:10000 9 _msg_conv
+LANG:10027 9 _msg_conv
+
+0
+4
+LANG:10001 9 _pv_range
+LANG:10004 9 _pv_range
+LANG:10000 9 _pv_range
+LANG:10027 9 _pv_range
+
+0
+4
+LANG:10001 7 _smooth
+LANG:10004 7 _smooth
+LANG:10000 7 _smooth
+LANG:10027 7 _smooth
+
+0
+4
+LANG:10001 8 _u_range
+LANG:10004 8 _u_range
+LANG:10000 8 _u_range
+LANG:10027 8 _u_range
+
+0
+
+E
+E
+E
+ 1 0
+13 68
+"kadd"
+""
+1 608 339 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  608 339 636 367
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string konf,k;
+  dyn_string konfigs;
+
+  getValue(\"konfigliste\",\"text\",konf);
+  getValue(\"konfig\",\"items\",konfigs);
+
+  if (dynContains(konfigs, konf));
+  else
+  {
+    if (konf != \"\")
+    {
+      k = getCatStr(\"general\",\"all\");
+      if (konfigs[1] == k)
+        setValue(\"konfig\",\"replacePos\",1,konf);
+      else
+        setValue(\"konfig\",\"appendItem\",konf);
+    }
+  }
+}" 0
+ E E E
+13 69
+"kdel"
+""
+1 638 339 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  638 339 666 367
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string k;
+  dyn_string x;
+  int y;
+
+  getValue(\"konfig\",\"selectedPos\",y);
+  setValue(\"konfig\",\"deletePos\",y);
+  getValue(\"konfig\",\"items\",x);
+  if (dynlen(x)==0)
+  {
+    k=getCatStr(\"general\",\"all\");
+    setValue(\"konfig\",\"items\",k);
+  }
+}" 0
+ E E E
+20 50
+"younger"
+""
+1 31 410 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  31 410 249 439
+1
+T 
+4
+LANG:10001 24 Start export from (time)
+LANG:10004 24 从该时间开始导出
+LANG:10000 24 Ab Zeitpunkt exportieren
+LANG:10027 49 Экспортировать, начиная от
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+"main()
+{
+  int Y,M,D,h,m;
+  time ctime;
+  bool young;
+
+  ctime=getCurrentTime();
+  getValue(\"younger\",\"state\",0,young);
+  Y=year(ctime);
+  M=month(ctime);
+  D=day(ctime);
+  h=hour(ctime);
+  m=minute(ctime);
+
+  setMultiValue(\"YY\",\"text\",Y,
+                \"MM\",\"text\",M,
+                \"DD\",\"text\",D,
+                \"hh\",\"text\",h,
+                \"mm\",\"text\",m);
+
+  setMultiValue(\"YY\",\"visible\",young,
+                \"TJ\",\"visible\",young,
+                \"MM\",\"visible\",young,
+                \"TM\",\"visible\",young,
+                \"DD\",\"visible\",young,
+                \"TT\",\"visible\",young,
+                \"hh\",\"visible\",young,
+                \"Ts\",\"visible\",young,
+                \"mm\",\"visible\",young,
+                \"Tm\",\"visible\",young,
+                \"jetzt\",\"visible\",young);
+}" 0
+ "main()
+{
+  int Y,M,D,h,m;
+  bool young;
+
+  getValue(\"younger\",\"state\",0,young);
+
+  getMultiValue(\"YY\",\"text\",Y,
+                \"MM\",\"text\",M,
+                \"DD\",\"text\",D,
+                \"hh\",\"text\",h,
+                \"mm\",\"text\",m);
+  setMultiValue(\"YY\",\"visible\",young,
+                \"TJ\",\"visible\",young,
+                \"MM\",\"visible\",young,
+                \"TM\",\"visible\",young,
+                \"DD\",\"visible\",young,
+                \"TT\",\"visible\",young,
+                \"hh\",\"visible\",young,
+                \"Ts\",\"visible\",young,
+                \"mm\",\"visible\",young,
+                \"Tm\",\"visible\",young,
+                \"jetzt\",\"visible\",young);
+}
+" 0
+
+EE21 45
+"YY"
+""
+1 251 412 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  251 411 311 438
+0
+
+E
+E
+E
+
+N 1970 2035 1 1970 1 1
+21 46
+"MM"
+""
+1 311 412 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  311 411 361 438
+0
+
+E
+E
+E
+
+N 1 12 1 1 1 1
+21 47
+"DD"
+""
+1 361 412 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  361 411 411 438
+0
+
+E
+E
+E
+
+N 1 31 1 1 1 1
+21 48
+"hh"
+""
+1 463 412 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  463 411 513 438
+0
+
+E
+E
+E
+
+N 0 23 1 0 1 1
+21 49
+"mm"
+""
+1 513 412 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  513 411 563 438
+0
+
+E
+E
+E
+
+N 0 59 1 0 1 1
+13 51
+"jetzt"
+""
+1 619 389 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  578 411 666 439
+
+T 
+4
+LANG:10001 3 Now
+LANG:10004 6 现在
+LANG:10000 5 Jetzt
+LANG:10027 12 Сейчас
+"main()
+{
+  int Y,M,D,h,m;
+  time ctime;
+  string reftime;
+
+  ctime=getCurrentTime();
+
+  Y=year(ctime);
+  M=month(ctime);
+  D=day(ctime);
+  h=hour(ctime);
+  m=minute(ctime);
+
+  setMultiValue(\"YY\",\"text\",Y,
+                \"MM\",\"text\",M,
+                \"DD\",\"text\",D,
+                \"hh\",\"text\",h,
+                \"mm\",\"text\",m);
+
+}
+
+" 0
+ E E E
+17 37
+"dp"
+""
+1 23 479 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 207 981 320
+0
+
+E
+E
+E
+
+0 0
+14 38
+"dptext"
+""
+1 21.97916666666667 555 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 323 981 349
+3 "0s" 0 0 0 0 0 -1  E E E
+13 10
+"dpsel"
+""
+1 989 323 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  989 323 1017 351
+
+P 
+13160660
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dp;
+  dyn_string ds;
+  dyn_uint dui;
+
+  dpSelector(dp);
+  
+  getSystemNames(ds, dui);
+  
+  if ( dynlen(ds) == 1 && ds[1] == \"System1\")   // NoChekcWarning
+     dp = dpSubStr(dp, DPSUB_DP);
+  else
+    dp = dpSubStr(dp, DPSUB_SYS_DP);
+
+  setValue(\"dptext\",\"text\",dp);
+}" 0
+ E E E
+13 39
+"dpadd"
+""
+1 988 238 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 238 1016 266
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dp,spr;
+  dyn_string dpsel;
+
+  getValue(\"dptext\",\"text\",dp);
+  getValue(\"dp\",\"items\",dpsel);
+
+  if (dynContains(dpsel, dp));
+  else
+  {
+    if (dp != \"\")
+    {
+      spr = getCatStr(\"general\",\"all\");
+      if (dynlen(dpsel) > 0 && dpsel[1] == spr)
+        setValue(\"dp\",\"replacePos\",1,dp);
+      else
+        setValue(\"dp\",\"appendItem\",dp);
+      getValue(\"dp\",\"items\",dpsel);
+ 
+      dynSortAsc(dpsel);
+      dynUnique(dpsel);
+      
+      setValue(\"dp\",\"items\",dpsel);
+      
+      g_dsNoCnsDp = dpsel;
+      //dynAppend(g_dsNoCnsDp, dp);
+    }
+  }
+  
+  lockDpList();
+}
+
+
+
+
+" 0
+ E E E
+13 11
+"delsel"
+""
+1 988 208 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 208 1016 236
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int dp;
+  dyn_string x;
+  string spr;
+
+  getValue(\"dp\",\"selectedPos\",dp);
+  setValue(\"dp\",\"deletePos\",dp);
+  dynRemove(g_dsNoCnsDp, dp);
+  getValue(\"dp\",\"items\",x);
+  if (dynlen(x)==0)
+  {
+    spr=getCatStr(\"general\",\"all\");
+    setValue(\"dp\",\"items\",spr);
+  }
+  lockDpList();
+}
+
+" 0
+ E E E
+17 29
+"dptypsel"
+""
+1 743.3404255319149 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 28 981 141
+0
+
+E
+E
+E
+
+0 0
+22 28
+"dptyp"
+""
+1 364 549 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 143 981 169
+0
+
+"main()
+{
+  setValue(\"\",\"items\",dpTypes());
+}" 0
+
+E
+E
+ 1 0
+13 30
+"dptadd"
+""
+1 988 58 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 58 1016 86
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dptyp,spr;
+  dyn_string dptypsel;
+
+  getValue(\"dptyp\",\"text\",dptyp);
+  getValue(\"dptypsel\",\"items\",dptypsel);
+
+  if (dynContains(dptypsel, dptyp));
+  else
+  {
+    if (dptyp != \"\")
+    {
+      spr = getCatStr(\"general\",\"all\");
+      if (dptypsel[1] == spr)
+        setValue(\"dptypsel\",\"replacePos\",1,dptyp);
+      else
+        setValue(\"dptypsel\",\"appendItem\",dptyp);
+    }
+  }
+  lockDpList();
+
+}
+" 0
+ E E E
+13 31
+"dptdel"
+""
+1 988 28 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 28 1016 56
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int y;
+  dyn_string x;
+  string spr;
+
+  getValue(\"dptypsel\",\"selectedPos\",y);
+  setValue(\"dptypsel\",\"deletePos\",y);
+  getValue(\"dptypsel\",\"items\",x);
+  if (dynlen(x)==0)
+  {
+    spr=getCatStr(\"general\",\"all\");
+    setValue(\"dptypsel\",\"items\",spr);
+  }
+  lockDpList();
+
+}
+" 0
+ E E E
+22 17
+"confliste"
+""
+1 30.39906103286386 529.3333333333334 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 573 257 599
+0
+
+E
+E
+E
+ 1 0
+13 16
+"lblSave"
+""
+1 263.3333333333333 572.3333333333334 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Save configuration
+LANG:10004 12 保存配置
+LANG:10000 23 Konfiguration speichern
+LANG:10027 43 Сохранить конфигурацию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  263 572 291 600
+
+P 
+13160660
+"pictures/StandardIcons/Save_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  bool filter,outall,outdptyp,outdp,outalias,outoriginal,outpara,outhist,outCNS;
+  bool inyes,ininactivate, inNoAlertConfigHist;
+  bool lokal,einspr,young,typrefs,pwrconf, nodedps;
+  string datei,confdp,name,cname,spr;
+  dyn_string dp, dpt,sprachen,conf,confdpl,konfig,cnsPaths,cnsViews;
+  dyn_dyn_anytype confliste, liste;
+  int x,inout,dpinout,c, pos,i,o;
+  string mod;
+  unsigned Y,M,D,h,m;
+  time reftime;
+
+  getValue(\"confliste\",\"text\",cname,
+                       \"items\",conf);
+  getValue(\"confdp\",\"items\",confdpl);
+  getMultiValue(\"Datei\",\"text\",datei,
+           \"InOut\",\"number\",inout);
+  getMultiValue(\"FilterOptionen\",\"state\",0,outall,
+                \"FilterOptionen\",\"state\",1,outdptyp,
+                \"FilterOptionen\",\"state\",2,outdp,
+                \"FilterOptionen\",\"state\",3,outalias,
+                \"FilterOptionen\",\"state\",4,outoriginal,
+                \"FilterOptionen\",\"state\",5,outpara,
+                \"FilterOptionen\",\"state\",6,outhist,
+                \"FilterOptionen\",\"state\",7,outCNS,
+                \"subTypen\",\"state\",0,typrefs,
+                \"pwrConfigs\",\"state\",0,pwrconf,
+                \"linkedDps\",\"state\",0,nodedps);
+  getValue(\"infilter\",\"state\",0,inyes,
+                      \"state\",1,ininactivate,
+                      \"state\",2,inNoAlertConfigHist);
+
+  getValue(\"lokalzeit\",\"state\",0,lokal);
+  getMultiValue(\"outvers\",   \"number\", einspr,
+                \"listelang\", \"items\",  sprachen);
+  getMultiValue(\"dp\",\"items\",dp,
+                \"dptypsel\",\"items\",dpt,
+                \"cnsSel\",\"items\",cnsPaths,
+                //\"cnsViewsSel\",\"items\",cnsViews,
+                \"konfig\",\"items\",konfig);
+  getMultiValue(\"younger\",\"state\",0,young,
+                \"YY\",\"text\",Y,
+                \"MM\",\"text\",M,
+                \"DD\",\"text\",D,
+                \"hh\",\"text\",h,
+                \"mm\",\"text\",m);
+  reftime=makeTime(Y,M,D,h,m);
+
+  // Only save typerefs or powerconfigs if DPT or DP is checked
+  if (!outdptyp) typrefs = false;
+  if (!outdp) pwrconf = false;
+  // for CNS
+  if (!outCNS) nodedps = false;
+  
+//------------------------------------------------------
+  pos = -1;
+  for (c=1;c<=dynlen(conf);c++)
+  {
+    if (cname==conf[c])
+    {
+      pos = c;
+      c = dynlen(conf) +1;
+    }
+  }
+    
+  if (pos < 0)
+  {
+    if (inout == 0)
+    {
+      for (i=1;i<=999;i++)
+      {
+        confdp=\"i_\"+i;
+        if (dpExists(confdp)==0)
+        {
+          dpCreate(confdp,\"_AsciiConfig\");
+          i=1000;
+        }  
+      }
+    }
+    else
+    {
+      for (o=1;o<=999;o++)
+      {
+        confdp=\"o_\"+o;
+        if (dpExists(confdp)==0)
+        {
+          dpCreate(confdp,\"_AsciiConfig\");
+          o=1000;
+        }  
+      }
+    }
+
+  }
+  else
+  {
+    confdp=confdpl[pos];
+  }
+      
+//----------------------------------------------------
+  dpSet(confdp + \".Name:_original.._value\",cname);
+  if (inout == 0)
+  {
+   dpSet(confdp + \".InFilter.yes:_original.._value\",inyes,
+         confdp + \".InFilter.inactivate:_original.._value\",ininactivate,
+         confdp + \".InFilter.noAlertConfigHist:_original.._value\",inNoAlertConfigHist,
+         confdp + \".Lokalzeit:_original.._value\",lokal,
+         confdp + \".Sprachen.Sprachen:_original.._value\",\"alle\");
+   dpSet(confdp + \".outputVersion:_original.._value\",outvers.number);
+
+  }
+  else
+  {
+    spr=getCatStr(\"general\",\"all\");
+    if (sprachen[1]==spr)
+      sprachen=makeDynString(\"alle\");
+    if (dp[1]==spr)
+      dp=makeDynString(\"alle\");
+    if (dpt[1]==spr)
+      dpt=makeDynString(\"alle\");	//02.03.2000 xg #4736: im if hat ein \"=\" gefehlt
+    if (konfig[1]==spr)
+      konfig=makeDynString(\"alle\");
+    if (cnsPaths[1]==spr)
+      cnsPaths=makeDynString(\"alle\");
+//     if (cnsViews[1]==spr)
+//       cnsViews=makeDynString(\"alle\");
+    
+    dpSet(confdp + \".ASCII_Datei:_original.._value\",datei,
+          confdp + \".OutFilter.DPTypen:_original.._value\",outdptyp,
+          confdp + \".OutFilter.DP:_original.._value\",outdp,
+          confdp + \".OutFilter.Alias:_original.._value\",outalias,
+          confdp + \".OutFilter.Originalwerte:_original.._value\",outoriginal,
+          confdp + \".OutFilter.Parametrierung:_original.._value\",outpara,
+          confdp + \".OutFilter.Historisch:_original.._value\",outhist,
+          confdp + \".OutFilter.Typreferenzen:_original.._value\",typrefs,
+          confdp + \".OutFilter.PwrConfEinst:_original.._value\",pwrconf,
+          confdp + \".OutFilter.CNS:_original.._value\",outCNS,
+          confdp + \".OutFilter.LinkedDps:_original.._value\",nodedps,
+          confdp + \".Lokalzeit:_original.._value\",lokal,
+          confdp + \".Sprachen.Mehrsprachig:_original.._value\",einspr,
+          confdp + \".Sprachen.Sprachen:_original.._value\",sprachen,
+          confdp + \".DP:_original.._value\",dp,
+          confdp + \".DPTypen:_original.._value\",dpt,
+          confdp + \".Younger.Younger:_original.._value\",young,
+          confdp + \".Younger.Zeit:_original.._value\",reftime,     
+          confdp + \".Konfig:_original.._value\",konfig,
+          //confdp + \".CNSViews:_original.._value\",cnsViews,
+          confdp + \".CNSPaths:_original.._value\",cnsPaths);
+ 
+    dpSet(confdp + \".outputVersion:_original.._value\",outvers.number);
+
+  }
+
+  setValue(\"confliste\",\"deleteAllItems\");
+  setValue(\"confdp\",\"deleteAllItems\");
+  if (inout==0)
+    dpQuery(\"SELECT '_original.._value' FROM 'i*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+  else
+    dpQuery(\"SELECT '_original.._value' FROM 'o*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+
+
+  pos = -1;
+  for (x=2;x<=dynlen(confliste);x++)
+  {
+    mod=dpSubStr(confliste[x][1],DPSUB_DP);
+    setValue(\"confliste\",\"appendItem\",confliste[x][2]);
+    setValue(\"confdp\",\"appendItem\",mod);
+    
+    if( confliste[x][2] == cname )
+      pos = x-1;
+  }
+  if( pos > -1 )
+    setMultiValue( \"confliste\", \"selectedPos\", pos,
+                   \"confdp\",    \"selectedPos\", pos );
+  
+ // setValue(\"confliste\",\"text\",\"\");
+}
+
+
+
+
+
+
+" 0
+ E E E
+13 63
+"lblOpen"
+""
+1 293.3333333333333 572.3333333333334 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Open configuration
+LANG:10004 12 打开配置
+LANG:10000 21 Konfiguration öffnen
+LANG:10027 39 Открыть конфигурацию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  293 572 321 600
+
+P 
+4294967295
+"pictures/StandardIcons/Open_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  bool T,D,A,O,P,PH,erg,k;
+  string filtertmp,lang;
+  bool filter,outall,outdptyp,outdp,outalias,outoriginal,outpara,outhist;
+  bool inyes,ininactivate, inNoAlertConfigHist;
+  bool lokal,einspr,young,typrefs,pwrconf,outCNS,nodedps;
+  string datei,langs,confdp,cname;
+  dyn_string dp, dpt, sprachen,conf,confname,konfig,dsCNSPaths,dsCNSViews;
+  dyn_dyn_anytype confliste;
+  int x,inout,l,c,s;
+  string mod,reftime;
+  time ctime;
+  int outputVersion;
+  bool m, n;
+
+  getValue(\"confliste\",     \"items\",  confname,
+                            \"text\",   cname);
+  getMultiValue(\"InOut\",    \"number\", inout,
+                \"confdp\",   \"items\",  conf);
+
+  for (c=1;c<=dynlen(confname);c++)
+  {
+    if (cname==confname[c])
+    {
+      confdp = conf[c];
+      dpGet(confdp + \".ASCII_Datei:_original.._value\",datei,
+            confdp + \".OutFilter.DPTypen:_original.._value\",outdptyp,
+            confdp + \".OutFilter.DP:_original.._value\",outdp,
+            confdp + \".OutFilter.Alias:_original.._value\",outalias,
+            confdp + \".OutFilter.Originalwerte:_original.._value\",outoriginal,
+            confdp + \".OutFilter.Parametrierung:_original.._value\",outpara,
+            confdp + \".OutFilter.Historisch:_original.._value\",outhist,
+            confdp + \".OutFilter.Typreferenzen:_original.._value\",typrefs,
+            confdp + \".OutFilter.PwrConfEinst:_original.._value\",pwrconf,
+            confdp + \".OutFilter.CNS:_original.._value\",outCNS,
+            confdp + \".OutFilter.LinkedDps:_original.._value\",nodedps,
+            confdp + \".InFilter.yes:_original.._value\",inyes,
+            confdp + \".InFilter.inactivate:_original.._value\",ininactivate,
+            confdp + \".InFilter.noAlertConfigHist:_original.._value\",inNoAlertConfigHist,
+            confdp + \".Lokalzeit:_original.._value\",lokal,
+            confdp + \".Sprachen.Mehrsprachig:_original.._value\",einspr,
+            confdp + \".Sprachen.Sprachen:_original.._value\",sprachen,
+            confdp + \".DP:_original.._value\",dp,
+            confdp + \".DPTypen:_original.._value\",dpt,
+            confdp + \".Younger.Younger:_original.._value\",young,
+            confdp + \".Younger.Zeit:_original.._value\",ctime,
+            confdp + \".CNSPaths:_original.._value\",dsCNSPaths,
+            //confdp + \".CNSViews:_original.._value\",dsCNSViews,
+            confdp + \".Konfig:_original.._value\",konfig);
+      dpGet(confdp + \".outputVersion:_online.._value\",outputVersion);
+
+      // set the properties for import settings
+      if(inout == 0)
+      {
+        setValue(\"infilter\",\"state\",0,inyes,
+                            \"state\",1,ininactivate,
+                            \"state\",2,inNoAlertConfigHist);
+      }
+
+      // set the properties for export settings
+      else if(inout == 1)
+      {
+        if (sprachen[1] == \"alle\")
+          sprachen[1]=getCatStr(\"general\",\"all\");
+        if (dp[1] == \"alle\")
+          dp[1]=getCatStr(\"general\",\"all\");
+        if (dpt[1] == \"alle\")
+          dpt[1]=getCatStr(\"general\",\"all\");
+        if (konfig[1] == \"alle\")
+          konfig[1]=getCatStr(\"general\",\"all\");
+        if (dsCNSPaths[1] == \"alle\")
+          dsCNSPaths[1]=getCatStr(\"general\",\"all\");
+        //if (dsCNSViews[1] == \"alle\")
+        //  dsCNSViews[1]=getCatStr(\"general\",\"all\");
+
+        outall = ( outdptyp && outdp && outalias && outoriginal && outpara && outhist );
+        setMultiValue(\"Datei\",\"text\",datei,
+                      \"InOut\",\"number\",inout);
+        setMultiValue(\"FilterOptionen\",\"state\",0,outall,
+                      \"FilterOptionen\",\"state\",1,outdptyp,
+                      \"FilterOptionen\",\"state\",2,outdp,
+                      \"FilterOptionen\",\"state\",3,outalias,
+                      \"FilterOptionen\",\"state\",4,outoriginal,
+                      \"FilterOptionen\",\"state\",5,outpara,
+                      \"FilterOptionen\",\"state\",6,outhist,
+                      \"FilterOptionen\",\"state\",7,outCNS, 
+                      \"subTypen\",\"state\",0,typrefs,
+                      \"pwrConfigs\",\"state\",0,pwrconf,
+                      \"linkedDps\",\"state\",0,nodedps);
+        setValue(\"subTypen\", \"visible\", outdptyp);
+        setValue(\"pwrConfigs\", \"visible\", outdp);
+        setValue(\"linkedDps\", \"visible\", outCNS);
+        setValue(\"lokalzeit\",\"state\",0,lokal);
+        setValue(\"listelang\",\"items\",sprachen);
+        setMultiValue(\"outvers\",\"number\",einspr,
+                      \"langliste\",\"text\",\"\");
+        outversClicked();
+        setMultiValue(\"dp\",\"items\",dp,
+                      \"dptext\",\"text\",\"\",
+                      \"dptyp\",\"text\",\"\",
+                      \"dptypsel\",\"items\",dpt,
+                      \"cnsSel\",\"items\",dsCNSPaths,
+                      //\"cnsViewsSel\",\"items\",dsCNSViews,
+                      \"konfig\",\"items\",konfig);
+        k = outpara || outhist;
+ 
+      
+        setMultiValue(\"langliste\",\"visible\",einspr,
+                      \"rspr\",\"visible\",einspr,
+                      \"tspr\",\"visible\",einspr,
+                      \"listelang\",\"visible\",einspr,
+                      \"langadd\",\"visible\",einspr,
+                      \"langdel\",\"visible\",einspr,
+                      \"rk\",\"visible\",k,
+                      \"konfig\",\"visible\",k,
+                      \"konfigliste\",\"visible\",k,
+                      \"kadd\",\"visible\",k,
+                      \"kdel\",\"visible\",k);
+        setMultiValue(\"younger\",\"state\",0,young,
+                      \"YY\",\"text\",year(ctime),
+                      \"MM\",\"text\",month(ctime),
+                      \"DD\",\"text\",day(ctime),
+                      \"hh\",\"text\",hour(ctime),
+                      \"mm\",\"text\",minute(ctime),
+                      \"YY\",\"visible\",young,
+                      \"TJ\",\"visible\",young,
+                      \"MM\",\"visible\",young,
+                      \"TM\",\"visible\",young,
+                      \"DD\",\"visible\",young,
+                      \"TT\",\"visible\",young,
+                      \"hh\",\"visible\",young,
+                      \"Ts\",\"visible\",young,
+                      \"mm\",\"visible\",young,
+                      \"Tm\",\"visible\",young,
+                      \"jetzt\",\"visible\",young);
+
+        if (outputVersion > 1)
+        {
+          n = (outputVersion == 0);  // regular output
+      	   m = (outputVersion == 1);  // ASCII Format2
+	  
+      	   setMultiValue(\"langliste\",\"visible\",m,
+      	                 \"listelang\",\"visible\",m,
+      	                 \"langadd\",\"visible\",m,
+      	                 \"langdel\",\"visible\",m,
+      	                 \"rspr\",\"visible\",m,
+      	                 \"tspr\",\"visible\",m,
+      	                 \"ryoung\", \"visible\", n,
+      	                 \"younger\", \"visible\", n,
+      	                 \"FilterOptionen\", \"visible\", (n||m),
+      	                 \"rout\", \"visible\", (n||m),
+      	                 \"outvers\", \"number\",outputVersion    );
+        }
+
+        l=dynlen(sprachen);
+        if (l > 0)
+        {
+          langs = sprachen[1];
+          if (l > 1)
+          {
+            for (x=2;x<=l;x++)
+            {
+              langs = langs + \",\" + sprachen[x];
+            }
+          }
+        }
+        setValue(\"langliste\",\"deleteAllItems\");
+        for (s=1;s<=getNoOfLangs();s++)
+        {
+          lang=getLocale((s-1));
+          setValue(\"langliste\",\"appendItem\",lang);
+        }
+      }
+    }
+  }
+
+  //IM 118172 - save the settings for the dp list and the check boxes
+  db_checkBoxStates[1] = FilterOptionen.state(1);
+  db_checkBoxStates[2] = FilterOptionen.state(2);
+  db_checkBoxStates[3] = subTypen.state(0);
+  db_checkBoxStates[4] = pwrConfigs.state(0);
+
+  db_checkBoxVisibility[1] = subTypen.visible;
+  db_checkBoxVisibility[2] = pwrConfigs.visible;
+  
+  g_dsNoCnsDp = dp;
+
+  lockDpList();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 18
+"lblInsert"
+""
+1 323.3333333333333 572.3333333333334 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  323 572 351 600
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_dyn_anytype confliste;
+  dyn_string conf;
+  int x,inout,dpinout,d;
+  string mod,name,dptmp;
+  string     sConfig;
+  dyn_string dsConfig;
+  int        iPos;
+
+  getValue( \"confliste\", \"selectedPos\", d );
+  getValue( \"confliste\", \"text\",        sConfig );
+  getValue( \"confliste\", \"items\",       dsConfig );
+
+  getValue( \"confdp\",    \"items\",       conf );
+
+  // if selected entry is available (input by hand not by )
+  iPos = dynContains( dsConfig, sConfig );
+  if( iPos > 0 )
+    d = iPos;
+
+  // Nothing selected - delete nothing
+  if (d <= 0)
+    return;
+
+  dptmp=conf[d];
+  getValue(\"InOut\",\"number\",inout);
+
+  if( dpExists( dptmp ))
+    dpDelete(dptmp);
+
+  setValue(\"confliste\",\"deleteAllItems\");
+  setValue(\"confliste\",\"text\",\"\");
+  setValue(\"confdp\",\"deleteAllItems\");
+  if (inout==0)
+    dpQuery(\"SELECT '_original.._value' FROM 'i*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+  else
+    dpQuery(\"SELECT '_original.._value' FROM 'o*.Name' WHERE _DPT = \\\"_AsciiConfig\\\"\",confliste);
+
+  for (x=2;x<=dynlen(confliste);x++)
+  {
+    mod=dpSubStr(confliste[x][1],DPSUB_DP);
+    setValue(\"confliste\",\"appendItem\",confliste[x][2]);
+    setValue(\"confdp\",\"appendItem\",mod);
+  }
+}
+" 0
+ E E E
+13 9
+"run"
+""
+1 922 530 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  753 573 841 601
+
+T 
+4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 7 Starten
+LANG:10027 12 Начать
+"main()
+{
+  string asciifile, optascii, langs, filterin,reftime,filter,inout,  spr=getCatStr(\"general\",\"all\") ,konftxt;
+  string infoFile, logFile;
+  bool lokalzeit,T,D,A,O,P,PH,C,erg,y,ia,young ,bPowerConfig,iAlertHist;
+  int w, vers,Y,M,DD,h,m,l,z,io,k;
+  dyn_string dp,dpt,langlist,konfig,fex,cnsPaths,cnsViews;
+  dyn_int fexist;
+  string answer;
+  string sAddedDPT;
+  dyn_string dsAnswer, dsKey = makeDynString(\"userName\",\"password\");
+  string sUser, sPassword;
+  string asciiTool = getComponentName(ASCII_COMPONENT);
+
+  if(_WIN32)
+    asciiTool += \".exe\";
+
+  // look for Path - incl. project path
+  optascii = getPath(BIN_REL_PATH, asciiTool);
+  if(_WIN32)
+  {
+    strreplace(optascii, \"/\", \"\\\\\");
+  }
+
+  dpt = dptypsel.items;
+  dynSortAsc(dpt);
+  dptypsel.items = dpt;
+  dynClear(dpt);
+
+  getMultiValue(\"InOut\",     \"number\",    io,
+                \"Datei\",     \"text\",      asciifile,
+                \"dp\",        \"items\",     dp,
+                \"dptypsel\",  \"items\",     dpt,
+                \"cnsSel\",  \"items\",     cnsPaths,
+                //\"cnsViewsSel\",  \"items\",     cnsViews,
+                \"lokalzeit\", \"state\",0,   lokalzeit,
+                \"outvers\",   \"number\",    vers,
+                \"younger\",   \"state\",0,   young);
+
+  //IM 108050
+  if ( (io == 1) && !checkDataBG() && !useNGA() )
+  {
+    dyn_float df;
+    dyn_string ds;
+
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"_errors\",\"00083\")),df,ds);
+    return;
+  }
+
+  if (io == 1 && hostname != host1 && hostname != host2 )   //Export only allowed on Server
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",
+    makeDynString(getCatStr(\"general\",\"asciiExportServer\")));
+    return;
+  }
+
+  //IM 99785 -->
+  if(io == 1 && dynlen(dpt))//-out DPT
+  {
+     if(dpt[1] != spr)// != (Alle)
+     {
+       if(dynlen(dp) && dp[1] != spr)//dp angegeben != (Alle)
+         for(int i = 1; i <= dynlen(dp); i++)
+           if(dpExists(dp[i]))
+             dynAppend(dpt,dpTypeName(dp[i]));//DPT vom DP zu dpt dazuhängen
+     }
+     else // == (Alle)
+     {
+       if(dynlen(dp) && dp[1] != spr)//dp angegeben != (Alle)
+         for(int i = 1; i <= dynlen(dp); i++)
+           if(dpExists(dp[i]))
+             dpt[i] = dpTypeName(dp[i]);//DPT für alle angegebenen DP
+     }
+    dynUnique(dpt);//eventuell doppelte entfernen
+    if(FilterOptionen.state(1) && subTypen.state(0))// + Typreferenzen
+    {
+      if(dpt[1] != spr)// != (Alle)
+        getSubTypes(dpt);//Typreferenzen ermitteln und dazuhängen
+    }
+  }
+  //--> IM 99785
+
+  if (asciifile==\"\")
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",makeDynString(getCatStr(\"general\",\"file\")));
+  else
+  {
+
+	  paCfgReadValue(  PROJ_PATH + \"config/config\", \"general\", dsKey, dsAnswer);
+
+          if ( getKerberosSecurity() >= 1)  //check if Kerberos is used IM 76430
+          {
+            // use current User without a password
+            sUser = \"$USER\";
+            sPassword = \"\";
+          }
+	  else if ( dsAnswer[1] == \"\" || getUserName() != dsAnswer[1] || !getUserPermission(4)) // no defaultuser or other user or not enough permission
+	  {
+               ChildPanelOnCentralModalReturn(\"vision/loginConfirmationASCII.pnl\",(getCatStr(\"RDBarchive\",\"HeadLinePassword\")),makeDynString(\"$LEVELONE:TRUE\"),fexist,fex);
+	       if (dynlen(fexist)<1 || ! (bool) fexist[1])
+	       {
+	         return;
+	       }
+
+		     sUser = fex[2];
+	       sPassword =  fex[3];
+	  }
+	  else
+	  {
+	 	   sUser = dsAnswer[1];
+	       sPassword = dsAnswer[2];
+	  }
+
+    optascii = optascii+\" -user \"+sUser+\":\\\"\"+sPassword+\"\\\"\"+(sPassword!=\"\"?\" \":\"\");
+
+
+    if ((strpos(asciifile,\"/\") < 0) && (strpos(asciifile,\"\\\\\") < 0))
+      asciifile = getPath(DPLIST_REL_PATH) +  asciifile;
+
+    if (io == 0 && vers < 2)
+    {
+      inout=\"in\";
+      fex[1]=\"true\";
+
+      if ( access(asciifile, R_OK) == -1 )   // if import-file does not exits ...
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",
+                                 makeDynString(getCatStr(\"general\",\"noFile\")));
+        return;
+      }
+    }
+    else
+    {
+      bool bFiletest = FALSE;
+      if (strlen(asciifile) > 4 && (asciifile[(strlen(asciifile)-4)] == '.' ))   // .xxx
+         bFiletest = TRUE;
+      if (strlen(asciifile) > 6 && (asciifile[(strlen(asciifile)-6)] == '.' ))   // .ascii
+         bFiletest = TRUE;
+
+      if (!bFiletest)
+       {
+       if (vers < 2)   //  not for Powerconfig
+          asciifile += \".dpl\";
+       else if (vers == 2)  // 1 DP / Line
+       {
+         if (dynlen(dpt) >= 1 && dpt [1] != spr)  // not all items
+         {
+           sAddedDPT = \".\"+ dpt[dynlen(dpt)]+\".ascii\";
+         }
+         else
+         {
+           if (dptypsel.enabled	== TRUE)     // all
+           {
+             dyn_string ds = dptyp.items;      // all Itemy
+             sAddedDPT =  \".\"+ ds[dynlen(ds)]+\".ascii\";
+           }
+           else                              // dp seleted !!
+           {
+             dyn_string ds;
+             getValue(\"dp\", \"items\", ds);
+             sAddedDPT =  \".\"+ dpTypeName(ds[dynlen(ds)])+\".ascii\";   // getTypeName from DPE
+           }
+         }
+       }
+       else if (vers == 3)  // 1 DPE / Line
+           asciifile += \".ascii\";
+
+        setValue(\"Datei\",\"text\",asciifile);
+      }
+      else  // remove addon
+      {
+       if (vers == 2)  // 1 DP / Line
+       {
+         if (dynlen(dpt) >= 1 && dpt [1] != spr)  // not all items
+         {
+           sAddedDPT = \".\"+ dpt[dynlen(dpt)]+\".ascii\";
+         }
+         else
+         {
+           if (dptypsel.enabled	== TRUE)     // all
+           {
+             dyn_string ds = dptyp.items;      // all Itemy
+             sAddedDPT =  \".\"+ ds[dynlen(ds)]+\".ascii\";
+           }
+           else                              // dp seleted !!
+           {
+             dyn_string ds;
+             getValue(\"dp\", \"items\", ds);;
+             sAddedDPT =  \".\"+ dpTypeName(ds[dynlen(ds)])+\".ascii\";   // getTypeName from DPE
+           }
+         }
+         strreplace(asciifile, sAddedDPT, \"\");
+       }
+       Datei.text = asciifile;
+      }
+
+      inout=\"out\";
+    }
+
+    if (lokalzeit == 1)
+      optascii=optascii + \" -localTime\";
+
+    string asciifile2 = asciifile;
+    if(_WIN32)
+    {
+        strreplace(asciifile2, \"/\", \"\\\\\");
+    }
+    optascii=optascii + \" -\" + inout + \" \\\"\" + asciifile2 + \"\\\"\";
+
+    if (io == 1)
+    {
+      if (access(asciifile,F_OK)==0)
+      {
+        konftxt = getCatStr(\"general\",\"fexist\");
+        strreplace(konftxt,\"§\",\"\\n\");
+        ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",(getCatStr(\"general\",\"information\")),makeDynString(konftxt,getCatStr(\"general\",\"yes\"),getCatStr(\"general\",\"no\")),fexist,fex);
+      }
+
+      else  fex[1]=\"true\";
+        if (fex[1] == \"true\")
+        {
+
+          getValue(\"FilterOptionen\",\"state\",1,T,
+                                    \"state\",2,D,
+                                    \"state\",3,A,
+                                    \"state\",4,O,
+                                    \"state\",5,P,
+                                    \"state\",6,PH,
+                                    \"state\",7,C);
+
+
+          erg=T||D||A||O||P||PH||C;
+          if (erg == 1 && vers < 2)    // not for Powerconfigs
+          {
+            filter = \" -filter \";
+            if (T == 1)
+              filter=filter + \"T\";
+            if (D == 1)
+              filter=filter + \"D\";
+            if (A == 1)
+              filter=filter + \"A\";
+            if (O == 1)
+              filter=filter + \"O\";
+            // IM 11835: solve a problem when CNS and config information is exported
+            if (C == 1)
+            {
+              if ( linkedDps.state(0) )
+                filter=filter + \"DC\";
+              else
+                filter=filter + \"C\";
+            }
+            if (PH == 1)
+              filter=filter + \"HP\";
+            else // IM 117099
+              if (P == 1)
+                filter=filter + \"P\";
+
+            if (P || PH)
+            {
+              getValue(\"konfig\",\"items\",konfig);
+              if (konfig[1]!=getCatStr(\"general\",\"all\"))
+              {
+                filter += \":\" + konfig[1];
+                for ( k=2;k<=dynlen(konfig);k++)
+                  filter += \",\" + konfig[k];
+              }
+            }
+          }
+          getMultiValue(\"YY\",\"text\",Y,
+                        \"MM\",\"text\",M,
+                        \"DD\",\"text\",DD,
+                        \"hh\",\"text\",h,
+                        \"mm\",\"text\",m);
+          if (young == 1 && vers < 2)   // not for powerconfigs
+            reftime = \" -younger \" +DD + \".\" + M + \".\" + Y + \":\" + h + \":\" + m;
+          else
+            reftime = \"\";
+          optascii = optascii + filter + reftime;
+
+          if (dynlen(dpt) >= 0 && dpt[1] != spr)
+          {
+            for (w = 1; w <= dynlen(dpt); w++)
+            {
+              optascii=optascii + \" -filterDpType \" + dpt[w];//vom Typ
+            }
+          }
+
+          if (dynlen(dp) > 0 && dp[1] != spr)
+          {
+            for (w = 1; w <= dynlen(dp); w++)
+            {
+              // TI 14079: 'dp;'
+              if (_WIN32)
+                optascii=optascii + \" -filterDp \" + dp[w] + \";\";
+              else
+                optascii=optascii + \" -filterDp '\" + dp[w] + \";'\";
+            }
+          }
+
+          //CNS Paths
+          if ( dynlen(cnsPaths) >= 0 && cnsPaths[1] != spr )
+          {
+            for (w = 1; w <= dynlen(cnsPaths); w++)
+            {
+              string sView = cnsSubStr(cnsPaths, CNSSUB_SYS | CNSSUB_VIEW);
+
+              if ( sView == cnsPaths[w] || !dynContains(cnsPaths, sView) )
+              {
+                if (_WIN32)
+                  optascii=optascii + \" -filterCNS \" + cnsPaths[w] + \"\";
+                else
+                  optascii=optascii + \" -filterCNS '\" + cnsPaths[w] + \"'\";
+              }
+
+
+              // CNS - also export linked DPs if option is checked
+              if ( linkedDps.state(0) )
+              {
+                string sDp, sDpt;
+                dyn_string dsDps;
+
+                cnsGetIdSet(cnsPaths[w]+\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsDps);
+
+
+                if ( dynlen(dsDps) >= 0 )
+                {
+                  for ( int i = 1; i <= dynlen(dsDps); i++ )
+                  {
+                    sDp = dpSubStr(dsDps[i], DPSUB_DP);
+                    sDpt = dpTypeName(sDp); // DPT für DP
+
+                    if (_WIN32)
+                      optascii=optascii + \" -filterDpType \" + sDpt + \" -filterDp \" + sDp + \";\";
+                    else
+                      optascii=optascii + \" -filterDpType \" + sDpt + \" -filterDp '\" + sDp + \"';\";
+                  }
+                }
+              }
+            }
+          }
+
+          vers = vers +1;
+          if (vers == 2)
+          {
+            getValue(\"listelang\",\"items\",langlist);
+            if (langlist[1] == spr)
+              optascii = optascii + \" -outputVersion \" + vers;
+            else
+            {
+              langs = langlist[1];
+              if (dynlen(langlist) > 1)
+              {
+                for (z=2;z<=dynlen(langlist);z++)
+                  langs = langs + \",\" + langlist[z];
+              }
+              optascii = optascii + \" -outputVersion \" + vers + \" -langList \" + langs;
+            }
+          }
+          else
+            optascii = optascii + \" -outputVersion \" + vers ;
+        }
+    }
+    else
+    {
+      getValue(\"infilter\",\"state\",0,y,
+                          \"state\",1,ia,
+                          \"state\",2,iAlertHist);
+
+      if (y == 1)
+      {
+        filterin=filterin + \" -yes\";
+      }
+      else
+      {
+        //IM120294
+        filterin=filterin + \" -no\";
+      }
+      if (ia == 1)
+        filterin=filterin + \" -inactivateAlert\";
+      if (iAlertHist == 1)
+        filterin=filterin + \" -noAlertConfigHist\";
+
+      optascii=optascii + \" \" + filterin;
+    }
+
+    answer = txtASCIIField.text;
+
+    optascii += answer;
+
+    if (fex[1]!=\"false\")
+    {
+      //03.03.2000 xg #3536: ermitteln, wohin die Files für die Info- und Debug-Ausgabe
+      //angelegt werden sollen
+
+      infoFile = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_info.log\";
+      logFile =  getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_log.log\";
+
+      if(_WIN32)
+      {
+          strreplace(infoFile, \"/\", \"\\\\\");
+          strreplace(logFile, \"/\", \"\\\\\");
+      }
+      //03.03.2000 xg #3536: Umleitung der Info- und Debug-Ausgaben in die entsprechenden Files
+      optascii+=\" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;
+
+      //03.03.2000 xg: Locken der Buttons während ASCII-Manager laeuft
+      setMultiValue(\"exit\",   \"enabled\",false,
+                    \"run\",    \"backCol\",\"<_3DFace,8,[0,0,60],8,[0,0,0],0,[0,0,0],0,[0,0,0],0,[0,0,0],0>\",
+                    \"run\",    \"enabled\",false,
+                    \"logEdit\",\"enabled\",false,
+                    \"infEdit\",\"enabled\",false);
+      delay(0, 10);  //damit UI sicher ein screen-refresh macht
+
+      // delete the old log files before starting the ASCII manager
+      remove(infoFile);
+      remove(logFile);
+
+      if (_WIN32)
+      {
+      //03.03.2000 xg: bereinigter Systemaufruf
+        if (io == 1 && isEvConnOpen())   // OUT  && nicht mit -n !!
+        {
+           int        j;
+           bool       bCancelled = false;
+           file       fd;
+           string     s, sParam;
+           string sHead = getCatStr(\"va\",\"Statusfenster\"), template = getCatStr(\"va\",\"114\");
+
+           openProgressBar(sHead, \"copy.gif\", template, \"\", \"\", 1);
+
+           waitForAscii = true;
+           startThread(\"checkProgressBar\");
+           system(\"cmd /c \"+optascii);
+           waitForAscii = false;
+        }
+        else
+        {
+          system(\"cmd /c \"+optascii);
+          if ( io == 0 ) // nur bei Import
+            fileEditor(logFile, true);
+        }
+      }
+      else
+      {
+      //03.03.2000 xg: bereinigter Systemaufruf
+
+        // progressbar added
+        string sHead = getCatStr(\"va\",\"Statusfenster\");
+        string template;
+
+        if ( io ==1 )//export
+          template = getCatStr(\"va\",\"114\");
+        else//import
+          template = getCatStr(\"va\",\"115\");
+
+        openProgressBar(sHead, \"copy.gif\", template, \"\", \"\", 1);
+        system(optascii);
+        if ( io == 0 )
+          fileEditor(logFile, true);
+      }
+
+      //03.03.2000 xg: delocken der Buttons nachdem der ASCII-Manager gelaufen ist
+      setMultiValue(\"exit\",   \"enabled\",true,
+                    \"run\",    \"backCol\",\"_3DFace\",
+                    \"run\",    \"enabled\",true,
+                    \"logEdit\",\"enabled\",true,
+                    \"infEdit\",\"enabled\",true);
+    }
+  }
+
+  // IM 105159 -->
+  if (pwrConfigs.state(0) && InOut.number==1 && dptypsel.items[1]!=spr)
+  {
+    string sTypes, sDTs, sDSs, sCommandLine,
+           sAsciiPath =  getPath(BIN_REL_PATH, asciiTool),
+           sDplistPath = getPath(DPLIST_REL_PATH),
+           sTempFile = sDplistPath + \"additional_ascii_dump_tempfile.dpl\";
+
+    for (int i = 1; i <= dynlen(dpt); i++)
+    {
+      sTypes += \" -filterDpType \" + dpt[i];
+      if (_WIN32)
+      {
+        sDTs +=   \" -filterDp _dt_\" + dpt[i] + \";\";
+        sDSs +=   \" -filterDp _ds_\" + dpt[i] + \";\";
+      }
+      else
+      {
+        sDTs +=   \" -filterDp '_dt_\" + dpt[i] + \";'\";
+        sDSs +=   \" -filterDp '_ds_\" + dpt[i] + \";'\";
+      }
+    }
+    sTypes = strrtrim(sTypes, \" \");
+    sDTs =   strrtrim(sDTs, \" \");
+    sDSs =   strrtrim(sDSs, \" \");
+
+    if(_WIN32)
+    {
+        strreplace(sTempFile, \"/\", \"\\\\\");
+        strreplace(asciifile, \"/\", \"\\\\\");
+    }
+
+    infoFile = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_info.log\";
+    logFile =  getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_log.log\";
+
+    // delete the old log files before starting the ASCII manager
+    remove(infoFile);
+    remove(logFile);
+
+    if(_WIN32)
+    {
+        strreplace(infoFile, \"/\", \"\\\\\");
+        strreplace(logFile, \"/\", \"\\\\\");
+    }
+
+    sCommandLine = sAsciiPath;
+    sCommandLine += \" -user \"+sUser+\":\\\"\"+sPassword+\"\\\"\"+(sPassword!=\"\"?\" \":\"\");
+    sCommandLine += \" -out \" + \"\\\"\" + sTempFile + \"\\\"\";
+    sCommandLine += \" -filter DO\";
+    sCommandLine += sTypes;
+    sCommandLine += \" -filterDpType _DynamicDatapoints -filterDpType _DynamicDptSettings\";
+    sCommandLine += sDTs;
+    sCommandLine += sDSs;
+    sCommandLine += \" -outputVersion \" + vers;
+    sCommandLine += answer;
+    sCommandLine += \" -log +stderr -log -file > \"+infoFile+\" 2> \"+logFile;
+
+    if (asciifile==\"\")
+      return;
+    else
+    {
+      if (_WIN32)
+      {
+        system(\"cmd /c \" + sCommandLine);                        // additional temporary asciifile
+
+        system(\"cmd /c type \" + sTempFile + \" >> \" + asciifile); // add tempfile to main asciifile
+      }
+      else
+      {
+        system(sCommandLine);                            // additional temporary asciifile
+        system(\"cat \" + sTempFile + \" >> \" + asciifile); // add tempfile to main asciifile
+      }
+      remove(sTempFile); // delete tempfile
+    }
+  }
+
+  if ( isProgressBarOpen() )
+    closeProgressBar();
+  //  --> IM 105159
+
+  Datei.text	= Datei.text + sAddedDPT;
+}
+
+checkProgressBar()
+{
+  string sHead = getCatStr(\"va\",\"Statusfenster\"),
+  template = getCatStr(\"va\",\"114\");
+  while ( waitForAscii || !isProgressBarOpen() )
+  {
+    delay(2);
+    if ( !isProgressBarOpen() && waitForAscii )
+    {
+      openProgressBar(sHead, \"copy.gif\",
+                      getCatStr(\"da\",\"progressbarclosed1\"), getCatStr(\"da\",\"progressbarclosed2\"),
+                      template, 1);
+    }
+  }
+}
+
+" 0
+ E E E
+13 75
+"logEdit"
+""
+1 838 528 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  843 573 931 601
+
+T 
+4
+LANG:10001 7 Logfile
+LANG:10004 12 日志文件
+LANG:10000 9 Log Datei
+LANG:10027 12 Журнал
+"main()
+{
+  string datei;
+
+  datei = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_log.log\";
+
+  fileEditor(datei, true);
+}
+
+
+" 0
+ E E E
+13 76
+"infEdit"
+""
+1 928 528 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  933 573 1021 601
+
+T 
+4
+LANG:10001 8 Infofile
+LANG:10004 6 信息
+LANG:10000 10 Info Datei
+LANG:10027 16 Инф. файл
+"main()
+{
+  string datei;
+
+  datei = getPath(LOG_REL_PATH) + getComponentName(ASCII_COMPONENT) + \"_info.log\";
+
+  fileEditor(datei, true);
+}
+
+
+" 0
+ E E E
+13 35
+"exit"
+""
+1 928 588 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+41 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  933 633 1021 661
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 61
+"help"
+""
+1 24 588 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+42 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 633 111 661
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"asciiman\");
+}" 0
+ E E E
+22 4
+"confdp"
+""
+1 873 209 E E E 1 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  873 208 982 235
+0
+
+E
+E
+E
+ 1 0
+14 89
+"txtDBField"
+""
+1 136 476 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  134 474 668 501
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text	= PROJ_PATH + \"db\";
+}" 0
+ E
+13 107
+"Button6"
+""
+1 850 590 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+93 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 47 Changes left and right replica for ASCII import
+LANG:10004 47 更改左侧和右侧副本以进行ASCII导入
+LANG:10000 74 Schaltet den ASCII Import vom rechten auf den linken Replika und umgekehrt
+LANG:10027 108 Переключить импорт ASCII с правой на левую реплику и наоборот
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  843 633 931 661
+
+T 
+4
+LANG:10001 6 Switch
+LANG:10004 6 切换
+LANG:10000 10 Umschalten
+LANG:10027 22 Переключить
+"main()
+{
+  string s;
+  string bCol = this.backCol;
+  
+  if ( bCol == \"STD_value_default\")
+  {
+    buildHostConnectString(s, FALSE);
+    this.backCol	= \"\";
+  }
+  else
+  {
+    this.backCol	= \"STD_value_default\";
+    buildHostConnectString(s, TRUE);
+  }    
+
+  txtASCIIField.text	= s;
+}" 0
+ E E "main()
+{
+  bool bAnswer;
+  
+  if ( isRedundant())
+  {
+	  isSplitModeActive(bAnswer, getSystemName());
+    this.visible	= bAnswer;
+  }
+
+}" 0
+
+1 154 0 "" 0
+0
+30 115
+"FRAME1"
+""
+1 15 8 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+97 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 6.519607843137255 0 0.95 -82.79411764705883 0.4000000000000004 0 E 15 8 118 69
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 ASCII File
+LANG:10004 11 ASCII文件
+LANG:10000 11 ASCII-Datei
+LANG:10027 14 ASCII-файл
+30 116
+"rvers"
+""
+1 15 68 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+98 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186274509803921 0 1.166666666666666 -32.79411764705881 -9.333333333333307 0 E 15 68 118 129
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Direction
+LANG:10004 6 方向
+LANG:10000 8 Richtung
+LANG:10027 22 Направление
+30 117
+"rout"
+""
+1 15 148 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+99 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186274509803921 0 3.746163682864451 -32.79411764705881 -406.4322250639387 0 E 15 148 118 209
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Filter
+LANG:10004 6 过滤
+LANG:10000 6 Filter
+LANG:10027 12 Фильтр
+30 119
+"rvers1"
+""
+1 355 73 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+101 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186274509803922 0 1.783333333333334 -776.1274509803923 -60.18333333333337 0 E 355 73 458 134
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Format
+LANG:10004 6 格式
+LANG:10000 6 Format
+LANG:10027 12 Формат
+30 122
+"rspr"
+""
+1 355 178 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+102 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186274509803921 0 1.4 -776.1274509803919 -66.20000000000003 0 E 355 178 458 239
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Language
+LANG:10004 6 语言
+LANG:10000 7 Sprache
+LANG:10027 8 Язык
+30 123
+"rk"
+""
+1 355 278 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+103 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.186394074309523 0 1.748317383547446 -776.1698963798808 -218.0322326261898 0 E 355 278 458 339
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Configs
+LANG:10004 9 配置项
+LANG:10000 7 Konfigs
+LANG:10027 49 Конфигурационные элементы
+30 124
+"ryoung"
+""
+1 15 373 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+104 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 6.519607843137255 0 1.057894736842105 -82.79411764705883 -13.06842105263155 0 E 15 373 118 434
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Time Settings
+LANG:10004 12 时间设置
+LANG:10000 17 Zeiteinstellungen
+LANG:10027 37 Временные настройки
+30 125
+"rdp"
+""
+1 15 453 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+105 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.254901960784314 0 2.9 646.1764705882352 -1126.7 0 E 15 453 118 514
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 DP Selection
+LANG:10004 8 DP选择
+LANG:10000 10 DP-Auswahl
+LANG:10027 34 Выбор точек данных
+30 126
+"FRAME6"
+""
+1 15 578 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+106 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 6.519607843137255 0 1.479345878136201 -82.79411764705883 -403.0619175627243 0 E 15 578 118 639
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 ASCII Options
+LANG:10004 11 ASCII选项
+LANG:10000 14 ASCII Optionen
+LANG:10027 16 Опции ASCII
+30 127
+"FRAME7"
+""
+1 15 668 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+107 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 6.523601885107731 0 0.9666666666666666 -82.85402827661595 -92.73333333333329 0 E 15 668 118 729
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Configuration
+LANG:10004 6 配置
+LANG:10000 13 Konfiguration
+LANG:10027 24 Конфигурация
+20 130
+"subTypen"
+""
+1 211 197 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+108 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  209 195 334 219
+1
+T 
+4
+LANG:10001 16 + Typereferences
+LANG:10004 13 +类型参考
+LANG:10000 15 + Typreferenzen
+LANG:10027 27 +ссылки на типы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  if(!isEvConnOpen())
+  {
+    this.state(0) = FALSE;
+    this.itemEnabled(0) = FALSE;
+  }
+}" 0
+"main(int button, int state)
+{
+  int i;
+  bool bAll = true;
+
+  // set a global variable
+  b_typeRef = state;
+  
+  // set the option \"set/clear all filters\"
+  for ( i = 1; i <= 7; i++ )
+    bAll &= FilterOptionen.state(i);
+  if(bAll && b_typeRef && b_pwrConfigs && b_linkedCNS)
+    FilterOptionen.state(0) = 1;
+  else
+    FilterOptionen.state(0) = 0;
+}" 0
+20 131
+"pwrConfigs"
+""
+1 206 223.0744680851064 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+109 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 PowerConfig Settings
+LANG:10004 17 PowerConfig设置
+LANG:10000 25 PowerConfig Einstellungen
+LANG:10027 30 Настройки PowerConfig
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  209 219 338 243
+1
+T 
+4
+LANG:10001 18 + Pwr.Conf.Settgs.
+LANG:10004 15 Power-Config项
+LANG:10000 17 + Pwr.Conf.Einst.
+LANG:10027 20 +настр.Pwr.Conf
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  if(!isEvConnOpen())
+  {
+    this.state(0) = FALSE;
+    this.itemEnabled(0) = FALSE;
+  }  
+}" 0
+"main(int button, int state)
+{
+  int i;
+  bool bAll = true;
+  
+  // set a global variable
+  b_pwrConfigs = state;
+
+  // set the option \"set/clear all filters\"
+  for ( i = 1; i <= 7; i++ )
+    bAll &= FilterOptionen.state(i);
+  if(bAll && b_typeRef && b_pwrConfigs && b_linkedCNS)
+    FilterOptionen.state(0) = 1;
+  else
+    FilterOptionen.state(0) = 0;
+}" 0
+17 134
+"cnsSel"
+""
+1 23 615 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+110 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 388 981 501
+0
+
+E
+E
+E
+
+0 0
+14 135
+"cnsText"
+""
+1 21.97916666666667 689 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+111 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 503 981 529
+3 "0s" 0 0 0 0 0 -1  E E E
+13 136
+"cnssel"
+""
+1 988 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+112 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 503 1016 531
+
+P 
+13160660
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string cns;
+  dyn_string ds;
+  dyn_uint dui;
+  
+
+  dpSelector(cns);
+
+  if ( cns == \"\" )
+    return;
+  
+  getSystemNames(ds, dui);
+  
+  if ( dynlen(ds) == 1 && ds[1] == \"System1\")   // NoCheckWarning
+     cns = cnsSubStr(cns, CNSSUB_VIEW | CNSSUB_PATH);
+  
+  setValue(\"cnsText\",\"text\",cns);
+}
+
+
+" 0
+ E E E
+13 137
+"cnsadd"
+""
+1 988 418 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+113 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 418 1016 446
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string dp,spr;
+  dyn_string dpsel;
+
+  getValue(\"cnsText\",\"text\",dp);
+  getValue(\"cnsSel\",\"items\",dpsel);
+
+  if (dynContains(dpsel, dp));
+  else
+  {
+    if (dp != \"\")
+    {
+      spr = getCatStr(\"general\",\"all\");
+      if (dpsel[1] == spr)
+        setValue(\"cnsSel\",\"replacePos\",1,dp);
+      else
+        setValue(\"cnsSel\",\"appendItem\",dp);
+      getValue(\"cnsSel\",\"items\",dpsel);
+		  dynSortAsc(dpsel);
+      setValue(\"cnsSel\",\"items\",dpsel);
+    }
+  }
+  
+  
+  dyn_string dsD, dsC, dsDC;
+  string spr = getCatStr(\"general\", \"all\");
+  
+  getMultiValue(\"dp\",     \"items\", dsD,
+                \"cnsSel\", \"items\", dsC);
+  
+  checkCnsDps(linkedDps.state(0));
+}
+
+
+
+" 0
+ E E E
+13 138
+"delcnssel"
+""
+1 988 388 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+114 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  988 388 1016 416
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int dp;
+  dyn_string x;
+  string spr, sC;
+
+  getValue(\"cnsSel\",\"selectedText\",sC);
+  getValue(\"cnsSel\",\"selectedPos\",dp);
+  setValue(\"cnsSel\",\"deletePos\",dp);
+  getValue(\"cnsSel\",\"items\",x);
+  
+  if (dynlen(x)==0)
+  {
+    spr=getCatStr(\"general\",\"all\");
+    setValue(\"cnsSel\",\"items\",spr);
+  }
+  
+  getValue(\"cnsSel\", \"items\", x);
+  
+  dyn_string dsD, dsC, dsDC;
+  getMultiValue(\"dp\",     \"items\", dsD,
+                \"cnsSel\", \"items\", dsC);
+  
+  cnsGetIdSet(sC+\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsDC);
+  
+  for ( int i = dynlen(dsDC); i >= 1; i-- )
+  {
+    dynRemove(dsD, dpSubStr(dsDC[i], DPSUB_DP));
+    if ( dynContains(dsD, dpSubStr(dsDC[i], DPSUB_DP)) )
+      setValue(\"dp\", \"deletePos\", dpSubStr(dsDC[i], DPSUB_DP));
+  }
+  
+  getValue(\"dp\", \"items\", dsDC);
+  
+  if ( !dynlen(dsDC) )
+    setValue(\"dp\", \"appendItem\", spr);
+  
+  checkCnsDps(linkedDps.state(0));
+  
+//   if ( dsC[1] == spr && linkedDps.state(0) )
+//   {
+//     cnsGetIdSet(\"*\", CNS_SEARCH_ALL_NAMES, CNS_SEARCH_ALL_LANGUAGES, CNS_DATATYPE_DATAPOINT, dsDC);
+// 
+//     if ( dynlen(dsDC) )
+//     {
+//       setValue(\"dp\", \"deleteAllItems\");
+//       
+//       for ( int i = 1; i <= dynlen(dsDC); i++)
+//         if ( !dynContains(dsD, dsDC[i]) )
+//           setValue(\"dp\", \"appendItem\", dpSubStr(dsDC[i], DPSUB_DP));
+//     }
+//     else
+//     {
+//       setValue(\"dp\", \"deleteAllItems\");
+//       if ( !dynlen(g_dsNoCnsDp) )
+//         setValue(\"dp\", \"appendItem\", spr);
+//       else
+//         for ( int i = 1; i <= dynlen(g_dsNoCnsDp); i++ )
+//           setValue(\"dp\", \"appendItem\", g_dsNoCnsDp[i]);
+//     }
+//   }
+}
+
+
+
+" 0
+ E E E
+17 139
+"cnsViewsSel"
+""
+1 785 598 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+115 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  718 633 746 661
+0
+
+E
+E
+E
+
+0 0
+22 140
+"cnsView"
+""
+1 752 616 E E E 0 E 0 E N {0,0,0} E N "_Window" E E
+ E E
+116 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  748 633 776 661
+0
+
+"main()
+{
+  //dyn_string dsViews;
+  //string sSystem = getSystemName();
+  //strreplace(sSystem, \":\", \"\");
+ 
+
+  //cnsGetViews(sSystem,dsViews);
+  
+  //for ( int i = 1; i <= dynlen(dsViews); i++ )
+  //  dsViews[i] = cnsSubStr(dsViews[i], CNSSUB_VIEW);
+  
+  //setValue(\"\",\"items\",dsViews);
+}
+" 0
+
+E
+E
+ 1 0
+13 141
+"viewadd"
+""
+1 1035 624 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+117 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  808 633 836 661
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  //string view,spr;
+  //dyn_string cnsSel;
+
+  //getValue(\"cnsView\",\"text\",view);
+  //getValue(\"cnsViewsSel\",\"items\",cnsSel);
+
+  //if (dynContains(cnsSel, view));
+  //else
+  //{
+  //  if (view != \"\")
+  //  {
+  //    spr = getCatStr(\"general\",\"all\");
+  //    if (cnsSel[1] == spr)
+  //      setValue(\"cnsViewsSel\",\"replacePos\",1,view);
+  //    else
+  //      setValue(\"cnsViewsSel\",\"appendItem\",view);
+  //  }
+  //}
+}
+
+
+" 0
+ E E E
+13 142
+"cnsdel"
+""
+1 1030 594 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+118 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  778 633 806 661
+
+P 
+13160660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  //int y;
+  //dyn_string x;
+  //string spr;
+
+  //getValue(\"cnsViewsSel\",\"selectedPos\",y);
+  //setValue(\"cnsViewsSel\",\"deletePos\",y);
+  //getValue(\"cnsViewsSel\",\"items\",x);
+  
+  //if (dynlen(x)==0)
+  //{
+  //  spr=getCatStr(\"general\",\"all\");
+  //  setValue(\"cnsViewsSel\",\"items\",spr);
+  //}
+}
+
+
+" 0
+ E E E
+30 144
+"rcns"
+""
+1 15 453 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+120 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.254901960784314 0 2.9 646.1764705882354 -946.7 0 E 15 453 118 514
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Plantmodel selection
+LANG:10004 24 选择被控对象模型
+LANG:10000 21 Anlagenmodell-Auswahl
+LANG:10027 36 Выбор модели данных
+20 150
+"linkedDps"
+""
+1 211 347 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+122 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  209 345 334 369
+1
+T 
+4
+LANG:10001 12 + Linked DPs
+LANG:10004 12 +链接的DP
+LANG:10000 17 + Verknüpfte DPs
+LANG:10027 22 +связанные DP
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"main()
+{
+  if(!isEvConnOpen())
+  {
+    this.state(0) = FALSE;
+    this.itemEnabled(0) = FALSE;
+  }  
+}" 0
+"main(int button, int state)
+{
+  int i;
+  bool bAll = true;
+
+  // set a global variable
+  b_linkedCNS = state;
+
+  // set the option \"set/clear all filters\"
+  for ( i = 1; i <= 7; i++ )
+    bAll &= FilterOptionen.state(i);
+  if(bAll && b_typeRef && b_pwrConfigs && b_linkedCNS)
+    FilterOptionen.state(0) = 1;
+  else
+    FilterOptionen.state(0) = 0;
+
+  checkCnsDps(state);
+}" 0
+30 153
+"rdpt"
+""
+1 15 453 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+123 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.254901960784314 0 2.9 646.1764705882352 -1305.7 0 E 15 453 118 514
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 DP Types Selection
+LANG:10004 14 选择DP类型
+LANG:10000 16 DP-Typen-Auswahl
+LANG:10027 24 Выбор типов DP
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 725 T 95 2.082164328657315 0 1 0 -100
+0
+0

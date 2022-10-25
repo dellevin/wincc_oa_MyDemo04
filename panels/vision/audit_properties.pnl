@@ -1,0 +1,607 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 475 597 N "_3DFace" 0
+"main()
+{
+  getProperties();
+}" 0
+ E E E E 1 -1 -1 0  10 454
+""0  1
+E "getConfigDP(string &dp, string configName, string dpt = \"_ASConfig\", string dpFilter = \"_AuditProp\")
+{
+  dyn_dyn_anytype tab;
+  string selectString = \"SELECT '_online.._value' FROM '\"+dpFilter+\"**.Name' WHERE _DPT = \\\"\"+dpt+\"\\\" AND '_online.._value' == \\\"\" + configName + \"\\\"\";
+  dp = \"\";
+
+  // get DP of selected configuration
+  dpQuery(selectString, tab);
+      
+  if ( dynlen(getLastError()) )
+  {
+    dyn_errClass err = getLastError();
+    errorDialog(err);
+    return;
+  }
+
+  if ( dynlen(tab) < 2 ) return;
+    
+  dp = dpSubStr(tab[2][1], DPSUB_DP) ;
+}
+
+getConfigList(dyn_string &configNames, string dpt = \"_ASConfig\", string dpFilter = \"_AuditProp\")
+{
+  dyn_dyn_anytype configs;
+  int i;
+  string selectString = \"SELECT '_online.._value' FROM '\"+dpFilter+\"**.Name' WHERE _DPT = \\\"\"+dpt+\"\\\"\";
+
+  dpQuery(\"SELECT '_online.._value' FROM '\"+dpFilter+\"**.Name' WHERE _DPT = \\\"\"+dpt+\"\\\" AND '_online.._value' == \\\"\\\"\", configs);
+  for (i = 2; i <= dynlen(configs); i++) 
+  {
+    DebugN(\"automatic DELETE:\", configs[i][1]);
+    dpDelete(dpSubStr(configs[i][1], DPSUB_SYS_DP));
+  }
+
+
+  dpQuery(selectString, configs);
+           
+           
+  if ( dynlen(getLastError()) ) 
+  {        dyn_errClass err = getLastError(); 
+    errorDialog(err); 
+    return; 
+  } 
+             
+  for (i = 2; i <= dynlen(configs); i++) 
+    dynAppend(configNames, configs[i][2]);
+
+
+}
+
+
+
+setProperties(string sPropertiesDP = \"\")
+{
+  time tStart, tEnd;
+  string sStart, sEnd;
+  unsigned uTimerangeType, uFilterState;
+  langString lsHeader;
+  string sUsernameFilter, sItemFilter, sHostFilter;
+  string sFilter;
+  dyn_string ds;
+  bool bIsOpen;
+  string sOffset;
+  
+  if ( sPropertiesDP == \"\")
+      sPropertiesDP = \"_AuditProp_\"+myUiNumber()+\"_\"+myModuleName();
+  
+  if (dpExists(sPropertiesDP))     // create and sett default
+   {
+       
+      if (dpTypeName(sPropertiesDP) == \"_ASProperties\")
+        sOffset = \".Settings\";
+
+       // time filter
+	   getTimeRange(tStart, tEnd, bIsOpen); 
+ 	   if ( bIsOpen ) 
+	      uTimerangeType = 1;
+	   else
+	      uTimerangeType = 0;
+	
+       // printer header
+	   lsHeader = langtextliste.items ;
+
+       // filter
+       sUsernameFilter = txtUsernameFilter.text;
+       sItemFilter = txtItemFilter.text ;
+       sHostFilter = txtHostFilter.text ;
+
+       sFilter = sUsernameFilter + \"|\" +  sItemFilter  + \"|\" + sHostFilter;
+
+      dpSet(sPropertiesDP + sOffset +\".Filter.State:_original.._value\", uFilterState,
+            sPropertiesDP + sOffset +\".Timerange.Type:_original.._value\", uTimerangeType,
+            sPropertiesDP + sOffset +\".Timerange.Begin:_original.._value\", tStart,
+            sPropertiesDP + sOffset +\".Timerange.End:_original.._value\", tEnd,
+            sPropertiesDP + sOffset +\".Header:_original.._value\", lsHeader,
+            sPropertiesDP + sOffset +\".Filter.DpComment:_original.._value\", sFilter
+              ) ;
+
+   }
+}
+
+getProperties(string sPropertiesDP = \"\")
+{
+  time tStart, tEnd;
+  string sStart, sEnd;
+  unsigned uTimerangeType, uFilterState;
+  langString lsHeader;
+  string sUsernameFilter, sItemFilter, sHostFilter;
+  string sFilter;
+  dyn_string ds;
+  bool bIsOpen;
+  string sOffset;
+  
+  if ( sPropertiesDP == \"\")
+      sPropertiesDP = \"_AuditProp_\"+myUiNumber()+\"_\"+myModuleName();
+
+  if (dpExists(sPropertiesDP))     // create and sett default
+   {
+      if (dpTypeName(sPropertiesDP) == \"_ASProperties\")
+        sOffset = \".Settings\";
+
+ 
+      dpGet(sPropertiesDP + sOffset +\".Filter.State:_online.._value\", uFilterState,
+            sPropertiesDP + sOffset +\".Timerange.Type:_online.._value\", uTimerangeType,
+            sPropertiesDP + sOffset +\".Timerange.Begin:_online.._value\", tStart,
+            sPropertiesDP + sOffset +\".Timerange.End:_online.._value\", tEnd,
+            sPropertiesDP + sOffset +\".Header:_online.._value\", lsHeader,
+            sPropertiesDP + sOffset +\".Filter.DpComment:_online.._value\", sFilter
+              ) ;
+
+       ds = strsplit ( sFilter, \"|\");    
+       if ( dynlen( ds) > 0)   sUsernameFilter  = ds[1];
+       if ( dynlen( ds) > 1)   sItemFilter = ds[2];
+       if ( dynlen( ds) > 2)   sHostFilter = ds[3];
+        // time filter
+       
+       if ( uTimerangeType == 0)
+         bIsOpen = TRUE;
+       else
+         bIsOpen = FALSE; 
+       
+	   setTimeRange(tStart, tEnd, bIsOpen); 
+	
+       // printer header
+	   if (getNoOfLangs()>1)
+	   {
+          langtextedit.visible = TRUE;
+          txtHeader.editable = FALSE;
+	   }
+	   ds= lsHeader; 
+	   
+	   langtextliste.items = ds;
+	   txtHeader.text = lsHeader;
+
+       // filter
+       txtUsernameFilter.text = sUsernameFilter;
+       txtItemFilter.text = sItemFilter;
+       txtHostFilter.text = sHostFilter;
+   }
+}
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 10
+"Frame1"
+""
+1 10 549 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 453 464 549
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Configuration
+LANG:10004 6 配置
+LANG:10000 13 Konfiguration
+LANG:10027 24 Конфигурация
+22 3
+"configName"
+""
+1 19 469 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  19 469 239 498
+0
+
+"main()
+{
+  dyn_string configNames;
+
+  getConfigList(configNames);
+
+  setValue(\"configName\", \"items\", configNames);
+}" 0
+
+E
+E
+ 1 0
+13 4
+"laden"
+""
+1 22 505 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  22 505 112 535
+
+T 
+4
+LANG:10001 4 Load
+LANG:10004 6 加载
+LANG:10000 5 Laden
+LANG:10027 18 Загрузить
+"main()
+{
+  string dpConfig, configName, header;
+   
+  getValue(\"configName\", \"text\", configName);
+
+  if ( configName == \"\" ) return;
+  
+  getConfigDP(dpConfig, configName);
+  
+  if ( dpConfig == \"\" )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+      makeDynString(\"$1:\" + getCatStr(\"sc\", \"unknownConfig\")));
+    return;
+  }
+
+  getProperties(dpConfig);
+
+}" 0
+ E E E
+13 5
+"speichern"
+""
+1 122 505 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  122 505 212 535
+
+T 
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 9 Speichern
+LANG:10027 18 Сохранить
+"/*
+  save all properties to configuration DP
+*/
+
+main()
+{
+  string dpConfig, configName;
+  dyn_string configNames;
+  bool reread = false;
+  
+  getValue(\"configName\", \"text\", configName);
+  if ( configName == \"\" ) return;
+  
+  getConfigDP(dpConfig, configName);
+  
+  if ( dpConfig == \"\" )
+  {
+    // this is an unknown name -> create new DP for it
+    dyn_string dps = dpNames(\"_AuditProp_*\", \"_ASConfig\");  // get all config. names
+    int num;
+  
+    if ( dynlen(dps) > 0 )
+    {
+      dynSortAsc(dps);
+      sscanf(dpSubStr(dps[dynlen(dps)], DPSUB_DP), \"_AuditProp_%d\", num);
+    }
+    
+    num++;
+    sprintf(dpConfig, \"_AuditProp_%03d\", num);   // 3 digit number with leading zeros
+
+    reread = true;
+  }
+
+  if (! dpExists(dpConfig))    // gerneate DP
+  {
+	  dpCreate(dpConfig,  \"_ASConfig\");
+	  dpSet( dpConfig+\".Name:_original.._value\", configName,
+	         dpConfig+\".User:_original.._value\", getUserId(getUserName()));
+  }
+  setProperties(dpConfig);
+  
+  
+  if ( reread )
+  {
+    // refresh list
+    getConfigList(configNames);
+    setValue(\"configName\", \"items\", configNames);
+  }
+}
+
+
+
+
+" 0
+ E E E
+13 6
+"lschen"
+""
+1 228 505 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  228 505 318 535
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+"main()
+{
+  string dpConfig, configName;
+  dyn_string configNames;
+  dyn_string ds;
+  dyn_float df;
+   
+  getValue(\"configName\", \"text\", configName);
+
+  if ( configName == \"\" ) return;
+  
+  getConfigDP(dpConfig, configName);
+  
+  if ( dpConfig == \"\" )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\",
+      makeDynString(\"$1:\" + getCatStr(\"sc\", \"unknownConfig\")));
+    return;
+  }
+  
+   ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",  getCatStr(\"general\", \"information\"),
+      makeDynString( getCatStr(\"dpeMonitor\", \"dpeMon_delete_config\"), getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")), df, ds);
+   
+   if (dynlen(df) > 0 && df[1] == 1) 
+     dpDelete(dpConfig);
+  
+  // refresh list
+  getConfigList(configNames);
+  setValue(\"configName\", \"items\", configNames);
+}" 0
+ E E E
+13 7
+"ok"
+""
+1 274 558 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  274 558 364 588
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  setProperties();  
+    
+  PanelOffReturn(makeDynFloat(1), makeDynString(\"true\"));
+}" 0
+ E E E
+13 8
+"abbrechen"
+""
+1 374 558 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+9 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  374 558 464 588
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOffReturn(makeDynFloat(0), makeDynString(\"false\"));
+}" 0
+ E E E
+28 9
+"Tab1"
+""
+1 9 9 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  9 9 465 443
+E3 "timerange" 4
+LANG:10001 10 Time range
+LANG:10004 12 时间范围
+LANG:10000 11 Zeitbereich
+LANG:10027 35 Временной интервал
+1 "vision\\trend\\VT_timerange.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"filter" 4
+LANG:10001 6 Filter
+LANG:10004 6 过滤
+LANG:10000 6 Filter
+LANG:10027 12 Фильтр
+1 "vision\\audit_propFilter.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"Common" 4
+LANG:10001 6 Common
+LANG:10004 6 常规
+LANG:10000 9 Allgemein
+LANG:10027 10 Общее
+1 "vision\\audit_propGeneral.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

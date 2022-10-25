@@ -1,0 +1,1172 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 386 383 N "_3DFace" 1
+"$dpe_value"
+"main()
+{
+  sDPE=$dpe_value;
+  bool bUnit;
+  langString lsUnit;
+  float fValue;
+  
+  int iDpeType;
+  dpGet(sDPE+\":_original.._type\", iDpeType);
+  
+  switch (iDpeType)
+  {
+    case DPEL_INT: 
+      fRangeMax = maxINT();  
+      fRangeMin = minINT();
+      Button18.enabled(false); //no , allowed
+      break;
+    case DPEL_UINT: 
+      fRangeMax = maxUINT();  
+      fRangeMin = 0;
+      Button18.enabled(false); //no , allowed
+      break;
+    case DPEL_ULONG: 
+      fRangeMax = maxULONG();  
+      fRangeMin = 0;
+      Button18.enabled(false); //no , allowed
+      break;
+    case DPEL_LONG: 
+      fRangeMax = maxLONG();  
+      fRangeMin = minLONG();
+      Button18.enabled(false); //no , allowed
+      break;
+    default:
+    fRangeMax = maxFLOAT();  
+    fRangeMin = minFLOAT();
+  }
+  
+  if(isDollarDefined(\"$_BOOL_ShowUnit\"))
+    bUnit=getDollarValue(\"$_BOOL_ShowUnit\");
+  if(isDollarDefined(\"$_BOOL_UseDpeRange\"))
+    bUseRange=getDollarValue(\"$_BOOL_UseDpeRange\");
+  if(isDollarDefined(\"$_FLOAT_Range_Max\"))
+    sRangeMax=getDollarValue(\"$_FLOAT_Range_Max\");
+  if(isDollarDefined(\"$_FLOAT_Range_Min\"))
+    sRangeMin=getDollarValue(\"$_FLOAT_Range_Min\");
+  if(isDollarDefined(\"$_BOOL_UseDpeFormat\"))
+    bUseFormat=getDollarValue(\"$_BOOL_UseDpeFormat\");
+//   if(isDollarDefined(\"$_STRING_Format\"))
+//     sFormat=getDollarValue(\"$_STRING_Format\");
+  
+
+  if(bUseFormat)
+  {
+    actual.format(dpGetFormat(sDPE));
+    //Value.format(dpGetFormat(sDPE));
+  }  
+  if(bUnit)
+  {
+    lsUnit=dpGetUnit(sDPE);
+    if(lsUnit!=\"\")
+    {
+      unit.text(lsUnit);
+      unit.visible(TRUE);
+      unit1.text(lsUnit);
+      unit1.visible(TRUE);
+    }
+  }
+  if(dpElementType(sDPE)==DPEL_INT || dpElementType(sDPE)==DPEL_UINT ||
+     dpElementType(sDPE)==DPEL_LONG || dpElementType(sDPE)==DPEL_ULONG)
+    Button18.enabled(FALSE);
+  dpConnect(\"actualValue\",sDPE);
+  dpGet(sDPE,fValue);
+  Value.text(fValue);
+  if(bUseRange)
+  {
+    int Type;
+    dpGet(sDPE+\":_pv_range.._type\",Type);
+    if(Type!=0)
+      dpGet(sDPE+\":_pv_range.._min\",sRangeMin,
+            sDPE+\":_pv_range.._max\",sRangeMax,
+            sDPE+\":_pv_range.._incl_max\", bRangeMaxIncl,
+            sDPE+\":_pv_range.._incl_min\", bRangeMinIncl);
+  }
+  if(sRangeMax!=\"\")
+  {
+    fRangeMax=(float)sRangeMax;
+  }
+  if(sRangeMin!=\"\")
+  {
+    fRangeMin=(float)sRangeMin;
+  }
+  if((sRangeMax!=\"\")&&(sRangeMin!=\"\"))
+  {
+    fBereich=fRangeMax-fRangeMin;
+    ten=fBereich/10; //for IM 97148
+    five=fBereich/20;
+  }
+}
+actualValue(string sDP, float fValue)
+{
+  fActual=fValue;
+  actual.text(fValue);
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "string sDPE,sFormat;
+bool bUseRange=FALSE,bUseFormat=FALSE;
+float fRangeMax,fRangeMin,fActual,ten=0.1,five=0.05,fBereich;
+string sRangeMax,sRangeMin;
+bool bRangeMaxIncl=true, bRangeMinIncl=true;
+
+bool applyInputOnDp()
+{
+  string sValue = Value.text;
+  string sValAllowed = isValueAllowed(sValue);
+  
+  float fValue = Value.text;
+
+  if(sValAllowed != \"\")
+  {
+    string msg;
+    
+    if ( bRangeMaxIncl && bRangeMinIncl )
+      msg = getCatStr(\"STD\", \"RangeMinMaxIncl\");
+    else if ( bRangeMaxIncl )
+      msg = getCatStr(\"STD\", \"RangeMaxIncl\");
+    else if ( bRangeMinIncl )
+      msg = getCatStr(\"STD\", \"RangeMinIncl\");
+    else
+      msg = getCatStr(\"STD\", \"RangeNoIncl\");
+      
+    sprintf(msg, msg, (string)fRangeMin, (string)fRangeMax);
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(getCatStr(\"STD\", \"Text3\") + \"\\n\" + msg));
+
+    return false;
+  }
+  else
+  {
+    dpSetWait(sDPE+\":_original.._value\",fValue);
+    dyn_errClass err;
+    err = getLastError();
+    if (dynlen(err) > 0)
+      errorDialog(err);
+
+    return true;
+  }
+}
+
+string isValueAllowed(string sValue)
+{
+  float fValue = (float)sValue;
+  if (bRangeMaxIncl && fValue > fRangeMax)
+    return \">\";
+  else if (!bRangeMaxIncl && fValue >= fRangeMax)
+    return \">=\";
+  else if (bRangeMinIncl && fValue < fRangeMin)
+    return \"<\";
+  else if (!bRangeMinIncl && fValue <= fRangeMin)
+    return \"<=\";
+  
+  return \"\";
+}
+
+void keyPressed(string keyText)
+{
+  string sValue = Value.text();
+  
+  if(keyText==\"1\" || keyText==\"2\" || keyText==\"3\" || keyText==\"4\" || keyText==\"5\" ||
+     keyText==\"6\" || keyText==\"7\" || keyText==\"8\" || keyText==\"9\" || keyText==\"0\" ||
+     keyText==\"00\")
+  {
+    if(sValue==\"0\")
+      sValue=keyText;
+    else if(sValue==\"-0\")
+        sValue = \"-\"+keyText;
+    else
+      sValue+=keyText;
+  }
+  else if (keyText==\".\" || keyText==\",\")
+  {
+    if (strpos(sValue,\".\")<0)
+      setValue(\"Value\",\"text\",sValue+\".\");
+    return;
+  }
+  else if (keyText==\"+10%\" || keyText==\"+5%\" || keyText==\"-10%\" || keyText==\"-5%\" )
+  {
+    float fValue = sValue;
+    
+    if (keyText==\"+10%\")
+      fValue += ten;
+    else if (keyText==\"+5%\")
+      fValue += five;
+    else if ( keyText==\"-10%\")
+      fValue -= ten;
+    else if ( keyText==\"-5%\" )
+      fValue -= five;
+    
+    sValue = fValue;
+  }
+  else if (keyText == \"<\")
+  {
+    if(sValue!=\"0\")
+    {  
+      sValue = substr(sValue,0,strlen(sValue)-1);
+
+      if((strlen(sValue)==0)||(sValue==\"-\"))
+        sValue = \"0\";
+    }
+  }
+  else if (keyText == \"C\")
+  {
+    sValue = \"0\";
+  }
+  else if ( keyText == \"+/-\" )
+  {
+    if ( strpos(sValue, \"-\") == -1 )
+      sValue = \"-\"+Value.text();
+    else
+      sValue = strltrim(sValue , \"-\");
+  }
+  else if (keyText == \"R\")
+  {
+    Value.text(actual.text());
+    fActual=actual.text();
+    return;
+  }
+
+  Value.text(sValue);
+}
+
+" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+13 0
+"Button1"
+""
+1 20 216 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 49 0
+E E E
+0
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  18 214 78 258
+
+T 
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 1
+"Button2"
+""
+1 166 266 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 50 0
+E E E
+0
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  94 214 154 258
+
+T 
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 2
+"Button3"
+""
+1 396 466 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 51 0
+E E E
+0
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  170 214 230 258
+
+T 
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 3
+"Button4"
+""
+1 468 614 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 52 0
+E E E
+0
+4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  18 162 78 206
+
+T 
+4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 4
+"Button5"
+""
+1 544 614 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 53 0
+E E E
+0
+4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  94 162 154 206
+
+T 
+4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 5
+"Button6"
+""
+1 620 614 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 54 0
+E E E
+0
+4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  170 162 230 206
+
+T 
+4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 6
+"Button7"
+""
+1 468 562 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 55 0
+E E E
+0
+4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  18 110 78 154
+
+T 
+4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 7
+"Button8"
+""
+1 544 562 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 56 0
+E E E
+0
+4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  94 110 154 154
+
+T 
+4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 8
+"Button9"
+""
+1 620 562 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 57 0
+E E E
+0
+4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  170 110 230 154
+
+T 
+4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 9
+"Button10"
+""
+1 468 718 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 48 0
+E E E
+0
+4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  18 266 78 310
+
+T 
+4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+14 12
+"Value"
+""
+1 20 72 E E E 1 E 1 E N "STD_text" E N "STD_inputfield_back" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,40,0,0,0,0,0
+0  18 70 230 104
+2 "0s" 0 0 0 2 0 -1  E "main()
+{
+  this.text(\"0\");
+}" 0
+ E
+13 15
+"Button12"
+""
+1 1047 458 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+
+0
+4
+LANG:10001 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,75,0,0,0,0,0
+0  262 326 374 370
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  applyInputOnDp();
+}
+
+" 0
+ E E E
+13 16
+"Button11"
+""
+1 777 346 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 67 0
+E E E
+0
+4
+LANG:10001 5 Clear
+LANG:10004 6 清除
+LANG:10000 8 Löschen
+LANG:10027 14 Удалить
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,75,0,0,0,0,0
+0  314 214 374 258
+
+T 
+4
+LANG:10001 1 C
+LANG:10004 1 C
+LANG:10000 1 C
+LANG:10027 1 C
+"main()
+{
+  keyPressed(\"C\");
+}" 0
+ E E E
+13 18
+"Button16"
+""
+1 674 1130 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 2 00
+LANG:10004 2 00
+LANG:10000 2 00
+LANG:10027 2 00
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  94 266 154 310
+
+T 
+4
+LANG:10001 2 00
+LANG:10004 2 00
+LANG:10000 2 00
+LANG:10027 2 00
+"main()
+{
+  keyPressed(this.text);
+}" 0
+ E E E
+13 19
+"Button17"
+""
+1 1223.928571428572 711 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+
+0
+4
+LANG:10001 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,75,0,0,0,0,0
+0  140 326 252 370
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+ PanelOff();
+}" 0
+ E E E
+13 20
+"Button18"
+""
+1 851 1336 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 46 0
+E E E
+0
+4
+LANG:10001 5 Comma
+LANG:10004 6 逗号
+LANG:10000 5 Komma
+LANG:10027 14 Запятой
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  170 266 230 310
+
+T 
+4
+LANG:10001 1 ,
+LANG:10004 1 ,
+LANG:10000 1 .
+LANG:10027 1 .
+"main()
+{
+  keyPressed(\".\");
+}" 0
+ E E E
+14 21
+"actual"
+""
+1 20 32 E E E 1 E 1 E N "STD_text" E N "_3DFace" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,20,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,20,5,40,0,0,0,0,0
+0  18 30 230 64
+2 "0.2f" 3 0 0 2 0 -1  E E E
+13 22
+"plusten"
+""
+1 724 562 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 4 +10%
+LANG:10004 3 10%
+LANG:10000 4 +10%
+LANG:10027 4 +10%
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  242 110 306 154
+
+T 
+4
+LANG:10001 4 +10%
+LANG:10004 3 10%
+LANG:10000 4 +10%
+LANG:10027 4 +10%
+"main()
+{
+  keyPressed(\"+10%\");
+}" 0
+ E E E
+13 23
+"plusfive"
+""
+1 724 614 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 3 +5%
+LANG:10004 2 5%
+LANG:10000 3 +5%
+LANG:10027 3 +5%
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  242 162 306 206
+
+T 
+4
+LANG:10001 3 +5%
+LANG:10004 2 5%
+LANG:10000 3 +5%
+LANG:10027 3 +5%
+"main()
+{
+  keyPressed(\"+5%\");
+}" 0
+ E E E
+13 24
+"minusfive"
+""
+1 724 666 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 3 -5%
+LANG:10004 3 -5%
+LANG:10000 3 -5%
+LANG:10027 3 -5%
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  242 214 306 258
+
+T 
+4
+LANG:10001 3 -5%
+LANG:10004 3 -5%
+LANG:10000 3 -5%
+LANG:10027 3 -5%
+"main()
+{
+  keyPressed(\"-5%\");
+}" 0
+ E E E
+13 25
+"minusten"
+""
+1 724 718 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 4 -10%
+LANG:10004 4 -10%
+LANG:10000 4 -10%
+LANG:10027 4 -10%
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  242 266 306 310
+
+T 
+4
+LANG:10001 4 -10%
+LANG:10004 4 -10%
+LANG:10000 4 -10%
+LANG:10027 4 -10%
+"main()
+{
+  keyPressed(\"-10%\");
+}" 0
+ E E E
+13 26
+"del"
+""
+1 764 562 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+33 0 0 0 16777219 0
+E E E
+0
+4
+LANG:10001 9 Backspace
+LANG:10004 6 退格
+LANG:10000 10 Rücktaste
+LANG:10027 48 Стереть предыдущий символ
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  314 110 374 154
+
+P 
+4294967295
+"pictures/arrow_left_en.gif"
+4
+LANG:10001 1 <
+LANG:10004 1 <
+LANG:10000 1 <
+LANG:10027 1 <
+"main()
+{
+  keyPressed(\"<\");
+}" 0
+ E E E
+13 27
+"beginn"
+""
+1 764 614 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 82 0
+E E E
+0
+4
+LANG:10001 6 Reload
+LANG:10004 6 刷新
+LANG:10000 9 Neu laden
+LANG:10027 26 Перезагрузить
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  314 162 374 206
+
+T 
+4
+LANG:10001 1 R
+LANG:10004 1 R
+LANG:10000 1 R
+LANG:10027 1 R
+"main()
+{
+  keyPressed(\"R\");
+}" 0
+ E E E
+13 28
+"plusminus"
+""
+1 764 718 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 3 +/-
+LANG:10004 3 +/-
+LANG:10000 3 +/-
+LANG:10027 3 +/-
+
+0
+4
+LANG:10001 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,69,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,69,0,0,0,0,0
+0  314 266 374 310
+
+T 
+4
+LANG:10001 3 +/-
+LANG:10004 3 +/-
+LANG:10000 3 +/-
+LANG:10027 3 +/-
+"main()
+{
+  keyPressed(\"+/-\");
+}" 0
+ E E E
+2 29
+"unit"
+""
+1 244 36.00000000000001 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 244 36 299 91
+0 2 2 "0s" 0 0 0 64 0 0  244 36 1
+4
+LANG:10001 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 a
+LANG:10004 1 a
+LANG:10000 1 a
+LANG:10027 1 a
+2 30
+"unit1"
+""
+1 244 76 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 244 76 299 131
+0 2 2 "0s" 0 0 0 64 0 0  244 76 1
+4
+LANG:10001 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,23,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,23,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 a
+LANG:10004 1 a
+LANG:10000 1 a
+LANG:10027 1 a
+13 31
+"PUSH_BUTTON1"
+""
+1 803 458 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 16777220 0
+E E E
+0
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+
+0
+4
+LANG:10001 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,75,0,0,0,0,0
+0  18 326 130 370
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if ( applyInputOnDp() )
+    PanelOff();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

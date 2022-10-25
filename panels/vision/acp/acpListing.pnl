@@ -1,0 +1,1591 @@
+V 14
+4
+LANG:10001 23 Whitelist and Blacklist
+LANG:10004 21 白名单和黑名单
+LANG:10000 23 Whitelist und Blacklist
+LANG:10027 23 Whitelist and Blacklist
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"main()
+{
+  initializeTree();
+
+  tblWhitelist.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  tblWhitelist.tableMode(TABLE_SELECT_MULTIPLE);
+  tblWhitelist.selectByClick(TABLE_SELECT_LINE);
+
+  tblBlacklist.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  tblBlacklist.tableMode(TABLE_SELECT_MULTIPLE);
+  tblBlacklist.selectByClick(TABLE_SELECT_LINE);
+}" 0
+ E E E E 1 -1 -1 0  10 10
+""0  1
+E "//----------------------------------------initialize-----------------------------------------------------
+/*
+  @descr: function initialize manager tree on the left side with all systems, not managers
+*/
+public void initializeTree()
+{
+  treeManager.clear();
+  treeManager.removeColumn(2);
+  treeManager.removeColumn(1);
+  treeManager.removeColumn(0);
+
+  dyn_string sysNames;
+  dyn_uint sysIds;
+  getSystemNames(sysNames, sysIds);
+
+  treeManager.addColumn(\"Manager\");
+  treeManager.addColumn(\"WL\");
+  treeManager.addColumn(\"BL\");
+
+  treeManager.appendItems(\"\", sysNames, sysNames);
+  treeManager.setExpandable(sysNames, true);
+
+  for(int i = 1; i <= dynlen(sysNames); i++) //setIcon for each system
+  {
+    treeManager.setIcon(sysNames[i], 0, \"wf/nodes/system.png\");
+  }
+}
+
+/*
+  @descr: function initialize manager after expand from manager
+  @param: id - system name which is expanded in tree
+*/
+public void initializeManager(string id)
+{
+  //get number from whitelist and blacklist
+  dyn_string apiWhite,    apiBlack,
+             asciiWhite,  asciiBlack,
+             ctrlWhite,   ctrlBlack,
+             deviceWhite, deviceBlack,
+             driverWhite, driverBlack,
+             reportWhite, reportBlack,
+             uiWhite,     uiBlack;
+
+  dpGet(id + \":_ACM_Api.Whitelist.Hosts\",    apiWhite,
+        id + \":_ACM_Api.Blacklist.Hosts\",    apiBlack,
+        id + \":_ACM_Ascii.Whitelist.Hosts\",  asciiWhite,
+        id + \":_ACM_Ascii.Blacklist.Hosts\",  asciiBlack,
+        id + \":_ACM_Ctrl.Whitelist.Hosts\",   ctrlWhite,
+        id + \":_ACM_Ctrl.Blacklist.Hosts\",   ctrlBlack,
+        id + \":_ACM_Device.Whitelist.Hosts\", deviceWhite,
+        id + \":_ACM_Device.Blacklist.Hosts\", deviceBlack,
+        id + \":_ACM_Driver.Whitelist.Hosts\", driverWhite,
+        id + \":_ACM_Driver.Blacklist.Hosts\", driverBlack,
+        id + \":_ACM_Report.Whitelist.Hosts\", reportWhite,
+        id + \":_ACM_Report.Blacklist.Hosts\", reportBlack,
+        id + \":_ACM_Ui.Whitelist.Hosts\",     uiWhite,
+        id + \":_ACM_Ui.Blacklist.Hosts\",     uiBlack);
+
+  //set manager
+  dyn_string ids;
+  dyn_dyn_string text;
+
+  //append ids from manager
+  dynAppend(ids, id + \".Api\");
+  dynAppend(ids, id + \".Ascii\");
+  dynAppend(ids, id + \".Ctrl\");
+  dynAppend(ids, id + \".Device\");
+  dynAppend(ids, id + \".Driver\");
+  dynAppend(ids, id + \".Report\");
+  dynAppend(ids, id + \".Ui\");
+
+  //append manager text
+  dynAppend(text, makeDynString(\"API\",            dynlen(apiWhite),    dynlen(apiBlack)));
+  dynAppend(text, makeDynString(\"Ascii\",          dynlen(asciiWhite),  dynlen(asciiBlack)));
+  dynAppend(text, makeDynString(\"Control\",        dynlen(ctrlWhite),   dynlen(ctrlBlack)));
+  dynAppend(text, makeDynString(\"Device\",         dynlen(deviceWhite), dynlen(deviceBlack)));
+  dynAppend(text, makeDynString(\"Driver\",         dynlen(driverWhite), dynlen(driverBlack)));
+  dynAppend(text, makeDynString(\"Report\",         dynlen(reportWhite), dynlen(reportBlack)));
+  dynAppend(text, makeDynString(\"User Interface\", dynlen(uiWhite),     dynlen(uiBlack)));
+
+  treeManager.appendItems(id, ids, text);
+
+  //set manager icons
+  treeManager.setIcon(id + \".Api\",    0, \"wf/nodes/Layer_1.png\");
+  treeManager.setIcon(id + \".Ascii\",  0, \"wf/nodes/Layer_2.png\");
+  treeManager.setIcon(id + \".Ctrl\",   0, \"wf/nodes/Layer_3.png\");
+  treeManager.setIcon(id + \".Device\", 0, \"wf/nodes/Layer_4.png\");
+  treeManager.setIcon(id + \".Driver\", 0, \"wf/nodes/Layer_5.png\");
+  treeManager.setIcon(id + \".Report\", 0, \"wf/nodes/Layer_6.png\");
+  treeManager.setIcon(id + \".Ui\",     0, \"wf/nodes/Layer_7.png\");
+}
+
+//-------------------------------------------show--------------------------------------------------------
+/*
+  @descr: show whitelist and blacklist in table from manager
+  @param: id - manager id
+*/
+public void showListFromManager(string id)
+{
+  tblWhitelist.deleteAllLines();
+  tblBlacklist.deleteAllLines();
+
+  dyn_string whitelistHost, whitelistArguments, blacklistHost, blacklistArguments, splitted;
+  string manager = treeManager.getText(id, 0);
+  splitted = strsplit(id, \".\");
+
+  dpGet(splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Hosts\",     whitelistHost,
+        splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Arguments\", whitelistArguments,
+        splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Hosts\",     blacklistHost,
+        splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Arguments\", blacklistArguments);
+
+  for(int i = 1; i <= dynlen(whitelistHost) && i <= dynlen(whitelistArguments); i++)
+  {
+    tblWhitelist.appendLine(\"manager\",   manager,
+                            \"hostname\",  whitelistHost[i],
+                            \"arguments\", whitelistArguments[i],
+                            \"dynIndex\",  i);
+  }
+
+  for(int i = 1; i <= dynlen(blacklistHost) && i <= dynlen(blacklistArguments); i++)
+  {
+    tblBlacklist.appendLine(\"manager\",   manager,
+                            \"hostname\",  blacklistHost[i],
+                            \"arguments\", blacklistArguments[i],
+                            \"dynIndex\",  i);
+  }
+}
+
+/*
+  @descr: show whitelist and blacklist from sys with all managers
+  @param: id - system id
+*/
+public void showListFromSys(string id)
+{
+  if(treeManager.children(id) == \"\") //manager not inialized, sys not yet expanded
+  {
+    initializeManager(id);
+  }
+
+  tblWhitelist.deleteAllLines();
+  tblBlacklist.deleteAllLines();
+
+  dyn_string managerIds = makeDynString(\"Api\", \"Ascii\", \"Ctrl\", \"Device\",
+                                        \"Driver\", \"Report\", \"Ui\");
+  dyn_string whitelistHost, whitelistArguments, blacklistHost, blacklistArguments;
+  string manager;
+
+  for(int i = 1; i <= dynlen(managerIds); i++)
+  {
+    manager = treeManager.getText(id + \".\" + managerIds[i], 0);
+
+    dpGet(id + \":_ACM_\" + managerIds[i] + \".Whitelist.Hosts\",     whitelistHost,
+          id + \":_ACM_\" + managerIds[i] + \".Whitelist.Arguments\", whitelistArguments,
+          id + \":_ACM_\" + managerIds[i] + \".Blacklist.Hosts\",     blacklistHost,
+          id + \":_ACM_\" + managerIds[i] + \".Blacklist.Arguments\", blacklistArguments);
+
+    for(int j = 1; j <= dynlen(whitelistHost) && j <= dynlen(whitelistArguments); j++)
+    {
+      tblWhitelist.appendLine(\"manager\",   manager,
+                              \"hostname\",  whitelistHost[j],
+                              \"arguments\", whitelistArguments[j],
+                              \"dynIndex\",  j);
+    }
+
+    for(int j = 1; j <= dynlen(blacklistHost) && j <= dynlen(blacklistArguments); j++)
+    {
+      tblBlacklist.appendLine(\"manager\",   manager,
+                              \"hostname\",  blacklistHost[j],
+                              \"arguments\", blacklistArguments[j],
+                              \"dynIndex\",  j);
+    }
+  }
+}
+
+//------------------------------------------operations----------------------------------------------------
+/*
+  @descr: writes changes on internal dp
+  @param: id - manager id
+          whitelist - true if the whitelist should be saved, false if blacklist
+*/
+public void saveManager(string id, bool whitelist)
+{
+  dyn_string splitted = strsplit(id, \".\");
+  dyn_anytype hostname, arguments;
+  if(whitelist)
+  {
+    dpSet(splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Hosts\",     tblWhitelist.getColumnN(1),
+          splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Arguments\", tblWhitelist.getColumnN(2));
+  }
+  else
+  {
+    dpSet(splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Hosts\",     tblBlacklist.getColumnN(1),
+          splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Arguments\", tblBlacklist.getColumnN(2));
+  }
+}
+
+/*
+  @descr: delete entire list
+  @param: id - manager id
+          whitelist - true if the whitelist should be deleted, false if blacklist
+*/
+public void deleteAll(string id, bool whitelist)
+{
+  dyn_string splitted = strsplit(id, \".\");
+  if(whitelist)
+  {
+    tblWhitelist.deleteAllLines();
+    dpSet(splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Hosts\",     makeDynString(),
+          splitted[1] + \":_ACM_\" + splitted[2] + \".Whitelist.Arguments\", makeDynString());
+    treeManager.setText(id, 1, \"0\");
+  }
+  else
+  {
+    tblBlacklist.deleteAllLines();
+    dpSet(splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Hosts\",     makeDynString(),
+          splitted[1] + \":_ACM_\" + splitted[2] + \".Blacklist.Arguments\", makeDynString());
+    treeManager.setText(id, 2, \"0\");
+  }
+}
+
+public void setButtonEnable(bool enable)
+{
+  setMultiValue(\"inpHostnameWhite\",  \"enabled\", enable,
+                \"inpHostnameBlack\",  \"enabled\", enable,
+                \"inpArgumentsWhite\", \"enabled\", enable,
+                \"inpArgumentsBlack\", \"enabled\", enable,
+                \"btnAddWhite\",       \"enabled\", enable,
+                \"btnAddBlack\",       \"enabled\", enable,
+                \"btnDeleteWhite\",    \"enabled\", enable,
+                \"btnDeleteBlack\",    \"enabled\", enable,
+                \"btnDeleteAllWhite\", \"enabled\", enable,
+                \"btnDeleteAllBlack\", \"enabled\", enable,
+                \"btnAcceptWhite\",    \"enabled\", enable,
+                \"btnAcceptBlack\",    \"enabled\", enable);
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"type" "WF"
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 4
+"tblWhitelist"
+"WF"
+1 -173.2568855625003 75.43850687861823 E E E 1 E 1 E N "WF_Text" E N "_AlternatingRowColorLight" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int lines = tblWhitelist.getSelectedLines();
+  if(dynlen(lines) == 1)
+  {
+    inpHostnameWhite.text = tblWhitelist.cellValueRC(lines[1], \"hostname\");
+    inpArgumentsWhite.text = tblWhitelist.cellValueRC(lines[1], \"arguments\");
+  }
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  287.7431144374998 198 784.7431144374998 529.5511011431529
+EE 1 0 1 4 0 "manager" 10 1 0 "s" 4
+LANG:10001 7 Manager
+LANG:10004 9 管理器
+LANG:10000 7 Manager
+LANG:10027 16 Менеджер
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+125 "hostname" 14 1 0 "s" 4
+LANG:10001 8 Hostname
+LANG:10004 8 Hostname
+LANG:10000 8 Hostname
+LANG:10027 17 Имя хоста
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+170 "arguments" 15 1 0 "s" 4
+LANG:10001 9 Arguments
+LANG:10004 12 传递参数
+LANG:10000 9 Argumente
+LANG:10027 10 Опции
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+180 "dynIndex" 3 0 0 "s" 4
+LANG:10001 8 dynIndex
+LANG:10004 8 dynIndex
+LANG:10000 8 dynIndex
+LANG:10027 27 Индекс массива
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 
+23 23 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+25 5
+"tblBlacklist"
+"WF"
+1 415.0018264943539 145.1544808427054 E E E 1 E 1 E N "WF_Text" E N "_AlternatingRowColorLight" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int lines = tblBlacklist.getSelectedLines();
+  if(dynlen(lines) == 1)
+  {
+    inpHostnameBlack.text = tblBlacklist.cellValueRC(lines[1], \"hostname\");
+    inpArgumentsBlack.text = tblBlacklist.cellValueRC(lines[1], \"arguments\");
+  }
+}"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  780.8715572187499 198 1280.87103720749 529.7649038967469
+EE 1 0 1 4 0 "manager" 10 1 0 "s" 4
+LANG:10001 7 Manager
+LANG:10004 9 管理器
+LANG:10000 7 Manager
+LANG:10027 16 Менеджер
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+125 "hostname" 14 1 0 "s" 4
+LANG:10001 8 Hostname
+LANG:10004 8 Hostname
+LANG:10000 8 Hostname
+LANG:10027 17 Имя хоста
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+170 "arguments" 16 1 0 "s" 4
+LANG:10001 9 Arguments
+LANG:10004 12 传递参数
+LANG:10000 9 Argumente
+LANG:10027 18 Аргументы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+184 "dynIndex" 3 0 0 "s" 4
+LANG:10001 8 dynIndex
+LANG:10004 8 dynIndex
+LANG:10000 8 dynIndex
+LANG:10027 27 Индекс массива
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 
+23 23 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 15
+"btnAddWhite"
+"WF"
+1 528.1608403750004 89.74730744887603 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 3 Add
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  609.0642213906251 143.9235217748386 637.0642213906251 172.9235217748386
+
+P 
+13421721
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"#uses \"notificationBar\"
+
+main()
+{
+  string id = treeManager.selectedItem();
+
+  if(id != \"\" || treeManager.parent(id) == \"\")
+  {
+    if(inpHostnameWhite.text != \"\" && inpArgumentsWhite.text != \"\")
+    {
+      int wlCounter = treeManager.getText(id, 1);
+      treeManager.setText(id, 1, ++wlCounter);
+      tblWhitelist.appendLine(\"manager\", treeManager.getText(id, 0),
+                              \"hostname\", inpHostnameWhite.text,
+                              \"arguments\", inpArgumentsWhite.text,
+                              \"dynIndex\", tblWhitelist.lineCount - 1);
+
+      saveManager(id, true);
+
+      notificationBar_newMsg(\"acp\", \"whitelistAdd\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(inpHostnameWhite.text), false,
+                             notificationBar_getUserDpName(), true);
+    }
+    else
+    {
+      notificationBar_newMsg(\"acp\", \"acpWLBLNotAdd\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(inpHostnameWhite.text), false,
+                             notificationBar_getUserDpName(), true);
+    }
+  }
+}" 0
+ E E E
+14 19
+"inpHostnameWhite"
+"WF"
+1 428.0286987429296 122.4351851851852 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  439 111.8515780393823 662 140.8515780393823
+3 "0s" 0 0 0 0 0 -1  E E E
+2 20
+"txtHostname"
+"WF"
+1 27 40 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.4074074074074074 338 99.76851851851853 0 E 27 40 137 90
+0 2 2 "0s" 0 0 0 64 0 0  27 40 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Hostname:
+LANG:10004 7 主机:
+LANG:10000 9 Hostname:
+LANG:10027 18 Имя хоста:
+2 21
+"txtArguments"
+"WF"
+1 27 40 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.4074074074074075 338 131.7685185185185 0 E 27 40 137 90
+0 2 2 "0s" 0 0 0 64 0 0  27 40 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Arguments:
+LANG:10004 13 传递参数:
+LANG:10000 10 Argumente:
+LANG:10027 11 Опции:
+14 22
+"inpArgumentsWhite"
+"WF"
+1 431 154.4351851851852 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  439.1284427812502 143.9954655102949 613.1284427812502 172.9954655102949
+3 "0s" 0 0 0 0 0 -1  E E E
+6 27
+"recFooterRight"
+""
+1 23 503 E E E 1 E 1 E N "WF_RefDiffLineDark" E N "WF_Frame" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.287206266318538 0 0.9406844454338766 260.3873703121736 54.38682508991292 1 E 23 503 406 536
+13 29
+"btnDeleteWhite"
+"WF_Transparent"
+1 289.9850812812499 538.3463174602215 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 22 Delete whitelist entry
+LANG:10004 22 Delete whitelist entry
+LANG:10000 26 Whitelist Eintrag löschen
+LANG:10027 22 Delete whitelist entry
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  287.9850812812499 528.3463174602215 316.9850812812499 557.3463174602215
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines = tblWhitelist.getSelectedLines();
+  if(dynlen(lines) > 0)
+  {
+    string id = treeManager.selectedItem();
+    int dynIdx;
+
+    for(int i = dynlen(lines); i != 0; i--)
+    {
+      dynIdx = tblWhitelist.cellValueRC(lines[i], \"dynIndex\");
+      tblWhitelist.deleteLineN(lines[i]);
+    }
+    int wlCounter = treeManager.getText(id, 1);
+    treeManager.setText(id, 1, wlCounter - dynlen(lines));
+    saveManager(id, true);
+
+    notificationBar_newMsg(\"acp\", \"whitelistDelete\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false,
+                           notificationBar_getUserDpName(), true);
+
+    for(int i = 1; i <= tblWhitelist.lineCount; i++)
+    {
+      tblWhitelist.cellValueRC(i - 1, \"dynIndex\", i);
+    }
+  }
+}" 0
+ E E E
+13 33
+"btnDeleteAllWhite"
+"WF_Transparent"
+1 314.9839336874999 538.5478459348195 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 16 Delete whitelist
+LANG:10004 16 Delete whitelist
+LANG:10000 18 Whitelist löschen
+LANG:10027 16 Delete whitelist
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  312.9839336874999 528.5478459348195 341.9839336874999 557.5478459348195
+
+P 
+4294967295
+"pictures/wf/buttons/delete_all.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteAll(treeManager.selectedItem(), true);
+  notificationBar_newMsg(\"acp\", \"whitelistDeleteAll\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                         makeDynAnytype(), false,
+                         notificationBar_getUserDpName(), true);
+}
+
+
+
+
+
+" 0
+ E E E
+6 34
+"footerBlack"
+""
+1 23 503 E E E 1 E 1 E N "WF_RefDiffLineDark" E N "WF_Frame" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.295039164490862 0 0.9406844454338766 753.0851364242 54.60062784350691 1 E 23 503 406 536
+13 35
+"btnDeleteBlack"
+"WF_Transparent"
+1 782.7431144374998 538.5723944928118 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 22 Delete blacklist entry
+LANG:10004 22 Delete blacklist entry
+LANG:10000 26 Blacklist Eintrag löschen
+LANG:10027 22 Delete blacklist entry
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  780.7431144374998 528.5723944928118 809.7431144374998 557.5723944928118
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines = tblBlacklist.getSelectedLines();
+  if(dynlen(lines) > 0)
+  {
+    string id = treeManager.selectedItem();
+    int dynIdx;
+    for(int i = dynlen(lines); i != 0; i--)
+    {
+      dynIdx = tblBlacklist.cellValueRC(lines[i], \"dynIndex\");
+      tblBlacklist.deleteLineN(lines[i]);
+    }
+    int blCounter = treeManager.getText(id, 2);
+    treeManager.setText(id, 2, blCounter - dynlen(lines));
+    saveManager(id, false);
+
+    notificationBar_newMsg(\"acp\", \"blacklistDelete\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false,
+                           notificationBar_getUserDpName(), true);
+
+    for(int i = 1; i <= tblBlacklist.lineCount; i++)
+    {
+      tblBlacklist.cellValueRC(i - 1, \"dynIndex\", i);
+    }
+  }
+}
+
+
+
+
+
+" 0
+ E E E
+13 36
+"btnDeleteAllBlack"
+"WF_Transparent"
+1 807.7431144374998 538.5723944928118 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 16 Delete blacklist
+LANG:10004 16 Delete blacklist
+LANG:10000 18 Blacklist löschen
+LANG:10027 16 Delete blacklist
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  805.7431144374998 528.5723944928118 834.7431144374998 557.5723944928118
+
+P 
+4294967295
+"pictures/wf/buttons/delete_all.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  deleteAll(treeManager.selectedItem(), false);
+  notificationBar_newMsg(\"acp\", \"blacklistDeleteAll\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                         makeDynAnytype(), false,
+                         notificationBar_getUserDpName(), true);
+}
+
+
+
+
+
+" 0
+ E E E
+13 37
+"btnAddBlack"
+"WF"
+1 1019.25396279251 90.10751847385167 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 3 Add
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1100.095731396255 144.2380079134381 1128.095731396255 173.2380079134381
+
+P 
+13421721
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string id = treeManager.selectedItem();
+
+  if(id != \"\" || treeManager.parent(id) == \"\")
+  {
+    if(inpHostnameBlack.text != \"\" && inpArgumentsBlack.text != \"\")
+    {
+      int blCounter = treeManager.getText(id, 2);
+      treeManager.setText(id, 2, ++blCounter);
+      tblBlacklist.appendLine(\"manager\", treeManager.getText(id, 0),
+                              \"hostname\", inpHostnameBlack.text,
+                              \"arguments\", inpArgumentsBlack.text,
+                              \"dynIndex\", tblBlacklist.lineCount - 1);
+
+      saveManager(id, false);
+
+      notificationBar_newMsg(\"acp\", \"blacklistAdd\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(inpHostnameWhite.text), false,
+                             notificationBar_getUserDpName(), true);
+    }
+    else
+    {
+      notificationBar_newMsg(\"acp\", \"acpWLBLNotAdd\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                             makeDynAnytype(inpHostnameWhite.text), false,
+                             notificationBar_getUserDpName(), true);
+    }
+  }
+}
+
+" 0
+ E E E
+14 38
+"inpHostnameBlack"
+"WF"
+1 919.1338886581502 122.5836071458029 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  930 112 1153 141
+3 "0s" 0 0 0 0 0 -1  E E E
+2 39
+"txtHostnameBlack"
+"WF"
+1 27 40 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.4074074074074074 829 99.91694047913623 0 E 27 40 137 90
+0 2 2 "0s" 0 0 0 64 0 0  27 40 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Hostname:
+LANG:10004 7 主机:
+LANG:10000 9 Hostname:
+LANG:10027 18 Имя хоста:
+2 40
+"txtArgumentsBlack"
+"WF"
+1 27 40 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.4074074074074075 829 131.9169404791362 0 E 27 40 137 90
+0 2 2 "0s" 0 0 0 64 0 0  27 40 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Arguments:
+LANG:10004 13 传递参数:
+LANG:10000 10 Argumente:
+LANG:10027 11 Опции:
+14 41
+"inpArgumentsBlack"
+"WF"
+1 922 154.5836071458029 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  930.1914627925102 144.4760158268762 1104.19146279251 173.4760158268762
+3 "0s" 0 0 0 0 0 -1  E E E
+6 44
+"headerManager"
+""
+1 140 1 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"layoutAlignment" "AlignCenter"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.213394117647059 0 1.0625 -72.80484117647069 -10.82815607876461 1 E 60 10 299 42
+2 45
+"txtManager"
+""
+1 16.49655721875007 9.046843921235336 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 16.49655721875007 9.046843921235336 108 24
+0 2 2 "0s" 0 0 0 192 0 0  16.49655721875007 9.046843921235336 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Manager view
+LANG:10004 12 Manager view
+LANG:10000 15 Manager Ansicht
+LANG:10027 45 Представление менеджера
+29 46
+"treeManager"
+"WF"
+1 -0.00628556249984058 33.79684392123531 E E E 1 E 1 E N "WF_Text" E N "White" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+8
+"treeStepSize" "int 15"
+"midLineWidth" "int 1"
+"alternatingRowColors" "bool TRUE"
+"horizontalScrollBarPolicy" "enum 0"
+"verticalScrollBarPolicy" "enum 2"
+"acceptDrops" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  -0.006885562500045239 33.79684392123531 289.9931144375 558.5936878424708
+10 TreeWidget
+2
+0 "selectionChanged" "(string id)"
+"  if(treeManager.selectedItem != \"\")
+  {
+    if(treeManager.parent(id) != \"\")
+    {
+      setButtonEnable(true);
+      showListFromManager(id);
+    }
+    else
+    {
+      setButtonEnable(false);
+      showListFromSys(id);
+    }
+  }"
+0 "expanded" "(string id)"
+"  if(treeManager.parent(id) == \"\")
+  {
+    if(treeManager.children(id) == \"\")
+    {
+      initializeManager(id);
+    }
+  }"
+E4 55
+"LINE2"
+""
+1 782.8715572187499 -1.203156078764607 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  782.8715572187499 -1.203156078764607 782.8715572187499 200
+13 56
+"btnAcceptWhite"
+"WF"
+1 552.1588320859377 90.38871021634382 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+55 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  633.0963320859377 143.8470435496772 662.0963320859377 172.8470435496772
+
+P 
+13421721
+"pictures/wf/buttons/apply.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines = tblWhitelist.getSelectedLines();
+  if(dynlen(lines) > 0)
+  {
+    tblWhitelist.cellValueRC(lines[1], \"hostname\", inpHostnameWhite.text);
+    tblWhitelist.cellValueRC(lines[1], \"arguments\", inpArgumentsWhite.text);
+    saveManager(treeManager.selectedItem(), true);
+
+    notificationBar_newMsg(\"acp\", \"whitelistApply\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(inpHostnameWhite.text), false,
+                           notificationBar_getUserDpName(), true);
+  }
+  else
+  {
+    notificationBar_newMsg(\"acp\", \"acpWLBLNotChange\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(inpHostnameWhite.text), false,
+                           notificationBar_getUserDpName(), true);
+  }
+}
+
+" 0
+ E E E
+13 57
+"btnAcceptBlack"
+"WF"
+1 1043.158231396255 90.77967458010473 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  1124.095731396255 144.2380079134381 1153.095731396255 173.2380079134381
+
+P 
+13421721
+"pictures/wf/buttons/apply.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines = tblBlacklist.getSelectedLines();
+  if(dynlen(lines) > 0)
+  {
+    tblBlacklist.cellValueRC(lines[1], \"hostname\", inpHostnameBlack.text);
+    tblBlacklist.cellValueRC(lines[1], \"arguments\", inpArgumentsBlack.text);
+    saveManager(treeManager.selectedItem(), false);
+
+    notificationBar_newMsg(\"acp\", \"blacklistApply\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(inpHostnameWhite.text), false,
+                           notificationBar_getUserDpName(), true);
+  }
+  else
+  {
+    notificationBar_newMsg(\"acp\", \"acpWLBLNotChange\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(inpHostnameWhite.text), false,
+                           notificationBar_getUserDpName(), true);
+  }
+}
+
+" 0
+ E E E
+4 58
+"LINE3"
+""
+1 289.99655721875 -20.4531560787646 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  289.99655721875 -20.4531560787646 289.99655721875 147.25
+6 59
+"RECTANGLE1"
+""
+1 290 -0.2031560787646107 E E E 1 E 1 E N {0,0,0} E N "_PanelDescriptionBackground" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 0.9680341398040867 0 -0.006494058811739506 1 E 290 -0.2031560787646107 782.8715572187499 82.6484219606177
+2 60
+"PRIMITIVE_TEXT1"
+""
+1 307 11.79684392123539 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.471924313730697 0 6.173475076979628 0 E 307 11.79684392123539 487 71.79684392123539
+0 2 2 "0s" 0 0 0 64 0 0  307 11.79684392123539 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 9 Whitelist
+LANG:10004 9 白名单
+LANG:10000 9 Whitelist
+LANG:10027 23 Белый список
+2 61
+"PRIMITIVE_TEXT2"
+""
+1 330 40 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.774206620030711 0 1 -580.9247142125913 -8.203156078764607 0 E 330 40 490 80
+0 2 2 "0s" 0 0 0 64 0 0  330 40 8
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 72 List of allowed arguments that the selected manager can use to start on 
+LANG:10004 39 选择的管理器的有效参数可以
+LANG:10000 71 Liste der zulässigen Argumente mit denen der ausgewählte Manager auf 
+LANG:10027 109 Список разрешенных аргументов, которые выбранный менеджер 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 18 the specified host
+LANG:10004 27 在指定的服务器启动
+LANG:10000 33 dem angegebenen Host starten darf
+LANG:10027 92 может использовать для запуска на указанном хосте
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+6 62
+"RECTANGLE2"
+""
+1 290 -0.2031560787646107 E E E 1 E 1 E N {0,0,0} E N "_PanelDescriptionBackground" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.028926168194714 0 0.9680341398040867 484.4829684422828 -0.006494058811743031 1 E 290 -0.2031560787646107 782.8715572187499 82.6484219606177
+2 63
+"PRIMITIVE_TEXT3"
+""
+1 307 11.79684392123539 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1 0 0.471924313730697 492.8715572187499 6.173475076979624 0 E 307 11.79684392123539 487 71.79684392123539
+0 2 2 "0s" 0 0 0 64 0 0  307 11.79684392123539 1
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Bold
+0 4
+LANG:10001 9 Blacklist
+LANG:10004 9 黑名单
+LANG:10000 9 Blacklist
+LANG:10027 25 Чёрный список
+2 64
+"PRIMITIVE_TEXT4"
+""
+1 330 40 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 2.815657538900972 0 1 -101.702077141252 -8.203156078764611 0 E 330 40 490 80
+0 2 2 "0s" 0 0 0 64 0 0  330 40 7
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 74 List of invalid arguments with which the selected manager cannot start on 
+LANG:10004 48 所选管理器无法启动的无效参数列表
+LANG:10000 73 Liste der nicht zulässigen Argumente mit denen der ausgewählte Manager 
+LANG:10027 111 Список недопустимых аргументов, которые выбранный менеджер 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 18 the specified host
+LANG:10004 15 指定的主机
+LANG:10000 43 auf dem angegebenen Host nicht starten darf
+LANG:10027 97 не может использовать для запуска на указанном хосте
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

@@ -1,0 +1,1093 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 385 509 N "_3DFace" 0
+"main()
+{
+  initPanel(); 
+  
+}
+
+" 0
+ "main()
+{
+   if(!isPanelOpen(\"Dist-Management\"))
+    dpSet(\"_DistSync.:_lock._original._locked\",0);
+}" 0
+ E E E 1 -1 -1 0  22 23
+""0  1
+E "#uses \"distsync.ctl\"
+
+bool bMaster = false;
+bool bClient = false;
+
+
+initPanel()
+{
+  string sSourceDp,sText;
+  string sMasterSystem;
+  dyn_float df;
+  dyn_string ds;
+  bMaster = false;
+  bClient = false;
+  tabConfig.deleteAllLines();
+  
+  tabConfig.alternatingRowColors(makeDynString(\"distsync_alertnatingTable\",\"white\"));
+  
+  if(dpExists(distsync_getDistSyncDP())) // is there an existing configuraition
+  {
+    bMaster = distsync_amIMasterSystem();
+
+    if(!bMaster)
+      bClient = distsync_amIClientSystem();
+
+    if (bMaster || bClient)
+    {
+      sSourceDp = distsync_getDistSyncDP();
+    }
+    else // There is no existing configuraiton
+    {
+      sSourceDp = DISTSYNC_BASE_DP;
+      cbx_Master.enabled(true); 
+    }
+  }
+  else // There is no existing configuraiton
+  {
+    bMaster = false;
+    bClient = false;
+    sSourceDp = DISTSYNC_BASE_DP;
+    cbx_Master.enabled(true); 
+  }
+  
+   
+  save.enabled(bMaster);
+  cbx_Master.state(0,bMaster); // set Master Checkbox
+  
+  fillSyncTable(sSourceDp); // fill tables
+  
+  if(bMaster)
+    txtMasterSystem.text(getSystemName());
+  else
+    txtMasterSystem.text(distsync_getMasterSystem());
+}
+
+// Funktion zum Füllen der Tabelle
+fillSyncTable(string sSourceDp) 
+{
+  dyn_int diSyncIds;
+  dyn_bool dbActiveIds;
+  string sUserDefGroup;
+  dyn_string dsGroups = dpNames(\"_DpGroup*_Public\",\"_DpGroup\");
+  dyn_string dsKeys, dsLang;
+  mapping mResult;
+  distsync_getDPGroupParameters(getSystemName(), mResult);
+  dyn_int diClientData;
+  bool bUseBaseConfiguration = false;
+  
+  tabConfig.deleteAllLines();
+   
+  
+  if(bMaster || bClient) //I am a Master or a Client
+  {
+    dpGet(DISTSYNC_BASE_DP+\".Config.SyncData.IDs\",diSyncIds,
+          DISTSYNC_BASE_DP+\".Config.SyncData.Active\",dbActiveIds,
+          DISTSYNC_BASE_DP+\".Config.SyncData.UserDefDpGroup\",sUserDefGroup,
+          sSourceDp+\".Config.ClientSyncData\",diClientData);
+    
+    if (sUserDefGroup == \"nicht definiert\")
+      sUserDefGroup = getCatStr(DISTSYNC_MSGCAT,\"notDefined\");
+   
+    if(dynlen(diClientData) == 1 && diClientData[1] == -1)
+      bUseBaseConfiguration = true;
+    
+    for(int i = 1; i <= dynlen(diSyncIds); i++)
+    {
+      bool bActive = false;
+            
+      if(dynlen(dbActiveIds) >= i)
+        bActive = dbActiveIds[i]; 
+      
+      if(bClient && (!bUseBaseConfiguration) && bActive && !dynContains(diClientData,diSyncIds[i]))
+        bActive = false;
+      
+      tabConfig.appendLine(\"Id\",i,\"Checked\",bActive,\"Datenart\",getCatStr(DISTSYNC_MSGCAT,\"SyncData_\"+i));
+      
+      if(i == 6) // userDefinedDPGroup
+      {
+        distsync_getDPGroupParameters(getSystemName(), mResult);
+        
+        dsKeys = mappingKeys(mResult);
+
+        for(int j = 1; j <= dynlen(dsKeys); j++)
+          dynAppend(dsLang, (langString)mResult[dsKeys[j]][\"Description\"]);
+        
+        tabConfig.cellWidgetRC(5,\"Detail\",\"ComboBox\",dsLang);
+      }
+    }
+  }
+  
+  tabConfig.enabled(true);
+  
+  if(strrtrim(sUserDefGroup) == \"\" && tabConfig.lineCount() > 0)
+    tabConfig.updateLine(1,\"Id\",6,\"Detail\",getCatStr(DISTSYNC_MSGCAT,\"notDefined\")); 
+  else if(tabConfig.lineCount() > 0)
+    tabConfig.updateLine(1,\"Id\",6,\"Detail\",sUserDefGroup); 
+  
+  if(bMaster)
+  {
+    tabConfig.columnEditable(1,true); 
+    tabConfig.columnEditable(3,true); 
+
+  }    
+  else
+  {
+    tabConfig.columnEditable(1,false);
+    tabConfig.columnEditable(3,false); 
+  } 
+}
+
+
+int saveToDp() 
+{
+  dyn_bool dbActivate;
+  dyn_int diDataIds;
+  int iError, iPos;
+  dyn_dyn_anytype dda_Ids;
+  dyn_float df;
+  dyn_string ds;
+  string sDpGroup = \"\";
+  bool bSyncDpCreated = false;
+ 
+  
+  if(bMaster && !dpExists(distsync_getDistSyncDP()))
+  {
+    dpCopy(DISTSYNC_BASE_DP,distsync_getDistSyncDP(),iError);
+    dpCopyOriginal(DISTSYNC_BASE_DP,distsync_getDistSyncDP(),iError);
+    bSyncDpCreated = true;
+  }
+
+  diDataIds = tabConfig.getColumnN(0); 
+  dbActivate = tabConfig.getColumnN(1);
+ 
+  if((iPos = dynContains(diDataIds,6)) > 0)
+  {
+    dyn_string dsLang;
+    mapping mResult;
+    dyn_string dsKeys;
+    
+    distsync_getDPGroupParameters(getSystemName(), mResult);
+        
+    dsKeys = mappingKeys(mResult);
+
+    for(int j = 1; j <= dynlen(dsKeys); j++)
+      dynAppend(dsLang, (langString)mResult[dsKeys[j]][\"Description\"]);
+           
+    
+    if(dbActivate[iPos] && getCatStr(DISTSYNC_MSGCAT,\"notDefined\") == (string)tabConfig.cellValueRC(iPos-1,\"Detail\"))
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(    getCatStr(DISTSYNC_MSGCAT,\"notDefinedMsg\"),
+                        getCatStr(\"general\",\"OK\"),
+                        getCatStr(\"sc\",\"cancel\")),df,ds);
+        
+      if( df[1] != 1 )
+      {
+        if (bSyncDpCreated)
+        {
+          dpDelete(distsync_getDistSyncDP());
+        }
+        return -1; // canceled by user
+      }
+            
+      dbActivate[iPos] = false;
+      sDpGroup = \"\";
+    }
+    else if(dbActivate[iPos] && !dynContains(dsLang,(string)tabConfig.cellValueRC(iPos-1,\"Detail\")))
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"noRealDpGroup\"),
+                    getCatStr(\"general\",\"OK\")),df,ds);
+
+         
+      tabConfig.cellValueRC(iPos-1,\"Detail\",getCatStr(DISTSYNC_MSGCAT,\"notDefined\"));     
+      dbActivate[iPos] = false;
+      sDpGroup = \"\";
+    }
+    else
+      sDpGroup = (string)tabConfig.cellValueRC(iPos-1,\"Detail\");
+  }
+  
+  dda_Ids[1] = diDataIds;
+  dda_Ids[2] = dbActivate;
+  
+  // sort data by id;
+  dynDynTurn(dda_Ids);
+  dynDynSort(dda_Ids,1);
+  dynDynTurn(dda_Ids);
+
+  
+  if(bMaster)
+  {
+    if (sDpGroup == getCatStr(DISTSYNC_MSGCAT,\"notDefined\"))
+      sDpGroup = \"nicht definiert\";
+
+    dpSetWait(distsync_getDistSyncDP()+\".Config.MasterSystem\",getSystemName(),
+              distsync_getDistSyncDP()+\".Config.Systemname\",getSystemName(),
+              DISTSYNC_BASE_DP+\".Config.SyncData.IDs\",dda_Ids[1], //sorted Data Ids
+              DISTSYNC_BASE_DP+\".Config.SyncData.Active\",dda_Ids[2],
+              DISTSYNC_BASE_DP+\".Config.SyncData.UserDefDpGroup\",sDpGroup); //sorted active bools
+  } 
+  
+  return 0; 
+}
+
+
+
+ClosePanel()
+{
+  if(distsync_amIMasterSystem() && (myModuleName() == \"Dist-Baseconfiguration\"))
+  {
+    ModuleOnWithPanel(\"Dist-Overview\",-1,-1,0,0,1,1,\"\",\"vision/distsync/Overview.pnl\",\"Dist-Management\",makeDynString());
+
+    while(!isModuleOpen(\"Dist-Overview\"))
+      delay(100);
+    
+    ModuleOff(\"Dist-Baseconfiguration\");
+  }
+  else
+  {
+    if(txtMasterSystem.text() == \"\")
+    {
+      ModuleOff(myModuleName());
+    }
+    else
+    {
+      PanelOff();
+    }
+  }
+}
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 0
+"FRAME2"
+""
+1 20 42 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+1 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.4787809704712183 0 0.2676904925965373 -0.5756194094243654 94.75699931094543 0 E 20 42 396 284
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 13  Systemtype: 
+LANG:10004 13 系统类型:
+LANG:10000 12  Systemtyp: 
+LANG:10027 23  Тип системы:
+1 55 0 "" 0
+0
+13 10
+"cancel"
+""
+1 287 473.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  287 474 375 502
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  if(txtMasterSystem.text() == \"\")
+    ModuleOff(myModuleName());
+  else
+    PanelOff();
+}" 0
+ E E E
+13 11
+"ok"
+""
+1 110 473.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 68 Применить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  110 474 198 502
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  
+  string sText;
+  dyn_float df;
+  dyn_string ds;
+  
+  if(bClient || (!bMaster && !bClient))
+  {
+    sText = getCatStr(\"distsync\",\"NoMasterConfig\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(    sText,
+                             getCatStr(\"general\",\"yes\"),
+                             getCatStr(\"general\",\"no\")),df,ds);
+    
+    if( df[1] == 1) //YES -> Abbrechen
+    {
+      ClosePanel();
+      return;
+    }
+    else
+      return;
+ 
+  }
+  
+   
+  int iRetVal = saveToDp();
+    
+  if(iRetVal == -1)
+    return; // Cancel by user
+  
+  ClosePanel();
+}
+
+
+
+
+
+" 0
+ E E E
+13 12
+"save"
+""
+1 198 473.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  198 474 286 502
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  string sText;
+  dyn_float df;
+  dyn_string ds;
+  
+  if(bClient || (!bMaster && !bClient))
+  {
+    sText = getCatStr(\"distsync\",\"NoMasterConfig\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(    sText,
+                             getCatStr(\"general\",\"yes\"),
+                             getCatStr(\"general\",\"no\")),df,ds);
+    
+    if( df[1] == 1) //YES -> Abbrechen
+    {
+      PanelOff();
+      return;
+    }
+         
+    else
+      return;
+ 
+  }
+  
+  int iErr = saveToDp();
+  
+//  initPanel();
+}
+
+
+" 0
+ E E E
+13 13
+"Button1"
+""
+1 6.999999999999979 473.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  7 474 95 502
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"distsync_baseconfig\");
+}
+" 0
+ E E E
+25 15
+"tabConfig"
+""
+1 17.71779141104292 206.0955507645807 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  16 204 369 357
+EE 1 1 1 4 0 "Id" 0 0 0 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 "Checked" 1 1 1 "s" 3
+LANG:10000 1  
+LANG:10001 1  
+LANG:10027 1  
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+20 "Datenart" 17 1 0 "s" 4
+LANG:10001 12 Type of data
+LANG:10004 12 数据类型
+LANG:10000 8 Datenart
+LANG:10027 19 Тип данных
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "Detail" 10 1 1 "s" 4
+LANG:10001 6 Detail
+LANG:10004 6 详情
+LANG:10000 6 Detail
+LANG:10027 12 Детали
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+126 
+20 20 10 0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+6 31
+"RECTANGLE8"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.4858078227162425 0 1.083774038461538 -20 14.1887019230769 1 E 0 80 880 -50
+2 32
+"PRIMITIVE_TEXT5"
+""
+1 18 12.99999999999983 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 18 12.99999999999983 413 42.99999999999997
+0 2 2 "0s" 0 0 0 64 0 0  18 12.99999999999983 1
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Base configuration
+LANG:10004 12 基本配置
+LANG:10000 18 Basiskonfiguration
+LANG:10027 39 Базовая конфигурация
+2 33
+"shortdesc"
+""
+1 47 32.18701929100259 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E 1 0 1.034883720930233 0 -1.081395348837211 0 E 47 31.99999999999997 324 115
+0 1 1 "0s" 0 0 0 192 0 0  47 31.99999999999997 5
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 38 Within this panel the global settings 
+LANG:10004 57 在此面板中，可以进行主系统的全局设置。
+LANG:10000 49 Über dieses Panel können globale Einstellungen 
+LANG:10027 78 В этой панели могут быть сконфигурированы 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 34 for the master system can be made.
+LANG:10004 0 
+LANG:10000 41 für das Mastersystem vorgenommen werden.
+LANG:10027 76 глобальные настройки для системы-мастера
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+20 36
+"cbx_Master"
+""
+1 24 128 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  22 126 146 164
+1
+T 
+4
+LANG:10001 13 Master system
+LANG:10004 9 主系统
+LANG:10000 12 Mastersystem
+LANG:10027 27 Система-мастер
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+   bMaster = state;
+  
+  if(dpExists(distsync_getDistSyncDP()))
+    fillSyncTable(distsync_getDistSyncDP());
+  else
+    fillSyncTable(DISTSYNC_BASE_DP);
+     
+  if(bMaster)
+    txtMasterSystem.text(getSystemName());
+  else
+    txtMasterSystem.text(distsync_getMasterSystem());
+  
+  save.enabled(bMaster);
+ 
+  
+}
+
+
+" 0
+14 24
+"txtMasterSystem"
+""
+1 214 134.7217852569965 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,10,-1,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  212 133 349 158
+3 "0s" 0 0 0 0 0 -1  E E E
+30 43
+"FRAME3"
+""
+1 20 42 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+36 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.4706374256783391 0 0.2714929143663745 190.5872514864332 94.59729759661227 0 E 20 42 396 284
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 16  Master system: 
+LANG:10004 10 主系统:
+LANG:10000 15  Mastersystem: 
+LANG:10027 29  Система-мастер:
+30 44
+"FRAME4"
+""
+1 20 42 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+37 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9790022402673133 0 0.7546739117124036 -10.58004480534627 152.3036957080791 0 E 20 42 396 284
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 Data to be synchronized
+LANG:10004 18 要同步的数据
+LANG:10000 23 Daten für den Abgleich
+LANG:10027 46 Данные для синхронизации
+13 46
+"cmdDelete"
+""
+1 24.50600883652433 395.4770833333333 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Delete Configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  24 397 67 439
+
+P 
+4294967295
+"pictures/StandardIcons/delete_32.png"
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  string sSystem = \"\", sSystemCheck = \"\";
+  dyn_float df;
+  dyn_string ds;
+  bool bDelete = false;
+  
+  if (!getUserPermission(4) )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")),df,ds);
+    return;
+  }
+  
+  if(bMaster && dynlen(distsync_getMyClientSystems()) > 0)
+  {
+     ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"ClientSystemExist\")),df,ds);
+    return;
+  }  
+  
+  string sText = \"\";
+
+  
+  if(bClient && dpExists(distsync_getDistSyncDP()))
+  {
+    dpGet(distsync_getDistSyncDP()+\".Config.MasterSystem\",sSystem);
+    if(!dpExists(sSystem+distsync_getDistSyncDP()))
+      bDelete = true;
+    else
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(DISTSYNC_MSGCAT,\"ClientDeletionNOK\")),df,ds);
+      return;
+    }
+      
+  }
+
+
+  
+  if(bMaster)
+    bDelete = true;
+  
+  
+  if(bDelete)
+  {
+    // Sicherheitsabfrage
+    sText = getCatStr(\"distsync\",\"SystemDeletion\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(    sText,
+                             getCatStr(\"general\",\"OK\"),
+                             getCatStr(\"sc\",\"cancel\")),df,ds);
+    
+    
+    if( df[1] == 1 ) //OK
+    {
+      if(dpExists(distsync_getDistSyncDP())) 
+      {
+        dpSet(distsync_getDistSyncDP()+\".Config.MasterSystem\",\"\");
+        dpDelete(distsync_getDistSyncDP());
+      }
+      
+      bMaster = false;
+      bClient = false;
+
+      txtMasterSystem.text(\"\");
+      ClosePanel();
+    }
+    else
+      return; 
+
+  }
+   
+  initPanel();
+}
+
+" 0
+ E E E
+2 51
+"PRIMITIVE_TEXT3"
+""
+1 82.94857142857146 399.1770833333333 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 82.94857142857146 399.1770833333333 347.9485714285714 434.1770833333333
+0 2 2 "0s" 0 0 0 64 0 0  82.94857142857146 399.1770833333333 5
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 29 The current configuration of 
+LANG:10004 45 分布式管理的当前配置将会被删除
+LANG:10000 27 Die aktuelle Konfiguration 
+LANG:10027 46 Текущая конфигурация для
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 31 Dist management will be deleted
+LANG:10004 0 
+LANG:10000 34 zur Distverwaltung wird gelöscht.
+LANG:10027 49 DIST-менеджера будет удалена
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+30 54
+"FRAME5"
+""
+1 19 369 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+45 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.051428571428572 0 0.8229166666666666 -9.977142857142869 70.34375 0 E 19 369 368 464
+4
+LANG:10001 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 26 Löschen der Konfiguration
+LANG:10027 39 Удалить конфигурацию
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 0 T 0 0.9163552912276167 0 1 -28 465
+0
+0

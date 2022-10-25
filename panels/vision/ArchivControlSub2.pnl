@@ -1,0 +1,3349 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 936 511 N "_3DFace" 2
+"$fileType"
+"$host"
+"bool isConnected;
+
+main()
+{
+  string dataSet;
+  isConnected = false;  
+  
+  if ( isLightRedundant() || $host == \"\" )
+  {
+    if (      $fileType == \"_Event\" )
+      dataSet = \"_DataSet\";
+    else if ( $fileType == \"_Alert\" )
+      dataSet = \"_AlertDataSet\";
+
+    if ( $fileType != \"_LA\"  )
+    {
+      getMediaInfo( $fileType, $host );
+      
+      if ( dpConnect(\"refresh\", true, $fileType + \"ArchivControl\" + $host + \".Media.CycleRefresh12:_online.._value\" ) == -1 ) 
+        setValue( \"\", \"backCol\", \"_dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+
+      if ( dpConnect(\"workNewDir\", true, dataSet + $host + \".List.States:_online.._value\" ) == -1 )
+        setValue( \"\", \"backCol\", \"_dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+
+      if ( dpConnect(\"workConnect\", true, $fileType + \"ArchivControl\" + $host + \".Media.Descript:_online.._value\" ) == -1 )
+        setValue( \"\", \"backCol\", \"_dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+ 
+      if ( dpConnect(\"workStatus\", true, $fileType + \"ArchivControl\" + $host +  \".StatusMedia:_online.._value\" ) == -1 )
+        setValue( \"\", \"backCol\", \"_dpdoesnotexist\" ,\"foreCol\",\" _dpdoesnotexist\" );
+
+      if ( dpConnect(\"doDiscUsage\", true, \"_ArchivDisk\" + $host + \".AvailPerc:_online.._value\" ) == -1 )
+        setValue( \"\", \"backCol\",\" _dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+    }
+  }
+}
+
+refresh( string     dp,
+         dyn_string ds )
+{
+  string r;
+  int    p,
+         h,
+         m,
+         c,
+         cx;
+  
+  r = ds[1];
+  sscanf( ds[2], \"%2d\", p );
+  sscanf( ds[3], \"%2d\", h );
+  sscanf( ds[4], \"%2d\", m );
+  sscanf( ds[5], \"%5d\", cx );
+
+  getValue( \"Media_CycleTime_Count\", \"text\", c );
+  refreshMediaCycle( c, h, m );
+  setMultiValue( \"Media_CycleTime_Resolution\", \"text\", r,
+                 \"Media_CycleTime_C\",          \"text\", p );
+  displayMediaFields( $fileType, p );
+}
+workStatus(string dp, bool wert)
+{
+  // IM 112404 - modification to read settings for the timed-function
+  bool b_validTF;
+  time t_from, t_until;
+  
+  dpGet($fileType + \"FileArchiv\" + $host + \".validFrom\",t_from,
+        $fileType + \"FileArchiv\" + $host + \".validUntil\",t_until);
+  
+  //DebugTN(__LINE__,\"ArchivControlSub1 - check filechange timed-function\",t_from,t_until);
+  
+  if(t_from < getCurrentTime() && t_until > getCurrentTime())
+  {
+    b_validTF = 1;
+    //DebugTN(__LINE__,\"ArchivControlSub1 - check filechange timed-function\",b_validTF);
+  }
+  else if(t_from == 0 && t_until == 0)
+  {
+    b_validTF = 1;
+    //DebugTN(__LINE__,\"ArchivControlSub1 - check filechange timed-function\",b_validTF);
+  }
+  else
+  {
+    b_validTF = 0;
+    //DebugTN(__LINE__,\"ArchivControlSub1 - check filechange timed-function\",b_validTF);
+  }
+  
+  if(wert && b_validTF == 1)
+  {
+    setMultiValue(\"StatusMedia\",\"backCol\",\"Green\");
+  }
+  else
+  {
+    setMultiValue(\"StatusMedia\",\"backCol\",\"Red\");
+
+    // IM 112404 - if timed-function is active but status shell be set inactive deactivate the timed function
+    if(b_validTF == 1 && wert == 0)
+    {
+      dpSetWait($fileType + \"FileArchiv\" + $host + \".validFrom\",0,
+                $fileType + \"FileArchiv\" + $host + \".validUntil\",1);
+    }
+  }
+}
+
+doDiscUsage( string dp,
+             int    wert )
+{
+  string s;
+
+  wert = 100 - wert;
+  sprintf( s, \"%3d%\", wert );
+  setValue( \"Disk_Usage\", \"text\", s );
+}
+
+workNewMediaDir( string   dp,
+                 dyn_time wert )
+{
+  getMediaDir( $fileType, $host );
+}
+
+workNewDir( string    dp,
+            dyn_bit32 wert )
+{
+  getSystemDir( $fileType, $host );
+}
+
+workConnect( string     dp,
+             dyn_string wert )
+{
+  dyn_string ds;
+  string     str;
+
+  if( dynlen( wert ) > 1 )
+  {
+    str = wert[1];
+    ds  = dpNames( $fileType + \"ArchivDir\" + str );
+    if( dynlen( ds ) != 0 && str != \"\" && isConnected == true )
+    {
+      dpDisconnect( \"workNewMediaDir\" ,$fileType + \"ArchivDir\" + wert[1] + \".File:_online.._value\" );
+      isConnected = false;
+    }  
+    str = wert[2];
+    if ( str != \"\" )
+    {
+      dpConnect( \"workNewMediaDir\", true, $fileType + \"ArchivDir\" + wert[2] + \".File:_online.._value\" );
+      isConnected = true;
+    }
+    else
+    {
+      setMultiValue( \"Media_Table\", \"deleteAllLines\",
+                     \"Media_Usage\", \"text\", \"\" );
+    }
+    setValue( \"Media_Descript\", \"text\", str );
+  }
+}
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  10 10
+""0  1
+E "deselectTableLines()
+{
+  dyn_int diDisk, diMedia;
+  
+  getMultiValue(\"Disk_Table\",  \"getSelectedLines\", diDisk,
+                \"Media_Table\", \"getSelectedLines\", diMedia);
+  
+  if ( dynlen(diDisk) )
+    setValue(\"Disk_Table\",  \"removeSelectLines\", diDisk);
+  
+  if ( dynlen(diMedia) )
+    setValue(\"Media_Table\", \"removeSelectLines\", diMedia);
+}
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 73
+"lblConfig"
+""
+1 14 11 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+73 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 14 11 95 26
+0 0 0 "0s" 0 0 0 192 0 0  14 11 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Configuration:
+LANG:10004 7 配置:
+LANG:10000 14 Konfiguration:
+LANG:10027 25 Конфигурация:
+2 3
+"Media_Device_Title"
+""
+1 360 135 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 360 135 402 150
+0 0 0 "0s" 0 0 0 192 0 0  360 135 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 device:
+LANG:10004 9 设备：
+LANG:10000 7 Device:
+LANG:10027 21 Устройство:
+2 4
+"Media_MountDir_Title"
+""
+1 355 160 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 355 160 451 175
+0 0 0 "0s" 0 0 0 192 0 0  355 160 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Mount directory:
+LANG:10004 15 加载路径：
+LANG:10000 18 Mount-Verzeichnis:
+LANG:10027 40 Каталог монтирования:
+2 11
+"BindestrichMedia"
+""
+1 514 91 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 514 91 526 108
+0 0 0 "0s" 0 0 0 192 0 0  514 91 1
+4
+LANG:10001 32 courier new,-1,16,5,50,0,0,0,0,0
+LANG:10004 32 courier new,-1,16,5,50,0,0,0,0,0
+LANG:10000 32 courier new,-1,16,5,50,0,0,0,0,0
+LANG:10027 32 courier new,-1,16,5,50,0,0,0,0,0
+0 4
+LANG:10001 1 -
+LANG:10004 1 -
+LANG:10000 1 -
+LANG:10027 1 -
+2 12
+"Text_MediaDays"
+""
+1 527 65 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 527 65 559 80
+0 0 0 "0s" 0 0 0 192 0 0  527 65 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Days
+LANG:10004 3 日
+LANG:10000 4 Tage
+LANG:10027 6 Дни
+2 13
+"Text_MediaHours"
+""
+1 588 66 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 588 66 606 81
+0 0 0 "0s" 0 0 0 192 0 0  588 66 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 Hr.
+LANG:10004 3 Hr.
+LANG:10000 4 Std.
+LANG:10027 7 Час.
+2 14
+"Text_MediaMinutes"
+""
+1 625 66 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 625 66 652 81
+0 0 0 "0s" 0 0 0 192 0 0  625 66 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Min.
+LANG:10004 4 Min.
+LANG:10000 4 Min.
+LANG:10027 7 Мин.
+2 17
+"lblStd"
+""
+1 373 67 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 373 67 391 82
+0 0 0 "0s" 0 0 0 192 0 0  373 67 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 Hr.
+LANG:10004 3 Hr.
+LANG:10000 4 Std.
+LANG:10027 7 Час.
+2 18
+"lblMin"
+""
+1 414 67 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 414 67 441 82
+0 0 0 "0s" 0 0 0 192 0 0  414 67 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 4 Min.
+LANG:10004 4 Min.
+LANG:10000 4 Min.
+LANG:10027 7 Мин.
+2 33
+"lblMedium"
+""
+1 485 148 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 446 148 485 163
+0 0 0 "0s" 0 0 0 194 0 0  485 148 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Media:
+LANG:10004 9 介质：
+LANG:10000 7 Medium:
+LANG:10027 17 Носитель:
+2 74
+"lblMedName"
+""
+1 155 11 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+74 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 155 11 232 26
+0 0 0 "0s" 0 0 0 192 0 0  155 11 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Media name:
+LANG:10004 12 介质名：
+LANG:10000 11 Medienname:
+LANG:10027 24 Имя носителя:
+6 45
+"StatusMedia"
+""
+1 395 376 E E E 1 E 1 E N "Schwarz" E N "Green" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -38 -10 1 E 395 376 449 393
+2 46
+"lblSystem"
+""
+1 30 148 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 30 148 81 163
+0 0 0 "0s" 0 0 0 192 0 0  30 148 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 System:
+LANG:10004 9 系统：
+LANG:10000 7 System:
+LANG:10027 15 Система:
+6 56
+"Status"
+""
+1 396 377 E E E 1 E 1 E N "Weiss" E N "_Transparent" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 -38 -10 0 E 396 377 450 394
+2 59
+"Text_MediaMonthDay"
+""
+1 352 35 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 285 35 362 50
+0 0 0 "0s" 0 0 0 194 0 0  362 35 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Day of month
+LANG:10004 11 日(按月)
+LANG:10000 3 Tag
+LANG:10027 8 День
+2 61
+"Text_MediaWeekDay"
+""
+1 327 35 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 291 35 362 50
+0 0 0 "0s" 0 0 0 194 0 0  362 35 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Day of week
+LANG:10004 11 日(按周)
+LANG:10000 10  Wochentag
+LANG:10027 21 День недели
+2 62
+"Text_MediaMonth"
+""
+1 290 67 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 290 67 317 82
+0 0 0 "0s" 0 0 0 192 0 0  290 67 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 Mon
+LANG:10004 9 星期一
+LANG:10000 5 Monat
+LANG:10027 10 Месяц
+2 65
+"Text_MediaResolution"
+""
+1 527 65 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 527 65 590 80
+0 0 0 "0s" 0 0 0 192 0 0  527 65 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Frequency
+LANG:10004 6 频率
+LANG:10000 10 Auflösung
+LANG:10027 26 Периодичность
+2 69
+"Client_Name_Titel"
+""
+1 155 62 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 155 62 194 77
+0 0 0 "0s" 0 0 0 192 0 0  155 62 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Client:
+LANG:10004 12 客户端：
+LANG:10000 7 Client:
+LANG:10027 13 Клиент:
+2 70
+"Text9"
+""
+1 14 62 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 14 62 63 77
+0 0 0 "0s" 0 0 0 192 0 0  14 62 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Save to:
+LANG:10004 12 保存到：
+LANG:10000 14 Sicherung auf:
+LANG:10027 26 Копирование в:
+22 0
+"Media_SyncTime_Month"
+""
+1 288 82 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  288 82 367 108
+12
+4
+LANG:10001 4 Jan.
+LANG:10004 6 一月
+LANG:10000 4 Jan.
+LANG:10027 12 Январь
+
+0
+4
+LANG:10001 4 Feb.
+LANG:10004 6 二月
+LANG:10000 4 Feb.
+LANG:10027 14 Февраль
+
+0
+4
+LANG:10001 4 Mar.
+LANG:10004 6 三月
+LANG:10000 4 Mar.
+LANG:10027 8 Март
+
+0
+4
+LANG:10001 4 Apr.
+LANG:10004 6 四月
+LANG:10000 5 April
+LANG:10027 12 Апрель
+
+0
+4
+LANG:10001 3 May
+LANG:10004 6 五月
+LANG:10000 3 Mai
+LANG:10027 6 Май
+
+1
+4
+LANG:10001 4 Jun.
+LANG:10004 6 六月
+LANG:10000 4 Juni
+LANG:10027 8 Июнь
+
+0
+4
+LANG:10001 4 Jul.
+LANG:10004 6 七月
+LANG:10000 4 Juli
+LANG:10027 8 Июль
+
+0
+4
+LANG:10001 4 Aug.
+LANG:10004 6 八月
+LANG:10000 4 Aug.
+LANG:10027 12 Август
+
+0
+4
+LANG:10001 4 Sep.
+LANG:10004 6 九月
+LANG:10000 4 Sep.
+LANG:10027 16 Сентябрь
+
+0
+4
+LANG:10001 4 Oct.
+LANG:10004 6 十月
+LANG:10000 4 Okt.
+LANG:10027 14 Октябрь
+
+0
+4
+LANG:10001 4 Nov.
+LANG:10004 9 十一月
+LANG:10000 4 Nov.
+LANG:10027 12 Ноябрь
+
+0
+4
+LANG:10001 4 Dec.
+LANG:10004 9 十二月
+LANG:10000 4 Dez.
+LANG:10027 14 Декабрь
+
+0
+
+E
+E
+E
+ 0 0
+13 1
+"Stop"
+""
+1 671 361 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  671 361 759 389
+
+T 
+4
+LANG:10001 10 Deactivate
+LANG:10004 6 停用
+LANG:10000 12 Deaktivieren
+LANG:10027 19 Деактивир.
+"main()
+{
+  time t;
+/*
+int iStatus;
+  dpGet($fileType+\"ArchivControl\"+$host+\".ActionInProgress:_online.._value\", iStatus);
+  if( iStatus != 109 )
+  {  
+Hier der Teil unten
+  }
+*/
+  dpSet($fileType+\"ArchivControl\"+$host+\".StatusMedia:_original.._value\",0);
+
+  dpSet($fileType+\"FileArchiv\"+$host+\".validFrom:_original.._value\",setPeriod(t,0),
+        $fileType+\"FileArchiv\"+$host+\".validUntil:_original.._value\",setPeriod(t,1));
+}" 0
+ E E E
+14 7
+"Media_CycleTime_Hours"
+""
+1 586 82 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  586 82 615 108
+2 "2d" 2 0 0 2 0 -1  E E E
+14 8
+"Media_CycleTime_Minutes"
+""
+1 623 82 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  623 82 652 108
+2 "2d" 2 0 0 2 0 -1  E E E
+14 9
+"Media_CycleTime_Days"
+""
+1 525 82 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  525 82 560 108
+2 "3d" 3 0 0 2 0 -1  E E E
+14 10
+"Media_CycleTime_Count"
+""
+1 477 82 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E "main()
+{
+  int x,err;
+
+  getValue(\"Media_CycleTime_Count\",\"text\",x);
+  if ((err=checkValue(x,1,999,309))==0)
+    dpSet($fileType+\"ArchivControl\"+$host+\".Media.CycleRefresh21:_original.._value\",true);
+  else
+    doError(err);
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  477 82 512 108
+3 "3d" 3 0 0 2 0 -1  E E "main()
+{
+  int x,err;
+
+  getValue(\"Media_CycleTime_Count\",\"text\",x);
+  if ((err=checkValue(x,1,999,309))==0)
+    dpSet($fileType+\"ArchivControl\"+$host+\".Media.CycleRefresh21:_original.._value\",true);
+  else
+    doError(err);
+}" 0
+
+14 15
+"Media_SyncTime_Hour"
+""
+1 371.1176470588235 82 E E E 1 E 1 E N "_3DText" E N "weiss" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  371 82 407 108
+3 "2d" 2 0 1 2 0 -1  E E "main()
+{
+  int x,
+      err;
+
+  getValue( \"Media_SyncTime_Hour\", \"text\", x );
+  err = checkValue( x, 0, 23, 307 );
+  if( err != 0 ) {
+    if( x <  0 ) x = 0;
+    if( x > 23 ) x = 23;
+    setValue( \"\", \"text\", x );
+    doError( err );
+  }
+}
+" 0
+
+14 16
+"Media_SyncTime_Minute"
+""
+1 411.9428571428572 82 E E E 1 E 1 E N "_3DText" E N "weiss" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  412 82 452 108
+3 "2d" 2 0 1 2 0 -1  E E "main()
+{
+  int x,
+      err;
+
+  getValue( \"Media_SyncTime_Minute\", \"text\", x );
+  err = checkValue( x, 0, 59, 308 );
+  if( err != 0 ) {
+    if( x <  0 ) x = 0;
+    if( x > 59 ) x = 59;
+    doError( err );
+  }
+}" 0
+
+14 19
+"Media_MountDir"
+""
+1 572 235 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  353 218 460 244
+3 "0s" 0 0 0 0 0 -1  E E E
+14 20
+"Media_Device"
+""
+1 55.75229357798165 82 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  57 82 238 108
+2 "0s" 0 0 0 0 0 -1  E E E
+22 21
+"Media_Name"
+""
+1 12 31 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  12 31 150 57
+0
+
+"main()
+{
+  dpConnect( \"getwert\",\"_MediaConfig.Name:_online.._value\");
+  // IM 112396 - change wantsAnswer = true to call refreshMedia() to set the correct information when opening the panel
+  dpConnect( \"refreshMedia\", true, $fileType + \"ArchivControl\" + $host + \".Media.Refresh:_online.._value\" );
+}
+
+refreshMedia(string dp, bool neu)
+{
+  int        i,
+             p,
+             d,
+             h,
+             m,
+             err;
+  string     wert;
+  dyn_uint   siz,
+             dir,
+             hou,
+             min,
+             cyc;
+  dyn_string sel,
+             dev,
+             mou,
+             typ,
+             day;
+
+  dpGet( \"_MediaConfig.Name:_online.._value\",                                 sel,
+         $fileType + \"ArchivControl\" + $host + \".Media.Name:_online.._value\", wert );
+  i = 1;
+  p = -1;
+
+  while ( i <= dynlen( sel ) && p == -1 )
+  {
+    if ( sel[i] == wert )
+      p = i;
+    else
+      i++;
+  }
+
+  if ( p > 0 )
+  {
+    dpGet( \"_MediaConfig.Device:_original.._value\",   dev,
+           \"_MediaConfig.MountDir:_original.._value\", mou,
+           \"_MediaConfig.Type:_original.._value\",     typ,
+           \"_MediaConfig.Size:_original.._value\",     siz );
+
+    setValue( \"Media_Device\",   \"text\", dev[p] );
+    setValue( \"Media_MountDir\", \"text\", mou[p] );
+
+    // azure dev ops server issue #116923
+    displayMediaTypeFields(typ[p]);
+
+    setValue( \"Media_Type\", \"text\", typ[p] );
+    setValue( \"Media_Size\", \"text\", siz[p] );
+  }
+}
+
+getwert(string dp, dyn_string wert )
+{
+  int i;
+  string s_config;
+
+  setValue( \"Media_Name\", \"deleteAllItems\" );
+
+  // azure dev ops server issue #116923
+  if ( dynlen( wert ) > 0 )
+    setMultiValue( \"Media_Name\", \"items\", wert,
+                   \"Media_Name\", \"selectedPos\", 1);
+
+  s_config = Media_Name.selectedText;
+
+  i = 1;
+
+  while ( i <= dynlen( wert ) )
+  {
+    if ( wert[i] == \"--\" )
+    {
+      setValue( \"Media_Name\", \"deletePos\", i );
+      getValue( \"Media_Name\", \"items\",     wert );
+    }
+    else
+      i++;
+  }
+
+  // IM 102665 -->
+  // Whenever a new configuration is added the media name combobox
+  // (Media_Name) is updated. To make it possible to initialize
+  // all parameters have to be provided to all other shapes!
+  dyn_uint   siz;
+  dyn_string dev, mou, typ;
+
+  dpGet( \"_MediaConfig.Device\",   dev,
+         \"_MediaConfig.MountDir\", mou,
+         \"_MediaConfig.Type\",     typ,
+         \"_MediaConfig.Size\",     siz );
+
+  // Don't initialize if there is no configuration yet
+  if ( dynlen(dev) == 0 )
+    return;
+
+  // Initialize to first configuration in list if failure to find
+  // otherwise initialize to the (combobox-)selected configuration
+  int index = dynContains(wert, s_config);
+
+  //DebugTN(__LINE__,\"index of current configuration\",index,wert,s_config);
+
+  if (index < 1 || index > dynlen(typ))
+  {
+    index = 1;
+  }
+  else
+  {
+    //set again the name for the current configuration if it is part of the configuration list
+    Media_Name.text = s_config;
+  }
+
+  setValue( \"Media_Device\",   \"text\", dev[index] );
+  setValue( \"Media_MountDir\", \"text\", mou[index] );
+
+  // azure dev ops server issue #116923
+  displayMediaTypeFields(typ[index]);
+
+  setValue( \"Media_Type\", \"text\", typ[index] );
+  setValue( \"Media_Size\", \"text\", siz[index] );
+  // --> IM 102665
+}
+
+
+
+
+
+
+" 0
+
+"main()
+{
+  int        i,
+             x,
+             p,
+             d,
+             h,
+             m,
+             err;
+  string     t;
+  dyn_uint   siz,
+             dir,
+             hou,
+             min,
+             cyc;
+  dyn_string wert,
+             sel,
+             dev,
+             mou,
+             typ,
+             day;
+
+  getMultiValue( \"Media_Name\", \"text\",        t,
+                 \"Media_Name\", \"itemCount\",   x,
+                 \"Media_Name\", \"selectedPos\", p,
+                 \"Media_Name\", \"items\",       sel );
+
+  dpGet( \"_MediaConfig.Name\", wert );
+  i = 1;
+  p = -1;
+
+  while( i <= dynlen( wert ) && p == -1 )
+  {
+    if ( wert[i] == t )
+      p = i;
+    else
+      i++;
+  }
+
+  setValue( \"Media_Name\", \"replacePos\", p, t );
+
+  if( p > 0 )
+  {
+    dpGet(\"_MediaConfig.Device:_original.._value\",   dev,
+          \"_MediaConfig.MountDir:_original.._value\", mou,
+          \"_MediaConfig.Type:_original.._value\",     typ,
+          \"_MediaConfig.Size:_original.._value\",     siz );
+
+    setValue(\"Media_Device\",   \"text\", dev[p] );
+    setValue(\"Media_MountDir\", \"text\", mou[p] );
+
+    // azure dev ops server issue #116923
+    displayMediaTypeFields(typ[p]);
+
+    setValue( \"Media_Type\", \"text\", typ[p] );
+    setValue( \"Media_Size\", \"text\", siz[p] );
+
+    //setValue( \"Media_Name\", \"items\", sel );
+  }
+}
+" 0
+
+E
+ 0 0
+25 22
+"Disk_Table"
+""
+1 20 185 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  20 185 340 340
+EE 1 0 1 3 5 "type" 3 1 0 "s" 4
+LANG:10001 4 Type
+LANG:10004 6 类型
+LANG:10000 3 Typ
+LANG:10027 6 Тип
+"main()
+{
+  mrkTable(\"Disk_Table\");
+}
+  " 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+41 "start" 13 1 0 "s" 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 6 Anfang
+LANG:10027 10 Старт
+"main()
+{
+  mrkTable(\"Disk_Table\");
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+152 "cycle" 8 1 0 "s" 4
+LANG:10001 11 Time period
+LANG:10004 12 时间周期
+LANG:10000 5 Dauer
+LANG:10027 12 Период
+"main()
+{
+  mrkTable(\"Disk_Table\");
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+104 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+8 88
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+25 25
+"Media_Table"
+""
+1 432.7777777777779 184.9735099337748 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  433 185 747 342
+EE 1 0 1 2 5 "start" 13 1 0 "s" 4
+LANG:10001 5 Start
+LANG:10004 6 开始
+LANG:10000 6 Anfang
+LANG:10027 10 Старт
+"main()
+{
+  mrkTable(\"Media_Table\");
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+157 "cycle" 11 1 0 "s" 4
+LANG:10001 11 Time period
+LANG:10004 12 时间周期
+LANG:10000 5 Dauer
+LANG:10027 12 Период
+"main()
+{
+  mrkTable(\"Media_Table\");
+}" 0
+
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+134 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+8 88
+3
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 28
+"Media_Select"
+""
+1 671 143 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  671 143 711 171
+
+T 
+4
+LANG:10001 3 All
+LANG:10004 6 所有
+LANG:10000 4 Alle
+LANG:10027 6 Все
+"main()
+{
+  mrkTableAll(\"Media_Table\");
+}" 0
+ E E E
+13 29
+"Harddisc_Select"
+""
+1 260 143 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  260 143 300 171
+
+T 
+4
+LANG:10001 3 All
+LANG:10004 6 所有
+LANG:10000 4 Alle
+LANG:10027 6 Все
+"main()
+{
+  mrkTableAll(\"Disk_Table\");
+}" 0
+ E E E
+13 30
+"Harddisc_Delete"
+""
+1 310 143 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  310 143 338 171
+
+P 
+10789024
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string rt;
+  dyn_float rf;
+  string s;
+  string teile;
+
+  teile = getCatStr(\"archivControl\",\"filedelete\");
+  strreplace(teile,\"§\",\"\\n\");    
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr( \"archivControl\", \"message\" ), makeDynString(teile,getCatStr(\"archivControl\",\"ja\"),getCatStr(\"archivControl\",\"nein\")),rf,rt);
+  if ((dynlen(rf)>0) && (rf[1] ==1))
+    doAction(6,$fileType,$host);
+  
+  deselectTableLines();
+}
+
+" 0
+ E E E
+13 31
+"Harddisc_Move"
+""
+1 371 243 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  371 243 399 271
+
+P 
+10789024
+"pictures/StandardIcons/arrow_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string rt;
+  dyn_float  rf;
+  string     teile;
+  int        err,
+             sd;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    teile = getCatStr( \"archivControl\", \"bond\" );
+    strreplace( teile, \"§\", \"\\n\" );    
+    ChildPanelOnCentralModalReturn( \"vision/MessageInfo\",
+                                    getCatStr( \"archivControl\", \"message\" ),
+                                    makeDynString( teile,
+                                                   getCatStr( \"archivControl\", \"ja\" ),
+                                                   getCatStr( \"archivControl\", \"nein\" ) ),
+                                    rf,
+                                    rt );
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    getValue( \"Save_Selection\", \"selectedPos\", sd );
+    if( dynlen( rf ) >  0 &&
+        rf[1]        == 1 ) {
+      if( sd == 3 ) doError( 317 ); 
+      else          doAction( 7, $fileType, $host );
+    }
+    deselectTableLines();
+  }
+}
+
+
+" 0
+ E E "main()
+{
+  dpConnect(\"CB\", $fileType + \"ArchivControl\" + $host + \".StatusMedia:_online.._value\" );
+}
+
+CB(string dp, bool b)
+{
+  this.visible = TRUE; // TI 14740 
+}
+
+" 0
+
+13 32
+"Media_Move"
+""
+1 371 213 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  371 213 399 241
+
+P 
+10789024
+"pictures/StandardIcons/arrow_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string rt;
+  dyn_float  rf;
+  string     teile;
+  int        err;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    teile = getCatStr( \"archivControl\", \"shwapout\") ;
+    strreplace( teile, \"§\", \"\\n\" );    
+    ChildPanelOnCentralReturn( \"vision/MessageInfo\",
+                                    getCatStr( \"archivControl\", \"message\" ),
+                                    makeDynString( teile, getCatStr(\"archivControl\",\"ja\"),
+                                                          getCatStr(\"archivControl\",\"nein\")),
+                                    rf,
+                                    rt );
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    if( dynlen( rf ) > 0 &&
+        rf[1] == 1 ) {
+      doAction( 5, $fileType, $host );
+    }
+    deselectTableLines();
+  }
+}
+
+
+
+" 0
+ E E "main()
+{
+  dpConnect(\"CB\", $fileType + \"ArchivControl\" + $host + \".StatusMedia:_online.._value\" );
+}
+
+CB(string dp, bool b)
+{
+  this.visible = TRUE; // TI 14740
+}
+
+" 0
+
+13 34
+"Media_Init"
+""
+1 671 16 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  671 16 759 44
+
+T 
+4
+LANG:10001 10 Initialize
+LANG:10004 9 初始化
+LANG:10000 14 Initialisieren
+LANG:10027 19 Инициализ.
+"main()
+{
+  dyn_string rt,
+             ds;
+  dyn_float  rf;
+  string     sx,
+             teile;
+  int        err;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    getValue( \"Media_Descript\", \"text\", sx );
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    if( sx == \"\" ) {
+      teile = getCatStr( \"archivControl\", \"media\" );
+      strreplace( teile, \"§\", \"\\n\" );
+      ChildPanelOnCentralModalReturn( \"vision/MessageWarning2\",
+                                      getCatStr( \"archivControl\", \"message\" ),
+                                      makeDynString( teile,
+                                                     getCatStr( \"archivControl\", \"ja\" ),
+                                                     getCatStr( \"archivControl\", \"nein\" ) ),
+                                      rf,
+                                      rt );
+    }  
+    else {
+      teile = getCatStr( \"archivControl\", \"delete\" );
+      strreplace( teile, \"§\", \"\\n\" );    
+      ChildPanelOnCentralModalReturn( \"vision/MessageWarning2\",
+                                      getCatStr( \"archivControl\", \"message\" ),
+                                      makeDynString( teile,
+                                                     getCatStr( \"archivControl\", \"ja\" ),
+                                                     getCatStr( \"archivControl\", \"nein\" ) ),
+                                      rf,
+                                      rt );
+
+      if( dynlen( rf ) > 0 && rf[1] == 1 ){
+        dpSet( $fileType + \"ArchivControl\" + $host + \".Media.DescriptTmp:_original.._value\", sx );
+        ds = dpNames( $fileType + \"ArchivDir\" + sx );
+        if( dynlen( ds ) != 0 ) {
+          teile = getCatStr( \"archivControl\", \"exist\" );
+          strreplace( teile, \"§\", \"\\n\" );
+          ChildPanelOnCentralModalReturn( \"vision/MessageWarning2\",
+                                          getCatStr( \"archivControl\", \"message\" ),
+                                          makeDynString( teile,
+                                                         getCatStr( \"archivControl\", \"ja\" ),
+                                                         getCatStr( \"archivControl\", \"nein\" ) ),
+                                          rf,
+                                          rt );
+
+          teile = getCatStr( \"archivControl\", \"315\" );
+          strreplace( teile, \"§\", \"\\n\" );
+          ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                                    getCatStr( \"archivControl\", \"message\" ),
+                                    makeDynString( teile ) );
+        }
+        else {
+          strreplace( teile, \"§\", \"\\n\" );
+          doAction( 3, $fileType, $host );
+        }
+      }
+    }
+  }
+}
+" 0
+ E E E
+13 35
+"Media_Refresh"
+""
+1 671 49 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  671 49 759 77
+
+T 
+4
+LANG:10001 4 Load
+LANG:10004 6 加载
+LANG:10000 8 Einlesen
+LANG:10027 18 Загрузить
+"main()
+{
+  dyn_string rt;
+  dyn_float  rf;
+  string     teile;
+  int        err,
+             sd;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    teile = getCatStr( \"archivControl\", \"update\" );
+    strreplace( teile, \"§\", \"\\n\" );
+    ChildPanelOnCentralModalReturn( \"vision/MessageInfo\",
+                                    getCatStr( \"archivControl\",
+                                               \"message\" ),
+                                    makeDynString( teile,
+                                                   getCatStr( \"archivControl\",
+                                                              \"ja\" ),
+                                                   getCatStr( \"archivControl\",
+                                                              \"nein\" ) ),
+                                   rf,
+                                   rt );
+    getValue( \"Save_Selection\",          \"selectedPos\", sd );
+    if( dynlen( rf ) > 0 && rf[1] == 1 ) {
+      if( sd == 3 ) doError( 317 ); 
+      else          doAction( 4, $fileType, $host );
+    }
+    deselectTableLines();
+  }
+}
+" 0
+ E E E
+13 36
+"Media_Two"
+""
+1 270 47 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  243 45 271 73
+
+T 
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+"main()
+{
+  string     teile;
+  int        err,
+             i, p; 
+  string s,wert;
+  dyn_string sel, typ;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    getValue(\"Media_Name\",\"text\",wert);
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    dpGet(\"_MediaConfig.Name:_online.._value\",sel); 
+    i=1;  p=-1;
+    while (i <= dynlen(sel) && p == -1)
+    {
+      if (sel[i] == wert) p=i;
+      else i ++;
+    }    
+    if (p>0)
+    {
+      dpGet(\"_MediaConfig.Type:_original.._value\",typ);
+      if (typ[p]==\"DAT\" || typ[p]==\"QIC\") 
+        doAction(1,$fileType,$host);
+      else
+        doAction(9,$fileType,$host);
+    }
+    deselectTableLines();
+  }
+}
+" 0
+ E E E
+13 37
+"Media_One"
+""
+1 270 15 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  243 13 271 41
+
+T 
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+"main()
+{
+  string     teile;
+  int        err,
+             i, p; 
+  string s,wert;
+  dyn_string sel, typ;
+  string     cn;
+  int        ss;
+
+
+  getMultiValue(\"Save_Selection\", \"selectedPos\", ss, 
+                \"Client_Name\", \"text\", cn ); 
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    getValue(\"Media_Name\",\"text\",wert);
+    if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+      strreplace( teile, \"§\", \"\\n\" );
+      doError( err );
+    }
+    dpGet(\"_MediaConfig.Name:_online.._value\",sel); 
+    i=1;  p=-1;
+    while (i <= dynlen(sel) && p == -1)
+    {
+      if (sel[i] == wert) p=i;
+      else i ++;
+    }    
+    if (p>0)
+    {
+      dpGet(\"_MediaConfig.Type:_original.._value\",typ);
+      if (typ[p]==\"DAT\" || typ[p]==\"QIC\") 
+        doAction(2,$fileType,$host);
+      else
+        doAction(8,$fileType,$host);
+    }
+    deselectTableLines();
+  }
+}
+
+" 0
+ E E E
+13 38
+"Start"
+""
+1 10 361 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  10 361 98 389
+
+T 
+4
+LANG:10001 8 Activate
+LANG:10004 6 激活
+LANG:10000 10 Aktivieren
+LANG:10027 24 Активировать
+"main()
+{
+  bool       ok;
+  int        err;
+  int        iloff,
+             iva,
+             cc,
+             ch,
+             cd,
+             cm,
+             cr,
+             smd,
+             smo,
+             swd,
+             sh,
+             sm,
+             _swd,
+             _smd,
+             _smo,
+             jahr;
+  time       t,
+             checkDate;
+  dyn_string rt;
+  dyn_float  rf;
+  string     teile;
+  string     cn;
+  int        ss;
+
+
+  ok = true;
+  getMultiValue( \"Media_CycleTime_Count\",   \"text\",        cc,
+                 \"Media_CycleTime_Hours\",   \"text\",        ch,
+                 \"Media_CycleTime_Minutes\", \"text\",        cm,
+                 \"Media_CycleTime_Days\",    \"text\",        cd,
+                 \"Media_CycleTime_C\",       \"text\",        cr,
+                 \"Media_SyncTime_MonthDay\", \"selectedPos\", smd,
+                 \"Media_SyncTime_Month\",    \"selectedPos\", smo,
+                 \"Media_SyncTime_WeekDay\",  \"selectedPos\", swd,       
+                 \"Media_SyncTime_Hour\",     \"text\",        sh,
+                 \"Media_SyncTime_Minute\",   \"text\",        sm,
+                 \"Save_Selection\",          \"selectedPos\", ss, 
+                 \"Client_Name\",             \"text\",        cn ); 
+
+  if( ss > 1 && cn == \"\" )  
+    doError(319);  
+  else
+  {
+    if( daylightsaving( getCurrentTime() ) && ( cr == 3 || cr == 4 ) ) {
+      teile = getCatStr( \"archivControl\", \"synchron\" );
+      strreplace( teile, \"§\", \"\\n\" );
+      ChildPanelOnCentralModalReturn( \"vision/MessageInfo\",
+                                      getCatStr( \"archivControl\",
+                                                 \"message\" ),
+                                      makeDynString( teile,
+                                                     getCatStr( \"archivControl\", \"ja\"   ),
+                                                     getCatStr( \"archivControl\", \"nein\" ) ),
+                                      rf,
+                                      rt );
+      if( dynlen( rf ) > 0 && rf[1] == 0 )
+        ok = false;
+    }
+
+    if( cr == 1 ) {
+      jahr = year( getCurrentTime() );
+      checkDate = makeTime( jahr, smo, smd );
+      if( jahr != year( checkDate ) ||
+          smo  != month( checkDate ) ||
+          smd  != day(   checkDate ) ) {
+        doError( 318 );
+        ok = false;
+      }
+   }  
+
+   if( ok ) {
+      if(      $fileType == \"_Event\" ) { iloff = 0;  }
+      else if( $fileType == \"_Alert\" ) { iloff = 30; }
+      else if( $fileType == \"_LA\"    ) { iloff = 60; }
+      infoLine( iloff + 106, -1, $host );
+
+      if( ( err = setArchivDpMedia( $fileType, $host ) ) != 0 ) {
+        strreplace( teile, \"§\", \"\\n\" );
+        doError( err );
+      }
+      else { 
+        switch( cr ) {
+          case 1: iva= 365 *   24 * 60 * 60 * 2;              _smo = smo; _smd = smd; _swd = -1;  break;
+          case 2: iva=  31 *   24 * 60 * 60 * 2;              _smo = -1;  _smd = smd; _swd = -1;  break;
+          case 3: iva=   7 *   24 * 60 * 60;                  _smo =  1;  _smd =  1;  _swd = swd; break;
+          case 4: iva=  24 *   60 * 60;                       _smo =  1;  _smd =  1;  _swd =  1;  break;
+          case 5: iva=  ch * 3600 + cm * 60 + cd * 3600 * 24; _smo = -1;  _smd = -1;  _swd = -1;  break;
+        }    
+  
+        dpSet( $fileType + \"FileArchiv\" + $host + \".validFrom:_original.._value\",   setPeriod( t, 0 ),
+               $fileType + \"FileArchiv\" + $host + \".validUntil:_original.._value\",  setPeriod( t, 1 ) );
+  
+        dpSet( $fileType + \"FileArchiv\" + $host + \".validFrom:_original.._value\",   setPeriod( t, 0 ),
+               $fileType + \"FileArchiv\" + $host + \".validUntil:_original.._value\",  setPeriod( t, 0 ),
+               $fileType + \"FileArchiv\" + $host + \".time:_original.._value\",        makeDynInt(),
+               $fileType + \"FileArchiv\" + $host + \".weekDay:_original.._value\",     makeDynInt(),
+               $fileType + \"FileArchiv\" + $host + \".monthDay:_original.._value\",    makeDynInt(),
+               $fileType + \"FileArchiv\" + $host + \".month:_original.._value\",       makeDynInt(),
+               $fileType + \"FileArchiv\" + $host + \".interval:_original.._value\",    iva,
+               $fileType + \"FileArchiv\" + $host + \".syncTime:_original.._value\",    sm * 60 + sh * 60 * 60,
+               $fileType + \"FileArchiv\" + $host + \".syncWeekDay:_original.._value\", _swd,
+               $fileType + \"FileArchiv\" + $host + \".syncDay:_original.._value\",     _smd,
+               $fileType + \"FileArchiv\" + $host + \".syncMonth:_original.._value\",   _smo,
+               $fileType + \"FileArchiv\" + $host + \".delay:_original.._value\",       0 );
+  
+        dpSet( $fileType + \"ArchivControl\" + $host + \".StatusMedia:_original.._value\", 1 );
+      }
+      infoLine( 0, -1, $host );
+    }
+  }  
+}
+" 0
+ E E E
+14 39
+"Disk_Usage"
+""
+1 80 144 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  80 144 133 170
+2 "4s" 4 0 0 2 0 -1  E E E
+14 40
+"Media_Usage"
+""
+1 489 141.5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  489 142 548 171
+2 "4s" 4 0 0 2 0 -1  E E E
+14 41
+"Media_Descript"
+""
+1 165.125 31 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  153 31 238 57
+3 "8s" 8 0 0 0 0 -1  E "main()
+{
+  if (isLightRedundant())
+  {
+    if(dpConnect(\"work\",$fileType+\"ArchivControl\"+$host+\".Media.Descript:_online.._value\")==-1)
+      setValue(\"\",\"backCol\",\"_dpdoesnotexist\",\"foreCol\",\"_dpdoesnotexist\");
+  }
+  else
+  {
+    if(dpConnect(\"work\",$fileType+\"ArchivControl.Media.Descript:_online.._value\")==-1)
+      setValue(\"\",\"backCol\",\"_dpdoesnotexist\",\"foreCol\",\"_dpdoesnotexist\");
+  }
+}
+
+work(string dp,dyn_string wert)
+{
+  string str;
+
+  if (dynlen(wert) > 1)
+  {
+    int i_pos;
+    string s_media;
+
+    str = wert[2];
+
+    if ( str != \"\" )
+      dpGet(\"_AlertArchivDir\" + str + \".Media\", s_media);
+
+    setMultiValue(\"Media_Descript\", \"text\", str,
+                  \"Media_Name\",     \"text\", s_media);
+  }
+}
+
+
+" 0
+ E
+14 43
+"Media_Type"
+""
+1 12 82 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  12 82 53 108
+2 "0s" 0 0 0 0 0 -1  E E E
+13 44
+"cmdDir"
+""
+1 671 81 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  671 81 759 109
+
+T 
+4
+LANG:10001 9 Directory
+LANG:10004 6 目录
+LANG:10000 11 Verzeichnis
+LANG:10027 3 DIR
+"main()
+{
+  ChildPanelOnCentralModal(\"vision/ArchivDirectory\",\"\", makeDynString($fileType,$host));
+}" 0
+ E E E
+14 54
+"InfoLine"
+""
+1 20.02438651621729 406 E E E 1 E 1 E N "Schwarz" E N "_3DFace" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  20 406 752 432
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+   if ((isLightRedundant()) || ($host==\"\"))
+     if(dpConnect(\"work\",\"_EventArchivControl\"+$host+\".InfoLine:_online.._value\")==-1)
+        setValue(\"\",\"backCol\",\"_dpdoesnotexist\",\"foreCol\",\"_dpdoesnotexist\");
+   switchText();
+}
+work(string dp,string wert)
+{
+   setValue(\"\",\"text\",wert);
+}
+
+
+switchText()
+{
+
+  string fileType = $fileType;
+  strreplace(fileType, \"_\",\"\");
+  strreplace(fileType, \"Event\", \"\");
+  dpConnect(\"zeige\", \"_DataManager\"+$host+\".\"+fileType+\"DataSetChange.InProgress:_online.._value\");
+
+}
+
+zeige(string dp, bool wert)
+{
+  if (wert)
+    this.text = getCatStr(\"va\",\"action.fileSwitch.progress_1\");
+  else
+    this.text = \"\";
+}
+
+
+" 0
+ E
+14 57
+"Host_Tmp"
+""
+1 269 362 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  269 362 340 388
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+  string x;
+
+  if ($host==\"\")
+    dpGet(\"_EventArchivControl.Host1:_online.._value\",x);
+  else
+    dpGet(\"_EventArchivControl.Host2:_online.._value\",x);
+
+  setValue(\"\",\"text\",x);
+}" 0
+ E
+13 58
+"Abbrechen"
+""
+1 581 361 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  581 361 669 389
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  dyn_float rf;
+  dyn_string rt;
+  string s,h, teile;
+
+  if ($host==\"\")
+    dpGet(\"_EventArchivControl.Host1:_online.._value\",h);
+  else
+    dpGet(\"_EventArchivControl.Host2:_online.._value\",h);
+
+  if (isLightRedundant())
+  {
+
+    teile = getCatStr(\"archivControl\",\"brokeHost\");
+    strreplace(teile,\"§\",\"\\n\");    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr( \"archivControl\", \"message\" ), makeDynString(teile,getCatStr(\"archivControl\",\"ja\"),getCatStr(\"archivControl\",\"nein\")),rf,rt);
+    if ((dynlen(rf)>0) && (rf[1] ==1)) 
+    { 
+      dpSet(\"_EventArchivControl.Cancel:_original.._value\",1,
+            \"_EventArchivControl_2.Cancel:_original.._value\",1); 
+    }
+    else
+    {
+      teile = getCatStr(\"archivControl\",\"brokeHost\");
+      strreplace(teile,\"§\",\"\\n\");    
+      ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr( \"archivControl\", \"message\" ), makeDynString(teile,getCatStr(\"archivControl\",\"ja\"),getCatStr(\"archivControl\",\"nein\")),rf,rt);
+      if ((dynlen(rf)>0) && (rf[1] ==1)) 
+      { 
+        dpSet(\"_EventArchivControl\"+$host+\".Cancel:_original.._value\",1);
+      }
+    }
+  }
+  else
+  {
+    teile = getCatStr(\"archivControl\",\"brokeHost\");
+    strreplace(teile,\"§\",\"\\n\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",getCatStr( \"archivControl\", \"message\" ), makeDynString(teile,getCatStr(\"archivControl\",\"ja\"),getCatStr(\"archivControl\",\"nein\")),rf,rt);
+    if ((dynlen(rf)>0) && (rf[1] ==1)) 
+    { 
+      dpSet(\"_EventArchivControl\"+$host+\".Cancel:_original.._value\",1); 
+    }
+  }
+}" 0
+ E E E
+22 60
+"Media_SyncTime_WeekDay"
+""
+1 370.7990209167779 31 E E E 1 E 0 E N {0,0,0} E N "weiss" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  371 31 452 57
+7
+4
+LANG:10001 4 Mon.
+LANG:10004 9 星期一
+LANG:10000 2 Mo
+LANG:10027 4 Пн
+
+1
+4
+LANG:10001 4 Tue.
+LANG:10004 9 星期二
+LANG:10000 2 Di
+LANG:10027 4 Вт
+
+0
+4
+LANG:10001 4 Wed.
+LANG:10004 9 星期三
+LANG:10000 2 Mi
+LANG:10027 4 Ср
+
+0
+4
+LANG:10001 4 Thu.
+LANG:10004 9 星期四
+LANG:10000 2 Do
+LANG:10027 4 Чт
+
+0
+4
+LANG:10001 4 Fri.
+LANG:10004 9 星期五
+LANG:10000 2 Fr
+LANG:10027 4 Пт
+
+0
+4
+LANG:10001 3 Sat
+LANG:10004 9 星期六
+LANG:10000 2 Sa
+LANG:10027 4 Сб
+
+0
+4
+LANG:10001 4 Sun.
+LANG:10004 4 Sun.
+LANG:10000 2 So
+LANG:10027 4 Вс
+
+0
+
+E
+E
+E
+ 0 0
+22 63
+"Media_SyncTime_MonthDay"
+""
+1 370.3916462510964 31 E E E 1 E 1 E N {0,0,0} E N "weiss" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  371 31 452 57
+31
+4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+
+1
+4
+LANG:10001 1 2
+LANG:10004 1 2
+LANG:10000 1 2
+LANG:10027 1 2
+
+0
+4
+LANG:10001 1 3
+LANG:10004 1 3
+LANG:10000 1 3
+LANG:10027 1 3
+
+0
+4
+LANG:10001 1 4
+LANG:10004 1 4
+LANG:10000 1 4
+LANG:10027 1 4
+
+0
+4
+LANG:10001 1 5
+LANG:10004 1 5
+LANG:10000 1 5
+LANG:10027 1 5
+
+0
+4
+LANG:10001 1 6
+LANG:10004 1 6
+LANG:10000 1 6
+LANG:10027 1 6
+
+0
+4
+LANG:10001 1 7
+LANG:10004 1 7
+LANG:10000 1 7
+LANG:10027 1 7
+
+0
+4
+LANG:10001 1 8
+LANG:10004 1 8
+LANG:10000 1 8
+LANG:10027 1 8
+
+0
+4
+LANG:10001 1 9
+LANG:10004 1 9
+LANG:10000 1 9
+LANG:10027 1 9
+
+0
+4
+LANG:10001 2 10
+LANG:10004 2 10
+LANG:10000 2 10
+LANG:10027 2 10
+
+0
+4
+LANG:10001 2 11
+LANG:10004 2 11
+LANG:10000 2 11
+LANG:10027 2 11
+
+0
+4
+LANG:10001 2 12
+LANG:10004 2 12
+LANG:10000 2 12
+LANG:10027 2 12
+
+0
+4
+LANG:10001 2 13
+LANG:10004 2 13
+LANG:10000 2 13
+LANG:10027 2 13
+
+0
+4
+LANG:10001 2 14
+LANG:10004 2 14
+LANG:10000 2 14
+LANG:10027 2 14
+
+0
+4
+LANG:10001 2 15
+LANG:10004 2 15
+LANG:10000 2 15
+LANG:10027 2 15
+
+0
+4
+LANG:10001 2 16
+LANG:10004 2 16
+LANG:10000 2 16
+LANG:10027 2 16
+
+0
+4
+LANG:10001 2 17
+LANG:10004 2 17
+LANG:10000 2 17
+LANG:10027 2 17
+
+0
+4
+LANG:10001 2 18
+LANG:10004 2 18
+LANG:10000 2 18
+LANG:10027 2 18
+
+0
+4
+LANG:10001 2 19
+LANG:10004 2 19
+LANG:10000 2 19
+LANG:10027 2 19
+
+0
+4
+LANG:10001 2 20
+LANG:10004 2 20
+LANG:10000 2 20
+LANG:10027 2 20
+
+0
+4
+LANG:10001 2 21
+LANG:10004 2 21
+LANG:10000 2 21
+LANG:10027 2 21
+
+0
+4
+LANG:10001 2 22
+LANG:10004 2 22
+LANG:10000 2 22
+LANG:10027 2 22
+
+0
+4
+LANG:10001 2 23
+LANG:10004 2 23
+LANG:10000 2 23
+LANG:10027 2 23
+
+0
+4
+LANG:10001 2 24
+LANG:10004 2 24
+LANG:10000 2 24
+LANG:10027 2 24
+
+0
+4
+LANG:10001 2 25
+LANG:10004 2 25
+LANG:10000 2 25
+LANG:10027 2 25
+
+0
+4
+LANG:10001 2 26
+LANG:10004 2 26
+LANG:10000 2 26
+LANG:10027 2 26
+
+0
+4
+LANG:10001 2 27
+LANG:10004 2 27
+LANG:10000 2 27
+LANG:10027 2 27
+
+0
+4
+LANG:10001 2 28
+LANG:10004 2 28
+LANG:10000 2 28
+LANG:10027 2 28
+
+0
+4
+LANG:10001 2 29
+LANG:10004 2 29
+LANG:10000 2 29
+LANG:10027 2 29
+
+0
+4
+LANG:10001 2 30
+LANG:10004 2 30
+LANG:10000 2 30
+LANG:10027 2 30
+
+0
+4
+LANG:10001 2 31
+LANG:10004 2 31
+LANG:10000 2 31
+LANG:10027 2 31
+
+0
+
+E
+E
+E
+ 0 0
+14 64
+"Media_CycleTime_Resolution"
+""
+1 525 82 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  525 82 615 108
+2 "12s" 12 0 0 0 0 -1  E E E
+14 66
+"Media_CycleTime_C"
+""
+1 358 223 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  358 223 447 252
+2 "12d" 12 0 0 0 0 -1  E E E
+14 67
+"Media_Size"
+""
+1 176 362 E E E 1 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  176 362 247 388
+2 "10d" 10 0 0 0 0 -1  E E E
+14 71
+"Client_Name"
+""
+1 165.5504587155963 82 E E E 1 E 0 E N {0,0,0} E N "weiss" E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  153 82 272 108
+3 "8s" 8 0 0 0 0 -1  E "main()
+{
+  if( dpConnect( \"work\", true, $fileType + \"ArchivControl.ExecuteClientAction.ClientHost:_online.._value\") == -1 )
+    setValue( \"\", \"backCol\", \"_dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+}
+work(
+  string dp,
+  string wert )
+{
+  setValue( \"\", \"text\", wert );
+}
+" 0
+ E
+22 72
+"Save_Selection"
+""
+1 12 82 E E E 1 E 0 E N {0,0,0} E N "weiss" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  12 82 150 108
+3
+4
+LANG:10001 10 Host only 
+LANG:10004 9 仅主机
+LANG:10000 8 nur Host
+LANG:10027 21 Только хост
+
+1
+4
+LANG:10001 12 Client only 
+LANG:10004 12 仅客户端
+LANG:10000 10 nur Client
+LANG:10027 25 Только клиент
+
+0
+4
+LANG:10001 15 Host and client
+LANG:10004 18 主机和客户机
+LANG:10000 15 Host und Client
+LANG:10027 24 Хост и клиент
+
+0
+
+"main()
+{
+  if( dpConnect( \"work\", true, $fileType + \"ArchivControl.ExecuteClientAction.SaveDestination:_online.._value\") == -1 )
+    setValue( \"\", \"backCol\", \"_dpdoesnotexist\", \"foreCol\", \"_dpdoesnotexist\" );
+}
+work(
+  string dp,
+  int    wert )
+{
+  if( wert >= 2 && wert <= 3 )
+    setMultiValue( \"Client_Name\", \"visible\", true,
+                   \"Client_Name_Titel\", \"visible\", true,
+                   \"\", \"selectedPos\", wert );
+  else
+    setMultiValue( \"Client_Name\", \"visible\", false,
+                   \"Client_Name_Titel\", \"visible\", false,
+                   \"\", \"selectedPos\", 1 );
+}
+" 0
+
+"main()
+{
+  int wert;
+  getValue( \"\", \"selectedPos\", wert );
+  if( wert == 1 ) setMultiValue( \"Client_Name\", \"visible\", false, \"Client_Name_Titel\", \"visible\", false );
+  else            setMultiValue( \"Client_Name\", \"visible\", true,  \"Client_Name_Titel\", \"visible\", true  );
+}
+" 0
+
+E
+ 0 0
+30 75
+"FRAME1"
+""
+1 285 48 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+75 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.764705882352941 0 1.75 -222.9411764705883 -74 0 E 285 48 388 109
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 20 Synchronization time
+LANG:10004 12 同步时间
+LANG:10000 20 Synchronisationszeit
+LANG:10027 38 Время синхронизации:
+30 76
+"FRAME2"
+""
+1 465 3 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+76 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.911764705882353 0 1.75 -418.970588235294 4.75 0 E 465 3 568 64
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13 Storage cycle
+LANG:10004 12 存储周期
+LANG:10000 14 Speicherzyklus
+LANG:10027 31 Цикл копирования
+30 77
+"FRAME3"
+""
+1 10 128 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+77 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.333333333333334 0 3.833333333333334 -23.33333333333334 -370.6666666666667 0 E 10 128 113 189
+3
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 78
+"FRAME4"
+""
+1 460 133 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+78 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 3.333333333333334 0 3.833333333333334 -1113.333333333334 -389.8333333333334 0 E 460 133 563 194
+3
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 79
+"FRAME5"
+""
+1 10 393 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+79 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E U  0 E 10 393 761 441
+3
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 80
+"PRIMITIVE_TEXT1"
+""
+1 14 62 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 14 62 47 77
+0 0 0 "0s" 0 0 0 192 0 0  14 62 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 Type:
+LANG:10004 9 类型：
+LANG:10000 4 Typ:
+LANG:10027 7 Тип:
+2 81
+"PRIMITIVE_TEXT2"
+""
+1 59 62 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  0 E 59 62 163 77
+0 0 0 "0s" 0 0 0 192 0 0  59 62 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Backup directory:
+LANG:10004 15 备份路径：
+LANG:10000 19 Backup-Verzeichnis:
+LANG:10027 36 Целевая директория:
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

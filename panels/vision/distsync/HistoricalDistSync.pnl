@@ -1,0 +1,840 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 984 587 N "_3DFace" 1
+"$SYSTEM"
+"main()
+{
+  initPanel();
+}" 0
+ E E E E 1 -1 -1 0  61 29
+""0  1
+E "string g_sSystem, g_sMasterSystem;
+int g_iNoOfChecked;
+bool g_bMaster;
+
+#uses \"distsync.ctl\"
+
+initPanel()
+{
+  string sSourceDp;
+  string sFrameText;
+  
+  if(!isDollarDefined(\"$SYSTEM\"))
+    g_sSystem = \"dist_3:\";// TODO
+  else
+    g_sSystem = $SYSTEM;
+  
+  g_sMasterSystem = distsync_getMasterSystem(getSystemId(g_sSystem));
+  
+  if(g_sMasterSystem == getSystemName())
+    g_bMaster = TRUE;
+  else
+    g_bMaster = FALSE;
+  
+  tabHist.alternatingRowColors(makeDynString(\"distsync_alertnatingTable\",\"white\"));
+  
+  sFrameText = getCatStr(DISTSYNC_MSGCAT, \"histdata\");
+  
+  strreplace(sFrameText, \"%system\", g_sSystem);
+  
+  frmClientConfig.text = sFrameText;
+  
+
+  
+  tabHist.deleteAllLines();
+  
+  lc.text(getCurrentTime()-86400);
+  gc.text(getCurrentTime());
+
+  
+  initTable();
+  
+
+  
+}
+
+
+
+initTable()
+{
+    
+  dyn_time dtStartTime,dttStartTime,dtEndTime,dttEndTime,dtTUser,dtHUser,dtSyncData,dtResult;
+  dyn_string dsTUser;
+  dyn_string dsHUser,dsSyncData;
+  dyn_int diResult;
+  
+  time t1 = lc.text();
+  time t2 = gc.text();
+  
+  tabHist.deleteAllLines();
+  
+  
+  if (t1>t2)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"),
+                            makeDynString(getCatStr(DISTSYNC_MSGCAT,\"HistError\")));
+    
+    return;
+  }
+  
+  
+  string sDistSyncSystem = g_sMasterSystem + \"_DistSync_\" + getSystemId(g_sSystem);
+  dpGetPeriod(t1,t2,0,sDistSyncSystem+\".Historical.StartTime\",dtStartTime,dttStartTime,
+                      sDistSyncSystem+\".Historical.EndTime\",dtEndTime,dttEndTime,
+                      sDistSyncSystem+\".Historical.TriggeredByUser\",dsTUser,dtTUser,
+                      sDistSyncSystem+\".Historical.HandshakeByUser\",dsHUser,dtHUser,
+                      sDistSyncSystem+\".Historical.Result\",diResult,dtResult,
+                      sDistSyncSystem+\".Historical.SyncData\",dsSyncData,dtSyncData);
+  
+
+  
+  if(dynlen(dtStartTime) && (int)dtStartTime[1] == 0)
+  {
+    dynRemove(dtStartTime,1);
+    dynRemove(dtEndTime,1);
+    dynRemove(dsTUser,1);
+    dynRemove(dsHUser,1);
+    dynRemove(diResult,1);
+    dynRemove(dsSyncData,1);
+  }
+  else if(dynlen(dtStartTime) <= 0)
+    return;
+  
+   
+  dyn_string dsResult;
+  dyn_string dsHS;
+   
+   
+   for(int i = 1; i<= dynlen(dsSyncData); i++)
+   {
+      string sTemp;
+      if(dynlen(diResult) >= i)
+      {
+        if(diResult[i] == 2)
+        {
+           sTemp = getCatStr(DISTSYNC_MSGCAT,\"NOK\");
+        }
+        else if(diResult[i] == 1)
+        {
+           sTemp = getCatStr(DISTSYNC_MSGCAT,\"OK\");
+        }
+        else if(diResult[i] == 3) //deny
+        {
+          sTemp =  getCatStr(DISTSYNC_MSGCAT,\"denyHS\");
+        }
+        else if(diResult[i] == 4) //postpone
+        {
+          sTemp =  getCatStr(DISTSYNC_MSGCAT,\"postponeHS\");
+        }
+        else if(diResult[i] == 5) //no HS
+        {
+          sTemp =  getCatStr(DISTSYNC_MSGCAT,\"noHS\");
+        }
+      }
+      
+      dynAppend(dsResult,sTemp);
+      
+      
+      dyn_string dsTemp = stringToDynString(dsSyncData[i]);
+      
+      for(int j = 1; j<=dynlen(dsTemp) ; j++)
+      {
+        strreplace(dsSyncData[i],dsTemp[j],getCatStr(DISTSYNC_MSGCAT,\"SyncData_\"+dsTemp[j]));
+      }
+      
+      dyn_string dsTempHS = stringToDynString(dsHUser[i]);
+      string sTempHsText;
+      
+      if(dynlen(dsTempHS) > 1)
+      {
+
+        if(dsTempHS[1] == 2)
+        {
+          sTempHsText = getCatStr(DISTSYNC_MSGCAT,\"PostponeHSDetail\");
+          strreplace(sTempHsText,\"$User\",dsTempHS[2]);
+          strreplace(sTempHsText,\"$Min\",(string)((int)dsTempHS[3]/60));
+          dynAppend(dsHS,sTempHsText);
+        }
+        else if(dsTempHS[1] == 3)
+        {
+          sTempHsText = getCatStr(DISTSYNC_MSGCAT,\"DenyHSDetail\");
+          strreplace(sTempHsText,\"$User\",dsTempHS[2]);
+          dynAppend(dsHS,sTempHsText);
+        }
+        else if(dsTempHS[1] == 0)
+        {
+          sTempHsText = getCatStr(DISTSYNC_MSGCAT,\"NoHS\");
+          dynAppend(dsHS,\"\");
+        }
+      }
+      else if(dynlen(dsTempHS) == 1)
+      {
+         sTempHsText = getCatStr(DISTSYNC_MSGCAT,\"AllowHSDetail\");
+         strreplace(sTempHsText,\"$User\",dsTempHS[1]);
+         dynAppend(dsHS,sTempHsText);
+      }
+      else
+      {
+        sTempHsText = \"\";
+        dynAppend(dsHS,sTempHsText);
+                      
+      }
+        
+   }
+   
+   
+  
+ 
+  tabHist.appendLines(dynlen(dtStartTime),\"Start\",dtStartTime,\"End\",dtEndTime,
+                                          \"Triggered\",dsTUser,\"Handshake\",dsHS,
+                                          \"Result\",dsResult,\"Sync\",dsSyncData);
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 2
+"CBRef" "1"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 0
+"RECTANGLE3"
+""
+1 0 80 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.382509177729868 0 0.9234975961538456 -216 -2.82512019230772 1 E 0 80 880 -50
+2 1
+"PRIMITIVE_TEXT5"
+""
+1 8 9 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 8 9 403 39
+0 2 2 "0s" 0 0 0 64 0 0  8 9 1
+4
+LANG:10001 33 MS Shell Dlg,10,-1,5,75,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,10,-1,5,75,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,75,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 Distmanagement
+LANG:10004 18 分布式管理器
+LANG:10000 14 Distverwaltung
+LANG:10027 77 Управление распределенными системами (DIST)
+2 2
+"shortdesc"
+""
+1 34 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 34 30 487 130
+0 1 1 "0s" 0 0 0 192 0 0  34 30 6
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 66 In this panel the state of the last synchronization can be queried
+LANG:10004 49 在此面板中,可以查询最新同步的状态
+LANG:10000 74 In diesem Panel kann das Ergebnis der letzten Abgleiche abgefragt werden. 
+LANG:10027 129 Эта панель используется для опроса состояния последней синхронизации
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+25 5
+"tabHist"
+""
+1 32.00000000000023 204.8235612733269 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"draggable" ""
+"acceptDrops" ""
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0  30 203 958 521
+EE 1 0 1 6 0 "Start" 12 1 0 "s" 4
+LANG:10001 9 Starttime
+LANG:10004 12 开始时间
+LANG:10000 9 Startzeit
+LANG:10027 23 Время начала
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "End" 12 1 0 "s" 4
+LANG:10001 7 Endtime
+LANG:10004 12 时间结束
+LANG:10000 7 Endzeit
+LANG:10027 29 Время окончания
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Triggered" 12 1 0 "s" 4
+LANG:10001 12 Triggered By
+LANG:10004 6 触发
+LANG:10000 15 Angestoßen von
+LANG:10027 24 Инициировано
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Handshake" 12 1 0 "s" 4
+LANG:10001 12 Handshake by
+LANG:10004 6 握手
+LANG:10000 15 Handshake durch
+LANG:10027 35 Установление связи
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Result" 12 1 0 "s" 4
+LANG:10001 6 Result
+LANG:10004 6 结果
+LANG:10000 8 Ergebnis
+LANG:10027 18 Результат
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "Sync" 12 1 0 "s" 4
+LANG:10001 4 Data
+LANG:10004 12 查询结果
+LANG:10000 5 Daten
+LANG:10027 12 Данные
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 
+18 18 10 0
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 0 2 2 1 7
+1 0
+1 20 0 "" 0
+0
+13 8
+"cmdCancel"
+""
+1 887 553.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  887 554 975 582
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 10
+"cmdHelp"
+""
+1 10.99999999999998 552.8048289738431 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  11 553 99 581
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"distsync_historical\");
+}
+" 0
+ E E E
+30 11
+"frmClientConfig"
+""
+1 10 79 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+10 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.012631578947368 0 1.178756476683938 4.886315789473685 -11.94300518134715 0 E 10 79 959 464
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Historical Data
+LANG:10004 6 数据
+LANG:10000 22 Historische Auswertung
+LANG:10027 37 Исторические данные
+14 12
+"lc"
+""
+1 121 135 E E E 1 E 1 E N "_WindowText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0  119 133 313 162
+2 "0s" 0 0 0 0 0 -1  E E E
+14 13
+"gc"
+""
+1 458 135 E E E 1 E 1 E N "_WindowText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10027 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+0  456 133 650 162
+2 "0s" 0 0 0 0 0 -1  E E E
+13 14
+"time1"
+""
+1 319.8440860215054 133 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,13,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  318 131 351 162
+
+P 
+4294967295
+"pictures/calender_en.gif"
+3
+LANG:10000 12 PUSH_BUTTON1
+LANG:10001 0 
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+ 
+  dyn_string a;
+  dyn_float b;
+  string anzeige;
+
+  lc.text(\"\");
+  
+  ChildPanelOnCentralModalReturn(\"vision/dateTimePicker.pnl\",
+                                 \"Starttime\",
+                                 \"\",b,a);
+  anzeige = a[1];
+  lc.text(anzeige);
+}
+
+
+" 0
+ E E E
+13 15
+"time"
+""
+1 657 135 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,13,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  655 133 688 164
+
+P 
+4294967295
+"pictures/calender_en.gif"
+3
+LANG:10000 12 PUSH_BUTTON1
+LANG:10001 0 
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+ 
+  dyn_string a;
+  dyn_float b;
+  string anzeige;
+
+  gc.text(\"\");
+  
+  ChildPanelOnCentralModalReturn(\"vision/dateTimePicker.pnl\",
+                                 \"Endtime\",
+                                 \"\",b,a);
+  anzeige = a[1];
+  gc.text(anzeige);
+}" 0
+ E E E
+2 16
+"PRIMITIVE_TEXT2"
+""
+1 55 141 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 55 141 200 171
+0 2 2 "0s" 0 0 0 64 0 0  55 141 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 Starttime:
+LANG:10004 12 开始时间
+LANG:10000 10 Startzeit:
+LANG:10027 13 Начало:
+2 17
+"PRIMITIVE_TEXT3"
+""
+1 395 141 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  1 E 395 141 540 171
+0 2 2 "0s" 0 0 0 64 0 0  395 141 1
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 8 Endtime:
+LANG:10004 12 时间结束
+LANG:10000 8 Endzeit:
+LANG:10027 12 Оконч.:
+13 18
+"PUSH_BUTTON2"
+""
+1 693 135 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 33 MS Shell Dlg,-1,13,5,50,0,0,0,0,0
+LANG:10027 37 MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0
+0  691 133 724 164
+
+P 
+4294967295
+"pictures/refresh_e.gif"
+3
+LANG:10000 12 PUSH_BUTTON1
+LANG:10001 0 
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+ 
+ initTable();
+}" 0
+ E E E
+30 19
+"FRAME2"
+""
+1 10 79 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+18 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.743157894736842 0 0.1787564766839378 23.47821486706457 94.87823834196891 0 E 10 79 959 464
+4
+LANG:10001 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10004 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10000 26 Arial,10,-1,5,50,0,0,0,0,0
+LANG:10027 26 Arial,10,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Historical Data
+LANG:10004 6 数据
+LANG:10000 22 Historische Auswertung
+LANG:10027 37 Исторические данные
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 0 T 6 1.98076798758808 0 1 -7 544
+0
+0

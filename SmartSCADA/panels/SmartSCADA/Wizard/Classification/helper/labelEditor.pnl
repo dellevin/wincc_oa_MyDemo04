@@ -1,0 +1,1412 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+PANEL,-1 -1 490 325 N "_3DFace" 0
+"main()
+{
+  resetChangeIndicators();
+  detectSystemNames();
+  initializePanelContents();
+}
+
+
+" 0
+ E E E E 1 -1 -1 0  8.000000000000007 1.995327102803685
+""0  1
+E "
+#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+//return values from this panel;
+dyn_float g_resultFloat;
+dyn_string g_resultString;
+
+// the name of the own system including \":\"
+string g_ownSystemName;
+
+// the names of all the systems including \":\"
+dyn_string g_systemNames;
+
+// the number of all the systems
+int g_systemCount;
+
+// Either the name of the labelset currently viewed/edited by the user
+// or \"\" if no labelset is currently viewed (which can only happen when no labelset exists).
+// If the corresponding datapoint is in the own system, the system name is omitted.
+// It does not need to be identical to the labelset selected in cb_dpList.
+// (If the user modifies the current labelset without saving the changes and then selects another labelset,
+// g_currentLabelset is updated only after he requires to save/discard the changes.)
+string g_currentLabelset;
+
+// Whether the user can edit g_currentLabelset. More precisely:
+// == false if either no labelset is currently viewed 
+//             or the current labelset is locked and being edited by another user;
+// == true otherwise
+bool g_canEditCurrentLabelset;
+
+// Variables indicating the changes that have been made to the labelset g_currentLabelset,
+// and have not been saved to the corresponding datapoint yet.
+// (Whether it is a newly created labelset; whether it has been deleted;
+// whether a label has been added to it; whether some of its labels has been modified;
+// whether some of its labels has been deleted.
+bool g_labelsetAdded, g_labelAdded, g_labelModified, g_labelDeleted, g_labelsetDeleted;
+
+// The flaot values returned when the LabelEditor is closed, so that it can be found out,
+// what kind of changes have been made to which labelset.
+const float LABELSET_ADDED = 1.0;
+const float LABEL_ADDED = 2.0;
+const float LABEL_MODIFIED = 3.0;
+const float LABEL_DELETED = 4.0;
+const float LABELSET_DELETED = 5.0;
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Detects the name of the own system and the the names and number of all systems, and saves them to the corresonding global variables
+  (g_ownSystemName, g_systemNames, g_systemCount), or shows an error message in case of failure.
+  @return true if successful, false otherwise
+*/
+bool detectSystemNames()
+{
+  g_ownSystemName = getSystemName();
+  dyn_uint systemIds;
+  if (getSystemNames(g_systemNames, systemIds) == 0)
+  {
+    g_systemCount = dynlen(g_systemNames);
+    for (int i = 1; i <= g_systemCount; i++)
+    {
+      g_systemNames[i] += \":\";
+    }
+    return true;
+  }
+  else
+  {
+    dyn_errClass err = getLastError();
+    errorDialog(err);
+    throwError(err);
+    return false;
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Loads the list of all labelsets (datapoints of type _SC_Labelset) in all systems into cb_dpList.
+  The system name is omitted from the names of datapoints of the own system.
+*/
+void loadLabelsetList()
+{
+  dyn_string dpListAllSystems, dpListOneSystem;
+  for (int i = 1; i <= g_systemCount; i++)
+  {
+    dpListOneSystem = dpNames(g_systemNames[i] + \"*\", SSC_LABELSET_TYPE);
+    if (g_systemNames[i] == g_ownSystemName)
+    {
+      // omitting system name from the datapoints of the own system:
+      int dpCount = dynlen(dpListOneSystem);
+      for (int i = 1; i <= dpCount; i++)
+      {
+        dpListOneSystem[i] = ssc_omitSystemName(dpListOneSystem[i]);
+      }
+    }
+    dynAppend(dpListAllSystems, dpListOneSystem);
+  }
+  cb_dpList.items = dpListAllSystems;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Loads the labelset element of the datapoint g_currentLabelset into ge_Labels
+  or shows an error message in case of failure (if the datapoint does not exist anymore).
+  @return true if successful, false otherwise
+*/
+bool loadCurrentLabelset()
+{
+  string dpName = g_currentLabelset;
+  if (dpExists(dpName))
+  {
+    dyn_string labels;
+    dpGet(dpName + \".labels\", labels);
+    ge_Labels.items = labels;
+    return true;
+  }
+  else
+  {
+    string message = getCatStr(\"ssc_errors\", \"leNotFound\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));      
+    return false;
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Whether the labelset g_currentLabelset is locked.
+  @return true if g_currentLabelset is locked, false otherwise
+*/
+bool isCurrentLabelsetLocked()
+{
+  bool isLocked = true;
+  dpGet(g_currentLabelset + \".:_lock._original._locked\", isLocked);
+  return isLocked;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Loads the list of all datapoints of type _SC_Labelset into cb_dpList,
+  loads the labelset element of the first datapoint into ge_Labels or clears ge_Labels if no labelset exists,
+  clears tf_NewLabelset and tf_NewLabel, 
+  sets the global variables g_currentLabelset, g_canEditCurrentLabelset,
+  and deals with locking of g_currentLabelset.
+*/
+void initializePanelContents()
+{
+  loadLabelsetList();
+  setMultiValue(\"tf_NewLabelset\", \"text\", \"\",
+                \"tf_NewLabel\", \"text\", \"\");
+
+  g_currentLabelset = cb_dpList.selectedText;
+
+  if (g_currentLabelset != \"\")
+  {
+    loadCurrentLabelset();
+    g_canEditCurrentLabelset = !isCurrentLabelsetLocked();
+  }
+  else
+  {
+    ge_Labels.items = makeDynString(\"\");
+    g_canEditCurrentLabelset = false;
+  }
+
+  if (g_canEditCurrentLabelset)
+  {
+    lockCurrentLabelset();
+    enableEditingButtons();
+  }
+  else
+  {
+    disableEditingButtons();
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Selects the item called labelsetName in cb_dpList.
+  If labelsetName is not found in cb_dpList, selects the first item.
+  @param labelsetName the name of the labelset which has to be selected in cb_dpList 
+*/
+void selectLabelset(string labelsetName)
+{
+  int pos = 1;
+  int listCount = cb_dpList.itemCount;
+  while (pos <= listCount && cb_dpList.items[pos] != labelsetName)
+  {
+    pos++;
+  }
+  if (pos > listCount)
+  {
+    // labelsetName not found in cb_dpList
+    pos = 1;
+  }
+  cb_dpList.selectedPos = pos;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Creates a new datapoint of type _SC_Labelset called labelsetName or shows an error message in case of failure.
+  @param labelsetName the name of the datapoint which has to be created
+  @return true if successful, false otherwise
+*/
+bool createLabelset(string labelsetName)
+{
+  if (!dpExists(labelsetName))
+  {
+    if (dpCreate(labelsetName, SSC_LABELSET_TYPE) == 0)
+    {
+      return true;
+    }
+    else
+    {
+      throwError(getLastError());
+      string message = getCatStr(\"ssc_errors\", \"leUnableToCreate\");
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));      
+      return false;
+    }
+  }
+  else
+  {
+    string message = getCatStr(\"ssc_errors\", \"leAlreadyExists\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));
+    return false;
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Updates the datapoint g_currentLabelset with the labels shown in ge_Labels.
+*/
+void updateCurrentLabelset()
+{
+  dpSet(g_currentLabelset + \".labels\", ge_Labels.items); 
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Checks whether it is safe to delete the labelset g_currentLabelset, i. e. whether it is not in use in any of the systems.
+  @return true if all the systems were successfully queried and g_currentLabelset is not in use in any of them, false otherwise
+*/
+bool isSafeToDeleteCurrentLabelset()
+{
+  string dpNameFull = g_currentLabelset;
+  if (strpos(dpNameFull, \":\") == -1)
+  {
+    dpNameFull = g_ownSystemName + dpNameFull;
+  }
+
+  string query;
+  dyn_dyn_anytype resultOneQuery, resultAllQueries;
+  
+  // looking for the references to the datapoint name including system name in all systems:
+  for (int i = 1; i <= g_systemCount; i++)
+  {
+    query = \"SELECT '_online.._value' FROM '*.labelsetRef' REMOTE '\" + g_systemNames[i] + \"' \" +
+            \"WHERE _DPT = \\\"_SSC_METADATA_KM\\\" AND '_online.._value' = \\\"\" + dpNameFull + \"\\\"\";
+    if (dpQuery(query, resultOneQuery) == 0)
+    {
+      dynAppend(resultAllQueries, resultOneQuery);
+    }
+    else
+    {
+      throwError(getLastError());
+      return false;
+    }
+  }
+  
+  // looking for the references to the datapoint name without system name in the system of the datapoint:
+  query = \"SELECT '_online.._value' FROM '*.labelsetRef' REMOTE '\" + ssc_systemName(dpNameFull) + \"' \" +
+          \"WHERE _DPT = \\\"_SSC_METADATA_KM\\\" AND '_online.._value' = \\\"\" + ssc_omitSystemName(dpNameFull) + \"\\\"\";
+  if (dpQuery(query, resultOneQuery) == 0)
+  {
+    dynAppend(resultAllQueries, resultOneQuery);
+  }
+  else
+  {
+    throwError(getLastError());
+    return false;
+  }
+  
+  // g_systemCount + 1 queries were made
+  return (dynlen(resultAllQueries) == g_systemCount + 1);
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  If it is safe to delete the labelset g_currentLabelset, then deletes it.
+  Otherwise or if the deleting failed, shows the corresponding error message.
+  @return true if successful, false otherwise
+*/
+bool deleteCurrentLabelset()
+{
+  if (isSafeToDeleteCurrentLabelset())
+  {
+    if (dpDelete(g_currentLabelset) == 0)
+    {
+      // successfully deleted
+      return true;
+    }
+    else
+    {
+      // unable to delete
+      throwError(getLastError());
+      string message = getCatStr(\"ssc_errors\", \"leUnableToDelete\");
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));
+      return false;
+    }    
+  }
+  else
+  {
+    string message = getCatStr(\"ssc_errors\", \"leLabelsetInUse\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));
+    return false;
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Locks/unlocks (depending on the parameter) the datapoint g_currentLabelset or reports the error in case of failure.
+  @param whetherToLock if true, locking will be executed; if false, unlocking
+*/
+void lockCurrentLabelset(bool whetherToLock = true)
+{
+  dpSetWait(g_currentLabelset + \".:_lock._original._locked\", whetherToLock);
+  dyn_errClass err = getLastError();
+  if (dynlen(err) > 0) 
+  { 
+     errorDialog(err);
+     throwError(err);
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Unlocks the datapoint g_currentLabelset or reports the error in case of failure.
+*/
+void unlockCurrentLabelset()
+{
+  lockCurrentLabelset(false);
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Enables/disables (depending on the parameter) the buttons end textfield
+  by means of which the user can/could edit the current labelset.
+  @param whetherToEnable if true, the buttons and textfield will be enabled; if false, disabled
+*/
+void enableEditingButtons(bool whetherToEnable = true)
+{
+  setMultiValue(\"pb_editor\", \"enabled\", whetherToEnable,
+                \"pb_after\", \"enabled\", whetherToEnable,
+                \"pb_before\", \"enabled\", whetherToEnable,
+                \"pb_modify\", \"enabled\", whetherToEnable,
+                \"pb_delete\", \"enabled\", whetherToEnable,
+                \"pb_deleteAll\", \"enabled\", whetherToEnable,
+                \"pb_DeleteLabelset\", \"enabled\", whetherToEnable,
+                \"pb_OK\", \"enabled\", whetherToEnable,
+                \"pb_Apply\", \"enabled\", whetherToEnable,
+                \"tf_NewLabel\", \"enabled\", whetherToEnable);
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Disables the buttons and textfield by means of which the user could edit the current labelset.
+*/
+void disableEditingButtons()
+{
+  enableEditingButtons(false);
+}
+
+//----------------------------------------------------------------
+
+/** @author Joshua Hercher joshua.hercher@etm.at and Samuel Peres samuel.peres@siemens.com
+  @param text string to be checked
+  @return true if label is valid otherwise false
+*/
+bool isValidLabel(string text)
+{
+  //first character cannot be a whitespace character 
+  if ((text[0] == ' ') || (text[0] == '\\t'))
+  {
+    return false;
+  }
+
+  //last character cannot be a whitespace character
+  if ((text[strlen(text) - 1] == ' ') || (text[strlen(text) - 1] == '\\t'))
+  {
+    return false;
+  }
+  
+  return true;  
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Sets all the global boolians indicating different kinds of unsaved changes to false.
+*/
+void resetChangeIndicators()
+{
+  g_labelsetAdded = false;
+  g_labelAdded = false;
+  g_labelModified = false;
+  g_labelDeleted = false;
+  g_labelsetDeleted = false;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Tells whether there are changes made to g_currentLabelset that have not been saved to the corresponding datapoint yet.
+  @return true if there are unsaved changes, false otherwise
+*/
+bool areThereUnsavedChanges()
+{
+  return g_labelsetAdded || g_labelAdded || g_labelModified || g_labelDeleted || g_labelsetDeleted;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  If there are unsaved changes, asks the user, what to do with them.
+  Depending on the answer, either saves them or discards them 
+  or tells the caller of this function to let the user continue editing the labelset that has unsaved changes.
+  @param cancel true if there is a labelset with unsaved changes, 
+         and the user wants to continue editing it; false otherwise
+*/
+void dealWithPossibleUnsavedChanges(bool & cancel)
+{
+  if (areThereUnsavedChanges())
+  {
+    string message = getCatStr(\"ssc_errors\", \"leQuestionApplyChanges\");
+    dyn_float resultFloat;
+    dyn_string resultString;
+    ChildPanelOnCentralModalReturn(
+        \"vision/MessageInfo3\", 
+        \"Info\", 
+        makeDynString(message, getCatStr(\"trans\", \"yes\"), getCatStr(\"trans\", \"no\"), getCatStr(\"trans\", \"cancel\")), 
+        resultFloat, 
+        resultString
+    );
+    if (resultString == \"true\")
+    {
+      // the user wants to save the changes
+      updateCurrentLabelset();
+      updatePanelReturnValues();
+    }
+    else if (resultString == \"false\")
+    {
+      // the user doesn't want to save the changes
+      resetChangeIndicators();
+    }
+    else
+    {
+      // the user wants to continue editing the previous labelset
+      cancel = true;
+      selectLabelset(g_currentLabelset);
+      return;
+    }
+  }
+  cancel = false;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  If there are unsaved changes to the current labelset,
+  then appends the name of the current labelset to g_resultString,
+  and appends the numbers indicating what kind of changes have been made to g_resultFloat.
+  It also sets all the global boolians indicating the unsaved changes to false.
+*/
+void updatePanelReturnValues()
+{
+  string dpNameFull = g_currentLabelset;
+  if (strpos(dpNameFull, \":\") == -1)
+  {
+    dpNameFull = g_ownSystemName + dpNameFull;
+  }
+
+  if (g_labelsetAdded)
+  {
+    dynAppend(g_resultFloat, LABELSET_ADDED);
+    dynAppend(g_resultString, dpNameFull);
+    g_labelsetAdded = false;
+  }
+  if (g_labelAdded)
+  {
+    dynAppend(g_resultFloat, LABEL_ADDED);
+    dynAppend(g_resultString, dpNameFull);
+    g_labelAdded = false;
+  }
+  if (g_labelModified)
+  {
+    dynAppend(g_resultFloat, LABEL_MODIFIED);
+    dynAppend(g_resultString, dpNameFull);
+    g_labelModified = false;
+  }
+  if (g_labelDeleted)
+  {
+    dynAppend(g_resultFloat, LABEL_DELETED);
+    dynAppend(g_resultString, dpNameFull);
+    g_labelDeleted = false;
+  }
+  if (g_labelsetDeleted)
+  {
+    dynAppend(g_resultFloat, LABELSET_DELETED);
+    dynAppend(g_resultString, dpNameFull);
+    g_labelsetDeleted = false;
+  }
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  If there are unsaved changes, asks the user what he wants to do.
+  Unless he wants to cancel the closing action, unlocks g_currentLabelset if it has been edited,
+  and closes the panel, returning the returnvalues.
+*/
+void closePanel()
+{
+  bool cancelClosing = false;
+  dealWithPossibleUnsavedChanges(cancelClosing);
+  if (cancelClosing)
+  {
+    return;
+  }
+  
+  if (g_canEditCurrentLabelset)
+  {
+    unlockCurrentLabelset();
+  }
+  PanelOffReturn(g_resultFloat, g_resultString);
+}
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  closePanel();
+}
+
+
+" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+17 1
+"ge_Labels"
+""
+1 10 80 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 78 362 235.75
+0
+
+E
+"main()
+{
+  tf_NewLabel.text = ge_Labels.selectedText;
+}
+
+
+" 0
+
+E
+
+0 0
+13 2
+"pb_before"
+""
+1 398 176.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  398 176.75 426 204.75
+
+P 
+13421721
+"pictures/StandardIcons/Insert_before_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string labelList;
+  int        pos;
+  string     newLabel;
+
+  getMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos,
+                \"tf_NewLabel\", \"text\", newLabel);
+  if (newLabel == \"\" || !isValidLabel(newLabel) || dynContains(labelList, newLabel))
+  {
+    return;
+  }
+  if (pos < 1) 
+  {
+    pos = 1;
+  }
+  dynInsertAt(labelList, newLabel, pos);
+  setMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos,
+                \"tf_NewLabel\", \"text\", newLabel);
+  g_labelAdded = true;
+}
+
+
+" 0
+ E E E
+13 3
+"pb_delete"
+""
+1 398 207.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  398 207.75 426 235.75
+
+P 
+13421721
+"pictures/StandardIcons/delete_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string labelList;
+  int        pos;
+
+  getMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos);
+  if (pos < 1)
+  {
+    // nothing selected
+    return;
+  }
+  dynRemove(labelList, pos);
+ 
+  if (pos > dynlen(labelList))
+  {
+    // we've removed the last label
+    pos--;
+  } 
+  setMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos);
+  // not possible to include in the previous MultiValue():
+  tf_NewLabel.text = ge_Labels.selectedText;      
+  g_labelDeleted = true;
+}
+
+
+" 0
+ E E E
+13 4
+"pb_after"
+""
+1 368 177.25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  368 177.25 396 205.25
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string labelList;
+  int        pos;
+  string     newLabel;
+
+  getMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos,
+                \"tf_NewLabel\", \"text\", newLabel);
+  if (newLabel == \"\" || !isValidLabel(newLabel) || dynContains(labelList, newLabel))
+  {
+    return;
+  }
+  if (pos < 1) 
+  {
+    pos = dynlen(labelList);
+  }
+  dynInsertAt(labelList, newLabel, pos+1);
+  setMultiValue(\"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos+1,
+                \"tf_NewLabel\", \"text\", newLabel);
+  g_labelAdded = true;
+}
+
+
+" 0
+ E E E
+13 5
+"pb_modify"
+""
+1 367.952380952381 207.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  367.952380952381 207.75 395.952380952381 235.75
+
+P 
+12632256
+"pictures/StandardIcons/apply_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  int        pos;
+  string     newLabel;
+  dyn_string labelList;
+
+  getMultiValue(\"tf_NewLabel\", \"text\", newLabel,
+                \"ge_Labels\", \"items\", labelList,
+                \"ge_Labels\", \"selectedPos\", pos);
+  if (pos > 0 && (newLabel != \"\") && isValidLabel(newLabel) && (dynContains(labelList, newLabel) == 0))
+  {    
+    labelList[pos] = newLabel;
+    setMultiValue(\"ge_Labels\", \"items\", labelList,
+                  \"ge_Labels\", \"selectedPos\", pos,
+                  \"tf_NewLabel\", \"text\", newLabel);
+    g_labelModified = true;
+  }
+}
+
+//----------------------------------------------------------------
+
+
+" 0
+ E E E
+14 6
+"tf_NewLabel"
+""
+1 19.33333333333334 234.9404761904762 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 237.9404761904762 362 263
+3 "2.2f" 5 0 0 0 0 -1  E "main()
+{
+  tf_NewLabel.format = \"%s\";
+}
+
+
+
+" 0
+ E
+13 8
+"pb_editor"
+""
+1 367 211.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  368 146.75 396 174.75
+
+P 
+13160660
+"pictures/StandardIcons/open_script_editor_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string labelList = ge_Labels.items;
+  string labelsString = paJoinString(labelList,\"\\n\"); 
+  stringEditor(labelsString, false);
+  labelList = strsplit(labelsString, \"\\n\");
+  int labelListSize = dynlen(labelList);
+  string message = \"\";
+
+  // removing leading and trailing whitespace characters from labels:
+  bool wasAnyLabelTrimmed = false;
+  for (int i = 1; i <= labelListSize; i++)
+  {
+    if (trimString(labelList[i]))
+    {
+      wasAnyLabelTrimmed = true;
+    }    
+  }
+  if (wasAnyLabelTrimmed)
+  {
+    message += getCatStr(\"ssc_errors\", \"leWhitespaceRemoved\") + \"\\n\";
+  }
+  
+  // removing empty labels:
+  bool wasAnyLabelRemoved = false;
+  for (int i = labelListSize; i >= 1; i--)
+  {
+    if (labelList[i] == \"\")
+    {
+      dynRemove(labelList, i);
+      wasAnyLabelRemoved = true;
+    }
+  }
+  if (wasAnyLabelRemoved)
+  {
+    labelListSize = dynlen(labelList);
+    message += getCatStr(\"ssc_errors\", \"leEmptyRemoved\") + \"\\n\";
+  }
+  
+  // removing duplicate labels:
+  int reducedLabelListSize = dynUnique(labelList);
+  if (reducedLabelListSize < labelListSize)
+  {
+    message += getCatStr(\"ssc_errors\", \"leRepetitionsRemoved\");
+  }
+  
+  if (message != \"\")
+  {
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"Info\", makeDynString(message)); 
+  }
+  ge_Labels.items = labelList;
+  
+  // We don't know exactly what kind of changes have been made.
+  // For the sake of safety, we assume all kinds of changes.
+  g_labelAdded = true;
+  g_labelModified = true;
+  g_labelDeleted = true;
+}
+
+//----------------------------------------------------------------
+
+/** @author Samuel Peres samuel.peres@siemens.com
+  Removes leading and trailing whitespace characters from s.
+  @param s the string to be trimmed
+  @return true if there were some whitespace characters to be removed, false otherwise
+*/
+bool trimString(string & s)
+{
+  int origSize = strlen(s);
+  s = strltrim(s);
+  s = strrtrim(s);
+  return (strlen(s) < origSize);
+}
+
+
+
+" 0
+ E E E
+13 9
+"pb_deleteAll"
+""
+1 387 237.8928571428572 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  398 237.8928571428572 426 265.8928571428572
+
+P 
+13421721
+"pictures/StandardIcons/delete_all_20.png"
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+"main()
+{
+  setMultiValue(\"ge_Labels\", \"items\", makeDynString(),
+                \"tf_NewLabel\", \"text\", \"\");
+  g_labelDeleted = true;
+}
+
+
+" 0
+ E E E
+22 20
+"cb_dpList"
+""
+1 10 13.9619140625 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  8 8.9619140625 362 34.9619140625
+0
+
+E
+"main()
+{
+  // Dealing with the unsaved changes if there are some:
+  bool cancel = false;
+  dealWithPossibleUnsavedChanges(cancel);
+  if (cancel)
+  {
+    return;
+  }
+  
+  // The things to do with the previous labelset:
+  if (g_canEditCurrentLabelset)
+  {
+    unlockCurrentLabelset();
+  }
+  
+  // The things to do with the current labelset:
+  g_currentLabelset = cb_dpList.selectedText;
+  if (loadCurrentLabelset())
+  {
+    setMultiValue(\"tf_NewLabelset\", \"text\", \"\",
+                  \"tf_NewLabel\", \"text\", \"\");
+    g_canEditCurrentLabelset = !isCurrentLabelsetLocked();
+    if (g_canEditCurrentLabelset)
+    {
+      lockCurrentLabelset();
+      enableEditingButtons();
+    }
+    else
+    {
+      disableEditingButtons();
+    }
+  }
+  else
+  {
+    initializePanelContents();
+  }
+}
+
+
+" 0
+
+E
+ 1 1
+13 21
+"pb_NewLabelset"
+""
+1 370.0436507936508 51.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  368 44 482 72
+
+T 
+4
+LANG:10001 12 New labelset
+LANG:10004 12 新建标签
+LANG:10000 14 Neues Labelset
+LANG:10027 12 New labelset
+"main()
+{
+  string dpName = tf_NewLabelset.text;
+
+  // Dealing with the unsaved changes if there are some:
+  bool cancel = false;
+  dealWithPossibleUnsavedChanges(cancel);
+  if (cancel)
+  {
+    return;
+  }
+  
+  // Creating the labelset if possible:
+  if ((dpName != \"\") && (nameCheck(dpName) == 0))
+  {
+    if (createLabelset(dpName))
+    {
+      // The things to do with the previous labelset:
+      if (g_canEditCurrentLabelset)
+      {
+        unlockCurrentLabelset();
+      }
+  
+      // The things to do with the newly created labelset:
+      g_currentLabelset = dpName;
+      g_canEditCurrentLabelset = true;
+      lockCurrentLabelset();
+      g_labelsetAdded = true;
+      updatePanelReturnValues();
+      loadLabelsetList();
+      selectLabelset(dpName);
+      loadCurrentLabelset();
+      setMultiValue(\"tf_NewLabelset\", \"text\", \"\",
+                    \"tf_NewLabel\", \"text\", \"\");
+      enableEditingButtons();
+    }
+    else
+    {
+      loadLabelsetList();
+    }
+  }
+  else
+  {
+    string message = getCatStr(\"ssc_errors\", \"leInvalidName\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"Warning\", makeDynString(message));
+    // the corrected name:
+    tf_NewLabelset.text = dpName;
+  }
+}
+
+
+
+" 0
+ E E E
+14 22
+"tf_NewLabelset"
+""
+1 10 50.60000000000001 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  8 45 362 71.80000000000001
+3 "0s" 0 0 0 0 0 -1  E E E
+13 23
+"pb_Cancel"
+""
+1 405.96875 289.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  393.96875 287.75 481.96875 315.75
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 6 Cancel
+"main()
+{
+  closePanel();
+}
+
+" 0
+ E E E
+1 31 0 "" 0
+0
+13 26
+"pb_DeleteLabelset"
+""
+1 370.0436507936508 15.4619140625 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  368 7.9619140625 482 35.9619140625
+
+T 
+4
+LANG:10001 15 Delete labelset
+LANG:10004 12 删除标签
+LANG:10000 17 Labelset löschen
+LANG:10027 15 Delete labelset
+"main()
+{
+  if (deleteCurrentLabelset())
+  {
+    g_labelsetDeleted = true;
+    updatePanelReturnValues();
+    initializePanelContents();
+  }
+}
+
+
+" 0
+ E E E
+13 29
+"pb_Apply"
+""
+1 315.96875 289.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  303.96875 287.75 391.96875 315.75
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 5 Apply
+"main()
+{
+  updateCurrentLabelset();
+  updatePanelReturnValues();
+}
+
+
+" 0
+ E E E
+13 30
+"pb_OK"
+""
+1 225.5000000000001 289.75 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,14,5,50,0,0,0,0,0
+0  213.5000000000001 287.75 301.5000000000001 315.75
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确认
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  updateCurrentLabelset();
+  updatePanelReturnValues();
+  closePanel();
+}
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 52 160.75 T 24 1 0 1 -61.00000000000001 119
+0
+0

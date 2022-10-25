@@ -1,0 +1,1030 @@
+V 14
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 500 380 N "_3DFace" 4
+"$dpfilter"
+"$dptype"
+"$filtertype"
+"$group"
+"main()
+{
+
+  int        i,intern=0,overflow=0,l;
+  dyn_string dptypes=makeDynString(getCatStr(\"ngedi\",\"none\")),
+             ds=makeDynString(),listOfGroups;
+  bool bIsAlias; 
+  dyn_string dsAlias; 
+  
+  //if dpt-filter is not in groupselectionlist and dpfilter is empty,
+  //filtertype.number = TRUE;  
+  FilterType.number=(dynContains(groupGetNames(),$dptype)>0 && $dpfilter==\"\")?1:0;
+  
+  //neuer DPE oder Alias-Filter
+  if ($dptype==\"\" && $dpfilter==\"\" && ($filtertype==\"dp\" || $filtertype==\"alias\") )
+  {
+    bIsAlias = ($filtertype==\"alias\"); 
+
+    setValue(\"rdbDpeAlias\",\"number\",bIsAlias); 
+    setValue(\"internal\",\"state\",0,false);
+    setValue(\"FilterType\",\"number\",0);
+
+    if (!bIsAlias)
+    {
+       dynAppend(dptypes,dpTypes());
+       for (i=dynlen(dptypes);i>=1;i--)
+       {
+         if (dptypes[i][0]==\"_\")
+           dynRemove(dptypes,i);
+       }
+    }
+
+    FilterTypeText.text=getCatStr(\"groups\",\"typefilter\");
+    DpTypes.items = dptypes;
+    DpTypes.text = ($dptype==\"\")?getCatStr(\"ngedi\",\"none\"):$dptype;
+    DpFilterUnix.text = $dpfilter;
+    txtOldDf.text = $dpfilter;
+    txtOldTf.text = $dptype;
+    DpFilterText.visible = true;
+    Enter.visible = true;
+    internal.visible = true;
+    DpFilterText.text = getCatStr(\"groups\",bIsAlias?\"aliasfilter\":\"dpefilter\"); 
+    internal.enabled = !bIsAlias; 
+    DpTypes.enabled = !bIsAlias; 
+    DpFilterText.visible = true;
+
+  }
+  else
+  //existierender DPE/Aliasfilter, mit oder ohne Typ
+  if ($dpfilter!=\"\")
+  {
+  	
+    bIsAlias = (substr($dpfilter,0,1)==\"@\"); 
+   
+    setValue(\"rdbDpeAlias\",\"number\",bIsAlias); 
+    setValue(\"internal\",\"state\",0,false);
+    setValue(\"FilterType\",\"number\",0);
+
+    if (!bIsAlias) 
+    {
+       dynAppend(dptypes,dpTypes());
+       for (i=dynlen(dptypes);i>=1;i--)
+       {
+         if (dptypes[i][0]==\"_\")
+           dynRemove(dptypes,i);
+       }
+    }
+
+    FilterTypeText.text=getCatStr(\"groups\",\"typefilter\");
+    DpTypes.items = dptypes;
+    DpTypes.text = ($dptype==\"\")?getCatStr(\"ngedi\",\"none\"):$dptype;
+
+    if (bIsAlias)
+      DpFilterUnix.text = substr($dpfilter,1);
+    else
+      DpFilterUnix.text = $dpfilter;
+
+    txtOldDf.text = $dpfilter;
+    txtOldTf.text = $dptype;
+    groupGetFilteredDps($dptype, $dpfilter, ds, overflow);
+    if (overflow==-1)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"groups\",\"leveloverflow\")));
+      return;
+    }
+ 
+    groupGetAliasListForDpeList(ds, dsAlias); 
+    tblResult.deleteAllLines; 
+    tblResult.appendLines(dynlen(ds),//dynlen(elements),
+                      \"DPE\", ds, 
+                      \"Alias\", dsAlias);
+
+    DpFilterText.visible = true;
+    Enter.visible = true;
+    internal.visible = true;
+
+    DpFilterText.text = getCatStr(\"groups\",bIsAlias?\"aliasfilter\":\"dpefilter\"); 
+    internal.enabled = !bIsAlias; 
+    DpTypes.enabled = !bIsAlias; 
+    DpFilterText.visible = true;
+
+  }
+  else
+  //existierender oder neuer Gruppenfilter
+  {
+    FilterTypeText.text=getCatStr(\"groups\",\"groupfilter\");
+    setValue(\"FilterType\",\"number\",1);
+
+    listOfGroups = groupGetGroupsOfUser(getUserName(), true, dptypes);
+    DpTypes.items = dptypes;
+    DpTypes.text = $dptype;
+    DpFilterUnix.visible = false;
+    DpFilterUnix.text=\"\";
+    groupGetFilteredDps(groupNameToDpName($dptype), $dpfilter, ds, overflow);
+    if (overflow==-1)
+    {
+      groupErrorScreen(-11);
+      DpTypes.text = \"\";
+      return;
+    }
+
+    groupGetAliasListForDpeList(ds, dsAlias); 
+    tblResult.deleteAllLines; 
+    tblResult.appendLines(dynlen(ds),//dynlen(elements),
+                      \"DPE\", ds, 
+                      \"Alias\", dsAlias);
+
+    DpFilterText.visible = false;
+    Enter.visible = false;
+    internal.visible = false;
+  }
+}" 0
+ E E E E 1 -1 -1 0  10 10
+""0  1
+E "cmdClose()
+{
+  PanelOffReturn(makeDynFloat(-1),makeDynString());
+}
+
+void dpFilterUnix_command()
+{
+  int        overflow=0;
+  dyn_string ds;
+  dyn_string dsAlias; 
+  string sFilter;
+
+  // inserted TStok via Check-In BSchulz 01/09/2003
+  string sType=DpTypes.text;
+  // inserted TStok via Check-In BSchulz 01/09/2003
+
+  // inserted TStok via Check-In BSchulz 01/09/2003
+  if ( sType==getCatStr(\"ngedi\",\"none\"))
+    sType = \"\";
+  // inserted TStok via Check-In BSchulz 01/09/2003
+  
+  sFilter = DpFilterUnix.text;
+  if (rdbDpeAlias.number == 1) sFilter = \"@\"+sFilter;
+  if(sFilter == \"@\")
+  {
+  	groupErrorScreen(-14);
+  	return;
+  }
+  
+  // replaced TStok via Check-In BSchulz 01/09/2003
+//groupGetFilteredDps(DpTypes.text;, sFilter, ds, overflow);    
+  // replaced TStok via Check-In BSchulz 01/09/2003
+  
+  bool bWrongChar = FALSE; 
+  dyn_string dsWrongChars = makeDynString(\";\", \",\", \"[\", \"]\", \"{\", \"}\", \" \", \"?\", \"\\\\\", \"%\", \"!\", \"(\", \")\", \"$\");
+
+  for ( int i = 1; i <= dynlen(dsWrongChars); i++ )
+    if ( strpos(sFilter, dsWrongChars[i]) >= 0 )
+      bWrongChar = TRUE;
+
+  if ( bWrongChar )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"), 
+                             makeDynString(getCatStr(\"groups\", \"invaliddpefilter\")));
+    return;
+  }
+
+  else
+    groupGetFilteredDps(sType, sFilter, ds, overflow);
+
+  if (overflow==-1)
+  {
+    groupErrorScreen(-11);
+    return;
+  }
+
+  groupGetAliasListForDpeList(ds, dsAlias);
+
+
+  tblResult.deleteAllLines;
+  tblResult.appendLines(dynlen(ds),
+                    \"DPE\", ds, 
+                    \"Alias\", dsAlias);
+}
+
+
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" "main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 17
+"Enter"
+""
+1 460 130 E E E 1 E 1 E N "_3DFace" E N "_Transparent" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 2.181818181818181 0 1.2 -550.6363636363635 -17.5 2  1 3  "pictures/StandardIcons/return_32.svg" 13421772 E 460 110 471 130
+2 22
+"Text2"
+""
+1 69 223 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E U  1 E 27 27 171 42
+0 2 0 "0s" 0 0 0 192 0 0  27 27 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 27 Using a group as filter ...
+LANG:10004 28 使用一个组来过滤 ...
+LANG:10000 31 Gruppe als Filter verwenden ...
+LANG:10027 57 Использовать группу как фильтр
+22 1
+"DpTypes"
+""
+1 25 55 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 53 477 80
+0
+
+E
+"main()
+{
+  int        overflow=0,ft;
+  dyn_string ds,groups,groupNames,res_typfilter,res_dpfilter;
+  dyn_string dsAlias;
+
+  if (FilterType.number==1)
+  {
+    // checking if endless
+
+    overflow = 0;
+    groupCheckGroupsOfUserRecursively($group, this.text, getUserName(), true,
+                                    groups, groupNames, overflow);
+    if (overflow==-1)
+    {
+      groupErrorScreen(-11);
+      this.text=\"\";
+      return;
+    }
+
+    addGlobal(\"rootGroupRecursive\",STRING_VAR);
+    overflow = 0;
+    groupGetGroupsOfUserRecursively(this.text, getUserName(), true,
+                                    groups, groupNames, overflow);
+    removeGlobal(\"rootGroupRecursive\");
+    if (overflow==-1)
+    {
+      groupErrorScreen(-11);
+      this.text=\"\";
+      return;
+    }
+
+    groupGetFilterItems(groupNameToDpName(DpTypes.text),res_typfilter,res_dpfilter);
+    if (dynContains(res_typfilter,groupNameToDpName($group)))
+    {
+      groupErrorScreen(-7);
+      this.text=\"\";
+      return;
+    }
+
+    overflow = 0;
+    groupGetFilteredDps(groupNameToDpName(this.text), DpFilterUnix.text, ds, overflow);
+    if (overflow==-1)
+    {
+      groupErrorScreen(-11);
+      this.text=\"\";
+      return;
+    }
+
+    groupGetAliasListForDpeList(ds, dsAlias);
+    tblResult.deleteAllLines;
+    tblResult.appendLines(dynlen(ds),
+                      \"DPE\", ds, 
+                      \"Alias\", dsAlias);
+  }
+  else
+  {
+    overflow = 0;
+    groupGetFilteredDps(DpTypes.text, DpFilterUnix.text, ds, overflow);  // Stoklasek 13.03.2001
+    if (overflow==-1)
+    {
+      groupErrorScreen(-11);
+      this.text=\"\";
+      return;
+    }
+
+    groupGetAliasListForDpeList(ds, dsAlias);
+
+    tblResult.deleteAllLines;
+    tblResult.appendLines(dynlen(ds),
+                      \"DPE\", ds, 
+                      \"Alias\", dsAlias);
+
+  }
+}
+" 0
+
+E
+ 0 0
+20 2
+"internal"
+""
+1 25 25 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 23 247 44
+1
+T 
+4
+LANG:10001 24 Internal datapoint types
+LANG:10004 14 内部DP类型
+LANG:10000 23 Interne Datenpunkttypen
+LANG:10027 53 Типы внутренних точек данных
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+3
+E E
+E E
+E E
+E"main()
+{
+  int        i,overflow=0;
+  bool       internal;
+  dyn_string dptypes=makeDynString(getCatStr(\"ngedi\",\"none\")),ds;
+  
+  getValue(\"internal\",\"state\",0,internal);
+
+  dynAppend(dptypes,dpTypes());
+  if (!internal)
+  {
+    for (i=dynlen(dptypes);i>=1;i--)
+    {
+      if (dptypes[i][0]==\"_\")
+        dynRemove(dptypes,i);
+    }
+  }
+  DpTypes.items = dptypes;
+  if (dynContains(dptypes,DpTypes.text)<1)
+  {
+    DpTypes.selectedPos=1;
+    DpTypes.text=getCatStr(\"ngedi\",\"none\");
+  }
+  groupGetFilteredDps(DpTypes.text, DpFilterUnix.text, ds, overflow);
+  if (overflow==-1)
+  {
+    groupErrorScreen(-11);
+    return;
+  }
+}" 0
+14 15
+"DpFilterUnix"
+""
+1 25 115 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E "main()
+{
+  //dpFilterUnix_command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 113 451 140
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  dpFilterUnix_command();
+}" 0
+
+13 8
+"OK"
+""
+1 740 1215 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  318 343 402 370
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+int    iError=0;
+string s1=strrtrim(strltrim(DpTypes.text)),
+       s2=strrtrim(strltrim(DpFilterUnix.text));
+         
+  if (rdbDpeAlias.number == 1) s2 = \"@\"+s2;
+  
+  if (FilterType.number==1)
+    s2=\"\";
+  if (FilterType.number==0 && s2==\"\")
+  {
+  	PanelOffReturn(makeDynFloat(1),makeDynString(\"\"));	//empty selection
+  }
+  if (s1==getCatStr(\"ngedi\",\"none\"))
+    s1=\"\";
+
+  if (s1!=txtOldTf.text || s2!=txtOldDf.text)
+  {
+    groupDeleteFilter($group,txtOldTf.text,txtOldDf.text,iError);
+    if (iError<0)
+    {
+      groupErrorScreen(iError);
+      return;
+    }
+  }
+  groupSetFilter($group,s1,s2,iError);
+  
+  if (iError<0)
+  {
+    groupErrorScreen(iError);
+    return;
+  }
+
+  PanelOffReturn(makeDynFloat(1),makeDynString(s1,s2));
+}" 0
+ E E E
+13 7
+"Cancel"
+""
+1 665 925 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  403 343 487 370
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}
+" 0
+ E E E
+19 18
+"FilterType"
+""
+1 255 5 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  253 3 397 47
+2
+T 
+4
+LANG:10001 11 Type-filter
+LANG:10004 15 类型过滤器
+LANG:10000 10 Typ-Filter
+LANG:10027 26 Фильтр по типу
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Group-filter
+LANG:10004 12 组过滤器
+LANG:10000 13 Gruppenfilter
+LANG:10027 30 Фильтр по группе
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+3
+E "main()
+{
+  int        i,intern=0,type=FilterType.number,overflow=0;
+  string     dpt,filter;
+  dyn_string dptypes=makeDynString(getCatStr(\"ngedi\",\"none\")), ds;
+  
+  if (type==0)
+  {
+    setValue(\"internal\",\"state\",0,0);
+    dynAppend(dptypes,dpTypes());
+    for (i=dynlen(dptypes);i>=1;i--)
+    {
+      if (dptypes[i][0]==\"_\")
+        dynRemove(dptypes,i);
+    }
+    FilterTypeText.text=getCatStr(\"groups\",\"typefilter\");
+    DpTypes.items = dptypes;
+    DpTypes.text = getCatStr(\"ngedi\",\"none\");
+    DpFilterUnix.text = $dpfilter;
+    DpFilterText.visible = true;
+    internal.visible = true;
+    dpt=DpTypes.text;
+    filter=DpFilterUnix.text;
+    groupGetFilteredDps(dpt, filter, ds, overflow);
+    if (overflow==-1)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"groups\",\"leveloverflow\")));
+      return;
+    }
+  }
+  else
+  {
+    FilterTypeText.text=getCatStr(\"groups\",\"groupfilter\");
+    setValue(\"internal\",\"state\",0,0);
+    dptypes=groupGetNames();
+    DpTypes.items = dptypes;
+    DpTypes.text = \"\";
+    DpFilterUnix.text=\"\";
+    DpFilterUnix.visible = false;
+    DpFilterText.visible = false;
+    internal.visible = false;
+  }
+}
+" 0
+
+E E
+E E
+13 20
+"help"
+""
+1 1683 1533 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 343 97 370
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  if ( $filtertype == \"dp\" )
+    std_help(\"dpGroupsEdit_Definition\");
+  else
+  if ( $filtertype == \"group\" )
+    std_help(\"dpGroupsEdit_Definition_group\");
+  else
+  if ( $filtertype == \"alias\" )
+    std_help(\"dpGroupsEdit_Definition_alias\");
+}" 0
+ E E E
+14 23
+"txtOldDf"
+""
+1 125 85 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  123 83 227 110
+3 "0s" 0 0 0 0 0 -1  E E E
+14 24
+"txtOldTf"
+""
+1 225 85 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  223 83 347 110
+3 "0s" 0 0 0 0 0 -1  E E E
+19 28
+"rdbDpeAlias"
+""
+1 415 5 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  413 3 477 47
+2
+T 
+4
+LANG:10001 11 Type-filter
+LANG:10004 15 类型过滤器
+LANG:10000 3 DPE
+LANG:10027 3 DPE
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 12 Group-filter
+LANG:10004 12 组过滤器
+LANG:10000 5 Alias
+LANG:10027 11 Псевд.
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+3
+E E
+E E
+E E
+25 30
+"tblResult"
+""
+1 44 127 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  23 143 477 312
+EE 1 0 1 2 8 "DPE" 20 1 0 "s" 4
+LANG:10001 5 DP(E)
+LANG:10004 5 DP(E)
+LANG:10000 5 DP(E)
+LANG:10027 5 DP(E)
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+231 "Alias" 17 1 0 "s" 4
+LANG:10001 5 Alias
+LANG:10004 6 别名
+LANG:10000 5 Alias
+LANG:10027 18 Псевдоним
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+197 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 1 0 7
+1 0
+1 35 0 "" 0
+0
+30 33
+"FilterTypeText"
+""
+1 15 8 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+25 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.607843137254903 0 1.283333333333333 -54.11764705882354 -2.266666666666668 0 E 15 8 118 69
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Type Filter
+LANG:10004 15 类型过滤器
+LANG:10000 9 Typfilter
+LANG:10027 50 Фильтр по типу точек данных
+30 34
+"DpFilterText"
+""
+1 15 98 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+26 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.607843137254903 0 3.7 -54.11764705882354 -264.6 0 E 15 98 118 159
+3
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 DP(E) Filter
+LANG:10004 5 DP(E)
+LANG:10000 12 DP(E)-Filter
+LANG:10027 23 Фильтр по DP(E)
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 335 T 25 U 
+0
+0

@@ -1,0 +1,378 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 740 575 N "_3DFace" 5
+"$containerId"
+"$containerName"
+"$localOnly"
+"$productCode"
+"$productName"
+"#uses \"classes/cm/CmContainerDataProcessor\"
+
+string getProductName(const CmItem &item)
+{
+  vector<string> specialNames = makeVector(
+      \"~mulFreeLicenses\",
+      \"~mulUsedLicenses\",
+      \"_mcmExpirationTime\",
+      \"_mcmMaintenancePeriod\",
+      \"_mulLicenseQuantity\",
+      \"_epd_x_version\",
+      \"_epd_x_minVersion\",
+      \"_epd_x_deviceCount\",
+      \"_epd_x_demoPeriodInHours\");
+
+  if (specialNames.contains(item.id))
+    return getCatStr(\"pa\", \"cmu:\" + item.id);
+
+  // special case: _epd_mlfb<_id> e.g. _unknown_mlfb_127
+  const string mlfbPrefix = \"_epd_mlfb\";
+
+  if (strpos(item.id, mlfbPrefix) == 0)
+  {
+    string id = item.id;
+    strreplace(id, mlfbPrefix + \"_\", \"\");
+    return getCatStr(\"pa\", \"cmu:\"+ mlfbPrefix);
+  }
+
+  // special case: _epd_unknown<_id> e.g. _unknown_epd_122
+  const string unknownPrefix = \"_epd_unknown\";
+
+  if (strpos(item.id, unknownPrefix) == 0)
+  {
+    string id = item.id;
+    strreplace(id, unknownPrefix + \"_\", \"\");
+    return getCatStr(\"pa\", \"cmu:\"+ unknownPrefix) + \" (\" + id + \")\";
+  }
+
+  return item.name;
+}
+
+void enableLicenseItemsShapes(bool enabled)
+{
+  ProductItemsInformationFrame.enabled = enabled;
+  ProductItemsTable.enabled = enabled;
+}
+
+// defined \"sort-order\"
+//    Runtime properties (e.g. used licenses)
+//    WibuCM properties  (e.g. Expiration Date)
+//    Common EPD         (e.g. WinCC OA version, DEMO Period)
+//    Custom Keywords    (EPD)
+//    MLFB               (EPD)
+//    Unknown            (EPD)
+string getSortColumnValue(string cellValue)
+{
+  if (strpos(cellValue, \"~m\") == 0)
+    return \"20\";
+
+  if (strpos(cellValue, \"_m\") == 0)
+    return \"30\";
+
+  if (strpos(cellValue, \"_epd_x\") == 0)
+    return \"40\";
+
+  if (strpos(cellValue, \"_epd_CK\") == 0)
+    return \"50\";
+
+  if (strpos(cellValue, \"_epd_mlfb\") == 0)
+    return \"60\";
+
+  if (strpos(cellValue, \"_epd_unknown\") == 0)
+    return \"90\";
+
+  // should not occur
+  return \"10\";
+}
+
+void adjustTableFormat()
+{
+  string previousSortValue;
+  string sortValue;
+
+  for (int i = 0; i < ProductItemsTable.lineCount(); i++)
+  {
+    sortValue = ProductItemsTable.cellValueRC(i, \"sortColumn\");
+
+    if (i > 0 && previousSortValue != sortValue)
+    {
+      previousSortValue = sortValue;
+
+      // insert \"separator\" row
+      int separatorSortValue = sortValue + 1;
+      ProductItemsTable.insertLineN(i, \"sortColumn\", (string)separatorSortValue);
+      i++;
+    }
+  }
+
+  // have to sort again since inserting rows breaks existing sorting by column
+  ProductItemsTable.sort(\"sortColumn\");
+}
+
+void populateItemsTable(string serialNumber, ulong productCode, bool localOnly)
+{
+  enableLicenseItemsShapes(false);
+
+  CmContainerDataProcessor dataProcessor;
+  CmContainer container = dataProcessor.getContainerData(serialNumber, localOnly, true);
+
+  vector<CmItem> items = CmContainerDataProcessor::getItemsForProduct(container, productCode);
+
+  for (int i = 0; i < items.count(); i++)
+  {
+    CmItem item = items[i];
+
+    // Not displaying these values according to discussion/reviews with PO
+    if (item.id == \"_epd_minVersion\" || item.id == \"_mcmMaintenancePeriod\")
+      continue;
+
+    ProductItemsTable.appendLine(
+        \"sortColumn\", getSortColumnValue(item.id), // not visible, used for sorting
+        \"itemIdColumn\", item.id, // only visible for debugging/testing
+        \"itemNameColumn\", getProductName(item),
+        \"itemValueColumn\", item.value);
+  }
+
+  // special sorting (see getSortColumnValue())
+  ProductItemsTable.sort(\"sortColumn\");
+
+  // make displayed information better readable
+  adjustTableFormat();
+
+  enableLicenseItemsShapes(true);
+}
+
+main()
+{
+  if (!isDollarDefined(\"$containerId\") || !isDollarDefined(\"$containerName\") ||
+      !isDollarDefined(\"$productCode\") || !isDollarDefined(\"$productName\") ||
+      !isDollarDefined(\"$localOnly\"))
+  {
+    errClass error = makeError(0, PRIO_INFO, ERR_PARAM, 0, \"\", 0, 0, __FILE__ + \": $parameter not defined\");
+    throwError(error);
+    return;
+  }
+
+  ProductItemsInformationFrame.text = $containerName + \" (\" + $containerId + \") / \" + $productName;
+  populateItemsTable($containerId, $productCode, $localOnly);
+}
+" 0
+ E E E E 1 -1 -1 0  17 39.499999999995
+""0  1
+E E 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+30 5
+"ProductItemsInformationFrame"
+""
+1 250 14 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 7.02970297029703 0 8.64406779661017 -1737.425742574258 -111.0169491525424 0 E 250 14 352 74
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"ProductItemsTable"
+""
+1 39.99999999999997 39.99999999999999 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  37.99999999999997 37.99999999999999 712 501.9999999999999
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"_Window\",\"_WindowAlternate\"));
+}" 0
+E 1 0 1 4 0 "sortColumn" 3 0 0 "s" 4
+LANG:10001 1 #
+LANG:10004 1 #
+LANG:10000 1 #
+LANG:10027 1 #
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "itemIdColumn" 17 0 0 "s" 4
+LANG:10001 2 ID
+LANG:10004 2 ID
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "itemNameColumn" 17 1 0 "s" 4
+LANG:10001 12 Product Item
+LANG:10004 12 Product Item
+LANG:10000 13 Produktoption
+LANG:10027 14 Артикул
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "itemValueColumn" 27 1 0 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 4 Wert
+LANG:10027 16 Значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+306 
+22 22 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 0 7
+1 0
+6 1
+"RECTANGLE2"
+""
+1 0 350 E E E 1 E 1 E N "_ButtonBarBackground" E N "_ButtonBarBackground" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.482965931863727 0 1.022727272727273 0 532.0454545454545 1 E 0 0 499 44
+13 2
+"close"
+""
+1 645.9999999999999 542.087121212121 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 27 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignBottom"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  643.9999999999999 541.0454545454545 721.9999999999999 568.0454545454545
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

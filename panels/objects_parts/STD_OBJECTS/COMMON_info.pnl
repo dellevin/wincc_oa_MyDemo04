@@ -1,0 +1,1241 @@
+V 14
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 620 480 N "_3DFace" 2
+"$dpe"
+"$dpt"
+"
+
+
+// IM 103990 04.08.2011 m.pokorny
+main()
+{
+  InitTable();
+}
+
+
+
+" 0
+ E E E E 1 -1 -1 0  58 20
+""0  1
+E "// global variables to save current values if table is stopped
+bool           g_bRunning;
+dyn_string     g_sDp;
+dyn_dyn_string g_sDpe;
+dyn_dyn_string g_sText;
+dyn_dyn_string g_sValue;
+dyn_dyn_string g_sBits;
+dyn_dyn_string g_sTime;
+dyn_dyn_string g_sColor;
+dyn_dyn_bool   g_bAlert;
+// name of statusbits
+char           g_Cdefault;
+char           g_Cout_prange;
+char           g_Cinvalid;
+char           g_Cfrom_GI;
+char           g_Cuserbit1;
+char           g_Cuserbit2;
+
+// IM 103990 04.08.2011 m.pokorny
+const int      COUNT_OF_MAX_DPE = 1000;  // dont show DPE over this counter
+
+
+dyn_int diDynTypes;
+
+string replaceFirstOccurrence(const string &source, const string &search, const string &replace)
+{
+  string replaced = source;
+  int pos;
+  
+  if ((pos = strpos(source, search)) > -1)
+  {
+    replaced = substr(source, 0, pos);
+    replaced += replace;
+    replaced += substr(source, pos + strlen(search), strlen(source) - pos - strlen(search));
+  }
+
+  return replaced;
+}
+
+// IM 103990 04.08.2011 m.pokorny
+/*
+  from initialize panel are copied functions \"main(),replaceFirstOccurrence(),paWork(),workThread(),workWithAlertCB(),workWithoutAlertCB(),workAlertsCB(),trimDynValue()\" into ScopeLib. 
+  In the ScopeLib are funktion main are rename to InitTable. 
+  Funktion InitTable() are called in initialsation of panel and from button \"ok_button\"
+  Button \"ok_button\", warning test \"txt1000Warning\" are showed only if count of DPE is over int COUNT_OF_MAX_DPE (1000)
+  Warning text \"txt100warning\" are changed and writed to \"para.cat\" [index = \"common_info_over_DPEs\"]
+  With this IM is also progres bar \"ComandProgres\" inplemated, for show, how mutch % are finished
+*/
+InitTable(bool b_ShoeAllDPEs = false)
+{  
+  dyn_errClass errClas;
+  dyn_string   dpes,dpGetDpes;
+  string       comm,attrList,from,where,remote, sDpe;
+  bool         alertActive, bMiActive;
+  dyn_anytype  alertsActive;
+  int          i,iError,pos;
+  dyn_dyn_bool ddb;
+  dyn_dyn_string dds;
+  string       sSearchAndReplace;
+  dyn_int      dpeStruct=makeDynInt(DPEL_BIT32_STRUCT,
+                                    // DPEL_BLOB,
+                                    DPEL_BLOB_STRUCT,
+                                    DPEL_BOOL_STRUCT,
+                                    DPEL_CHAR_STRUCT,
+                                    DPEL_DPID_STRUCT,
+                                    DPEL_DYN_BIT32_STRUCT,
+                                    // DPEL_DYN_BLOB,
+                                    DPEL_DYN_BLOB_STRUCT,
+                                    DPEL_DYN_BOOL_STRUCT,
+                                    DPEL_DYN_CHAR_STRUCT,
+                                    DPEL_DYN_DPID_STRUCT,
+                                    DPEL_DYN_FLOAT_STRUCT,
+                                    DPEL_DYN_INT_STRUCT,
+                                    DPEL_DYN_LANGSTRING_STRUCT,
+                                    DPEL_DYN_STRING_STRUCT,
+                                    DPEL_DYN_TIME_STRUCT,
+                                    DPEL_DYN_UINT_STRUCT,
+                                    DPEL_FLOAT_STRUCT,
+                                    DPEL_INT_STRUCT,
+                                    DPEL_LANGSTRING_STRUCT,
+                                    DPEL_STRING_STRUCT,
+                                    DPEL_STRUCT,
+                                    DPEL_TIME_STRUCT,
+                                    DPEL_TYPEREF,
+                                    DPEL_UINT_STRUCT,
+                                    DPEL_BIT64_STRUCT,
+                                    DPEL_LONG_STRUCT,
+                                    DPEL_ULONG_STRUCT,
+                                    DPEL_DYN_BIT64_STRUCT,
+                                    DPEL_DYN_LONG_STRUCT,
+                                    DPEL_DYN_ULONG_STRUCT);
+  diDynTypes=makeDynInt(DPEL_DYN_BIT32,
+                        DPEL_DYN_BOOL,
+                        DPEL_DYN_CHAR,
+                        DPEL_DYN_DPID,
+                        DPEL_DYN_FLOAT,
+                        DPEL_DYN_INT,
+                        DPEL_DYN_LANGSTRING,
+                        DPEL_DYN_STRING,
+                        DPEL_DYN_TIME,
+                        DPEL_DYN_UINT,
+                        DPEL_DYN_BLOB,
+                        DPEL_DYN_BIT64,
+                        DPEL_DYN_LONG,
+                        DPEL_DYN_ULONG);
+
+  // global variables to save current values if table is stopped
+  dynClear(g_sDp);
+  dynClear(g_sDpe);
+  dynClear(g_sText);
+  dynClear(g_sValue);
+  dynClear(g_sBits);
+  dynClear(g_sTime);
+  dynClear(g_sColor);
+  dynClear(g_bAlert);
+  g_Cdefault    = getCatStr(\"sc\", \"default\")[0];
+  g_Cout_prange = getCatStr(\"sc\", \"out_prange\")[0];
+  g_Cinvalid    = getCatStr(\"sc\", \"invalid\")[0];
+  g_Cfrom_GI    = getCatStr(\"sc\", \"from_GI\")[0];
+  g_Cuserbit1   = '1';
+  g_Cuserbit2   = '2';
+
+  attrList=\"'_alert_hdl.._alert_color',\"
+           \"'_alert_hdl.._ack_state',\"
+           \"'_alert_hdl.._visible',\"
+           \"'_alert_hdl.._ackable',\"
+           \"'_alert_hdl.._oldest_ack',\"
+           \"'_alert_hdl.._ack_oblig',\"
+           \"'_alert_hdl.._direction',\"
+           \"'_alert_hdl.._abbr',\"
+           \"'_alert_hdl.._prior',\"
+           \"'_alert_hdl.._text',\"
+           \"'_alert_hdl.._value',\"
+           \"'_alert_hdl.._ack_time',\"
+           \"'_alert_hdl.._comment',\"
+           \"'_alert_hdl.._panel'\";
+  where=\"('_alert_hdl.._prior' >= 0)\";
+
+
+{
+  string s,dpe=$dpe, sDpe;
+
+  if (dpExists(dpe))
+  {
+    sSearchAndReplace= dpSubStr(dpe, DPSUB_SYS_DP_EL);
+  }
+}
+
+
+
+
+  tabInfo.visible = 0;
+
+  if (dynContains(g_sDp,$dpe)<1)
+    dynAppend(g_sDp,$dpe);
+  pos=dynContains(g_sDp,$dpe);
+  dpes= dpNames(dpSubStr($dpe,DPSUB_SYS_DP)+\".**;\");
+
+  dynInsertAt(dpes,dpSubStr($dpe,DPSUB_SYS_DP)+\".\",1);
+  g_bRunning = TRUE;
+
+  sDpe = dpSubStr($dpe,DPSUB_SYS_DP_EL); if ( strpos(sDpe, \".\") < 1 ) sDpe += \".\";
+  
+  // add ending '.'
+  string tmpSDpe = sDpe;
+  if ( substr(tmpSDpe, strlen(tmpSDpe)-1,1)!=\".\" )
+    tmpSDpe+=\".\";
+
+  ComandProgres.visible = true;  
+  float f_ProgressPerc;
+  float f_AllDPEs = dynlen(dpes);
+  float f_Count;
+  for(i=dynlen(dpes);i>0;i--)
+  {
+    if ( dynContains(dpeStruct,dpElementType(dpes[i]))>0 ||        //remove all not dpe
+         strpos( dpSubStr(dpes[i],DPSUB_SYS_DP_EL),tmpSDpe ) != 0
+       )
+    {
+      dynRemove(dpes,i);
+    }
+    f_Count++;
+    f_ProgressPerc = f_Count/f_AllDPEs * 100 ;
+    ComandProgres.progress(f_ProgressPerc);    
+  }
+  ComandProgres.visible = false; 
+  
+  if ( dynlen(dpes) > COUNT_OF_MAX_DPE && !b_ShoeAllDPEs)  // IM 103990 m.pokorny 
+  {
+    string s_WarningText = getCatStr(\"para\",\"common_info_over_DPEs\");
+    strreplace(s_WarningText,\"%1\",COUNT_OF_MAX_DPE);
+    strreplace(s_WarningText,\"%2\",dynlen(dpes));
+    txt1000Warning.text(s_WarningText);
+    txt1000Warning.visible = true;
+    ok_button.visible = true;
+    if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+    {
+      // initialize global variables 
+      paInitGlobals();
+      paInitModuleNames(\"\");
+
+      dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+                myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+      dpConnect(\"paWork\",false,myUiDpName()+\".Para.OpenConfig:_online.._value\",
+                myUiDpName()+\".Para.ModuleName:_online.._value\");
+    }
+    return;
+  }  
+
+  ComandProgres.visible = true;  
+  float f_ProgressPerc;
+  float f_AllDPEs = dynlen(dpes);
+  float f_Count;  
+  for(i=1;i<=dynlen(dpes);i++)
+  {
+    g_sDpe[pos][i]=dpSubStr(dpes[i],DPSUB_SYS_DP_EL);
+    if ( strpos(g_sDpe[pos][i], \".\") < 1 ) g_sDpe[pos][i] += \".\";
+    dpGetDpes[i]=g_sDpe[pos][i]+\":_alert_hdl.._type\";
+    g_sText[pos][i]=\"\";
+    g_sValue[pos][i]=\"\";
+    g_sTime[pos][i]=\"\";
+    g_sColor[pos][i]=\"\";
+    g_bAlert[pos][i]=false;
+    g_sBits[pos][i]=\"\";
+    comm=dpGetComment(dpes[i]);
+    if (  comm==\"\" || 
+         (strpos(comm, \":\") > 0 && comm == dpSubStr(dpes[i],DPSUB_SYS_DP_EL) )
+       )
+    {
+      comm=dpSubStr(dpes[i],DPSUB_SYS_DP_EL);
+      comm=replaceFirstOccurrence(comm,dpSubStr($dpe,DPSUB_SYS_DP_EL),\"\");
+    }
+    if (  comm==\"\" || 
+         (strpos(comm, \":\") < 1 && comm == dpSubStr(dpes[i],DPSUB_DP_EL) )
+       )
+    {
+      comm=dpSubStr(dpes[i],DPSUB_DP_EL);
+      comm=replaceFirstOccurrence(comm,dpSubStr($dpe,DPSUB_DP_EL),\"\");
+    }
+    tabInfo.updateLine(1,\"dpname\",g_sDpe[pos][i],
+                         \"dp\",comm,
+                         \"text\",\"\",
+                         \"time\",\"\",
+                         \"bits\",\"\",
+                         \"value\",\"\",
+                         \"detail\",\"...\");
+
+    alertActive=false;
+
+    f_Count++;
+    f_ProgressPerc = f_Count/f_AllDPEs * 100 ;
+    ComandProgres.progress(f_ProgressPerc);        
+  }
+  ComandProgres.visible = false; 
+
+  if (dynlen(dpGetDpes)>0)
+    iError=dpGet(dpGetDpes,alertsActive);
+
+  ComandProgres.visible = true;  
+  float f_ProgressPerc;
+  float f_AllDPEs = dynlen(dpes);
+  float f_Count; 
+  for(i=1;i<=dynlen(dpes);i++)
+  {
+    if ( dynlen(alertsActive) > 0 && alertsActive[i] > 0) dpGet(dpes[i]+\":_alert_hdl.._multi_instance\", bMiActive);
+    if ( dynlen(alertsActive) > 0 && alertsActive[i] > 0 && !bMiActive)
+    {
+      
+      g_bAlert[pos][i]=true;
+      dpConnect(\"workWithAlertCB\", dpes[i]+\":_online.._value\",
+                                   dpes[i]+\":_alert_hdl.._act_state_color\",
+                                   dpes[i]+\":_alert_hdl.._act_state_text\",
+                                   dpes[i]+\":_online.._status\");
+      from=\"'\"+dpSubStr(dpes[i],DPSUB_DP_EL)+\"'\";
+
+      remote = dpSubStr(dpes[i], DPSUB_SYS);
+      if (remote == getSystemName())
+        remote = \"\";
+
+      startThread(\"workThread\", from, attrList, where, remote);
+    }
+    else
+    {
+      dpConnect(\"workWithoutAlertCB\", dpes[i]+\":_online.._value\",
+                                      dpes[i]+\":_original.._stime\",
+                                      dpes[i]+\":_online.._status\");
+    }
+    
+    f_Count++;
+    f_ProgressPerc = f_Count/f_AllDPEs * 100 ;
+    ComandProgres.progress(f_ProgressPerc);        
+  }
+  ComandProgres.visible = false; 
+  
+  tabInfo.lineVisible()=0;
+  tabInfo.visible = TRUE;
+
+  if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+  {
+    // initialize global variables 
+    paInitGlobals();
+    paInitModuleNames(\"\");
+
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+    dpConnect(\"paWork\",false,myUiDpName()+\".Para.OpenConfig:_online.._value\",
+              myUiDpName()+\".Para.ModuleName:_online.._value\");
+  }
+}
+
+
+
+paWork(string dpUi,string OpenConfig)
+{
+  paDpConnectUi(dpUi,OpenConfig,myModuleName());
+}
+
+workThread(string from, string attrList, string where, string remote)
+{
+  string tmp;
+  
+  if (remote != \"\")
+    tmp = \" REMOTE '\" + remote + \"'\";
+    
+  delay(0,200);
+  
+  if ( dpQueryConnectSingle(\"workAlertsCB\",true,
+                            remote+from,
+                            \"SELECT ALERT \" + attrList +
+                            \" FROM \" + from + tmp +
+                            \" WHERE \" + where ) == -1 )
+  {
+    std_error(\"AS\", ERR_SYSTEM, PRIO_SEVERE,
+           E_AS_FUNCTION, \"propertiesCB(): dpQueryConnectSingle(...)\");
+    return;
+  }
+  if ( dynlen(getLastError()) )
+  {        dyn_errClass err = getLastError();
+    errorDialog(err);
+    return;
+  }
+}
+
+workWithAlertCB(string dp1, anytype value,
+//                string dp2, time    t,
+                string dp3, string  color,
+                string dp4, string  text,
+                string dp5, bit32 status)
+{
+  int    posDpe,pos;
+  string sText, bits, svalue;
+  dp1 = dpSubStr(dp1,DPSUB_SYS_DP_EL);
+  pos=dynContains(g_sDp,$dpe);
+  posDpe=dynContains(g_sDpe[pos],dp1);
+
+  sprintf(bits, \"%c%c%c%c%c%c\", 
+    (dpGetStatusBit(status, \":_online.._default\")    == 1) ? g_Cdefault    : '-',
+    (dpGetStatusBit(status, \":_online.._out_prange\") == 1) ? g_Cout_prange : '-',
+    (dpGetStatusBit(status, \":_online.._invalid\")    == 1) ? g_Cinvalid    : '-',
+    (dpGetStatusBit(status, \":_online.._from_GI\")    == 1) ? g_Cfrom_GI    : '-',
+    (dpGetStatusBit(status, \":_online.._userbit1\")   == 1) ? g_Cuserbit1   : '-',
+    (dpGetStatusBit(status, \":_online.._userbit2\")   == 1) ? g_Cuserbit2   : '-');
+ 
+  sText=(text==\"\")?\"\":\" (\"+text+\")\";
+
+  if ( dynContains(diDynTypes, dpElementType(dp1)) )
+    svalue = trimDynValue(value);
+  else
+    svalue = value;
+  if (g_bRunning)
+  {
+//    string s = value;
+    tabInfo.updateLine(1,\"dpname\",dp1,
+//                         \"text\",value+sText,
+                         \"text\",svalue+sText,
+//                         \"time\",t,
+                         \"bits\",bits,
+                         \"value\",svalue);
+    if (posDpe>0)
+      tabInfo.lineParam(1, \"dpname\", dp1, \"backCol\", makeDynString(\"text\"), makeDynString(color));
+  }
+  if (posDpe<1) return;
+
+  // save values for inactive table
+  g_sValue[pos][posDpe]=svalue;
+  strreplace(g_sValue[pos][posDpe],\"|\",\";\");
+  g_sText[pos][posDpe]=sText;
+//  g_sTime[pos][posDpe]=t;
+  g_sColor[pos][posDpe]=color;
+  g_sBits[pos][posDpe]=bits;
+  
+}
+
+workWithoutAlertCB(string dp1, anytype value,
+                   string dp2, time    t,
+                   string dp3, bit32 status)
+{
+  int    posDpe,pos;
+  string bits, s, svalue;
+  
+  dp1 = dpSubStr(dp1,DPSUB_SYS_DP_EL);
+  if ((strpos(dp1, \".\") < 1))
+    dp1+=\".\";
+  pos=dynContains(g_sDp,$dpe);
+  posDpe=dynContains(g_sDpe[pos],dp1);
+
+  sprintf(bits, \"%c%c%c%c%c%c\", 
+    (dpGetStatusBit(status, \":_online.._default\")    == 1) ? g_Cdefault    : '-',
+    (dpGetStatusBit(status, \":_online.._out_prange\") == 1) ? g_Cout_prange : '-',
+    (dpGetStatusBit(status, \":_online.._invalid\")    == 1) ? g_Cinvalid    : '-',
+    (dpGetStatusBit(status, \":_online.._from_GI\")    == 1) ? g_Cfrom_GI    : '-',
+    (dpGetStatusBit(status, \":_online.._userbit1\")   == 1) ? g_Cuserbit1   : '-',
+    (dpGetStatusBit(status, \":_online.._userbit2\")   == 1) ? g_Cuserbit2   : '-');
+
+  if ( dynContains(diDynTypes, dpElementType(dp1)) )
+    svalue = trimDynValue(value);
+  else
+    svalue = value;
+
+  s = svalue;
+  strreplace(s,\"|\",\";\");
+  if (g_bRunning)
+  {
+    tabInfo.updateLine(1,\"dpname\",dp1,
+//                         \"text\",value,
+                         \"text\",s,
+                         \"time\",t,
+                         \"bits\",bits,
+                         \"value\",svalue);
+  }
+  if (posDpe<=0) return;
+  
+  // save values for inactive table
+  g_sValue[pos][posDpe]=svalue;
+  strreplace(g_sValue[pos][posDpe],\"|\",\";\");
+  g_sText[pos][posDpe]=value;
+  g_sTime[pos][posDpe]=t;
+  g_sBits[pos][posDpe]=bits;
+}
+
+//--------------------------------------------------------------------------
+/*
+This function receives the result from the query and puts it into the table
+Parameters:
+  ident ... Identification of query
+  tab   ... result of query
+*/
+
+workAlertsCB(string ident, dyn_dyn_anytype tab)
+{
+  int          i, pos, len, connectId, posDpe;
+  string       sTime, dpe, elem;
+  dyn_errClass err;
+
+  err = getLastError();
+  if( dynlen( err ) > 0 )
+  {
+    // connection lost
+    // Find out connectId
+    int iPos = strpos( ident, \"_\" );
+    connectId = substr( ident, iPos + 1 );
+    
+    as_checkQueryError( err, connectId );
+  }
+  
+  if ( (len=dynlen(tab)) > 1 && dynlen(tab[1]) != 0 )
+  {
+    sTime=tab[len][2];
+    dpe=ident; strreplace(dpe,\"'\",\"\");
+    elem=dpe; strreplace(elem,dpSubStr($dpe,DPSUB_SYS_DP),\"\");
+    dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+    if ((strpos(dpe, \".\") < 1))
+      dpe+=\".\";
+    setValue(\"tabInfo\", \"updateLine\", 1,
+                        \"dpname\", dpe,
+                        \"time\", sTime);
+    
+    pos=dynContains(g_sDp,$dpe);
+    posDpe=dynContains(g_sDpe[pos],dpe);
+    g_sTime[pos][posDpe]=sTime;
+  }
+}
+
+//--------------------------------------------------------------------------
+string trimDynValue(anytype value)
+{
+  int    i = 0, lD = dynlen(value), lMax = 500, lS;
+  string svalue = \"\", s;
+  
+  while ( true )
+  {
+    lS = strlen(svalue); i++;
+    if ( i > lD || lS >= lMax ) break;
+    s = value[i];
+    svalue += s;
+    if ( i < lD ) svalue +=\" | \";
+  }
+  if ( i < lD ) svalue += \"...\";
+  return (svalue);
+}
+
+//--------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+1 101 1 "" 0
+0
+13 85
+"cmdCancel"
+""
+1 918 1213 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  523 443 611 471
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  int pos=dynContains(g_sDp,$dpe);
+  
+  if (pos>0)
+  {
+    dynRemove(g_sDp,pos);
+    dynRemove(g_sDpe,pos);
+    dynRemove(g_sText,pos);
+    dynRemove(g_sValue,pos);
+    dynRemove(g_sBits,pos);
+    dynRemove(g_sTime,pos);
+    dynRemove(g_sColor,pos);
+  }
+
+  if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+  {
+    paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName(),makeDynString(\"\"));  
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+    delay(0,500);
+  }
+  else
+    PanelOff();
+}" 0
+ E E E
+13 86
+"cmdHelp"
+""
+1 728 1213 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 443 96 471
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  if ( isDollarDefined(\"$dpt\") )
+    std_help($dpt+\"_info\");
+  else
+    std_help(\"dpe_info\");
+}
+" 0
+ E E E
+20 88
+"cb_running"
+""
+1 20 395 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 393 192 422
+1
+T 
+4
+LANG:10001 12 Update table
+LANG:10004 18 刷新表格数据
+LANG:10000 25 Tabelle wird aktualisiert
+LANG:10027 39 Актуализация таблицы
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main()
+{
+  int    pos=dynContains(g_sDp,$dpe),posDpe;
+  bool   b=this.state(0);
+  string sText;
+
+  if (b)
+  {
+    for (posDpe=1;posDpe<=dynlen(g_sDpe[pos]);posDpe++)
+    {
+      sText=g_sValue[pos][posDpe];
+      if (g_bAlert[pos][posDpe])
+      {
+        sText+=g_sText[pos][posDpe];
+        tabInfo.cellBackColRC(posDpe-1,\"text\",g_sColor[pos][posDpe]);
+      }
+      tabInfo.updateLine(1,\"dpname\",g_sDpe[pos][posDpe],
+                           \"time\",g_sTime[pos][posDpe],
+                           \"text\",sText,
+                           \"bits\",g_sBits[pos][posDpe],
+                           \"value\",g_sValue[pos][posDpe]);
+    }
+  }
+
+  g_bRunning = b;
+}" 0
+30 94
+"FRAME1"
+""
+1 10 27 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+9 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1 0 0.8700980392156862 0 6.507352941176471 0 E 10 27 611 436
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1 102 2 "" 0
+0
+29 98
+"ComandProgres"
+""
+1 20 60 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  20 60 600 77
+11 ProgressBar
+0
+E2 99
+"txt1000Warning"
+""
+1 853 208 E E E 1 E 0 E N "_ButtonShadow" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 210 597 324
+0 2 0 "0s" 0 0 0 65 0 0  468 210 8
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 4
+LANG:10001 40 The DP(E) has more than %1 elements (%2)
+LANG:10004 40 The DP(E) has more than %1 elements (%2)
+LANG:10000 45 Der DP(E) enthält mehr als %1 Elemente (%2).
+LANG:10027 73 Данный DP(E) содержит более %1 элементов (%2)
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 4
+LANG:10001 39 .This can by take time. Do yue wont it?
+LANG:10004 41 .可能会时间比较长，仍然继续?
+LANG:10000 75 Es kann einige Zeit dauern, bis alle Elemente angezeigt werden. Fortfahren?
+LANG:10027 125 Отображение всех элементов может занять некотрое время. Продолжить?
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,17,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,17,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 100
+"ok_button"
+""
+1 262.9999999999999 268 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  263 268 351 296
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+ InitTable(true);
+}
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+25 87
+"tabInfo"
+""
+1 20 50 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 48 602 377
+E"main(int row, string col)
+{
+  int     pos=dynContains(g_sDp,$dpe), posDpe, alertType;
+  string  dpid, tim, val, range=\"\";
+  anytype value;
+  
+  if (col!=\"detail\") return;
+  
+  getValue(\"\", \"cellValueRC\", row, \"dpname\", dpid,
+               \"cellValueRC\", row, \"time\", tim,
+               \"cellValueRC\", row, \"value\", value);
+  
+  posDpe=dynContains(g_sDpe[pos],dpid);
+  // start child panel for detail information
+  // with alert handling
+  if (g_bAlert[pos][posDpe])
+  {
+    // As long as we do not have constants, we have to create global vars ...
+    // AS_OPEN_RANGE_SEC is the number of seconds which are used for
+    // splitting historical queries into pieces of this length
+    addGlobal(\"AS_HIST_RANGE_SEC\", INT_VAR); AS_HIST_RANGE_SEC = 3600*24;
+    addGlobal(\"E_AS_FUNCTION\", INT_VAR); E_AS_FUNCTION = 0;
+    addGlobal(\"E_AS_DP_VAL\",   INT_VAR); E_AS_DP_VAL = 1;
+    addGlobal(\"AS_TYPEFILTER\", DYN_STRING_VAR);
+    addGlobal(\"AS_TYPECONST\", DYN_INT_VAR);
+    AS_TYPEFILTER = makeDynString( \"bit\",
+                                   \"bit32\",
+                                   \"unsigned integer\",
+                                   \"integer\",
+                                   \"float\",
+                                   \"bit64\",
+                                   \"long\",
+                                   \"ulong\" );
+    AS_TYPECONST  = makeDynInt( DPEL_BOOL,
+                                DPEL_BIT32,
+                                DPEL_UINT,
+                                DPEL_INT,
+                                DPEL_FLOAT,
+                                DPEL_BIT64,
+                                DPEL_LONG,
+                                DPEL_ULONG );
+    if (tim==\"\")
+    {
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\",
+        getCatStr(\"para\",\"information\"),
+        makeDynString(getCatStr(\"STD_Symbols\",\"alertnotactivated\")));
+      return;
+    }
+    dpGet(dpid+\":_alert_hdl.._type\", alertType);
+    if(alertType != DPCONFIG_SUM_ALERT && alertType != DPCONFIG_ALERT_BINARYSIGNAL)
+    {
+      dpGet(dpid+\":_alert_hdl.._act_state_range\", range);
+    }
+    ChildPanelOnCentralModal(\"vision/aes/AS_detail.pnl\", \"\",
+         makeDynString(\"$dpid:\" + dpid+\":_alert_hdl.\"+range,
+                       \"$time:\" + tim,
+                       \"$count:0\",
+                       \"$value:\" + (val = value)));   // convert value to string
+  }
+  else
+  // without alert handling
+  {
+    ChildPanelOnCentralModal(\"vision/aes/ES_detail.pnl\", \"\",
+         makeDynString(\"$dpid:\" + dpid,
+                       \"$time:\" + tim,
+                       \"$value:\" + (val = value)));   // convert value to string
+  }
+}
+" 0
+ 1 0 1 7 20 "dp" 20 1 0 "s" 4
+LANG:10001 17 Datapoint/Comment
+LANG:10004 9 DP/备注
+LANG:10000 26 Datenpunktelement/Langtext
+LANG:10027 61 Элемент точки данных/Комментарий
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+237 "dpname" 17 0 0 "s" 4
+LANG:10001 6 dpname
+LANG:10004 5 DP名
+LANG:10000 6 dpname
+LANG:10027 6 dpname
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "text" 9 1 0 "s" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 6 Inhalt
+LANG:10027 20 Содержание
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+110 "bits" 4 1 0 "s" 4
+LANG:10001 4 Bits
+LANG:10004 4 Bits
+LANG:10000 4 Bits
+LANG:10027 8 Биты
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 "time" 11 1 0 "s" 4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Zeit
+LANG:10027 10 Время
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+130 "detail" 1 1 0 "s" 4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+23 "value" 1 0 0 "s" 4
+LANG:10001 5 value
+LANG:10004 6 数值
+LANG:10000 5 value
+LANG:10027 16 значение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+26 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 3 #20
+LANG:10004 3 #20
+LANG:10000 3 #20
+LANG:10027 3 #20
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+"" 1 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+"" 1 4
+LANG:10001 3 #18
+LANG:10004 3 #18
+LANG:10000 3 #18
+LANG:10027 3 #18
+"" 1 4
+LANG:10001 3 #19
+LANG:10004 3 #19
+LANG:10000 3 #19
+LANG:10027 3 #19
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 1 "Gruppe3" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects/STD_PARTS/PANEL_HEADER_DPCOMMENT.pnl" 20 10 T 7 1.517241379310345 0 1 40.34482758620689 20
+1
+"$dpe""$dpe"
+3 2 "PANEL_REF2" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 15 445 T 10 1.282565130260521 0 1 -19.23847695390781 -10
+0
+0

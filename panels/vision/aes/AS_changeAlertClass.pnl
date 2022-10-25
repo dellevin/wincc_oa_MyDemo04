@@ -1,0 +1,415 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 344 403 N "_3DFace" 3
+"$count"
+"$dpid"
+"$time"
+"main()
+{
+  dyn_string dsAlertClass, dsAbbr; //get all alert classes
+  dyn_int diPrio;
+  int i;
+
+  
+  dyn_dyn_anytype ddaTab1, ddaTab2;
+  string sAlertClass;
+  int iSelect;
+  string sCurrentAlertClass;
+  string sQuery;
+  
+  int i_ackType;
+  int i_singleAck;
+  int i_delete;
+
+  sDpId = $dpid;
+  sTime = $time;
+  sCount = $count;
+  tTime = sTime;
+  iCount = sCount;  
+
+  // get the system name to check if a REMOTE query needs to be used
+  sSystem = dpSubStr(sDpId,DPSUB_SYS);  
+  string sRemote;
+
+  if (getSystemName()!=sSystem)
+    sRemote = \" REMOTE '\"+sSystem+\"'\";
+  
+  // get alert class information of given dp
+  sQuery = \"SELECT ALERT '_alert_hdl.._class' FROM '\"+dpSubStr(sDpId, DPSUB_DP)+\"'\"+sRemote;
+  
+  dpQuery(sQuery, ddaTab2);
+  
+  if (dynlen(ddaTab2)<2 || dynlen(ddaTab2[2])<3)
+    return;
+  
+  sCurrentAlertClass = dpSubStr(ddaTab2[2][3], DPSUB_SYS_DP_EL);
+  
+  // get the acknowledge settings for the used alert class
+  dpGet(sCurrentAlertClass + \":_alert_class.._ack_type\",i_ackType,
+        sCurrentAlertClass + \":_alert_class.._single_ack\",i_singleAck,
+        sCurrentAlertClass + \":_alert_class.._delete\",i_delete);
+
+  sCurrentAlertClass = dpSubStr(ddaTab2[2][3], DPSUB_DP);
+
+  //get all Alarmclasses of the System which have the same _ack_type, _single_ack and _delete settings
+  sQuery = \"SELECT '_alert_class.._abbr', '_alert_class.._prior' FROM '*'\";
+  
+  sQuery += sRemote + \" WHERE _DPT = \\\"_AlertClass\\\" AND '_alert_class.._ack_type' == \" + i_ackType + \" AND '_alert_class.._single_ack' == \" + i_singleAck + \" AND '_alert_class.._delete' == \" + i_delete;
+              
+  dpQuery(sQuery, ddaTab1);
+ 
+  if (dynlen(ddaTab1)<2)
+    return;
+
+  // remove the header information
+  dynRemove(ddaTab1,1);
+  
+  // sort according to the priority
+  dynDynSort(ddaTab1,3,1);
+      
+  for (i=1; i<=dynlen(ddaTab1); i++)
+  {
+    dynAppend(dsAlertClass, ddaTab1[i][1]);
+    dynAppend(dsAbbr, (string)ddaTab1[i][2]);
+    dynAppend(diPrio, (int)((char)ddaTab1[i][3]));
+  }
+  
+  alertClassTab.tableMode=TABLE_SELECT_BROWSE;
+  alertClassTab.selectByClick=TABLE_SELECT_LINE;
+  
+  
+  //fill table with all alert classes and select the currently used alert class of dp
+  for (i=1; i<=dynlen(dsAlertClass); i++)
+  {
+    sAlertClass = dpSubStr(dsAlertClass[i], DPSUB_DP);
+    
+    alertClassTab.appendLine(\"Prio\", diPrio[i], \"Abbr\", dsAbbr[i], \"Class\", sAlertClass);
+    
+    //variable for finding the line to select
+    
+    if (sAlertClass == sCurrentAlertClass)
+      alertClassTab.selectLineN(i-1);
+  }
+}
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  100 90
+""0  1
+E "string sDpId;
+string sTime;
+string sCount;
+string sSystem;
+time tTime;
+int iCount;
+
+void closePanel()
+{
+  PanelOff();
+}
+
+int saveAlertClassChange()
+{
+  dyn_int diSelectedLines = alertClassTab.getSelectedLines();
+  dyn_errClass deC_error;
+  string s_system;
+
+  if ( dynlen(diSelectedLines)<1)
+    return -1;
+  
+  dyn_string dsLine;
+  string sSelectedLine;
+
+  dsLine = alertClassTab.getLineN(diSelectedLines[1]);
+  
+  if (dynlen(dsLine)<1)
+    return -2;
+  
+  string sNewAlertClass = dpSubStr(dsLine[dynlen(dsLine)], DPSUB_DP); 
+  
+  if (strpos(sNewAlertClass, \".\")<0)
+    sNewAlertClass+=\".\";
+  
+  sNewAlertClass+=\":_alert_class\";
+
+  // add the system name to the alert class
+  s_system = dpSubStr(sDpId,DPSUB_SYS);
+  sNewAlertClass = s_system + sNewAlertClass;
+  
+  int err = alertSetWait(tTime, iCount, sDpId+\"._class\", sNewAlertClass);
+  deC_error = getLastError();
+
+  if ( err || dynlen(deC_error) > 0)
+  {
+    // write the error to the log file
+    throwError(deC_error);
+
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"Error AlarmClassChange\",
+                             makeDynString(getCatStr(\"aes\", \"error_alert_class_change\")));
+    
+    return -1;
+  }
+  
+  return 0;
+}
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  closePanel();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 2
+"PRIMITIVE_TEXT1"
+""
+1 22 27 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 22 27 24 42
+0 2 2 "0s" 0 0 0 192 0 0  22 27 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 3
+"PRIMITIVE_TEXT2"
+""
+1 14 17 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 14 17 95 32
+0 2 2 "0s" 0 0 0 192 0 0  14 17 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Alarm Classes
+LANG:10004 9 报警类
+LANG:10000 12 Alarmklassen
+LANG:10027 27 Классы алармов
+13 8
+"PUSH_BUTTON1"
+""
+1 140 365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 363 228 393
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  if (saveAlertClassChange()>=0)
+    closePanel();
+}
+
+" 0
+ E E E
+13 9
+"PUSH_BUTTON2"
+""
+1 240 365 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  238 363 328 393
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  closePanel();
+}
+
+" 0
+ E E E
+25 12
+"alertClassTab"
+""
+1 12 37 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  10 35 329 349
+EE 1 0 1 3 0 "Prio" 5 1 0 "[3d,False,False,ALIGNMENT_END,False]" 4
+LANG:10001 8 Priority
+LANG:10004 12 报警等级
+LANG:10000 10 Priorität
+LANG:10027 18 Приоритет
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+70 "Abbr" 6 1 0 "[4s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 12 Abbreviation
+LANG:10004 6 缩写
+LANG:10000 11 Kurzzeichen
+LANG:10027 22 Кратк.обозн.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+80 "Class" 13 1 0 "[0s,,,ALIGNMENT_BEGINNING]" 4
+LANG:10001 11 Alarm Class
+LANG:10004 9 报警类
+LANG:10000 11 Alarmklasse
+LANG:10027 21 Аларм-класс
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+160 
+14 14 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

@@ -1,0 +1,1334 @@
+V 13
+4
+LANG:10001 20 Screen configuration
+LANG:10004 12 屏幕配置
+LANG:10000 23 Bildschirmkonfiguration
+LANG:10027 33 Настройка экранов
+PANEL,-1 -1 500 720 N "_3DFace" 0
+"main()
+{
+  int count;
+  
+  dsShapes = makeDynString (\"frm_preview\",\"brd_preview\",\"txt_info\",\"txt_info1\",\"brd_Bottom\",\"chkDefaultConf\",
+                            \"txt_info2\",\"txt_info3\",\"txt_info4\",\"txt_template\",\"txt_resolution\",
+                            \"txt_system\",\"txt_panel\",\"cmd_Cancel\",\"cmd_OK\",\"sel_template\",\"frm_template\");
+  
+  max_numbers = 36; // max Number
+  
+  //cstoeg: Check if first call of UI to avoid problems with global Variables
+  if(globalExists(\"g_iNumberOfScreens\"))
+  {
+     throwError(makeError(\"\", PRIO_WARNING, ERR_SYSTEM, 0, \"SECOND CALL OF PANEL OF SAME UI\", \"PT_preview.pnl\")); 
+     ModuleOff(myModuleName());
+  }
+  
+  
+  ptms_createGlobals(); //Erzeugen der globalen Variablen
+  
+  g_iActNumberOfScreens = 0;
+
+  ptms_InitPanelGlobalsFromDp(); // Initialisieren der globalen Variablen
+  
+  ParseTemplateFolders(); // Get Bitmaps and fill the preview Selection
+  
+  sp_NumberOfScreens.text(g_iNumberOfScreens); //set the spin button with the number of screens
+  newNumberOfScreens = g_iNumberOfScreens;
+      
+  initPositions(); // Initialisieren der Positionen für Screens
+  GetObjectsPos(); // intiialisieren der Objektpositionen
+
+  ptms_showScreens(1,newNumberOfScreens);
+  
+  //Ausrichten der Objecte
+  ApplyPanelArangement();
+
+  //cmbResolution.appendItem(\"NO RESOLUTION\"); 
+  cmbResolution.appendItem(getCatStr(\"ptms_MultiMonitor\",\"noResolution\"));
+  
+  count = cmbResolution.itemCount();
+  if(g_iDefaultResX == -1)                     //No Resolution
+    cmbResolution.selectedPos(count);
+  else if(g_iDefaultResX == 0)                 //Automatic only for PVSS 3.8
+    cmbResolution.selectedPos(count-1);     
+  else
+    switch(g_iDefaultResX)
+    {
+      case 1920: cmbResolution.selectedPos(1);
+                 break;
+      case 1680: cmbResolution.selectedPos(2);
+                 break; 
+      case 1600: cmbResolution.selectedPos(3);
+                 break; 
+      case 1400: cmbResolution.selectedPos(4);
+                 break; 
+      case 1280: cmbResolution.selectedPos(5);
+                 break; 
+      case 1024: cmbResolution.selectedPos(6);
+                 break; 
+    }   
+}
+
+//initialisieren der Screen - Referenz Positionen
+initPositions()
+{
+  int x=12;
+  int y=100;
+  int i;
+  
+  size_y=200;
+  addition = 0;
+  
+  for(i=1;i<=max_numbers;i++)
+  {
+      
+    dynAppend(pos_x,x);
+    dynAppend(pos_y,y);
+    x +=82;
+    
+    if(i%6==0)
+    {
+      addition++;
+      x=12;
+      y +=100;
+    }
+    
+  } 
+}
+
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+    if(globalExists(\"g_iNumberOfScreens\"))
+    {
+      removeGlobal(\"g_iNumberOfScreens\");
+      removeGlobal(\"g_sConfigName\");
+      removeGlobal(\"g_dbUsedScreens\"); // Used Screens 
+      removeGlobal(\"g_diXRes\"); // Resolution of Screen
+      removeGlobal(\"g_diYRes\");
+      removeGlobal(\"g_dsTemplates\");  // Templates of the specific Screens
+      removeGlobal(\"g_dsPanels\");     // Panels to Load
+      removeGlobal(\"g_dsCharacters\"); // Characters of Screen
+      removeGlobal(\"g_dsLCharacters\");
+      removeGlobal(\"g_dsRCharacters\");
+      removeGlobal(\"g_iActNumberOfScreens\");
+      removeGlobal(\"g_iDefaultResX\");
+      removeGlobal(\"g_iDefaultResY\");
+      removeGlobal(\"g_sDefaultTemplate\");
+    }
+    
+    //ModuleOff(myModuleName());
+
+}" 0
+ E E E 1 -1 -1 0  0 0
+""0  1
+E "#uses \"CtrlPv2Admin\"
+
+//Debug Flag for Panel
+bool DBG_PANEL;
+
+dyn_string dsShapes;
+
+//used to set position of Screens
+dyn_int pos_x,pos_y;
+dyn_int size_y;
+int addition;
+
+//max_numbers of Screens that could be used
+int max_numbers;
+
+int iConfigNum; //FUTURE: it should be possible to have different Configurations
+
+int old_div;
+
+int newNumberOfScreens; //used to add and delete Screens from configuration
+
+// Contains all our sub projects
+dyn_string strSubProjects;
+dyn_string PreviewFiles;
+
+//Used to set Position of Objects
+dyn_int objX,objY;
+
+//Used to resize the panel
+int sizeX,sizeY;
+
+
+void ParseTemplateFolders()
+{
+  string strSection = \"general\";
+  string strKeywordProjPath = \"proj_path\";
+  string strFile = getPath( CONFIG_REL_PATH, \"config\" );
+  dyn_string dstemp;
+  dyn_string dstempfiles;
+  dyn_string dsdir;
+  int t,j;
+  
+  paCfgReadValueList( strFile, strSection, strKeywordProjPath, strSubProjects );
+  paCfgReadValueList( strFile, strSection, \"pvss_path\", dstemp );
+  dynAppend(strSubProjects,dstemp);
+  
+  for( t = 1; t <= dynlen( strSubProjects ); t++)
+  {   
+    dsdir=getFileNames(strSubProjects[t] + \"/panels/para/PanelTopology/templates/\",\"*\",FILTER_DIRS);
+    
+    for(j=1;j <= dynlen(dsdir); j++)
+    {
+      dstempfiles=getFileNames(strSubProjects[t] + \"/panels/para/PanelTopology/templates/\"+dsdir[j]+\"/\",\"basePanel_*_*_\"+dsdir[j]+\".[px][nm][l]\");
+    
+       if(dynlen(dstempfiles)>0)
+       {
+         dstempfiles=strsplit(dstempfiles[1],\"_\");
+         if(dynlen(dstempfiles)== 4) //=Correct base Panel name
+           dynAppend(PreviewFiles,dstempfiles[4]);
+       }    
+    }
+  }
+  
+  dynUnique( PreviewFiles );
+  dynSortAsc( PreviewFiles );
+  
+  for(t = 1; t <= dynlen( PreviewFiles ); t++)
+  {   
+    PreviewFiles[t] = strtoupper(PreviewFiles[t] );
+    strreplace( PreviewFiles[t], \".PNL\", \"\" );
+    strreplace( PreviewFiles[t], \".XML\", \"\" );
+  }
+  
+  //dynInsertAt(PreviewFiles,\"DO NOT USE PVSS TEMPLATES\",1);
+  dynInsertAt(PreviewFiles,getCatStr(\"ptms_MultiMonitor\",\"doNotUseTemplates\"),1);
+  
+  sel_template.items = PreviewFiles;
+
+  int pos; 
+  pos=dynContains(PreviewFiles,g_sDefaultTemplate);  //Look if default Template is paramterized
+  if(pos<=0)
+    pos = 1;
+  
+  setValue(\"sel_template\",\"selectedPos\",pos);
+  ptms_LoadTemplatePreview(g_sDefaultTemplate);  //Load the Template
+ 
+  if(g_sDefaultTemplate != \"DEFAULTTEMP\")
+  {
+    setMultiValue(\"txt_template\",\"text\",g_sDefaultTemplate,
+                  \"txt_template\",\"visible\",true);
+  }
+  else
+    setValue(\"txt_template\",\"visible\",false);  
+ 
+}
+
+
+//Function gets the position of all used objects which 
+//have to be re-positioned in panel
+GetObjectsPos()
+{
+  int x,y;
+  dyn_int size;
+  int i;
+    
+  for(i=1;i<=dynlen(dsShapes);i++)
+  {
+    getValue(dsShapes[i],\"position\",x,y);
+    dynAppend(objX,x);
+    dynAppend(objY,y);      
+  }
+    
+  size=getPanelSize(\"para/PanelTopology/PT_preview.pnl\");     
+    
+  sizeX=size[1];
+  sizeY=size[2];     
+}
+
+
+//automatically resizing and repositioning in panel
+ApplyPanelArangement()
+{
+  int i,iNew;
+  int div;
+  int x,y;
+  dyn_int size;
+
+  
+  div=(g_iNumberOfScreens-1)/6;
+  
+  //only if div is different to last call
+  if(div != old_div)
+  {
+  
+    //Set All objects invisible
+    for(i=1;i<=dynlen(dsShapes);i++)
+    {
+      setValue(dsShapes[i],\"visible\",false);      
+    }
+  
+    //Set new Positions
+    for(i=1;i<=dynlen(dsShapes);i++)
+    {
+      setValue(dsShapes[i],\"position\",objX[i],objY[i]+(div*100),\"visible\",true);   
+    }
+    
+    //set new size of border
+    setValue(\"brd_displays\",\"size\",512,168+(100*div));
+    
+    //set new panel size
+    setPanelSize(myModuleName(),\"PT_Preview\",0,sizeX,sizeY+(div*100));
+    
+    //remember last div in old_div
+    old_div = div;
+  }
+}
+
+cmdClose()
+{
+      dyn_string sds;
+    dyn_float fdf;
+    
+    removeGlobal(\"g_iNumberOfScreens\");
+    removeGlobal(\"g_sConfigName\");
+    removeGlobal(\"g_dbUsedScreens\"); // Used Screens 
+    removeGlobal(\"g_diXRes\"); // Resolution of Screen
+    removeGlobal(\"g_diYRes\");
+    removeGlobal(\"g_dsTemplates\");  // Templates of the specific Screens
+    removeGlobal(\"g_dsPanels\");     // Panels to Load
+    removeGlobal(\"g_dsCharacters\"); // Characters of Screen
+    removeGlobal(\"g_dsLCharacters\");
+    removeGlobal(\"g_dsRCharacters\");
+    removeGlobal(\"g_iActNumberOfScreens\");
+    removeGlobal(\"g_iDefaultResX\");
+    removeGlobal(\"g_iDefaultResY\");
+    removeGlobal(\"g_sDefaultTemplate\");
+    
+    fdf[1]=0;
+    
+    PanelOffReturn(fdf,sds);
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "void main()
+{
+  cmdClose();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 0
+"brd_displays"
+""
+1 10 30 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 0.6905021378294235 0 1.285432569974554 -9.905021378294237 4.437022900763369 1 E 10 30 750 160
+2 1
+"txt_todo"
+""
+1 13 48 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 13 48 447.5989974937344 78
+0 2 2 "0s" 0 0 0 64 0 0  13 48 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 45 Please specify, which screens shall be used: 
+LANG:10004 31 请说明应使用哪些屏幕:
+LANG:10000 62 Bitte wählen Sie, welche Bildschirme verwendet werden sollen:
+LANG:10027 59 Укажите задействованные экраны:
+21 4
+"sp_NumberOfScreens"
+""
+1 180 10 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  178 8 235 35
+0
+
+"main()
+{
+}" 0
+
+"main()
+{
+  newNumberOfScreens = this.text();
+  ptms_showScreens(g_iNumberOfScreens+1,newNumberOfScreens);
+  ApplyPanelArangement();
+  delay(0,20);
+  setValue(\"txt_ActSel\",\"text\", getCatStr(\"ptms_MultiMonitor\",\"selScreens\")+g_iActNumberOfScreens);
+}
+" 0
+
+E
+
+N 1 18 1 1 1 1
+2 5
+"txt_NumberOfScreens"
+""
+1 10 13 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 10 13 205 33
+0 2 2 "0s" 0 0 0 64 0 0  10 13 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 18 Number of Screens:
+LANG:10004 13 屏幕数量:
+LANG:10000 17 Bildschirmanzahl:
+LANG:10027 26 Кол-во экранов
+6 6
+"brd_preview"
+""
+1 20 450 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+2
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9270072992700729 30 -8.057256722385489 0 E 29 328 410 602
+30 7
+"frm_preview"
+""
+1 10 459 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+13 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Preferred Preferred"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9547673172750415 0 1.058997050147494 40.45232682724958 150.9203539823003 0 E 10 120 430 460
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Preview
+LANG:10004 6 预览
+LANG:10000 8 Vorschau
+LANG:10027 24 Предпросмотр
+2 8
+"txt_info1"
+""
+1 70 554.9051094890511 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 70 554.9051094890511 210 574.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  70 554.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Template name:
+LANG:10004 13 模板名称:
+LANG:10000 17 Name der Vorlage:
+LANG:10027 22 Имя шаблона:
+2 9
+"txt_info2"
+""
+1 70 574.9051094890511 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 70 574.9051094890511 210 594.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  70 574.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Resolution:
+LANG:10004 10 分辨率:
+LANG:10000 11 Auflösung:
+LANG:10027 21 Разрешение:
+2 11
+"txt_info4"
+""
+1 70 614.9051094890511 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 70 614.9051094890511 210 634.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  70 614.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Panel:
+LANG:10004 7 面板:
+LANG:10000 6 Panel:
+LANG:10027 13 Панель:
+2 12
+"txt_info3"
+""
+1 70 594.9051094890511 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 70 594.9051094890511 210 614.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  70 594.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 System:
+LANG:10004 9 系统：
+LANG:10000 7 System:
+LANG:10027 15 Система:
+2 13
+"txt_template"
+""
+1 242 554.9051094890511 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 242 554.9051094890511 445 574.5717761557179
+0 2 2 "0s" 0 0 0 64 0 0  242 554.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Template name:
+LANG:10004 13 模板名称:
+LANG:10000 17 Name der Vorlage:
+LANG:10027 22 Имя шаблона:
+2 14
+"txt_resolution"
+""
+1 242 574.9051094890511 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 242 574.9051094890511 382 594.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  242 574.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 11 Resolution:
+LANG:10004 10 分辨率:
+LANG:10000 11 Auflösung:
+LANG:10027 21 Разрешение:
+2 15
+"txt_panel"
+""
+1 242 614.9051094890511 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 242 614.9051094890511 382 634.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  242 614.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 Panel:
+LANG:10004 7 面板:
+LANG:10000 6 Panel:
+LANG:10027 13 Панель:
+2 16
+"txt_system"
+""
+1 242 594.9051094890511 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 242 594.9051094890511 382 614.9051094890511
+0 2 2 "0s" 0 0 0 64 0 0  242 594.9051094890511 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 System:
+LANG:10004 9 系统：
+LANG:10000 7 System:
+LANG:10027 15 Система:
+2 71
+"txt_ActSel"
+""
+1 31 57 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 13 66 358 96
+0 2 2 "0s" 0 0 0 64 0 0  13 66 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 39 Number of currently selected screens: 1
+LANG:10004 29 当前所选屏幕的数量:1
+LANG:10000 44 Anzahl der aktuell gewählten Bildschirme: 1
+LANG:10027 44 Задействовано экранов: 1
+13 72
+"cmd_Cancel"
+""
+1 400 685 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  398 683 486 711
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  cmdClose();
+}" 0
+ E E E
+13 73
+"cmd_OK"
+""
+1 310 685 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+53 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 38 Änderungen übernehmen und schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  308 683 396 711
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  dyn_string sds;
+  dyn_float fdf;  
+  string sTempHighFormat = \"TEMPLATE3\";
+  dyn_float df,df2;
+  dyn_string ds,ds2;
+  int i;
+    
+  if(g_sDefaultTemplate == \"DEFAULTTEMP\" || g_iDefaultResX == -1)
+  {
+    //ptms_showErrorMessage(\"ptms_MultiMonitor\",\"noDefault\");
+    //IM88516: Löschen der Template Konfiguration
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\",
+        getCatStr(\"sc\",\"Attention\"),
+        makeDynString(getCatStr(\"ptms_MultiMonitor\",\"deleteUserConf\"),
+                      getCatStr(\"general\",\"OK\"),
+                      getCatStr(\"sc\",\"cancel\")),
+        df2, ds2 );
+    if(dynlen(df2)<0 || !df2[1])
+      return;
+    else
+    {
+      dyn_string dsDps = dpNames(\"*\",\"_Ui_Config\");
+     
+      for(i=1;i<=dynlen(dsDps);i++)     
+        dpDelete(dsDps[i]);     
+    }  
+  }
+  else
+  {
+    
+    if(!dpExists(\"_Default_UiConfiguration.NumberOfDisplays\"))
+    {
+      dpCreate(\"_Default_UiConfiguration\",\"_Ui_Config\");
+      while(!dpExists(\"_Default_UiConfiguration.NumberOfDisplays\"))
+        delay(0,50);  
+    }
+    //cstoeg: Also set old PT Variables
+    int iPX,iPY,iSY,iSX,inum;
+    
+    dpGet(\"_PanelTopology.template.xResolution\",iSX,
+          \"_PanelTopology.template.yResolution\",iSY,
+          \"_PanelTopology.template.panelHeight\",iPY,
+          \"_PanelTopology.template.panelWidth\",iPX,
+          \"_PanelTopology.template.templateNumber\",inum);
+    
+    
+    if(!inum || !iSX || !iSY || !iPX || !iPY)     
+    switch (g_iDefaultResX)
+    {
+      case 1920: iSX = 1920; iSY = 1200;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=1750; iPY=1116;
+                 }
+                 else
+                 {
+                   iPX=1890; iPY=1026;
+                 }
+                 break;
+      case 1680: iSX = 1680; iSY = 1050;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=1480; iPY=960;
+                 }
+                 else
+                 {
+                   iPX=1650; iPY=870;
+                 }
+                 break;
+      case 1600: iSX = 1600; iSY = 1200;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=1430; iPY=1116;
+                 }
+                 else
+                 {
+                   iPX=1570; iPY=1026;
+                 }
+                 break;
+     case 1400: iSX = 1400; iSY = 1050;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=1200; iPY=960;
+                 }
+                 else
+                 {
+                   iPX=1370; iPY=870;
+                 }
+                 break;     
+     case 1024: iSX = 1024; iSY = 768;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=856; iPY=604;
+                 }
+                 else
+                 {
+                   iPX=994; iPY=514;
+                 }
+                 break;
+     case 1280: 
+     case 0:
+     case -1:     iSX = 1280; iSY = 1024;
+                 if(strpos(g_sDefaultTemplate,sTempHighFormat)>=0)
+                 {
+                   iPX=1110; iPY=860;
+                 }
+                 else
+                 {
+                   iPX=1250; iPY=770;
+                 }
+                 break;           
+    }
+       
+    dpSet(\"_PanelTopology.template.xResolution:_original.._value\",iSX,
+          \"_PanelTopology.template.yResolution:_original.._value\",iSY);
+    
+    int itempx,itempy;    
+    dpGet(\"_PanelTopology.template.panelWidth:_original.._value\",itempx,
+          \"_PanelTopology.template.panelHeight:_original.._value\",itempy);
+    
+    if(itempx == 0 || itempy == 0)  //nur wenn noch nichts parametriert wurde setzen der Panelgröße auf default
+      dpSet(\"_PanelTopology.template.panelWidth:_original.._value\",iPX,
+            \"_PanelTopology.template.panelHeight:_original.._value\",iPY);
+    
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\",
+        getCatStr(\"sc\",\"Attention\"),
+        makeDynString(getCatStr(\"ptms_MultiMonitor\",\"questionAllUsers\"),
+                      getCatStr(\"general\",\"yes\"),getCatStr(\"general\",\"no\"),getCatStr(\"general\",\"cancel\")),df, ds );
+   
+    if ( dynlen(ds) < 1 || df[1] == 2)  //cancel
+    { 
+      return;
+    }
+    else if (df[1] == 0) //edit users
+    {  
+      dynClear(df);
+      dynClear(ds);
+    
+      ChildPanelOnCentralModalReturn(\"para/msc/msc_UserSelection.pnl\",
+      \"Select User\",
+      makeDynString(),df,ds);
+   
+      if ( dynlen(df) < 1 || df[1] < 0)
+      { 
+        return;
+      }
+    }
+    else  //all users
+    {
+      dpGet(\"_Users.UserName\",ds);
+    }
+    
+    //Auch als Default verwenden
+    bool bUseAsDefault;
+    dyn_string dsDefConfigNames;
+    dpGet(\"_Default_UiConfiguration.ConfigNames\",dsDefConfigNames);
+    getValue(\"chkDefaultConf\",\"state\",0,bUseAsDefault);
+    
+    if(bUseAsDefault || !dynlen(dsDefConfigNames))
+    {
+      ptms_SaveConfigToDp(\"_Default\");
+    }   
+    for(i=1;i<=dynlen(ds);i++)
+    {
+      if(!dpExists(\"_\"+getUserId(ds[i])+\"_UiConfiguration.NumberOfDisplays\") && !dpExists(\"_\"+ds[i]+\"_UiConfiguration.NumberOfDisplays\"))
+      {
+        dpCreate(\"_\"+getUserId(ds[i])+\"_UiConfiguration\",\"_Ui_Config\");
+        while(!dpExists(\"_\"+getUserId(ds[i])+\"_UiConfiguration.NumberOfDisplays\"))
+          delay(0,50);  
+      }
+      else if(!dpExists(\"_\"+getUserId(ds[i])+\"_UiConfiguration.NumberOfDisplays\") && dpExists(\"_\"+ds[i]+\"_UiConfiguration.NumberOfDisplays\")) //Kopiere bestehende Konfiguration
+      {
+
+        string sUserName = ds[i];
+        uint uUserId = getUserId(ds[i]);
+        int ret;
+        dyn_errClass dErr;
+    
+        if(uUserId != 65535)
+        {     
+          ret = dpCreate(\"_\"+uUserId+\"_UiConfiguration\",\"_Ui_Config\");
+          dErr = getLastError();
+          if(ret < 0 != dynlen(dErr) > 0)
+          {
+	           throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Error creating new Config Dp _\"+uUserId+\"_UiConfiguration returned: \"+ ret));
+          }
+        
+          dpCopyOriginal(\"_\"+sUserName+\"_UiConfiguration\",\"_\"+uUserId+\"_UiConfiguration\",ret);
+          dErr = getLastError();
+          if(ret < 0 != dynlen(dErr) > 0)
+          {
+	  	        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Error copy old Configuration: _\"+sUserName+\"_UiConfiguration to new _\"+uUserId+\"_UiConfiguration returned: \"+ret));
+          }
+          //do not delete old Dp because of backward compatibility
+        }
+      }
+      ptms_SaveConfigToDp(\"_\"+ds[i]);
+    }
+  }
+      
+  removeGlobal(\"g_iNumberOfScreens\");
+  removeGlobal(\"g_sConfigName\");
+  removeGlobal(\"g_dbUsedScreens\"); // Used Screens 
+  removeGlobal(\"g_diXRes\"); // Resolution of Screen
+  removeGlobal(\"g_diYRes\");
+  removeGlobal(\"g_dsTemplates\");  // Templates of the specific Screen
+  removeGlobal(\"g_dsPanels\");     // Panels to Load
+  removeGlobal(\"g_dsCharacters\"); // Characters of Screen
+  removeGlobal(\"g_dsLCharacters\");
+  removeGlobal(\"g_dsRCharacters\");
+  removeGlobal(\"g_iActNumberOfScreens\");
+  removeGlobal(\"g_sDefaultTemplate\");
+  removeGlobal(\"g_iDefaultResX\");
+  removeGlobal(\"g_iDefaultResY\");  
+    
+  fdf[1]=1;
+    
+  delay(0,40); //necessary because otherwise PanelOffReturn doesn't work
+  PanelOffReturn(fdf,sds);
+  
+}
+
+
+
+" 0
+ E E E
+30 74
+"frm_template"
+""
+1 10 110 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+55 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9548872180451122 0 0.9980099502487556 40.45112781954888 165.2189054726369 0 E 10 50 430 110
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 16 Default template
+LANG:10004 12 默认模板
+LANG:10000 15 Default-Vorlage
+LANG:10027 36 Шаблон по умолчанию
+22 75
+"sel_template"
+""
+1 74 106.0166666666667 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  60 235 441 262
+0
+
+E
+"main()
+{
+  if(this.selectedPos == 1)
+    g_sDefaultTemplate=\"DEFAULTTEMP\";
+  else
+    g_sDefaultTemplate = this.text();
+ 
+  if(sel_template.selectedPos() != 1)
+  {
+    ptms_LoadTemplatePreview(g_sDefaultTemplate);
+    setMultiValue(\"txt_template\",\"text\",g_sDefaultTemplate,
+                  \"txt_template\",\"visible\",true);
+  }
+  else
+  {
+    ptms_UnLoadTemplatePreview();
+    setValue(\"txt_template\",\"visible\",false);
+  }
+}
+
+
+" 0
+
+E
+ 0 0
+22 76
+"cmbResolution"
+""
+1 220 10 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  218 8 492 35
+7
+4
+LANG:10001 18 1900 x 1200 pixels
+LANG:10004 17 1900 x 1200像素
+LANG:10000 18 1900 x 1200 pixels
+LANG:10027 28 1900 x 1200 пикселей
+
+0
+4
+LANG:10001 18 1680 x 1050 pixels
+LANG:10004 17 1680 x 1050像素
+LANG:10000 18 1680 x 1050 pixels
+LANG:10027 28 1680 x 1050 пикселей
+
+0
+4
+LANG:10001 18 1600 x 1200 pixels
+LANG:10004 17 1600 x 1200像素
+LANG:10000 18 1600 x 1200 pixels
+LANG:10027 28 1600 x 1200 пикселей
+
+0
+4
+LANG:10001 18 1400 x 1050 pixels
+LANG:10004 17 1400 x 1050像素
+LANG:10000 18 1400 x 1050 pixels
+LANG:10027 28 1400 x 1050 пикселей
+
+0
+4
+LANG:10001 18 1280 x 1024 pixels
+LANG:10004 17 1280 x 1024像素
+LANG:10000 18 1280 x 1024 pixels
+LANG:10027 28 1280 x 1024 пикселей
+
+0
+4
+LANG:10001 17 1024 x 768 pixels
+LANG:10004 16 1024 x 768像素
+LANG:10000 17 1024 x 768 pixels
+LANG:10027 27 1024 x 768 пикселей
+
+0
+4
+LANG:10001 9 automatic
+LANG:10004 6 自动
+LANG:10000 11 automatisch
+LANG:10027 26 Автоматически
+
+0
+
+"main()
+{
+     
+}
+
+" 0
+
+"main()
+{
+  string text;
+  dyn_string tempRes;
+  
+  text=this.selectedText();
+  tempRes=strsplit(text,\" \");
+  
+  if(dynlen(tempRes)>=3)
+  {
+    g_iDefaultResX=tempRes[1];
+    g_iDefaultResY=tempRes[3];
+  }
+  if(dynlen(empRes)==2)
+  {
+    g_iDefaultResX=-1;
+    g_iDefaultResY=-1;
+  }
+  else
+  { 
+    g_iDefaultResX=0;
+    g_iDefaultResY=0;
+  }
+}
+" 0
+
+E
+ 0 0
+2 77
+"txt_info"
+""
+1 115 410 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  1 E 115 410 385 440
+0 2 2 "0s" 0 0 0 65 0 0  115 410 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 example
+LANG:10004 6 示例
+LANG:10000 8 Beispiel
+LANG:10027 12 Пример
+20 78
+"chkDefaultConf"
+""
+1 50 644.9051094890511 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  48 643 292 667
+1
+T 
+4
+LANG:10001 28 Use as default configuration
+LANG:10004 21 保存为默认配置
+LANG:10000 35 Als Default-Konfiguration verwenden
+LANG:10027 48 Конфигурация по умолчанию
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE1 79 0 "" 0
+0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "brd_Bottom" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 140 735 T 63 1 0 1 -140 -60
+0
+0

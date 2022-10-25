@@ -1,0 +1,1969 @@
+V 14
+4
+LANG:10001 19 IEC 61850/61400 scl
+LANG:10004 19 IEC 61850/61400 scl
+LANG:10000 19 IEC 61850/61400 scl
+LANG:10027 19 IEC 61850/61400 scl
+PANEL,-1 -1 1000 655 N "_3DFace" 2
+"$sclpath"
+"$selied"
+"main()
+{
+  string sSclPath;
+  if ( isDollarDefined(\"$sclpath\") )
+    sSclPath = $sclpath;
+
+  string sSelIed;
+  if ( isDollarDefined(\"$selied\") )
+    sSelIed = $selied;
+
+  // Keeping initialize state active
+  cboActive.state(0) = true;
+  ptProgress.text = \"\";
+  ptProgress.visible = 0;
+
+  sColumnSel = getCatStr(\"iec61850\", \"Selection\");
+  sColumnDev = getCatStr(\"iec61850\", \"Devicename\");
+  sColumnIed = getCatStr(\"iec61850\", \"IEDName\");
+  sColumnAP  = getCatStr(\"iec61850\", \"AccessPoint\");
+  sColumnIP  = getCatStr(\"iec61850\", \"IPaddress\");
+  sColumnDrv = getCatStr(\"iec61850\", \"Driverinstance\");
+  sColumnInf = getCatStr(\"iec61850\", \"Info\");
+
+  if ( tabScl.columnCount() > 0 )
+    tabScl.deleteColumn(0);
+
+  // ETM: add columns, set column names
+  tabScl.insertColumn(COLUMN_SEL);
+  tabScl.columnHeader(COLUMN_SEL, sColumnSel);
+  tabScl.columnName(COLUMN_SEL, sColumnSel);
+
+  tabScl.insertColumn(COLUMN_DEV);
+  tabScl.columnHeader(COLUMN_DEV,sColumnDev);
+  tabScl.columnName(COLUMN_DEV,sColumnDev);
+
+  tabScl.insertColumn(COLUMN_IED);
+  tabScl.columnHeader(COLUMN_IED, sColumnIed);
+  tabScl.columnName(COLUMN_IED, sColumnIed);
+
+  tabScl.insertColumn(COLUMN_AP);
+  tabScl.columnHeader(COLUMN_AP, sColumnAP);
+  tabScl.columnName(COLUMN_AP, sColumnAP);
+
+  tabScl.insertColumn(COLUMN_IP);
+  tabScl.columnHeader(COLUMN_IP, sColumnIP);
+  tabScl.columnName(COLUMN_IP, sColumnIP);
+
+  tabScl.insertColumn(COLUMN_DRV);
+  tabScl.columnHeader(COLUMN_DRV, sColumnDrv);
+  tabScl.columnName(COLUMN_DRV, sColumnDrv);
+
+  tabScl.insertColumn(COLUMN_INF);
+  tabScl.columnHeader(COLUMN_INF, sColumnInf);
+  tabScl.columnName(COLUMN_INF, sColumnInf);
+
+  // set columns width
+  tabScl.columnWidth(COLUMN_SEL,  70);
+  tabScl.columnWidth(COLUMN_DEV, 290);
+  tabScl.columnWidth(COLUMN_IED, 290);
+  tabScl.columnWidth(COLUMN_AP,   95);
+  tabScl.columnWidth(COLUMN_IP,  140);
+  tabScl.columnWidth(COLUMN_DRV,  55);
+
+  //tabScl.columnWidth(COLUMN_INF,  30);
+  tabScl.columnVisibility(COLUMN_INF, false);
+
+  // set columns editable
+  tabScl.columnEditable(COLUMN_SEL, true);
+  tabScl.columnEditable(COLUMN_DEV, true);
+  tabScl.columnEditable(COLUMN_IED, false);
+  tabScl.columnEditable(COLUMN_AP,  false);
+  tabScl.columnEditable(COLUMN_IP,  true);
+  tabScl.columnEditable(COLUMN_DRV, true);
+  tabScl.columnEditable(COLUMN_INF, false);
+
+//   tabScl.alternatingRowColors(makeDynString(sColorARCL, sColorARCD));
+//   tabScl.sortOnClick(false);
+
+  // check SCL (ICD) directory in project
+  int iCheck = iec61850_check_SCL_Directory();
+
+  if ( iCheck > 0 )
+  {
+    iec61850_throwErrorMessage(\"iec61850_error\", PRIO_WARNING, ERR_CONTROL, 14);
+
+    if ( !iec61850_create_SCL_Directory(iCheck) )
+      iec61850_throwErrorMessage(\"iec61850_error\", PRIO_SEVERE, ERR_CONTROL, 00002);
+    else
+      iec61850_throwErrorMessage(\"iec61850_error\", PRIO_INFO, ERR_CONTROL, 16);
+  }
+
+  dyn_string dsSclFiles, dsFilePaths, dsFileNames;
+
+  if ( isdir(IEC61850_SCL_FILE_PATH) )
+  {
+    dsSclFiles = getFileNames(IEC61850_SCL_FILE_PATH);
+
+    for ( int i = 1; i <= dynlen(dsSclFiles); i++ )
+    {
+      if ( getExt(dsSclFiles[i]) == \"scd\" || getExt(dsSclFiles[i]) == \"cid\" )
+      {
+        dynAppend(dsFilePaths, IEC61850_SCL_FILE_PATH + dsSclFiles[i]);
+        dynAppend(dsFileNames, dsSclFiles[i]);
+      }
+    }
+  }
+
+  if ( dynlen(dsFileNames) )
+  {
+    cmbSclFiles.items = dsFileNames;
+    int iSclPos = dynContains(dsFilePaths, sSclPath);
+
+    if ( sSclPath != \"\" )
+    {
+      if ( iSclPos > 0 )
+      {
+        cmbSclFiles.selectedPos = iSclPos;
+        SCL_PATH.text = sSclPath;
+      }
+      else
+      {
+        if ( !isfile(sSclPath) )
+        {
+          string sMsg = getCatStr(\"iec61850\", \"FileNotFound\");
+          strreplace(sMsg, \"$1\", baseName(sSclPath));
+          strreplace(sMsg, \"$2\", sSelIed);
+          iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+
+          //cmbSclFiles.text = \"\";
+          SCL_PATH.text = dsFilePaths[1];
+        }
+      }
+    }
+    else
+      SCL_PATH.text = dsFilePaths[1];
+
+    browseScl();
+  }
+  else
+  {
+    if ( sSclPath != \"\" && !isfile(sSclPath) )
+    {
+      string sMsg = getCatStr(\"iec61850\", \"FileNotFound\");
+      strreplace(sMsg, \"$1\", baseName(sSclPath));
+      strreplace(sMsg, \"$2\", sSelIed);
+      iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+    }
+  }
+
+  getTableState();
+}
+
+" 0
+ E E E E 1 -1 -1 0  10 100
+""0  1
+E "#uses \"iec61850_plugin\"
+
+dyn_dyn_string ddsIedInfoList;
+
+dyn_string dsIedList, dsAppendDrvList, dsDrvList, dsDrvNameList;
+dyn_string dsFinalDrvList, dsApNames, dsIedNames, dsIPAddressList, dsPaths;
+
+uint xmlDocID;
+int  xmlNodeID, childNodeID;
+bool binput=0, bcreated=0;
+
+string sColorARCL = \"_AlternatingRowColorLight\", sColorARCD = \"_AlternatingRowColorDark\";
+string sColorError = \"STD_alert\", sColorSel = \"STD_inputfield_back\", sColorNew = \"STD_off\", sColorExist = \"STD_grey_light\";
+string sColorAsgn, sColorAsgnNew = sColorNew/*\"STD_device_intermediate\"*/, sColorAsgnExist = sColorExist/*\"STD_trend_pen3\"*/;
+string sColorText, sColorTextNew = \"STD_text\", sColorTextExist = \"STD_text\"/*\"STD_off\"*/;
+string sColorWarn = \"STD_value_light\";
+
+string sBackColAttr = \"cellBackColRC\", sForeColAttr = \"cellForeColRC\";
+
+string sColumnSel, sColumnDev, sColumnIed, sColumnAP, sColumnIP, sColumnDrv, sColumnInf;
+string SubstationName, Voltagelevel;
+string IedNameRedu, IPaddressRedu, AccessPointRedu;
+
+const int COLUMN_SEL = 0;
+const int COLUMN_DEV = 1;
+const int COLUMN_IED = 2;
+const int COLUMN_AP  = 3;
+const int COLUMN_IP  = 4;
+const int COLUMN_DRV = 5;
+const int COLUMN_INF = 6;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setIec61850GlobalMappings(int iOpt)
+{
+  if ( iOpt == 1 )
+  {
+    if ( !globalExists(\"g_mIec61850SclData\") )
+      addGlobal(\"g_mIec61850SclData\", MAPPING_VAR);
+
+    mappingClear(g_mIec61850SclData);
+  }
+  else
+  {
+    if ( globalExists(\"g_mIec61850SclData\") )
+      removeGlobal(\"g_mIec61850SclData\");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void browseScl()
+{
+  showWaitModule(1);
+  setIec61850GlobalMappings(1);
+
+  setMultiValue(\"pbCfgNew\", \"enabled\", false,
+                \"pbUpdate\", \"enabled\", false,
+                \"pbRcb\",    \"enabled\", false);
+
+  dyn_string dsiedinfo, dsDrvList, dsAppendDrvList, dsDrvNameList, dsFinalDrvList, dsTemp;
+
+  dyn_string dsClientIedNames;
+  dyn_string dsClientIedNums;
+  iec61850_readCfgClientIedData(dsClientIedNames, dsClientIedNums);
+
+  string errMsg, sclFilePath = \"\", sIpAddress, sIedName, sApName, ipadd, sPortNum, sIP, sPath;
+  string sOsiApT, sOsiAeQ, sOsiPsel, sOsiSsel, sOsiTsel;
+  uint xmlDocID;
+  int iDrvNum, l, errLine, errColumn, xmlNodeID, childNodeID;
+  bool val = false;
+  string sIed, sIedDp, sAp, sApDpe;
+
+  sclFilePath = SCL_PATH.text;
+
+  dynClear(dsFinalDrvList);
+  dynClear(dsIPAddressList);
+  dynClear(dsApNames);
+  dynClear(dsIedNames);
+  dynClear(dsPaths);
+
+  dsFinalDrvList = iec61850_get_update_ConfiguredDevicesList();
+
+  // check for dsFinalDrvList
+  for ( int i = 1; i <= dynlen(dsFinalDrvList); i++ )
+  {
+    if ( dpExists(iec61850_getIedDpName(dsFinalDrvList[i])) )
+    {
+      dpGet(iec61850_getIedDpName(dsFinalDrvList[i]) + IEC61850_DPE_IDP_IPADDRESS     , sIP,
+            iec61850_getIedDpName(dsFinalDrvList[i]) + IEC61850_DPE_IDP_CONFIG_IEDNAME, sIedName,
+            iec61850_getIedDpName(dsFinalDrvList[i]) + IEC61850_DPE_IDP_CONFIG_APNAME , sApName);
+
+      dynAppend(dsIPAddressList, sIP);
+      dynAppend(dsApNames, sApName);
+      dynAppend(dsIedNames, sIedName);
+    }
+  }
+
+  tabScl.deleteAllLines();
+
+  dynClear(ddsIedInfoList);
+  dynClear(dsDrvList);
+
+  if ( SCL_PATH.text == \"\" )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"FileNotSelected\"));
+    showWaitModule(0);
+    return;
+  }
+
+  // check if file has correct file extension
+  int iPosScd = strpos(strtolower(sclFilePath), \".scd\");
+  int iPosCid = strpos(strtolower(sclFilePath), \".cid\");
+
+  if ( iPosScd == -1 && iPosCid == -1 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"WrongFileExtension\"));
+    showWaitModule(0);
+    return;
+  }
+
+  // check if user has permission for file/directory
+  int iAccR;
+  iAccR = access(sclFilePath, R_OK);
+
+  if ( iAccR == -1 )
+  {
+    iec61850_throwErrorMessage(\"iec61850_error\", PRIO_WARNING, ERR_CONTROL, 12);
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"NoPermDirFile\"));
+    showWaitModule(0);
+    return;
+  }
+
+  xmlDocID = xmlDocumentFromFile(sclFilePath, errMsg, errLine, errColumn);
+
+  if ( xmlDocID == IEC61850_NULL )
+  {
+    iec61850_throwErrorMessage(\"iec61850_error\", PRIO_WARNING, ERR_CONTROL, 12);
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"InvalidSCD\"));
+    showWaitModule(0);
+    return;
+  }
+
+  xmlNodeID = xmlFirstChild(xmlDocID);
+
+  if ( iec61850_browse_readXML_getChildNodeID(xmlNodeID, xmlDocID, childNodeID, IEC61850_XMLTEXT_SCL) != true )
+  {
+    iec61850_throwErrorMessage(\"iec61850_error\", PRIO_WARNING, ERR_CONTROL, 12);
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"InvalidSCD\"));
+    showWaitModule(0);
+    xmlCloseDocument(xmlDocID);
+    return;
+  }
+
+  //function to fetch location and voltage level information
+  iec61850_browse_readXML_getSubstationInfo(childNodeID, xmlDocID, SubstationName, Voltagelevel);
+
+  if ( iec61850_browse_readXML_getIEDsInfo(childNodeID, xmlDocID, ddsIedInfoList) == true )
+  {
+    dsDrvList = dpNames(\"*\", IEC61850_CLIENT_DPT_NAME);
+
+    for (int i = 1; i <= dynlen(dsDrvList); i++)
+    {
+      dpGet(dsDrvList[i] + IEC61850_CLIENT_IDP_IEDLIST, dsDrvNameList);
+      dynAppend(dsIedList, dsDrvNameList);
+    }
+
+    for(int l=1; l<=dynlen(ddsIedInfoList); l++)
+    {
+      dsiedinfo = ddsIedInfoList[l];
+      sPortNum = \"\";
+
+      sIed = ddsIedInfoList[l][1];
+      sAp =  ddsIedInfoList[l][2];
+      sIedDp = getOaIedName(sIed, dsIedNames, dsFinalDrvList);
+
+      // use iec61850_getParamFromIedInfo() instead of searching XML tag in dsiedinfo
+      //sIpAddress = iec61850_getParamFromIedInfo(ddsIedInfoList[l], IEC61850_XMLTEXT_IPADDRESS);
+
+      for ( int j = 1; j <= dynlen(dsiedinfo); j++ )
+      {
+        // mms port
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_MMS_PORT) == 0 )
+          sPortNum = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_MMS_PORT) + 1);
+
+        // ip address
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_IPADDRESS) == 0 )
+          sIpAddress = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_IPADDRESS) + 1);
+
+        // ap title
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_APTITLE) == 0 )
+          sOsiApT = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_APTITLE) + 1);
+
+        // ae qualifier
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_AEQUALIFIER) == 0 )
+          sOsiAeQ = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_AEQUALIFIER) + 1);
+
+        // psel
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_PSEL) == 0 )
+          sOsiPsel = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_PSEL) + 1);
+
+        // ssel
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_SSEL) == 0 )
+          sOsiSsel = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_SSEL) + 1);
+
+        // tsel
+        if ( strpos(dsiedinfo[j], IEC61850_XMLTEXT_TSEL) == 0 )
+          sOsiTsel = substr(dsiedinfo[j], strlen(IEC61850_XMLTEXT_TSEL) + 1);
+      }
+
+      if ( dpExists(sIedDp) )
+        dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum,
+              sIedDp + IEC61850_DPE_IDP_IPADDRESS, sIpAddress);
+      else
+        iDrvNum = DrvNum.value;
+
+      if ( sPortNum != \"\" )
+      {
+        dsTemp = strsplit(sIpAddress, \":\");
+
+        if ( dynlen(dsTemp) > 1 )
+          sIpAddress = dsTemp[1] + \":\" + sPortNum;
+      }
+      else
+      {
+        if ( strpos(sIpAddress, \":\") < 0 )
+          ipadd = sIpAddress + \":102\";
+        else
+        {
+          ipadd = sIpAddress;
+          dsTemp = strsplit(sIpAddress, \":\");
+
+          if ( dynlen(dsTemp) > 1 && dsTemp[2] == \"102\" )
+            sIpAddress = dsTemp[1];
+        }
+      }
+
+      dyn_string dsRcbs;
+      bool bClientIed = iec61850_getClientIedList(sIed, sAp, xmlDocID, xmlNodeID, dsClientIedNames, dsRcbs);
+      bool bIedHasAsgndRcbs = iec61850_checkIedHasAsgndRcbs(sIedDp);
+      bool bAsgn = ( bClientIed || bIedHasAsgndRcbs );
+
+      iec61850_setSclDataMapping(sclFilePath, sIed, sIedDp, sAp, sIpAddress, iDrvNum, bAsgn, dsRcbs, g_mIec61850SclData);
+      iec61850_setOsiParamsToMapping(sIed + \"+\" + sAp, sOsiApT, sOsiAeQ, sOsiPsel, sOsiSsel, sOsiTsel, g_mIec61850SclData);
+
+      tabScl.appendLine(sColumnDev, sIed,
+                        sColumnIed, sIed,
+                        sColumnAP,  sAp,
+                        sColumnIP,  sIpAddress);
+
+      //add iedname with ap name
+      tabScl.cellFormatRC(l-1, sColumnDrv, \"[0d,true,false,ALIGNMENT_BEGINNING,false]\");
+
+      // ETM: dos and donts :)
+      dyn_string dsDrvInst = makeDynString(\"\");
+      for ( int j = 1; j <= 255; j++ )
+        dynAppend(dsDrvInst, (string)j);
+
+      tabScl.cellWidgetRC(l-1, sColumnDrv, \"ComboBox\", dsDrvInst);
+
+      /*
+      // append driver number in combo box 1-255
+      tabScl.cellWidgetRC(l-1,sColumnDrv,\"ComboBox\",makeDynString(\"\",1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,
+        26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,
+        76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,
+        120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,
+        158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,
+        196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,
+        234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255));
+        // please do not delete this unique piece of code!
+      */
+
+      tabScl.cellToolTipRC(l-1, sColumnDev, sIed);
+      tabScl.cellToolTipRC(l-1, sColumnAP,  sAp);
+      tabScl.cellToolTipRC(l-1, sColumnIP,  sIpAddress);
+
+      tabScl.cellValueRC(l-1, sColumnSel, val);
+      tabScl.cellValueRC(l-1, sColumnDrv, iDrvNum);
+      tabScl.cellValueRC(l-1, sColumnInf, ( bClientIed || bIedHasAsgndRcbs ) ? \"A\" : \"N\" );
+
+      pbAssign.enabled = true;
+      //pbCfgNew.enabled = true;
+
+      bool bIedExist = dpExists(sIedDp);
+      string sTempAp;
+      if ( bIedExist )
+        dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME, sTempAp);
+
+      if ( bClientIed )
+      {
+        tabScl.cellValueRC(l-1, sColumnSel, !(bIedExist && sTempAp == sAp));
+
+        sColorAsgn = ( bIedExist && sTempAp == sAp ? sColorAsgnExist : sColorAsgnNew) ;
+        //sColorText = ( bIedExist && sTempAp == sAp ? sColorTextExist : sColorTextNew );
+
+        //setTabRowColor(l-1, sColorText, sForeColAttr);
+        setTabRowColor(l-1, sColorAsgn, sBackColAttr);
+
+        if ( bIedExist )
+        {
+          pbUpdate.enabled = true;
+          pbRcb.enabled = true;
+        }
+      }
+
+      // check if this device (ied + ap) already exists
+      for ( int j = 1; j <= dynlen(dsIedNames); j++ )
+      {
+        if ( sIed == dsIedNames[j] && sAp == dsApNames[j] )
+        {
+          tabScl.cellValueRC(l-1, sColumnDev, dsFinalDrvList[j]);
+
+          // check if the device has the same IP
+          //if ( dsIPAddressList[j] == sIpAddress || dsIPAddressList[j] == sIpAddress + \":102\" )
+
+          tabScl.cellValueRC(l-1, sColumnSel, false);
+
+          string sPath;
+
+          dpGet(iec61850_getIedDpName(dsFinalDrvList[j]) + IEC61850_DPE_IDP_SCLFILEPATH, sPath);
+          dynAppend(dsPaths, sPath);
+
+          //setTabRowColor(l-1, sColorSel, sForeColAttr);
+
+          if ( dpExists(sIedDp) && !bClientIed )
+          {
+            setTabRowColor(l-1, sColorExist, sBackColAttr);
+            pbUpdate.enabled = true;
+          }
+          //}
+          //else
+          //{
+          //  tabScl.cellValueRC(l-1, sColumnSel, false);
+          //  setTabRowColor(l-1, sColorError, sBackColAttr);
+          //}
+        }
+
+        bool bChecked;
+        getValue(\"tabScl\", \"cellValueRC\", l-1, sColumnSel, bChecked);
+
+        if ( bChecked )
+          pbCfgNew.enabled = true;
+      }
+
+
+      // check if ip address exists in another device
+//       if ( dynContains(dsAppendDrvList, iec61850_getIedDpName(ddsIedInfoList[l][1])) > 0 )
+//       {
+//         if ( ipadd == strip )
+//         {
+//           tabScl.cellValueRC(l-1, sColumnSel, false);
+//           setTabRowColor(l-1, sColorSel, sForeColAttr);
+//         }
+//         else
+//         {
+//           tabScl.cellValueRC(l-1, sColumnSel, false);
+//           setTabRowColor(l-1, sColorError, sBackColAttr);
+//         }
+//       }
+
+      if ( pbCfgNew.enabled == false && !dpExists(g_mIec61850SclData[sIed + \"+\" + sAp + \"_Dp\"]) )
+        pbCfgNew.enabled = true;
+    }
+  }
+
+  dynUnique(dsPaths);
+
+  bool bMismatch;
+  for ( int i = 1; i <= dynlen(dsPaths); i++ )
+  {
+    if ( dsPaths[i] != sclFilePath )
+    {
+      bMismatch = true;
+      break;
+    }
+  }
+
+  dyn_string dsUpdateIeds;
+  getValue(\"tabScl\", \"getColumnN\", 1, dsUpdateIeds);
+
+  for ( int i = dynlen(dsUpdateIeds); i >= 1; i-- )
+    if ( !dpExists(iec61850_getIedDpName(dsUpdateIeds[i])) )
+      dynRemove(dsUpdateIeds, i);
+
+  if ( bMismatch )
+    if ( iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"FileMismatch\")) )
+      for ( int i = 1; i <= dynlen(dsUpdateIeds); i++ )
+        dpSet(iec61850_getIedDpName(dsUpdateIeds[i]) + IEC61850_DPE_IDP_SCLFILEPATH, sclFilePath);
+
+  //tabScl.alternatingRowColors(makeDynString(sColorARCL, sColorARCD));
+  xmlCloseDocument(xmlDocID);
+  showWaitModule(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getOaIedName(string sIed, dyn_string dsIedNames, dyn_string dsFinalDrvList)
+{
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  if ( !dpExists(sIedDp) )
+  {
+    if ( dynContains(dsIedNames, sIed) > 0 )
+    {
+      string sTempIed = dsFinalDrvList[dynContains(dsIedNames, sIed)];
+      sIedDp = iec61850_getIedDpName(sTempIed);
+    }
+  }
+
+  return sIedDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setShapesEnabled(bool bState)
+{
+  setMultiValue(\"cmbSclFiles\", \"enabled\", bState,
+                \"DrvNum\",      \"enabled\", bState,
+                \"pbAssign\",   \"enabled\", bState,
+                \"cboActive\",   \"enabled\", bState,
+                \"tabScl\",      \"enabled\", bState,
+                \"pbClose\",     \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void appendIedData(dyn_string &dsIedDpes, string sIedDpe, dyn_mixed &dmIedVals, mixed mIedVal)
+{
+  if ( dynContains(dsIedDpes, sIedDpe) <= 0 )
+  {
+    dynAppend(dsIedDpes, sIedDpe);
+    dynAppend(dmIedVals, mIedVal);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void appendDefaultValues(string sIedDp, dyn_string &dsIedDpes, dyn_mixed &dmIedVals)
+{
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_PSEL,     dmIedVals, IEC61850_DEFAULT_PSEL);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_SSEL,     dmIedVals, IEC61850_DEFAULT_SSEL);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_TSEL,     dmIedVals, IEC61850_DEFAULT_TSEL);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_APTITLE,  dmIedVals, IEC61850_DEFAULT_APTITLE);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_AEQUAL,   dmIedVals, IEC61850_DEFAULT_AEQUALIFIER);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_APINVOKE, dmIedVals, IEC61850_DEFAULT_APINVOKEID);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_APINVOKE, dmIedVals, IEC61850_DEFAULT_APINVOKEID);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_AEINVOKE, dmIedVals, IEC61850_DEFAULT_AEINVOKEID);
+  appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_CLIENT_AEINVOKE, dmIedVals, IEC61850_DEFAULT_AEINVOKEID);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTabRowColor(int iRow, string sColor, string sAttribute)
+{
+  setMultiValue(\"tabScl\", sAttribute, iRow, sColumnSel, sColor,
+                \"tabScl\", sAttribute, iRow, sColumnDev, sColor,
+                \"tabScl\", sAttribute, iRow, sColumnIed, sColor,
+                \"tabScl\", sAttribute, iRow, sColumnAP,  sColor,
+                \"tabScl\", sAttribute, iRow, sColumnIP,  sColor,
+                \"tabScl\", sAttribute, iRow, sColumnDrv, sColor,
+                \"tabScl\", sAttribute, iRow, sColumnInf, sColor);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkBrowseReturn(string sIed, int iRet)
+{
+  string sMsg;
+  string sIedDp = iec61850_getIedDpName(sIed);
+
+  // check for return value of browsing device or file
+  switch ( iRet )
+  {
+    case -2: // device does not exist
+      sMsg = getCatStr(\"iec61850\", \"DeviceNotExist\");
+    break;
+
+    case -1: // failed to browse device
+      sMsg = getCatStr(\"iec61850\", \"OnlineFailed\") + sIed;
+    break;
+
+    case 0:  // file / device successfully browsed
+      sMsg = getCatStr(\"iec61850\", \"DeviceBrowsed\");
+    break;
+
+    case 3: // SCL file not found
+      sMsg = getCatStr(\"iec61850\", \"SCLNotFound\") + sIed;
+    break;
+
+    case 4: // failed to open SCL file
+      sMsg = sIed + \"\\n\" + getCatStr(\"iec61850\", \"WrongICDFile\");
+    break;
+
+    case 5: // wrong SCL file
+      sMsg = sIed + \"\\n\" + getCatStr(\"iec61850\", \"WrongSCDFile\");
+    break;
+
+    case 6: // wrong file extension
+      sMsg = getCatStr(\"iec61850\", \"WrongFileExtension\");
+    break;
+
+    case 7: // configured IED name does not match with the IED name in the browsed file
+      sMsg = sIed + \": \" + getCatStr(\"iec61850\", \"WrongIEDName\");
+    break;
+
+    case 12:
+    case 13:
+    case 14:
+      sMsg = getCatStr(\"iec61850\", \"DeviceBrowseError\" + iRet);
+    break;
+  }
+
+  if ( iRet != 0 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(sMsg);
+    dpSet(sIedDp + IEC61850_DPE_IDP_BROWSE_ERROR, 1);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getTableState()
+{
+  dyn_bool dbSels;
+  dyn_string dsIedDps, dsIeds, dsAps;
+  dyn_dyn_string ddsTableValues;
+
+  for ( int l = 0; l < tabScl.lineCount(); l++ )
+    dynAppend(ddsTableValues, tabScl.getLineN(l));
+
+  for ( int i = 1; i <= dynlen(ddsTableValues); i++ )
+  {
+    dynAppend(dbSels,   ddsTableValues[i][COLUMN_SEL + 1]);
+    dynAppend(dsIedDps, ddsTableValues[i][COLUMN_DEV + 1]);
+    dynAppend(dsIeds,   ddsTableValues[i][COLUMN_IED + 1]);
+    dynAppend(dsAps,    ddsTableValues[i][COLUMN_AP  + 1]);
+
+    string sIedDp = iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1]);
+
+    string sAp;
+    if ( dpExists(sIedDp) )
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME, sAp);
+
+    bool bEditable = !dpExists(sIedDp) || ddsTableValues[i][COLUMN_AP + 1] != sAp;
+
+    tabScl.cellEditableRC(i-1, sColumnSel, bEditable);
+    tabScl.cellEditableRC(i-1, sColumnDev, bEditable);
+    tabScl.cellEditableRC(i-1, sColumnIP,  bEditable);
+    tabScl.cellEditableRC(i-1, sColumnDrv, bEditable);
+  }
+
+  // checking duplicate IEDs with 2 Access Points - must be modified for more than 2 Access Points
+  mapping mDup;
+
+  for ( int i = 1; i <= dynlen(dsIedDps); i++ )
+  {
+    if ( dynCount(dsIedDps, dsIedDps[i]) > 1 )
+    {
+      if ( !mappingHasKey(mDup, dsIedDps[i] + \"_Idx\") )
+        mDup[dsIedDps[i] + \"_Idx\"] = i;
+      else
+        mDup[dsIedDps[i] + \"_Dup\"] = i;
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsIedDps); i++ )
+  {
+    string sIedDp = iec61850_getIedDpName(dsIedDps[i]);
+
+    if ( dynCount(dsIedDps, dsIedDps[i]) > 1 )
+    {
+      string sAp;
+
+      if ( dpExists(sIedDp) )
+        dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME, sAp);
+
+      if ( !dpExists(sIedDp) || dsAps[i] != sAp )
+      {
+        string sColor = dbSels[i] ? sColorError : sColorWarn;
+        setTabRowColor(i-1, sColor, sBackColAttr);
+
+        if ( ( mDup[dsIedDps[i] + \"_Idx\"] == i || mDup[dsIedDps[i] + \"_Dup\"] == i ) &&
+             !dpExists(iec61850_getIedDpName(dsIedDps[mDup[dsIedDps[i] + \"_Idx\"]])) &&
+             !dpExists(iec61850_getIedDpName(dsIedDps[mDup[dsIedDps[i] + \"_Dup\"]])) )
+        {
+          string sColorDup = ( dbSels[mDup[dsIedDps[i] + \"_Idx\"]] && dbSels[mDup[dsIedDps[i] + \"_Dup\"]]) ? sColorError : sColorWarn;
+          setTabRowColor(mDup[dsIedDps[i] + \"_Idx\"] - 1, sColorDup, sBackColAttr);
+          setTabRowColor(mDup[dsIedDps[i] + \"_Dup\"] - 1, sColorDup, sBackColAttr);
+        }
+      }
+      else
+      {
+        string sColor = ( dpExists(sIedDp) ) ? sColorExist : sColorNew;
+        setTabRowColor(i-1, sColor, sBackColAttr);
+      }
+    }
+    else
+    {
+      string sColor = ( dpExists(sIedDp) ) ? sColorExist : sColorNew;
+      setTabRowColor(i-1, sColor, sBackColAttr);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(990, 600);
+  dyn_int diBcPos  = makeDynInt(  5,   5);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(420, 390);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+
+  setMultiValue(\"cmdHelp\", \"enabled\", !bVisible,
+                \"pbClose\", \"enabled\", !bVisible);
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+20 54
+"cbSelect"
+""
+1 369.5 0.25 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Select all new devices
+LANG:10004 21 选择所有新设备
+LANG:10000 27 Alle neuen IEDs selektieren
+LANG:10027 22 Select all new devices
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  47 92 230 118
+1
+T 
+4
+LANG:10001 22 Select all new devices
+LANG:10004 21 选择所有新设备
+LANG:10000 26 Alle neuen Geräte wählen
+LANG:10027 22 Select all new devices
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  if ( state )
+  {
+    dyn_dyn_string ddsTableValues;
+    int icount = tabScl.lineCount();
+
+    int iFlag = 0;
+
+    // devices exists after browsing from SCD file
+    if ( tabScl.lineCount() != 0 )
+    {
+      for ( int i = 0; i < tabScl.lineCount(); i++ )
+        dynAppend(ddsTableValues, tabScl.getLineN(i));
+
+      for ( int i = 1; i <= dynlen(ddsTableValues); i++ )
+      {
+        binput = 1;
+
+        string sTempAp;
+        if ( dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) )
+          dpGet(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1]) + IEC61850_DPE_IDP_CONFIG_APNAME, sTempAp);
+
+        if ( !dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) || sTempAp != ddsTableValues[i][COLUMN_AP + 1] )
+        {
+          tabScl.cellValueRC(i-1, sColumnSel, true);
+          iFlag = 1;
+          pbCfgNew.enabled = true;
+        }
+      }
+
+      // check if there is no device throw popup
+      if ( iFlag == 0 )
+      {
+        binput = 0;
+        iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"Selectnone\"));
+        return;
+      }
+    }
+    else
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceSelect\"));
+      return;
+    }
+  }
+  else
+  {
+    pbCfgNew.enabled = false;
+    dyn_dyn_string ddsTableValues;
+
+    // devices exists after browsing from SCD file
+    if ( tabScl.lineCount() != 0 )
+    {
+      for ( int i = 0; i < tabScl.lineCount(); i++ )
+        dynAppend(ddsTableValues, tabScl.getLineN(i));
+
+      for ( int i = 1; i <= dynlen(ddsTableValues); i++)
+      {
+        binput = 0;
+
+        string sTempAp;
+        if ( dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) )
+          dpGet(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1]) + IEC61850_DPE_IDP_CONFIG_APNAME, sTempAp);
+
+        if ( !dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) || sTempAp != ddsTableValues[i][COLUMN_AP + 1] )
+          tabScl.cellValueRC(i-1, sColumnSel, false);
+      }
+    }
+    else
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DeviceSelect\"));
+      return;
+    }
+  }
+
+  getTableState();
+}
+
+" 0
+13 4
+"pbClose"
+""
+1 895 629 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 11 Close panel
+LANG:10004 12 选择面板
+LANG:10000 16 Panel schließen
+LANG:10027 27 Закрыть панель
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  893 618 991 646
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  setIec61850GlobalMappings(0);
+  PanelOff();
+}
+
+" 0
+ E E E
+30 5
+"frmScl"
+""
+1 10 4 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.99797949898246 0 0.7739984767707542 -9.979794989824601 1.904006092916984 0 E 10 4 501 81
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 Select SCL file
+LANG:10004 15 选择SCL文件
+LANG:10000 21 SCL-Datei selektieren
+LANG:10027 29 Выберите SCL файл
+2 7
+"SCDPath"
+""
+1 25 30 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25 30 85 45
+0 2 2 "0s" 0 0 0 64 0 0  25 30 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 SCL file:
+LANG:10004 12 SCL文件：
+LANG:10000 10 SCL-Datei:
+LANG:10027 13 Файл SCL:
+14 8
+"SCL_PATH"
+""
+1 932 638 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 SCL file path
+LANG:10004 15 SCL文件路径
+LANG:10000 13 SCL Dateipfad
+LANG:10027 26 Путь к файлу SCL
+
+2
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  864 618 892 646
+2 "0s" 0 0 0 0 0 -1  E E E
+21 13
+"DrvNum"
+""
+1 770.09375 94 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Select driver instance number
+LANG:10004 27 选择驱动程序实例号
+LANG:10000 28 Treiberinstanznummer wählen
+LANG:10027 63 Выбрать номер экземпляра драйвера
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  903 92 953 118
+0
+
+E
+E
+E
+
+N 1 255 1 1 1 1
+30 14
+"frmTable"
+""
+1 10 63 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+13 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.579032258064518 0 0.9740755840063073 -5.88501295655308 8.633238207602659 0 E 10 63 631 571
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Device table
+LANG:10004 9 设备表
+LANG:10000 14 Gerätetabelle
+LANG:10027 33 Таблица устройств
+13 15
+"pbCfgNew"
+""
+1 574.5 579 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  513 573 671 601
+
+T 
+4
+LANG:10001 13 Configure new
+LANG:10004 15 新增加配置
+LANG:10000 17 Neu konfigurieren
+LANG:10027 13 Configure new
+"main()
+{
+  showWaitModule(1);
+
+  dyn_dyn_string ddsTableValues, ddsTableComplete;
+  dyn_string dsListdriver, dsiedinfo, dsListdriver, dstempdevicename, dsIeds;
+
+  dyn_string dsIedDpes;
+  dyn_mixed dmIedVals;
+
+  string sIed, sIedOa, sIedDp, sIedName, sAp, sIp, sMessage;
+  int iDrvNum, iRet, instanceflag=0, deviceExists=0;
+  int iaddresschk = cboActive.state(0);
+
+  bool bRcb = false;
+  bool bUpdate = false;
+
+  dyn_string dsIedDps;
+  dyn_int diDc;
+
+  dynClear(ddsTableValues);
+
+  for ( int i = 0; i < tabScl.lineCount(); i++ )
+  {
+    dynAppend(ddsTableComplete, tabScl.getLineN(i));
+
+    dyn_string dsTemp = tabScl.getLineN(i);
+
+    if ( dsTemp[COLUMN_SEL + 1] == true )
+    {
+      dynAppend(dsTemp, i+1);
+      dynAppend(ddsTableValues, dsTemp);
+    }
+
+
+  }
+
+  for ( int i = 1; i <= dynlen(ddsTableValues); i++ )
+    dynAppend(dsIedDps, ddsTableValues[i][COLUMN_DEV + 1]);
+
+  for ( int i = 1; i <= dynlen(dsIedDps); i++ )
+    dynAppend(diDc, dynCount(dsIedDps, dsIedDps[i]));
+
+  int iCreated = 0, iDuplicated = 0;
+
+  // check for ddsTableValues
+  for ( int iSelectedDevices = 1; iSelectedDevices <= dynlen(ddsTableValues); iSelectedDevices++ )
+  {
+    int iLine = ddsTableValues[iSelectedDevices][dynlen(ddsTableValues[iSelectedDevices])];
+
+    if ( diDc[iSelectedDevices] > 1 || dpExists(iec61850_getIedDpName(ddsTableValues[iSelectedDevices][COLUMN_DEV + 1])) )
+    {
+      setTabRowColor(iLine-1, sColorError, sBackColAttr);
+      iDuplicated++;
+      continue;
+    }
+
+    iRet = iec61850_DevicePnl_checkDeviceName(ddsTableValues[iSelectedDevices][COLUMN_DEV + 1]);
+
+    if ( iRet > 0 )
+    {
+      setTabRowColor(iLine-1, sColorError, sBackColAttr);
+
+      switch(iRet)
+      {
+        case 1: // invalid name
+          sprintf(sMessage, getCatStr(\"iec61850\", \"InvalidDevice\"), ddsTableValues[iSelectedDevices][COLUMN_DEV + 1]);
+          iec61850_ChildPanelOnErrorMessagePopup(sMessage);
+          showWaitModule(0);
+          return;
+        case 2: // blank name
+          iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"dpEmpty\"));
+          showWaitModule(0);
+          return;
+      }
+    }
+
+    // Validations for IP is not null
+    if ( ddsTableValues[iSelectedDevices][COLUMN_IP + 1] == \"\" )
+    {
+      setTabRowColor(iLine-1, sColorError, sBackColAttr);
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"IPEmpty\"));
+      showWaitModule(0);
+      return;
+    }
+
+    sIedOa   =                       ddsTableValues[iSelectedDevices][COLUMN_DEV + 1];
+    sIedDp   = iec61850_getIedDpName(ddsTableValues[iSelectedDevices][COLUMN_DEV + 1]);
+    sIedName =                       ddsTableValues[iSelectedDevices][COLUMN_IED + 1];
+    sAp      =                       ddsTableValues[iSelectedDevices][COLUMN_AP  + 1];
+    sIp      =                       ddsTableValues[iSelectedDevices][COLUMN_IP  + 1];
+    iDrvNum  =                  (int)ddsTableValues[iSelectedDevices][COLUMN_DRV + 1];
+
+    iec61850_updateIedDataToMapping(sIedName + \"+\" + sAp, sIedDp, sIp, iDrvNum, g_mIec61850SclData);
+
+    bool bDeviceCreated = iec61850_DevicePnl_createDevice(sIedOa);
+
+    // save all the selected device name and its various attributes
+    if ( bDeviceCreated )
+    {
+      iec61850_DevicePnl_initAdvancedSettings(sIedDp);
+
+      dynClear(dsIedDpes);
+      dynClear(dmIedVals);
+
+      appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE, dmIedVals, iaddresschk);
+
+      string sKey = sIedName + \"+\" + sAp;
+
+      if ( sIedName == g_mIec61850SclData[sKey + \"_Name\"] && sAp == g_mIec61850SclData[sKey + \"_Ap\"] )
+      {
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_IEDNAME, dmIedVals, g_mIec61850SclData[sKey + \"_Name\"]);
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME,  dmIedVals, g_mIec61850SclData[sKey + \"_Ap\"]);
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_IPADDRESS,      dmIedVals, g_mIec61850SclData[sKey + \"_Ip\"]);
+
+        if ( mappingHasKey(g_mIec61850SclData, sIedName + \"_OsiApT\") )
+          appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_APTITLE, dmIedVals, g_mIec61850SclData[sKey + \"_OsiApT\"]);
+        if ( mappingHasKey(g_mIec61850SclData, sIedName + \"_OsiAeQ\") )
+          appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_AEQUAL,  dmIedVals, g_mIec61850SclData[sKey + \"_OsiAeQ\"]);
+        if ( mappingHasKey(g_mIec61850SclData, sIedName + \"_OsiPsel\") )
+          appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_PSEL,    dmIedVals, g_mIec61850SclData[sKey + \"_OsiPsel\"]);
+        if ( mappingHasKey(g_mIec61850SclData, sIedName + \"_OsiSsel\") )
+          appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_SSEL,    dmIedVals, g_mIec61850SclData[sKey + \"_OsiSsel\"]);
+        if ( mappingHasKey(g_mIec61850SclData, sIedName + \"_OsiTsel\") )
+          appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_SERVER_TSEL,    dmIedVals, g_mIec61850SclData[sKey + \"_OsiTsel\"]);
+
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, dmIedVals, iDrvNum);
+
+        appendDefaultValues(sIedDp, dsIedDpes, dmIedVals);
+
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_SCLFILEPATH, dmIedVals, SCL_PATH.text());
+        appendIedData(dsIedDpes, sIedDp + IEC61850_DPE_IDP_FILTER_LOCATION, dmIedVals, SubstationName);
+
+        dpSetWait(dsIedDpes, dmIedVals);
+      }
+
+      iec61850_DevicePnl_addDrvIEDInstance(sIedDp, iDrvNum);
+
+      if ( !dynContains(dsIeds, sIedOa) )
+        dynAppend(dsIeds, sIedOa);
+
+      //Device(s) created
+      tabScl.cellValueRC(iLine-1, sColumnSel, false);
+
+      if ( g_mIec61850SclData[sKey + \"_Asgn\"] == true )
+      {
+        setTabRowColor(iLine-1, sColorAsgnExist, sBackColAttr);
+        bRcb = true;
+      }
+      else
+        setTabRowColor(iLine-1, sColorExist, sBackColAttr);
+
+      pbCfgNew.enabled = false;
+      bUpdate = true;
+    }
+//     else
+//     {
+//       iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceCreateFailed\") + \"\\n\" + ddsTableValues[iSelectedDevices][COLUMN_DEV + 1]);
+//       return;
+//     }
+  }
+
+  int iResult;
+  if ( dynlen(dsIeds) )
+  {
+    bcreated=1;
+    binput=0;
+
+    setShapesEnabled(0);
+    ptProgress.visible = 1;
+    openProgressBar(\"IED configuration\", \"copy.gif\", \"... configuring IEDs\", \"\", \"\", 1);
+
+    for ( int j = 1; j <= dynlen(dsIeds); j++ )
+    {
+      string sMsg = getCatStr(\"iec61850\", \"BrowseProgress\");
+      strreplace(sMsg, \"$all\", dynlen(dsIeds));
+      strreplace(sMsg, \"$num\", j);
+      strreplace(sMsg, \"$ied\", dsIeds[j]);
+
+      ptProgress.text = sMsg;
+      int iRet = iec61850_browse_file(dsIeds[j]);
+
+      checkBrowseReturn(dsIeds[j], iRet);
+      iCreated++;
+    }
+
+    if ( isProgressBarOpen() )
+      closeProgressBar();
+
+    ptProgress.visible = 0;
+    setShapesEnabled(1);
+
+    pbUpdate.enabled = bUpdate;
+
+    showWaitModule(0);
+  }
+
+
+
+
+  // set manage RCB button enabled - if at least one IED was created and has assigned RCBs
+  for ( int i = 1; i <= dynlen(ddsTableComplete); i++ )
+  {
+    string sTempKey = ddsTableComplete[i][COLUMN_IED + 1] + \"+\" + ddsTableComplete[i][COLUMN_AP + 1];
+
+    if ( g_mIec61850SclData[sTempKey + \"_Asgn\"] == true && dpExists(g_mIec61850SclData[sTempKey + \"_Dp\"]) )
+    {
+      bRcb = true;
+      break;
+    }
+  }
+
+  string sMsg;
+  if ( iCreated > 0 && iDuplicated == 0 )
+  {
+    sMsg = getCatStr(\"iec61850\", \"DeviceCreatedDuplicated1\");
+    strreplace(sMsg, \"$\", iCreated);
+    iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+  }
+  else if ( iCreated == 0 && iDuplicated > 0 )
+  {
+    sMsg = getCatStr(\"iec61850\", \"DeviceCreatedDuplicated2\");
+    strreplace(sMsg, \"$\", iDuplicated);
+    iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+  }
+  else if ( iCreated > 0 && iDuplicated > 0 )
+  {
+    sMsg = getCatStr(\"iec61850\", \"DeviceCreatedDuplicated3\");
+    strreplace(sMsg, \"$1\", iCreated);
+    strreplace(sMsg, \"$2\", iDuplicated);
+    iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+  }
+
+  showWaitModule(0);
+  pbRcb.enabled = bRcb;
+  getTableState();
+}
+
+" 0
+ E E E
+1 55 0 "" 0
+0
+13 18
+"cmdHelp"
+""
+1 9.978723404255231 618 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 618 106 646
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"scd_file_browse\", true, \"WinCC_OA_IEC61850.chm\");
+}
+" 0
+ E E E
+20 19
+"cboActive"
+""
+1 -359.5180722891566 1018 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 31 Activate the selected device(s)
+LANG:10004 18 激活所选设备
+LANG:10000 30 Selektierte Geräte aktivieren
+LANG:10027 64 Активировать созданные устройства
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 573 197 601
+1
+T 
+4
+LANG:10001 26 Activate created device(s)
+LANG:10004 24 激活已创建的设备
+LANG:10000 28 Erstellte Geräte aktivieren
+LANG:10027 42 Активир. созданные уст.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE2 28
+"ptDriverInstance"
+""
+1 755 97.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.204013052224159 0 1 -184.0584484426314 0 0 E 755 97.5 900 112.5
+0 2 2 "0s" 0 0 0 66 0 0  755 97.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 23 Assign driver instance:
+LANG:10004 27 分配驱动程序实例：
+LANG:10000 24 Treiberinstanz zuweisen:
+LANG:10027 23 Assign driver instance:
+25 24
+"tabScl"
+""
+1 22 130 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 128 981 556
+E"main(int row, string column, string value)
+{
+  bool bSelect = false;
+  dyn_bool dbSelect;
+  getValue(\"tabScl\", \"getColumnN\", COLUMN_SEL, dbSelect);
+
+  for ( int i = 1; i <= dynlen(dbSelect); i++ )
+  {
+    if ( dbSelect[i] == true )
+    {
+      bSelect = true;
+      break;
+    }
+  }
+
+  pbCfgNew.enabled = bSelect;
+
+  getTableState();
+}
+
+" 0
+ 1 0 1 1 0 "#1" 4 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+20 20 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+22 34
+"cmbSclFiles"
+""
+1 6.498516320474785 -0.4727596187325711 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 42 List of SCL files in the project directory
+LANG:10004 33 项目目录中的SCL文件列表
+LANG:10000 43 Liste der SCL-Dateien im Projektverzeichnis
+LANG:10027 42 List of SCL files in the project directory
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  118 25 981 51
+0
+
+E
+"main()
+{
+  SCL_PATH.text = IEC61850_SCL_FILE_PATH + cmbSclFiles.text;
+  browseScl();
+  getTableState();
+}
+" 0
+
+E
+ 0 0
+13 37
+"pbAssign"
+""
+1 954.5 96.5 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 66 Apply driver number for devices which are not created in WinCC OA.
+LANG:10004 62 为未在WinCC OA中创建的设备应用驱动程序编号。
+LANG:10000 83 Treibernummer für Geräte übernehmen, die noch nicht in WinCC OA erstellt wurden.
+LANG:10027 66 Apply driver number for devices which are not created in WinCC OA.
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  953 91 981 119
+
+P 
+4294967295
+"pictures/StandardIcons/apply_20.png"
+4
+LANG:10001 6 Assign
+LANG:10004 6 标志
+LANG:10000 8 Zuweisen
+LANG:10027 20 Установить
+"main()
+{
+  dyn_dyn_string ddsTableValues;
+  int ideviceflag=0;
+
+  if ( SCL_PATH.text == \"\" )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"FileNotSelected\"));
+    return;
+  }
+
+  for ( int i = 0; i < tabScl.lineCount(); i++ )
+    dynAppend(ddsTableValues, tabScl.getLineN(i));
+
+  // throw msg file not browsed
+  if ( dynlen(ddsTableValues) == 0 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"Browsefile\"));
+    return;
+  }
+
+  for ( int i = 1; i <= dynlen(ddsTableValues); i++ )
+  {
+    //if ( ddsTableValues[i][COLUMN_SEL + 1] == true && !dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) )
+    if ( !dpExists(iec61850_getIedDpName(ddsTableValues[i][COLUMN_DEV + 1])) )
+    {
+      ideviceflag = 1;
+      tabScl.cellValueRC(i-1, sColumnDrv, DrvNum.text);
+    }
+  }
+
+  //for ( int i = 1; i <= dynlen(ddsTableValues); i++ )
+  //{
+  //  if ( ddsTableValues[i][COLUMN_DRV + 1] > 0 || ddsTableValues[i][COLUMN_DRV + 1] <= 255 )
+  //  {
+  //    if ( (i-1)%2 == 0 )
+  //      setTabRowColor(i-1, sColorARCL, sBackColAttr);
+  //    else
+  //      setTabRowColor(i-1, sColorARCD, sBackColAttr);
+  //  }
+  //}
+
+  if ( ideviceflag == 0 )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceSelect\"));
+    return;
+  }
+}
+" 0
+ E E E
+2 38
+"ptProgress"
+""
+1 132 624.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.071556350626118 0 1 -9.302325581395355 0 0 E 132 624.5 687 639.5
+0 2 2 "0s" 0 0 0 64 0 0  132 624.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 10 <progress>
+LANG:10004 10 <progress>
+LANG:10000 10 <progress>
+LANG:10027 10 <progress>
+13 45
+"pbUpdate"
+""
+1 874.5 579 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  673 573 831 601
+
+T 
+4
+LANG:10001 15 Update existing
+LANG:10004 15 Update existing
+LANG:10000 13 Aktualisieren
+LANG:10027 15 Update existing
+"main()
+{
+  pbUpdate.enabled = false;
+  bool bCfg = pbCfgNew.enabled;
+  bool bRcb = pbRcb.enabled;
+
+  if ( bCfg )
+    pbCfgNew.enabled = false;
+  if ( bRcb )
+    pbRcb.enabled = false;
+
+  dyn_dyn_string ddsTableValues;
+  dyn_string dsDrvList;
+
+  dyn_string dsIeds, dsIPs, dsTempIeds, dsTempIPs;
+  mapping mUpdate;
+  mappingClear(mUpdate);
+
+  dsDrvList = dpNames(\"*\", IEC61850_CLIENT_DPT_NAME);
+
+  dynClear(ddsTableValues);
+
+  for ( int i = 0; i < tabScl.lineCount(); i++ )
+    dynAppend(ddsTableValues, tabScl.getLineN(i));
+
+  for ( int l = 1; l <= dynlen(ddsTableValues); l++ )
+  {
+    if ( ddsTableValues[l][COLUMN_SEL + 1] == false && dpExists(iec61850_getIedDpName(ddsTableValues[l][COLUMN_DEV + 1])) )
+    {
+      string sTempAp;
+      dpGet(iec61850_getIedDpName(ddsTableValues[l][COLUMN_DEV + 1]) + IEC61850_DPE_IDP_CONFIG_APNAME, sTempAp);
+
+      if ( sTempAp == ddsTableValues[l][COLUMN_AP + 1] )
+      {
+        dynAppend(dsIeds, ddsTableValues[l][COLUMN_DEV + 1]);
+        dynAppend(dsIPs,  ddsTableValues[l][COLUMN_IP  + 1]);
+
+        mUpdate[ddsTableValues[l][COLUMN_DEV + 1] + \"_Idx\"] = l;
+        mUpdate[ddsTableValues[l][COLUMN_DEV + 1] + \"_Ip\"] = ddsTableValues[l][COLUMN_IP  + 1];
+      }
+    }
+  }
+
+  dsTempIeds = dsIeds;
+
+  if ( !iec61850_ChildPanelOn_getUserInputList(getCatStr(\"iec61850\", \"DeviceUpdateWarning\"), dsIeds, SCL_PATH.text) )
+  {
+    pbUpdate.enabled = true;
+    pbCfgNew.enabled = bCfg;
+    pbRcb.enabled = bRcb;
+    return;
+  }
+
+  for ( int i = 1; i <= dynlen(dsTempIeds); i++ )
+    if ( dynContains(dsIeds, dsTempIeds[i]) )
+      dynAppend(dsTempIPs, dsIPs[i]);
+
+  setShapesEnabled(0);
+  ptProgress.visible = 1;
+  openProgressBar(\"IED configuration\", \"copy.gif\", \"... updating IEDs\", \"\", \"\", 1);
+  showWaitModule(1);
+
+  for ( int i = 1; i <= dynlen(dsIeds); i++ )
+  {
+    string sIed = dsIeds[i];
+
+    string sMsg = getCatStr(\"iec61850\", \"BrowseProgress\");
+    strreplace(sMsg, \"$all\", dynlen(dsIeds));
+    strreplace(sMsg, \"$num\", i);
+    strreplace(sMsg, \"$ied\", sIed);
+
+    ptProgress.text = sMsg;
+
+    iec61850_updateSclData(sIed);
+
+    string sUpdateIp;
+    dpGet(iec61850_getIedDpName(sIed) + IEC61850_DPE_IDP_IPADDRESS, sUpdateIp);
+
+    if ( sUpdateIp != mUpdate[sIed + \"_Ip\"] )
+      tabScl.cellValueRC(mUpdate[sIed + \"_Idx\"]-1, sColumnIP, sUpdateIp);
+  }
+
+  if ( isProgressBarOpen() )
+    closeProgressBar();
+
+  ptProgress.visible = 0;
+  setShapesEnabled(1);
+
+  showWaitModule(0);
+  iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\", \"DeviceUpdatedSuccessfully\"));
+
+  pbUpdate.enabled = true;
+
+  if ( bCfg )
+    pbCfgNew.enabled = true;
+  if ( bRcb )
+    pbRcb.enabled = true;
+}
+
+" 0
+ E E E
+13 47
+"pbRcb"
+""
+1 1154.5 579 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  833 573 991 601
+
+T 
+4
+LANG:10001 11 Manage RCBs
+LANG:10004 9 管理RCB
+LANG:10000 14 RCBs verwalten
+LANG:10027 11 Manage RCBs
+"main()
+{
+  showWaitModule(1);
+  iec61850_getClientIedRcbs(g_mIec61850SclData);
+  showWaitModule(0);
+
+  ChildPanelOnModal(IEC61850_SCL_RCB_PANEL_PATH,
+                    \"Pre-assigned RCBs from SCL file\",
+                    makeDynString(),
+                    0, 0);
+}
+" 0
+ E E E
+29 50
+"ewoAe"
+""
+1 19.87500000000009 75.27292685837006 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  4.875000000000085 5.27292685837017 103.8750000000001 104.2729268583701
+19 AttentionEffect.ewo
+0
+E29 51
+"ewoBc"
+""
+1 4.875000000000085 5.27292685837017 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  4.875000000000085 5.27292685837017 103.8750000000001 104.2729268583701
+19 BackgroundCover.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 65 T 15 2.002345967558389 0 1 0 545
+0
+0

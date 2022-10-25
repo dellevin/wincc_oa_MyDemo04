@@ -1,0 +1,1808 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+
+    WebView_ewo1.visible(false);
+
+    btn_calc_cluster.enabled(false);
+    btn_suggestcluster.enabled(false);
+    btn_editLabels.enabled(false);
+    clusterTable.enabled(false);
+    Labels.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  initPanel();
+  ssc_saveClusterState();
+  reloadClusterTable();
+
+  initLabelTable();
+  panelChanged = false;
+  wf_bottomBar_reload();
+}
+
+void initLabelTable()
+{
+  Labels.tableMode(TABLE_SELECT_BROWSE);
+  Labels.selectByClick(TABLE_SELECT_LINE);
+  Labels.sortOnClick = false;
+  Labels.deleteAllLines();
+
+  delay(0,10); //without this delay, the ewo isn't initialized before the resetClusterStateEwos function is called
+  updateLabelTable(g_labelsetref, false);
+
+  //update label combobox
+  dyn_string ls = cmBx_labelSet.items();
+  int pos = parsePositionOfLable(ls, g_labelsetref);
+  cmBx_labelSet.selectedPos((pos > 0) ? pos : 1);
+}
+
+int parsePositionOfLable(dyn_string ls, string labelsetref)
+{
+  int pos = dynContains(ls, labelsetref);
+  if(pos > 0)
+  {
+    return pos;
+  }
+
+  for(int i = 1; i <= dynlen(ls); i++)
+  {
+    pos = strpos(ls[i], labelsetref);
+    if(pos > 1 && ls[i][pos-1] == \":\" )
+    {
+      return i;
+    }
+  }
+  return 0;
+}
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  29 33
+""0  1
+E "#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+// int labelX = 331;
+// int labelY = 521;
+
+//global variable to determine if load of web view has finished
+bool g_loadFinish = false;
+bool panelChanged = false;
+dyn_int g_labelMapping;
+int g_actualCluster;
+dyn_int g_clusterVector;
+dyn_float g_clusterCenterVec;
+string g_labelsetref;
+
+int SaveSession()
+{
+  dyn_string resultString;
+  dyn_float resultFloat;
+  blob emptyBlob;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"Save Classification Session\",
+                                     makeDynString(\"$1:\"+getCatStr(\"ssc_wizards\", \"cl00038\"),
+                                                   \"$2:\"+getCatStr(\"general\", \"yes\"), \"$3:\"+getCatStr(\"general\", \"no\")),
+                                     resultFloat,
+                                     resultString);
+
+  if(\"true\"==resultString[1])
+  {
+    dyn_int lm;
+    dyn_float centers;
+    dyn_uint cVector;
+    dyn_int labelMapping;
+    dyn_string emptyMatrix, emptyHeaders;
+    float emptyOOB;
+    dpSet(g_currentKmModel + SSC_MDKM_LABEL_MAPPING, lm,
+          g_currentKmModel + SSC_MDKM_CENTERS, centers,
+          g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, cVector,
+          g_currentKmModel + SSC_MDKM_LABEL_MAPPING, labelMapping,
+          g_currentKmModel + \".labelsetRef\", \"std_labelset\",
+          g_currentRfModel + \".confusionMatrix.elements\", emptyMatrix,
+          g_currentRfModel + \".confusionMatrix.rowHeaders\", emptyMatrix,
+          g_currentRfModel + \".confusionMatrix.columnHeaders\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.elements\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.rowHeaders\", emptyMatrix,
+          g_currentRfModel + \".importanceMatrix.columnHeaders\", emptyMatrix,
+          g_currentRfModel + \".labelsetRef\", \"std_labelset\",
+          g_currentRfModel + \".labelVector\", labelMapping,
+          g_currentRfModel + \".headers\", emptyHeaders,
+          g_currentRfModel + \".outOfBagError\", emptyOOB);
+    //delete model of model
+    string sys = getSystemName();
+    string query = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+          \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + g_currentRfModel + \"\\\"\";
+    string sysQuery = \"SELECT '_online.._value' FROM '*.metadataRef'\" +
+          \"WHERE _DPT = \\\"_SSC_Model\\\" AND '_online.._value' = \\\"\" + sys+g_currentRfModel + \"\\\"\";
+    dyn_dyn_anytype resultQuery, resultSystemQuery;
+
+    if (dpQuery(query, resultQuery) == 0)
+    {
+      if(dpQuery(sysQuery, resultSystemQuery) == 0)
+      {
+        dynAppend(resultQuery, resultSystemQuery);
+
+        for(int j = 3; j <= dynlen(resultQuery); j++)
+        {
+          dpSet(dpSubStr(resultQuery[j][1], DPSUB_DP) + \".model\", emptyBlob);
+        }
+      }
+    }
+
+    dpSet(g_currentKmModel + SSC_MDKM_NUM_CLUSTERS, g_actualCluster,
+          g_currentKmModel + SSC_MDKM_CENTERS, g_clusterCenterVec,
+          g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, g_clusterVector,
+          g_currentKmModel + \".labelMapping\", g_labelMapping,
+          g_currentKmModel + SSC_MDKM_LABELSET_REF, g_labelsetref);
+
+    panelChanged = false;
+    wf_bottomBar_reload();
+    return WF_PANEL_SAVE_SAVED;
+  }
+  return WF_PANEL_SAVE_NOTHING_SAVE;
+}
+
+int isPanelChanged()
+{
+  if(panelChanged)
+	{
+    return WF_PANEL_CHANGED;
+	}
+	else
+	{
+		return WF_PANEL_NO_CHANGE;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void initPanel()
+{
+
+  if(g_currentKmModel == \"\") {
+    g_currentKmModel = g_kmTempModel;
+    g_currentRfModel = g_rfTempModel;
+  }
+  ssc_displayModelName();
+
+  int cluster;
+
+  dpGet(g_currentKmModel + SSC_MDKM_NUM_CLUSTERS, g_actualCluster);
+  dpGet(g_currentKmModel + SSC_MDKM_CENTERS, g_clusterCenterVec);
+  dpGet(g_currentKmModel + SSC_MDKM_CLUSTER_VECTOR, g_clusterVector);
+  dpGet(g_currentKmModel + \".labelMapping\", g_labelMapping);
+  dpGet(g_currentKmModel + SSC_MDKM_LABELSET_REF, g_labelsetref);
+
+
+  if(cluster > 1)
+  {
+    change_numCluster.text(cluster);
+  }
+
+  if(!ssc_isPanelGloballyInitialized(2))
+  {
+    ssc_initPanelGlobal(2);
+  }
+}
+
+void resetClusterStateEwos()
+{
+  if(g_loadFinish)
+  {
+
+    WebView_ewo1.execJsFunction(\"setLabelMapping\", g_labelMapping);
+
+    WebView_ewo1.execJsFunction(\"setClusterCenter\", g_clusterCenterVec);
+  }
+  reloadClusterTable();
+}
+
+void setLabelWarning(string msg) {
+  msg = getCatStr(SSC_WIZARDS_CAT, msg);
+  if(strlen(msg) > 30) {
+//     labelY = 512;
+  }
+  else {
+//     labelY = 521;
+  }
+//   calc_status_text.position(labelX, labelY);
+  calc_status_text.foreCol=g_colWarning;
+  calc_status_text.text = msg;
+}
+
+void setLabelOk(string msg) {
+  msg = getCatStr(SSC_WIZARDS_CAT, msg);
+  if(strlen(msg) > 25) {
+//     labelY = 512;
+  }
+  else {
+//     labelY = 521;
+  }
+//   calc_status_text.position(labelX, labelY);
+  // DebugTN(\"length str = \"+strlen(msg));
+  calc_status_text.foreCol=g_colOk;
+  calc_status_text.text = msg;
+}
+
+void reloadClusterTable()
+{
+  dyn_string inputDPs;
+  dyn_string labels;
+  dyn_string units;
+
+  string labelsetref;
+  dyn_string clusterLabels;
+  dyn_float thresholds;
+  dyn_string thresholdTypes;
+  dyn_int ranges;
+
+  clusterTable.tableMode(TABLE_SELECT_BROWSE);
+  clusterTable.selectByClick(TABLE_SELECT_LINE);
+
+  dpGet(g_currentKmModel+SSC_MDKM_INPUT_DPS, inputDPs);
+  labels = ssc_getLabels(inputDPs);
+
+  units = ssc_getUnits(inputDPs);
+  dpGet(g_labelsetref+\".labels\", clusterLabels);
+
+  clusterTable.deleteAllLines();
+
+
+  if(dynlen(inputDPs) == 0)
+  {
+    return;
+  }
+
+  while(clusterTable.columnCount())
+  {
+    clusterTable.deleteColumn(0);
+  }
+
+  int x, y;
+  getValue(\"clusterTable\", \"size\", x, y);
+  x -= 18;           // because of the vertical scroll bar
+
+  const int clusterColSize = 25;
+  const int dpColMinSize = 40;
+  const int dpColMaxSize = 100;
+  const int labelColMinSize = 60;
+
+  int colSize = (x - 145) / dynlen(inputDPs);
+  if (colSize < dpColMinSize)
+  {
+    colSize = dpColMinSize;
+  }
+  if (colSize > dpColMaxSize)
+  {
+    colSize = dpColMaxSize;
+  }
+
+  for(int i = 0; i <= (dynlen(inputDPs) + 1); i++)  // add 2 cols for id and labels
+  {
+    clusterTable.insertColumn(i);
+    if ( (i > 0) && (i <= dynlen(inputDPs)) )
+    {
+      string colName = \"#\" + i;
+      clusterTable.columnName(i, colName);
+      clusterTable.namedColumnHeader(colName, labels[i]);
+      clusterTable.namedColumnToolTipText(colName, ssc_dpTooltipWithUnit(inputDPs[i], labels[i], units[i]));
+      clusterTable.columnFormat(colName, \"[0.2f,False,False,ALIGNMENT_END,False]\");
+      clusterTable.columnWidth(i, colSize);
+      clusterTable.columnEditable(i, true);
+    }
+    else if ( i == 0)    // id
+    {
+      clusterTable.columnName(0) = \"id\";
+      clusterTable.namedColumnHeader(\"id\", getCatStr(SSC_WIZARDS_CAT, \"00002short\"));  // \"Cl.\"
+      clusterTable.namedColumnToolTipText(\"id\", getCatStr(SSC_WIZARDS_CAT, \"00002\"));  // \"Cluster\"
+      clusterTable.columnFormat(\"id\", \"[0d,False,False,ALIGNMENT_CENTER,False]\");
+      clusterTable.columnWidth(i, clusterColSize);
+    }
+    else      // labels
+    {
+      x = x - clusterColSize - (colSize * dynlen(inputDPs));
+
+      if (x < labelColMinSize)
+      {
+        x = labelColMinSize;
+      }
+
+      clusterTable.columnWidth(i, x);
+    }
+  }
+  clusterTable.columnName(dynlen(inputDPs) + 1) = \"labels\";
+  clusterTable.namedColumnHeader(\"labels\", getCatStr(SSC_WIZARDS_CAT, \"00001\"));    // \"Label\"
+  clusterTable.namedColumnToolTipText(\"labels\", getCatStr(SSC_WIZARDS_CAT, \"00001\"));
+
+  clusterTable.appendLines(g_actualCluster);
+  for(int i = 0; i < g_actualCluster; i++)
+  {
+    clusterTable.cellValueRC(i, \"id\", i+1); // index col
+  }
+
+  ranges = ssc_getAlertThresholds(inputDPs, thresholds, thresholdTypes);
+  for (int i = 0; i < dynlen(g_clusterCenterVec); i++)
+  {
+    int col = 1 + (i / g_actualCluster);
+    int row = (i % g_actualCluster);
+    string format;
+    if ( ((thresholdTypes[col] == \"upper\") && (g_clusterCenterVec[i + 1] > thresholds[col])) ||
+         ((thresholdTypes[col] == \"lower\") && (g_clusterCenterVec[i + 1] < thresholds[col])) )
+    {
+      format = \"WF_Warning\";    // Alarm markierung
+    }
+    dyn_string tmp;
+    tmp[1] = g_clusterCenterVec[i + 1];
+    tmp[2] = format;
+    tmp[3] = \"\";
+
+    clusterTable.cellValueRC(row, \"#\" + col, tmp);
+  }
+
+  for (int i = 0; i < g_actualCluster && i < dynlen(g_labelMapping); i++)
+  {
+    if(g_labelMapping[i + 1] > dynlen(clusterLabels))
+    {
+      clusterTable.cellValueRC(i, \"labels\", \"\");
+    }
+    else if (g_labelMapping[i + 1] != 0)
+    {
+      clusterTable.cellValueRC(i, \"labels\", clusterLabels[g_labelMapping[i + 1]]);
+    }
+  }
+
+  int inputDPsCount = dynlen(inputDPs);
+  for (int row = 0; row < g_actualCluster; row++)
+  {
+    for (int col = 1; col <= inputDPsCount; col++)
+    {
+      float cellValue;
+      getValue(\"clusterTable\", \"cellValueRC\", row, \"#\" + col,  cellValue);
+      clusterTable.cellToolTipRC(row, \"#\" + col, ssc_dpValueTooltip(inputDPs[col], labels[col], units[col], cellValue));
+    }
+  }
+
+  DebugFN(SSC_DEBUG_FLAG, \"thresholds\",thresholds);
+  DebugFN(SSC_DEBUG_FLAG, \"thresholdTypes\",thresholdTypes);
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  function updates the labeltable
+  @param labelset the labelset that should be loaded
+  @param reset: reset the values in the cluster tabel
+*/
+void updateLabelTable(string labelset, bool reset)
+{
+  dyn_string clusterLabels;
+
+  // build new table using labelset strings
+  Labels.deleteAllLines();
+  dpGet(labelset+\".labels\", clusterLabels);
+  for (int i = 1; i <= dynlen(clusterLabels); i++)
+  {
+    Labels.appendLine(\"Labels\", clusterLabels[i]);
+  }
+
+  // delete labels in centers table
+  if(reset)
+  {
+    dynClear(g_labelMapping);
+    for (int i = 1; i <= dynlen(clusterLabels); i++)
+    {
+      dynAppend(g_labelMapping, 0);
+    }
+    resetClusterStateEwos();
+  }
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+13 10
+"btn_calc_cluster"
+"WF_Transparent"
+1 374.9350052521007 193 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  373.004332983193 190.767017480875 402.004332983193 219.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 18 Calculate Clusters
+LANG:10004 9 簇计算
+LANG:10000 16 Berechne Cluster
+LANG:10027 18 Calculate Clusters
+"main()
+{
+    dyn_string inputDPs;
+  dyn_string labels;
+  dyn_string units;
+  dyn_string kpis;
+  int numClusters;
+  time t1;
+  time t2;
+
+  handleCalculationOverlay(true);
+
+  numClusters = change_numCluster.text;
+
+  dpGet(g_currentKmModel + \".inputDPs\", kpis);
+  dpGet(g_currentKmModel + \".startTime\", t1);
+  dpGet(g_currentKmModel + \".endTime\", t2);
+
+  setLabelWarning(\"cl00014\");    // \"Calculating Clusters...\");
+
+  DebugFN(SSC_DEBUG_FLAG, t1,t2);
+
+  if(dynlen(kpis) == 0)
+  {
+    SSCDebugN(\"Please choose DPE(s) and timerange in the first Panel. \");
+    notificationBar_newMsg(\"ssc_wizards\", \"cl00022\", NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                              makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+    setLabelWarning(\"cl00022\");   // \"Please choose DPE(s) and timerange in the first Panel. \");
+    g_stopCalculationCluster = false;
+    handleCalculationOverlay(false);
+    return;
+  }
+
+  string label, labelType;
+
+  int res = ssc_calcKmeansClusters(t1, t2, numClusters, kpis, g_clusterCenterVec, g_clusterVector, g_actualCluster, label, labelType);
+
+  if(res == -1)
+  {
+    setValue(\"actual_clusters_text\",\"text\",\"\");
+    setLabelWarning(label);
+    notificationBar_newMsg(\"ssc_wizards\", label, NOTIFICATION_BAR_PRIO_WARNING, \"\",
+                              makeDynString(), TRUE, makeDynString(notificationBar_getUserDpName()), true, false);
+  }
+  else
+  {
+    setValue(\"actual_clusters_text\",\"text\",g_actualCluster);
+    setLabelOk(label);
+
+
+  }
+
+    WebView_ewo1.execJsFunction(\"setNumClusters\", g_actualCluster);
+    WebView_ewo1.execJsFunction(\"setClusterCenter\", g_clusterCenterVec);
+    WebView_ewo1.execJsFunction(\"setLabelMapping\", g_labelMapping);
+
+    dpGet(g_currentKmModel+SSC_MDKM_INPUT_DPS, inputDPs);
+    labels = ssc_getLabels(inputDPs);
+    WebView_ewo1.execJsFunction(\"setLabels\", labels);
+
+    units = ssc_getUnits(inputDPs);
+    WebView_ewo1.execJsFunction(\"setUnits\", units);
+
+    WebView_ewo1.execJsFunction(\"initChart\");
+    WebView_ewo1.execJsFunction(\"drawChart\");
+    WebView_ewo1.execJsFunction(\"drawLabels\");
+
+    WebView_ewo1.visible(true);
+    reloadClusterTable();
+
+  g_stopCalculationCluster = false;
+  handleCalculationOverlay(false);
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+/**
+  @author Joshua Hercher joshua.hercher@etm.at
+  @brief handles the ui changes when calculation starts or stops.
+  @param start defines if the calculation started (true) or stopped (false)
+*/
+void handleCalculationOverlay(bool start)
+{
+  btn_stopCalcCluster2.enabled(start);
+  attention_calc.visible(start);
+
+  WebView_ewo1.visible(!start);
+
+  this.enabled(!start);
+  btn_suggestcluster.enabled(!start);
+  btn_editLabels.enabled(!start);
+  clusterTable.enabled(!start);
+  Labels.enabled(!start);
+  change_numCluster.enabled(!start);
+
+  if(!start)
+  {
+    attention_calc.stop();
+  }
+  else
+  {
+    attention_calc.start();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"calculate\");
+}" 0
+
+21 11
+"change_numCluster"
+"WF"
+1 229.813492063492 49.22612903225812 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  228 47 301 76
+0
+
+E
+E
+E
+
+N 2 20 1 5 1 1
+2 15
+"PRIMITIVE_TEXT7"
+""
+1 15 53.49225806451625 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 53.49225806451625 167 68
+0 2 2 "0s" 0 0 0 192 0 0  15 53.49225806451625 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 26 Target number of clusters:
+LANG:10004 15 目标簇数：
+LANG:10000 23 Vorgabe Anzahl Cluster:
+LANG:10027 26 Target number of clusters:
+2 16
+"PRIMITIVE_TEXT8"
+""
+1 565 55.5 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9853372434017594 -550 37.94538123167156 0 E 565 55.5 715 71
+0 2 2 "0s" 0 0 0 192 0 0  565 55.5 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 25 Number of clusters found:
+LANG:10004 12 簇数量：
+LANG:10000 30 Anzahl der gefundenen Cluster:
+LANG:10027 25 Number of clusters found:
+2 17
+"actual_clusters_text"
+""
+1 230 92.74120830651121 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 230 92.74120830651121 232 108
+0 2 2 "0s" 0 0 0 192 0 0  230 92.74120830651121 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+6 18
+"RECTANGLE2"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 1.03474624434568 0 0.9999999999999998 -0.490552127803227 0.1535923753665784 1 E 0 0 1237 24
+13 21
+"btn_suggestcluster"
+"WF_Transparent"
+1 160.1386554621849 192.767017480875 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  158.3119747899161 190.53403496175 187.3119747899161 219.53403496175
+
+P 
+4294967295
+"pictures/wf/buttons/calculate.png"
+4
+LANG:10001 16 Suggest Clusters
+LANG:10004 12 建议的簇
+LANG:10000 9 Vorschlag
+LANG:10027 16 Suggest Clusters
+"main()
+{
+  attention_calc.visible(true);
+  attention_calc.start();
+
+  WebView_ewo1.visible(false);
+
+  this.enabled(false);
+  btn_suggestcluster.enabled(false);
+  btn_editLabels.enabled(false);
+  clusterTable.enabled(false);
+  Labels.enabled(false);
+  btn_calc_cluster.enabled(false);
+  change_numCluster.enabled(false);
+  btn_stopCalcCluster1.enabled(true);
+
+  setLabelWarning(\"cl00023\");    // \"Estimating cluster number...\");
+  actual_clusters_text.text=\"\";
+  int suggestedClusters;
+  suggestedClusters = ssc_suggestClusterNumber();
+  if(suggestedClusters > 0) {
+    if(suggestedClusters == 1) //is a valid calculation but not a valid cluster number
+    {
+      suggestedClusters++;
+    }
+    setLabelOk(\"cl00013\");    // \"Cluster number suggested\");
+    change_numCluster.text=suggestedClusters;
+  }
+  else if(g_stopCalculationCluster){
+    g_stopCalculationCluster = false;
+    setLabelWarning(\"cl00036\");
+  }
+  else {
+    setLabelWarning(\"cl00005\");      // no data available
+  }
+
+  attention_calc.visible(false);
+
+
+  WebView_ewo1.visible(true);
+
+  this.enabled(true);
+  btn_suggestcluster.enabled(true);
+  btn_editLabels.enabled(true);
+  clusterTable.enabled(true);
+  Labels.enabled(true);
+  change_numCluster.enabled(true);
+  attention_calc.stop();
+  btn_calc_cluster.enabled(true);
+  btn_stopCalcCluster1.enabled(false);
+  g_stopCalculationCluster = false;
+}
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"calculate\");
+}" 0
+
+29 23
+"calc_status_text"
+""
+1 0.1534391534393702 120 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+10
+"readOnly" "bool TRUE"
+"midLineWidth" "int 1"
+"frameShape" "enum 0"
+"bold" "bool TRUE"
+"alignment" "enum 132"
+"frameShadow" "enum 16"
+"lineWidth" "int 2"
+"currentFont" "font Arial,-1,13,5,75,0,0,0,0,0"
+"text" "string "
+"layoutAlignment" "AlignRight|AlignTrailing"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  10.99999999999999 120 421 175
+15 PVSS.TextEdit.1
+0
+E25 25
+"clusterTable"
+"WF"
+1 -0.9999999999999547 220 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"DragDrop" "main(string information, int dragType, int row, string column)
+{
+  if (column == \"labels\" && row != -1)
+  {
+    dyn_string clusterLabels;
+    int labelIx = (int)information + 1;
+
+    dpGet(g_labelsetref+\".labels\", clusterLabels);
+
+    //if a number from outside the wizard is dropped into the table which is bigger than the labelset or smaller than 1
+    //we need this if to prevent an index out of range error
+    if(labelIx <= dynlen(clusterLabels) && labelIx > 0)
+    {
+      int clusterIndex = this.cellValueRC(row, \"id\");
+      g_labelMapping[clusterIndex] = labelIx;
+
+      this.cellValueRC(row, \"labels\", clusterLabels[labelIx]);
+
+      WebView_ewo1.execJsFunction(\"setClusterLabels\", clusterLabels);
+      WebView_ewo1.execJsFunction(\"setLabelMapping\", g_labelMapping);
+
+      panelChanged = true;
+      wf_bottomBar_reload();
+    }
+  }
+}
+
+
+
+
+
+
+"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -2.999999999999989 218 732 562
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+"// change single value in cluster data
+main(int row, string column, string value)
+{
+
+  if(column != \"labels\")
+  {
+    int col, ix;
+
+    col = this.nameToColumn(column) - 1;
+    if ( (col >= 0) && (col < this.columnCount()) )  // between \"id\" and \"Label\"
+    {
+      int id = this.cellValueRC(row, \"id\");
+      ix = g_actualCluster * col + id;
+
+      g_clusterCenterVec[ix] = (float)value;
+
+      WebView_ewo1.execJsFunction(\"setClusterCenter\", g_clusterCenterVec);
+      panelChanged = true;
+      wf_bottomBar_reload();
+    }
+  }
+}
+
+
+
+" 0
+ 1 0 1 1 0 "id" 4 1 1 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+60 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+25 26
+"Labels"
+"WF"
+1 440 49.99999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"draggable" ""
+"acceptDrops" ""
+"DragStart" "main(int keys, int row, string column)
+{
+  int rc = dragStart((string)row);
+  // DebugN(\"drag start\", rc, keys, row, column);
+}"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 47.99999999999998 732 222
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+E 1 0 1 1 0 "Labels" 24 1 0 "s" 4
+LANG:10001 6 Labels
+LANG:10004 6 标签
+LANG:10000 6 Labels
+LANG:10027 6 Labels
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+273 
+18 18 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+22 27
+"cmBx_labelSet"
+"WF"
+1 440.1249999999999 34.38366129032288 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  438 23 707 52
+0
+
+"main()
+{
+  dyn_string ls;
+
+  // fetch all datapoint names for labelset type as CB content
+  ls = dpNames(\"*\", SSC_LABELSET_TYPE);
+  this.deleteAllItems();
+  for(int i = 1; i <= dynlen(ls); i++)
+  {
+    this.appendItem(dpGetDescription(ls[i]));
+  }
+}
+
+
+
+" 0
+
+"main()
+{
+  g_labelsetref = this.selectedText();
+
+  updateLabelTable(g_labelsetref, true);
+  panelChanged = true;
+  wf_bottomBar_reload();
+}
+
+
+
+" 0
+
+E
+ 0 0
+13 29
+"btn_editLabels"
+"WF"
+1 408.448717948718 469.2461290322584 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Edit labelset
+LANG:10004 12 编辑标签
+LANG:10000 19 Labelset bearbeiten
+LANG:10027 13 Edit labelset
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  703 22.99612903225842 732 51.99612903225842
+
+P 
+4294967295
+"pictures/wf/buttons/edit.png"
+4
+LANG:10001 13 Edit labelset
+LANG:10004 12 编辑标签
+LANG:10000 19 Labelset bearbeiten
+LANG:10027 13 Edit labelset
+"main()
+{
+  dyn_float resultFloat;
+  dyn_string resultText;
+  ChildPanelOnCentralModalReturn(\"SmartSCADA/Wizard/Classification/helper/labelEditor.pnl\", \"Labelset Editor\",
+                                 makeDynString(), resultFloat, resultText);
+
+  if(dynlen(resultText) > 0)
+  {
+    dyn_string ls;
+    // fetch all datapoint names for labelset type as CB content
+    ls = dpNames(\"*\", SSC_LABELSET_TYPE);
+    cmBx_labelSet.deleteAllItems();
+    for(int i = 1; i <= dynlen(ls); i++)
+    {
+      cmBx_labelSet.appendItem(dpGetDescription(ls[i]));
+    }
+    for(int i = 1; i <= dynlen(resultText); i++)
+    {
+      if(strpos(resultText[i], g_labelsetref) >= 0)
+      {
+        if(resultFloat[i] == 4) // status 4 is deleted labels
+        {
+          g_labelMapping = makeDynInt();
+        }
+        updateLabelTable(g_labelsetref, false);
+        reloadClusterTable();
+      }
+    }
+
+    handleLabelChanges(resultText, resultFloat);
+
+    // find position for current labelset
+    int pos = parsePositionOfLable(ls, g_labelsetref);
+    cmBx_labelSet.selectedPos((pos > 0) ? pos : 1);
+    updateLabelTable(g_labelsetref, false);
+    panelChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+
+int parsePositionOfLable(dyn_string ls, string labelsetref)
+{
+  int pos = dynContains(ls, labelsetref);
+  if(pos > 0)
+  {
+    return pos;
+  }
+
+  for(int i = 1; i <= dynlen(ls); i++)
+  {
+    pos = strpos(ls[i], labelsetref);
+    if(pos > 1 && ls[i][pos-1] == \":\" )
+    {
+      return i;
+    }
+  }
+  return 0;
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  handles changes in the labelset, right now only handles changes when a label is deleted from a labelset
+  @param resultText dyn containing the changed labelsets
+  @param resultFloat dyn containing the sort of change to the acording labelset
+*/
+void handleLabelChanges(dyn_string resultText, dyn_float resultFloat)
+{
+  dyn_dyn_anytype resultAllQueries;
+  //iterating over all labelsets where a lable was deleted
+  for(int i = 1; i <= dynlen(resultText); i++)
+  {
+    if(resultFloat[i] == 4)
+    {
+      string dpNameFull = resultText[i];
+      getModelsWithQuery(dpNameFull, resultAllQueries);
+    }
+  }
+
+  //models where a label was deleted have there labelsetRef removed
+  resetModels(resultAllQueries);
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  returns a set of datapoints where the labelset is used
+  @param dpNameFull the fullname of the labelset that was changed
+  @param resultAllQueries the set where the datapoints are stored
+*/
+void getModelsWithQuery(string dpNameFull, dyn_dyn_anytype &resultAllQueries)
+{
+  string query;
+  dyn_string sysNames;
+  dyn_uint sysIDs;
+  dyn_dyn_anytype resultOneQuery;
+  string sys = getSystemName();
+  getSystemNames(sysNames, sysIDs);
+
+  if (strpos(dpNameFull, \":\") == -1)
+  {
+    dpNameFull = sys + dpNameFull;
+  }
+  //search for usage in other systems
+  for(int j = 1; j <= dynlen(sysNames); j++)
+  {
+    query = \"SELECT '_online.._value' FROM '*.labelsetRef' REMOTE '\" + sysNames[j] + \":' \" +
+          \"WHERE _DPT = \\\"_SSC_METADATA_KM\\\" AND '_online.._value' = \\\"\" + dpNameFull + \"\\\"\";
+    if (dpQuery(query, resultOneQuery) == 0)
+    {
+      dynAppend(resultAllQueries, resultOneQuery);
+    }
+    else
+    {
+      throwError(getLastError());
+      return;
+    }
+  }
+  //search for usage in own system
+  query = \"SELECT '_online.._value' FROM '*.labelsetRef' REMOTE '\" + ssc_systemName(dpNameFull) + \"' \" +
+          \"WHERE _DPT = \\\"_SSC_METADATA_KM\\\" AND '_online.._value' = \\\"\" + ssc_omitSystemName(dpNameFull) + \"\\\"\";
+  if (dpQuery(query, resultOneQuery) == 0)
+  {
+    dynAppend(resultAllQueries, resultOneQuery);
+  }
+  else
+  {
+    throwError(getLastError());
+    return;
+  }
+}
+
+/** @author Joshua Hercher joshua.hercher@etm.at
+  resets the labelsetref and mapping of a model to default value
+  @param resultAllQueries a set containing all datapoints where the labelset has to be resetted
+*/
+void resetModels(dyn_dyn_anytype resultAllQueries)
+{
+  for(int i = 2; i <= dynlen(resultAllQueries); i++)
+  {
+    string datapoint = resultAllQueries[i][1];
+    int pointPos = strpos(datapoint, \".\");
+    datapoint = substr(datapoint, 0, pointPos);
+    if(strlen(datapoint) > 0)
+    {
+      g_labelsetref = SSC_GLOBAL_LABELSET_NAME;
+      for(int j = 1; j <= dynlen(g_labelMapping); j++)
+      {
+        g_labelMapping[j] = 0;
+      }
+    }
+  }
+}
+
+
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"edit\");
+  this.enabled = getUserPermission(USER_PERMISSION_CLASSIFICATION);
+}" 0
+
+29 30
+"attention_calc"
+""
+1 955.973411214831 244.9982325900764 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"color1" "color WF_Text"
+"effectType" "enum 2"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  955.973411214831 244.9982325900764 1054.973411214831 343.9982325900764
+19 AttentionEffect.ewo
+0
+"main()
+{
+  this.visible(false);
+}" 0
+13 31
+"btn_stopCalcCluster2"
+"WF_Transparent"
+1 435.9999999999998 196.767017480875 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Stops the calculation
+LANG:10004 15 停止该计算
+LANG:10000 21 Stoppt die Berechnung
+LANG:10027 21 Stops the calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  397.9999999999998 190.767017480875 426.9999999999998 219.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 16 Stop Calculation
+LANG:10004 12 停止计算
+LANG:10000 18 Berechnung stoppen
+LANG:10027 16 Stop Calculation
+"main()
+{
+  g_stopCalculationCluster = true;
+  this.enabled(false);
+}
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"stop\");
+}" 0
+
+13 32
+"btn_stopCalcCluster1"
+"WF_Transparent"
+1 221.1386554621849 196.767017480875 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Stops the calculation
+LANG:10004 15 停止该计算
+LANG:10000 21 Stoppt die Berechnung
+LANG:10027 21 Stops the calculation
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  183.1386554621849 190.767017480875 212.1386554621849 219.767017480875
+
+P 
+4294967295
+"pictures/wf/buttons/stop.png"
+4
+LANG:10001 16 Stop Calculation
+LANG:10004 12 停止计算
+LANG:10000 18 Berechnung stoppen
+LANG:10027 16 Stop Calculation
+"main()
+{
+  g_stopCalculationCluster = true;
+  this.enabled(false);
+}
+
+
+
+" 0
+ E E "main()
+{
+  ssc_setIcon(this, \"stop\");
+}" 0
+
+6 33
+"RECTANGLE1"
+""
+1 680 40 E E E 1 E 1 E N "_Transparent" E N "White" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 0.9243697478991596 0 1.039949484361381 101.4285714285714 -16.13201433620522 1 E 680 40 1275 554
+6 36
+"RECTANGLE6"
+"WF"
+1 23 503 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.150130548302872 0 0.8929080314621235 -27.45300261096605 -258.5987048636982 1 E 23 503 406 536
+4 37
+"LINE2"
+""
+1 -0.5000000000000284 190.53403496175 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 3 2 1 E  -0.5000000000000284 190.53403496175 439.9999999999999 190.53403496175
+4 41
+"LINE3"
+""
+1 1279.5 25.15359237536657 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1279.5 25.15359237536657 0.5 25.15359237536657
+2 42
+"PRIMITIVE_TEXT10"
+""
+1 28.5 197.767017480875 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 28.5 197.767017480875 153 212.767017480875
+0 2 2 "0s" 0 0 0 66 0 0  28.5 197.767017480875 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Suggest No. clusters
+LANG:10004 18 建议簇的数量
+LANG:10000 18 Anzahl vorschlagen
+LANG:10027 20 Suggest No. clusters
+2 43
+"PRIMITIVE_TEXT11"
+""
+1 240.5 197.767017480875 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 240.5 197.767017480875 365 212.767017480875
+0 2 2 "0s" 0 0 0 66 0 0  240.5 197.767017480875 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 18 Calculate clusters
+LANG:10004 9 簇计算
+LANG:10000 16 Berechne Cluster
+LANG:10027 18 Calculate clusters
+4 35
+"LINE1"
+""
+1 730 0.267973086676907 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  730 2.131628207280301e-14 730 559.46596503825
+14 44
+"wf_txtF_answer"
+""
+1 291.1249999999999 90.03789065256507 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  290.2463566349671 78.88366129032289 442.2463566349671 112.8836612903229
+3 "0s" 0 0 0 0 0 -1  E E E
+14 45
+"wf_txtF_cmd"
+""
+1 291.1249999999999 43.03789065256507 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  290.2463566349671 31.88366129032289 442.2463566349671 65.88366129032289
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text() = \"\";
+}" 0
+ E
+4 46
+"LINE4"
+""
+1 440.1231783174836 0.1053756309642626 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  440.1231783174836 3.730349362740526e-14 440.1231783174836 220
+2 47
+"txt_session"
+""
+1 455.1231783174836 5.48153846153846 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 455.1231783174836 5.48153846153846 517 20
+0 2 2 "0s" 0 0 0 192 0 0  455.1231783174836 5.48153846153846 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 Labelsets
+LANG:10004 9 标签组
+LANG:10000 9 Labelsets
+LANG:10027 9 Labelsets
+2 48
+"txt_radarChart"
+""
+1 745.1231783174836 5.48153846153846 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 745.1231783174836 5.48153846153846 821 20
+0 2 2 "0s" 0 0 0 192 0 0  745.1231783174836 5.48153846153846 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Radar chart
+LANG:10004 9 雷达图
+LANG:10000 13 Radardiagramm
+LANG:10027 11 Radar chart
+29 50
+"txt_modelLoaded"
+"WF_Transparent"
+1 -89.4428349914056 -219.5186327310724 E E E 0 E 1 E N "White" E N "_Transparent" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShape" "enum 0"
+"styleSheet" "string WF"
+"currentFont" "font Arial,-1,13,5,75,0,0,0,0,0"
+"textFormat" "enum 0"
+"alignment" "enum 1"
+"text" "string Model: (updated in panel initialize)"
+"currentColor" "color White"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  15 1 425 25
+15 PVSS.TextEdit.1
+0
+E29 51
+"WebView_ewo1"
+""
+1 729.9999999999999 25.46596503825003 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+2
+LANG:10001 0 
+LANG:10004 0 
+
+2
+"webInspector" "bool FALSE"
+"layoutAlignment" "AlignNone"
+2
+LANG:10001 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,13,5,50,0,0,0,0,0
+0  729.9999999999999 25.46596503825003 1280 559.9999999999998
+11 WebView.ewo
+1
+0 "messageReceived" "(mapping params)"
+"  dyn_string inputDPs;
+  dyn_string labels;
+  dyn_string units;
+  dyn_string clusterLabels;
+
+
+  switch(params.params.function) {
+    case \"clusterCenter\":
+        g_clusterCenterVec = params.params.data.clusterCenter;
+        reloadClusterTable();
+        panelChanged = true;
+        wf_bottomBar_reload();
+        break;
+    case \"init\":
+        if(g_actualCluster > 0) {
+          WebView_ewo1.execJsFunction(\"setNumClusters\", g_actualCluster);
+          WebView_ewo1.execJsFunction(\"setClusterCenter\", g_clusterCenterVec);
+          WebView_ewo1.execJsFunction(\"setLabelMapping\", g_labelMapping);
+
+          dpGet(g_labelsetref+\".labels\", clusterLabels);
+          WebView_ewo1.execJsFunction(\"setClusterLabels\", clusterLabels);
+
+          dpGet(g_currentKmModel+SSC_MDKM_INPUT_DPS, inputDPs);
+          labels = ssc_getLabels(inputDPs);
+          WebView_ewo1.execJsFunction(\"setLabels\", labels);
+
+          units = ssc_getUnits(inputDPs);
+          WebView_ewo1.execJsFunction(\"setUnits\", units);
+
+          WebView_ewo1.execJsFunction(\"initChart\");
+          WebView_ewo1.execJsFunction(\"drawChart\");
+          WebView_ewo1.execJsFunction(\"drawLabels\");
+
+          WebView_ewo1.visible(true);
+        } else {
+            WebView_ewo1.execJsFunction(\"setNoData\", getCatStr(SSC_WIZARDS_CAT, \"cl00033\"));  // no data to display
+        }
+    break;
+  }"
+"main()
+{
+  this.loadSnippet(\"/data/html/SmartSCADA/charts/radar_chart.html\");
+}" 0
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

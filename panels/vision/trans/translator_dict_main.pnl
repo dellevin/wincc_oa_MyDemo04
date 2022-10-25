@@ -1,0 +1,2997 @@
+V 14
+4
+LANG:10001 20 Dictionary functions
+LANG:10004 12 字典功能
+LANG:10000 22 Wörterbuch Funktionen
+LANG:10027 29 Функции словаря
+PANEL,-1 -1 623 457 N "_3DFace" 2
+"$1"
+"$quickTranslate"
+"main()
+{
+  pls_wait.start();
+  showWait(TRUE);
+
+  const bool _IS_QUICK_PANEL = isQuickTranslate();
+
+  txtFileName.visible         = _IS_QUICK_PANEL;
+  chkQuickLogProgress.visible = _IS_QUICK_PANEL;
+  lblFileName.visible         = _IS_QUICK_PANEL;
+  cmdSelectFile.visible       = _IS_QUICK_PANEL;
+  cmdClose.visible            = _IS_QUICK_PANEL;
+  cmdLoad.visible             = !_IS_QUICK_PANEL;
+
+  string relDictPath;
+  if( !isDollarDefined(\"$1\") || ($1 == \"\") )
+  {
+    relDictPath = \"data/trans/dictionary.txt\";
+  }
+  else
+    relDictPath = $1;
+
+  delay(0,100);
+
+  if ( gUnicode && access(PROJ_PATH + \"data/trans/dictionary_unicode.txt\", W_OK) == 0 )
+  {
+    convertDictWCtoMB(PROJ_PATH + \"data/trans/dictionary_unicode.txt\",
+                      PROJ_PATH + \"data/trans/dictionary.txt\");
+  }
+
+  showWait(FALSE);
+  txt_dictFileName.text = relDictPath;
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  50 40
+""0  1
+E "//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  author  :Pokorny, Martin
+  @desc   :
+    in this scope lib are all function for work with the dictionary table
+
+  @notes  :
+  @toDo   :
+    -15.10.2015 mPokorny: add notification bar to throw all errors
+    -20.10.2015 mPokorny: make quick preview for selected panel. Make tmp_copy of the panel -->import changes here --> open tmp panel
+    -23.10.2015 mPokrony: prepare it for Wizard-framework (add type for each shape to load the stylesheet options)
+    -23.10.2015 mPokrony: read && write content as json. JSON parsing is faster as CSV parsing
+
+*/
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+// defined uses
+#uses \"notificationBar.ctl\" // for function notificationBar_getCatStrDefault()
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+// defined constants
+
+const string TRANS_NFR_FLAG   = \"TRANS_NFR\"; // NFR flag for this tool
+
+const string TRANS_EMPTY_CELL = notificationBar_getCatStrDefault(\"trans\", \"table_content_not_defined\", \"<** not defined **>\");
+
+const string TRANS_COLOR_CELL_REF_LANG          = \"Black\";
+const string TRANS_COLOR_CELL_EMPTY             = \"Rot\";
+const string TRANS_COLOR_CELL_SAME_TRANSLATIONS = \"Black\";
+const string TRANS_COLOR_CELL_LONGER            = \"Black\";
+const string TRANS_COLOR_CELL_DEFAULT           = \"Black\";
+
+const string TRANS_COLUMN_LOCATIONS = \"location\";
+const string TRANS_COLUMN_EDIT      = \"Edit\";
+
+const string TRANS_FILTER_ALL_LANGS = \"filterAllLangs\";
+
+const int TRANS_FILTER_ALL               = 0;
+const int TRANS_FILTER_SAME_TRANSLATIONS = 1;
+const int TRANS_FILTER_EMPTY_ENTRIES     = 2;
+const int TRANS_FILTER_LONGER_ENTRIES    = 3;
+const int TRANS_FILTER_MULTIPLE_ENTRIES  = 4;
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+// defined panel global variables
+// list with languages (proj langs + dict langs), 1. item is reference language
+dyn_string langs;
+
+//
+dyn_dyn_string origDict;
+
+// variables for filter, so we check if are some changes in the filter
+int    oldFilterType = 0;
+string oldLang = \"\";
+string oldPattern = \"\";
+
+int lastSearch =1;
+int lastSearchIndex = 1;
+string lastSearchPattern = \"\";
+
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/*                                                 generell scope functions                                                            */
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check if is this panel is running in QUICK Translate mode
+
+  @return TRUE - is QUICK Translate mode, else FALSE
+*/
+bool isQuickTranslate()
+{
+  return ( isDollarDefined(\"$quickTranslate\") && $quickTranslate );
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function set the combo box 'optFilter' entries
+
+*/
+void setCbFilter_text()
+{
+  optFilter.text(TRANS_FILTER_ALL)               = getCatStr(\"trans\", \"whole_dictionary\");
+  optFilter.text(TRANS_FILTER_SAME_TRANSLATIONS) = getCatStr(\"trans\", \"same_trans\");
+  optFilter.text(TRANS_FILTER_EMPTY_ENTRIES)     = getCatStr(\"trans\", \"empty_entries\");
+  optFilter.text(TRANS_FILTER_LONGER_ENTRIES)    = getCatStr(\"trans\", \"longer_entries\");
+  optFilter.text(TRANS_FILTER_MULTIPLE_ENTRIES)  = getCatStr(\"trans\", \"multiple_entries\");
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  fucntion check if the table are modified
+  @return
+*/bool isModified()
+{
+  dyn_dyn_string ddsThisDict;
+  tableToDynDynString(ddsThisDict);
+  return ( (dynlen(ddsThisDict) > 1) && (origDict != ddsThisDict) );
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function return current reference language
+
+  @return reference language, in error case \"\"
+*/
+string getRefLang()
+{
+  return ( dynlen(langs) > 0 ) ? langs[1] : \"\";
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function return current selcted cell
+
+  is workaround, because the .currentCell() dont work for right mouse click
+  @param row
+  @param column
+  @return
+*/
+int getCurrentCell(int &row, int &column)
+{
+  dyn_int di;
+
+  getValue(\"tblFile\", \"getSelectedLines\", di);
+
+  if ( dynlen(di) <1 )
+    return -1;
+
+  getValue(\"tblFile\", \"currentCell\", row, column);
+  return ( (row < 0) || (column < 0) ) ? -2 : 0;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function open the detail panel (dblClick on Edit or reference lang column)
+*/
+void openDetailPanel()
+{
+  int row, column;
+  if ( getCurrentCell(row, column) )
+    return;
+
+  const string _REF_LANG = getRefLang();
+
+  if ( (this.columnToName(column) == TRANS_COLUMN_EDIT) ||
+       (this.columnToName(column) == _REF_LANG))
+  {
+    dyn_string params;
+    params[1] = this.cellValueRC(row, _REF_LANG);
+    params[2] = this.cellValueRC(row, TRANS_COLUMN_LOCATIONS);
+
+    ChildPanelOnModal(\"vision/trans/translator_dict_details.pnl\", \"\", params, 50, 50);
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function enable / disable panel shapes
+*/
+void enableShapes(bool enable)
+{
+
+  tblFile.enabled        = enable;
+  cmdFont.enabled        = enable;
+  cmdDefaultFont.enabled = enable;
+  cmdPrint.enabled       = enable;
+  cmdSave.enabled        = enable;
+  cmdCopyRef.enabled     = enable;
+  cmdCopyAllRef.enabled  = enable;
+  cmdSearch.enabled      = enable;
+  optFilter.enabled      = enable;
+  cmbConflicts.enabled   = (enable && optFilter.number != 0);
+
+  cmdSelectFile.enabled  = enable;
+  lblFileName.enabled    = enable;
+  cmdClose.enabled       = enable;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function show the pls wait object
+
+  @param show show or hide the pls wait object
+*/
+void showWait(bool show)
+{
+  if ( show )
+  {
+    // resize and change position of the pls.wait inidicator
+    int x, y, w, h;
+
+    getValue(\"tblFile\",
+             \"position\", x, y,
+             \"size\", w, h);
+    int xNew, yNew, wNew, hNew;
+    xNew = x + w / 2;
+    yNew = y + h / 2;
+    hNew = h / 5;
+
+    if ( hNew < 70 )
+      hNew = 70;
+    if ( hNew > h )
+      hNew = h;
+
+    wNew = hNew;
+
+    setValue(\"pls_wait\",
+             \"position\", xNew, yNew,
+             \"size\", wNew, hNew);
+  }
+
+  setValue(\"pls_wait\", \"visible\", show);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function make quick export from the given file
+
+  @return errCode
+*/
+int quickExport()
+{
+  showWait(TRUE);
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+	 int        i, iNol = getNoOfLangs();
+	 string     ParseCommand;
+
+  ParseCommand = PVSS_PATH + \"bin/\" + getComponentName(TRANS_COMPONENT) + \" -dict tmp_dict.tmp -langid \";
+
+  ParseCommand += getGlobalLangId(getActiveLang());
+  ParseCommand += \",\";
+
+  for(i=0;i<iNol;i++)
+  {
+    if(i != getActiveLang() )
+    {
+      ParseCommand += getGlobalLangId(i);
+      if ( i < iNol - 1 )
+      {
+        ParseCommand += \",\";
+      }
+    }
+  }
+
+  ParseCommand += \" -files \";
+	 ParseCommand += txtFileName.text;
+	 ParseCommand += \" -logP\";
+
+	 int err = system(ParseCommand);
+
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+  showWait(FALSE);
+  return err;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function load dictionary and show the content in the table
+
+  @param dict_file full or relative path to the dictionary
+*/
+void loadDict(string dict_file)
+{
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\", \"dict_file\", dict_file);
+
+  // clear stored results
+  dynClear(langs);
+  tblFile.deleteAllLines();
+  txt_count.text() = \"\";
+  optFilter.number(TRANS_FILTER_ALL); // set all lines visible
+
+  if ( !isfile(dict_file) )
+    dict_file = makeNativePath(getPath(\"\", \"/\" + dict_file));
+
+  if ( !isfile(dict_file) )
+    return;
+
+  showWait(TRUE);
+  enableShapes(FALSE);
+  /*
+    we have 'some' times for large files (parsing performance problem).
+    this blockt the manager. so able here some time before blocking --> delete lines in table and show wait indicator
+  */
+  if ( getFileSize(dict_file) > 1000 )
+    delay(0, 50);
+
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"read csv file\");
+
+  dict_file = makeUnixPath(dict_file);
+  dyn_string filenamesplit = strsplit(dict_file, \"/\");
+
+  string csvFileName = filenamesplit[dynlen(filenamesplit)];
+  string jsonFileName = csvFileName + \".json\";
+
+  string ConvertCommand = PVSS_PATH + \"bin/\" + getComponentName(PARSE_COMPONENT);
+  ConvertCommand +=\" -dictIN \" + csvFileName;
+  ConvertCommand +=\" -dictOUT \" + jsonFileName;
+
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"ConvertCommand\", ConvertCommand);
+  system(ConvertCommand);
+
+  string jsonString;
+  fileToString(dict_file + \".json\", jsonString, \"UTF8\");
+  mapping jsonDict = jsonDecode(jsonString);
+  dyn_dyn_string ddsDict = jsonDict[\"array_v1\"];
+
+  dynDynStringToTable(ddsDict);
+
+  // store this content for isModified()
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"get me\");
+  tableToDynDynString(origDict);
+
+  enableShapes(TRUE);
+  showWait(FALSE);
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"End\");
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function save the table contant in to dictionary file
+
+  Function rewrite content of the dictionary
+
+  @param dict_file dictionary file
+  @return err code
+*/
+int saveDict(string dict_file)
+{
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+  showWait(TRUE);
+  enableShapes(FALSE);
+
+  if ( !isfile(dict_file) )
+    dict_file = makeNativePath(getPath(\"\", \"/\" + dict_file));
+
+  if ( !isfile(dict_file) )
+  {
+    // @toDo: throw err: dictionary does not exists
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return -2;
+  }
+
+  dyn_dyn_string csvData;
+  tableToDynDynString(csvData);
+
+  if ( dynlen(csvData) <= 0 )
+  {
+    // @toDo: throw err: we have not data to store, minimum is header
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return -2;
+  }
+
+  // we need add the dummy column FLAGS :-(
+  const int _COL_LENGTH = dynlen(csvData);
+  dyn_string flags;
+  for (int i = 1; i <= _COL_LENGTH; i++)
+    dynAppend(flags, \"\");
+
+  flags[1] = \"FLAGS\";
+
+  instertDynAnytype(csvData, flags, 1);
+
+  int errCode;
+  string lang = getLocale(getActiveLang());
+  if(strpos(lang, \"iso\") >= 0)
+  {
+    errCode = csvFileWrite(dict_file, csvData, '\\t', true);
+  }
+  else
+  {
+    errCode = csvFileWrite(dict_file, csvData, '\\t');
+  }
+
+  if ( errCode )
+  {
+    // @toDo: throw err: data are not stored correctly (file is not writable)
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return -3;
+  }
+
+  if ( gUnicode )
+  {
+    // convert dictionary.txt into dictionary_unicode.txt
+    convertDictMBtoWC(PROJ_PATH + \"data/trans/dictionary.txt\",
+                      PROJ_PATH + \"data/trans/dictionary_unicode.txt\");
+  }
+
+  // store this content for isModified()
+  origDict = csvData;
+
+  // @toDo: throw info: data are stored successfully
+  enableShapes(TRUE);
+  showWait(FALSE);
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"End\");
+  return 0;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/*                                                           filter functions                                                          */
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function return language for filter
+
+  @return language name (Ex. 'de_AT.utf8#) or constant 'TRANS_FILTER_ALL_LANGS' when use filter for all languages
+*/
+string getFilterLang()
+{
+  return cmbConflicts.userData(cmbConflicts.selectedPos());
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function make filter pattern
+
+  add automatically * to the pattern
+  if are some wildcarsd in the pattern used dont change this
+
+  @param pattern patter
+  @return new pattern
+*/
+string makePattern(string pattern)
+{
+  if ( pattern == \"\" )
+    return pattern;
+
+  dyn_string _WILD_CARDS = makeDynString(\"*\", \"?\", \"[\", \"]\");
+
+  for (int i = 1; i <= dynlen(_WILD_CARDS); i++)
+  {
+    if (strpos(pattern, _WILD_CARDS[i]) >= 0 )
+    {
+      return pattern; // wild card found, dont change the pattern
+    }
+  }
+  return \"*\" + pattern + \"*\";
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check if the filter options are changed
+
+  @return TRUE if chenged else FALSE
+*/
+bool isFilterOptionChanged()
+{
+  int filterType = optFilter.number();
+  string lang    = getFilterLang();
+  string pattern = txt_filter_pattern.text();
+
+  bool changed = ( (oldFilterType != filterType) || (lang != oldLang) || (pattern != oldPattern) );
+
+  oldFilterType = filterType;
+  oldLang = lang;
+  oldPattern = pattern;
+
+  return changed;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function start the filtering of the dict. table
+
+*/
+void startFilter()
+{
+  if ( !isFilterOptionChanged() )
+    return;
+
+  const int    _FILTER_TYPE = optFilter.number();
+  const string _FILTER_LANG = getFilterLang();
+  const string _PATTERN     = (TRANS_FILTER_EMPTY_ENTRIES == _FILTER_TYPE) ? \"\" : txt_filter_pattern.text(); // here can be set teh filter pattern (new feature)
+  dyn_string dsFilteredLangs = (_FILTER_LANG == TRANS_FILTER_ALL_LANGS) ? makeDynString() : makeDynString(_FILTER_LANG);
+
+  txt_filter_pattern.enabled(TRANS_FILTER_EMPTY_ENTRIES != _FILTER_TYPE);
+  showWait(TRUE);
+  enableShapes(FALSE);
+  filterTable(_FILTER_TYPE, dsFilteredLangs, _PATTERN);
+  enableShapes(TRUE);
+  showWait(FALSE);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function filter the table contetn by given filter options
+
+  @param filterType type of the filter, see constanst 'TRANS_FILTER_*'
+  @param dsColumns  name of the column to be filterd
+  @param pattern    filter pattern (\"\" is equal to *)
+  @return errCode
+*/
+int filterTable(int filterType, dyn_string dsColumns, string pattern)
+{
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+  const int    _TAB_LEN  = tblFile.lineCount();
+  const string _REF_LANG = tblFile.columnToName(0);
+
+  int        matchCount = 0;
+
+  if ( _TAB_LEN <= 0 )
+    return 0; // table is empty, we dont need start the filter
+
+  pattern = makePattern(pattern);
+
+  if ( (pattern == \"\" ) && (TRANS_FILTER_ALL == filterType) )
+  {
+    // show all lines and end this job
+    tblFile.updatesEnabled(FALSE);
+
+    for (int i = 0; i < _TAB_LEN; i++)
+      tblFile.showRow(i);
+
+    // update lines, and show match count
+    tblFile.updatesEnabled(TRUE);
+    txt_count.text() = _TAB_LEN + \"/\" + _TAB_LEN;
+    return 0;
+  }
+
+  // some of filters need reference languages
+  if ( (dynlen(dsColumns) == 1) && (dsColumns[1] != _REF_LANG) &&
+       ((filterType == TRANS_FILTER_LONGER_ENTRIES) || (filterType == TRANS_FILTER_SAME_TRANSLATIONS)) )
+  {
+    dynInsertAt(dsColumns, _REF_LANG, 1);
+  }
+
+  dyn_dyn_string tableContent;
+  dyn_string     tabHeader;
+
+  tableToDynDynString(tableContent, dsColumns);
+  if ( dynlen(tableContent) != (_TAB_LEN + 1) )
+  {
+    // the export of the table does not work
+     // @toDo: throw err: we have not data for filtering
+    return -1;
+  }
+
+  tabHeader = tableContent[1];
+  int locPos = dynContains(tabHeader, TRANS_COLUMN_LOCATIONS);
+  if ( locPos > 0 ) // dont filter the column location
+  {
+    removeDynAnytype(tableContent, locPos);
+    tabHeader = tableContent[1];
+  }
+
+  dynRemove(tableContent, 1);  // remove header
+
+  tblFile.updatesEnabled(FALSE);
+
+   // hide all lines first
+  for (int i = 0; i < _TAB_LEN; i++)
+    tblFile.hideRow(i);
+
+  if ( TRANS_FILTER_MULTIPLE_ENTRIES == filterType )
+  {
+    /*
+      filter multiple entries:
+      we can have in column double (multiple) meanings
+      that means - the word is more then 1 times in the column
+
+      filter go for each given column (language) and check every word in the column
+    */
+//     DebugTN(__FUNCTION__, \"Multi\", tabHeader);
+    const int _COL_COUNT  = dynlen(tabHeader);
+    dyn_int diVisibleLines;
+
+    for (int i = 1; i <= _COL_COUNT; i++)
+    {
+      dyn_string dsItems = getDynString(tableContent, i); // get all items in the column
+      for (int j = 1; j <= dynlen(dsItems); j++)
+      {
+        const string _WORD = dsItems[j];
+
+        if ( (_WORD == TRANS_EMPTY_CELL) || (_WORD == \"\") )
+          continue; // dont filter empty lines
+
+        if ( (pattern != \"\") && !patternMatch(pattern, _WORD) )
+          continue;
+
+        const int _LINE_IDX = j - 1;
+
+        if ( dynCount(dsItems, _WORD) > 1 )
+        {
+          dynAppend(diVisibleLines, _LINE_IDX); // add filtered line
+        }
+      }
+    }
+
+    // make it unique and show the lines
+    dynUnique(diVisibleLines);
+    matchCount = dynlen(diVisibleLines);
+    for (int i = 1; i <= matchCount; i++)
+      tblFile.showRow(diVisibleLines[i]);
+  }
+  else
+  {
+    for (int i = 1; i <= _TAB_LEN; i++)
+    {
+      dyn_string line = tableContent[i];
+      const int _LINE_IDX = i - 1;
+      if ( filterMatch(line, filterType, pattern) )
+      {
+        matchCount++;
+        tblFile.showRow(_LINE_IDX); // show filterd line
+      }
+    }
+  }
+
+  tblFile.updatesEnabled(TRUE);
+
+  txt_count.text() = matchCount + \"/\" + _TAB_LEN;
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"End\");
+  return 0;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check the line content with the given filter options
+
+  @param line content of the line
+  @param filterType type of the filter
+  @param pattern filter pattern
+  @return TRUE if match, else FALSE
+*/
+bool filterMatch(dyn_string line, int filterType, string pattern)
+{
+  if ( dynlen(line) <= 0 )
+    return FALSE; // line is empty, this can not happend
+
+  if ( (pattern != \"\") &&
+       (dynlen(dynPatternMatch(pattern, line)) <= 0) )
+  {
+    return FALSE;
+  }
+
+  switch(filterType)
+  {
+    case TRANS_FILTER_ALL:
+      return TRUE;
+
+    case TRANS_FILTER_EMPTY_ENTRIES:
+      return haveLineEmptyEntries(line);
+
+    case TRANS_FILTER_LONGER_ENTRIES:
+      return haveLineLongerEntries(line);
+
+    case TRANS_FILTER_SAME_TRANSLATIONS:
+      return haveLineSameTrans(line);
+
+  }
+
+  return FALSE; // undefined filter type
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check if the given line have some empty entries
+
+  a empty entrie is \"\" or constant 'TRANS_EMPTY_CELL'
+
+  @param line content of the line
+  @return TRUE line have some empty entries, else FALSE
+*/
+bool haveLineEmptyEntries(dyn_string &line)
+{
+  return ( (dynContains(line, \"\") > 0) || (dynContains(line, TRANS_EMPTY_CELL) > 0) );
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check if the given line are longer translation as the reference word
+
+  reference word is the first one in the line
+
+  ! dont check the line length for performacne
+
+  @toDo 15.10.2015 mPokorny: check the longer translation with \\n and \\t charachters
+
+  @param line content of the line
+  @return TRUE some of the word are longer as the reference word, else FALSE
+*/
+bool haveLineLongerEntries(dyn_string &line)
+{
+  const int _REF_WORD_LEN = strlen(line[1]);
+  const int _LINE_LEN = dynlen(line);
+
+  for (int i = 2; i <= _LINE_LEN; i++)
+  {
+    const string _CHECK_WORD = line[i];
+    if ( (_CHECK_WORD != TRANS_EMPTY_CELL) && (_REF_WORD_LEN < strlen(_CHECK_WORD)) )
+      return TRUE;
+  }
+  return FALSE;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function check if the given line are equal translation to the reference word
+
+  reference word is the first one in the line
+
+  ! dont check the line length for performacne
+
+  @param line content of the line
+  @return TRUE some of the word are longer as the reference word, else FALSE
+*/
+bool haveLineSameTrans(dyn_string line)
+{
+  const string _REF_WORD = line[1];
+  dynRemove(line, 1);
+  return (dynContains(line, _REF_WORD) > 0 );
+}
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/*                                                       table functions                                                               */
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function initialized the dict table
+
+  @param dictLangs lanmgs given by dictionary
+*/
+void initTable(dyn_string &dictLangs)
+{
+
+  // delete all lang columns
+  for (int i = tblFile.columnCount() - 1; i >= 0 ; i--)
+  {
+    const string _COL_NAME = tblFile.columnToName(i);
+    if ( (_COL_NAME == TRANS_COLUMN_LOCATIONS) || (_COL_NAME == TRANS_COLUMN_EDIT) )
+      continue;
+
+    tblFile.deleteColumn(i);
+  }
+
+  if ( dynlen(dictLangs) < 2 )
+    return;
+
+  const string _REF_LANG = dictLangs[1];
+
+  // add new lang columns (all project langs)
+  for (int i = 0; i < getNoOfLangs(); i++)
+  {
+    const string _PROJ_LANG_NAME = getLocale(i);
+    if ( dynContains(dictLangs, _PROJ_LANG_NAME) <= 0 )
+      dynAppend(dictLangs, _PROJ_LANG_NAME);
+  }
+
+  for(int i = 0; i < dynlen(dictLangs); i++)
+  {
+    const int    _COL_IDX = i;
+    const string _LANG_NAME = dictLangs[i + 1];
+    const string _LANG_FULL_NAME = notificationBar_getCatStrDefault(\"trans\", _LANG_NAME, _LANG_NAME);
+
+    tblFile.insertColumn(_COL_IDX);
+    tblFile.columnName(_COL_IDX, _LANG_NAME);
+    tblFile.columnWidth(_COL_IDX, 270);
+
+    if ( _COL_IDX == 0 )
+    {
+      // this is reference language
+      const string _REF_LANG_PREFIX = notificationBar_getCatStrDefault(\"trans\", \"labels_tbl_refLang\", \"*\");
+      tblFile.columnHeader(_COL_IDX, _REF_LANG_PREFIX + _LANG_FULL_NAME + \" (\" +  _LANG_NAME + \")\");
+
+      tblFile.columnEditable(_COL_IDX, FALSE);
+    }
+    else
+    {
+      tblFile.columnHeader(_COL_IDX, _LANG_FULL_NAME + \" (\" +  _LANG_NAME + \")\");
+      tblFile.columnEditable(_COL_IDX, TRUE);
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function repaint given row
+
+  @toDo  20.10.2015 the line should be fitlered by actual filter
+  @param row index of row
+*/
+void rePaintLine(int row)
+{
+  dyn_string line = tblFile.getLineN(row);
+
+  const int    _COL_COUNT = dynlen(line);
+  bool isChanged = FALSE;
+
+  // format value, we need to shown the \\n
+  for (int i = 1; i <= _COL_COUNT; i++)
+  {
+    const int    _COL_IDX = i -1;
+    const string _COL_NAME = tblFile.columnToName(_COL_IDX);
+
+    string word = line[i];
+    bool wordChanged = FALSE;
+
+    if ( (_COL_NAME == TRANS_COLUMN_LOCATIONS ) || (_COL_NAME == TRANS_COLUMN_EDIT) )
+      continue;
+
+    if ( strreplace(word, \"\\n\", \"\\\\n\") > 0 )
+      wordChanged = TRUE;
+    if ( strreplace(word, \"\\t\", \"\\\\t\") > 0 )
+      wordChanged = TRUE;
+
+
+    if ( (_COL_IDX != 0) && (word == \"\") )
+    {
+      word = TRANS_EMPTY_CELL;
+      wordChanged = TRUE;
+    }
+
+    if ( wordChanged )
+    {
+      isChanged = TRUE;
+      tblFile.cellValueRC(row, _COL_NAME, word);
+    }
+  }
+
+  if ( isChanged )
+    line = tblFile.getLineN(row);
+
+  const string _REF_WORD        = line[1];
+  const int    _REF_WORD_LENGTH = strlen(_REF_WORD);
+
+  if ( _COL_COUNT < 2 )
+    return;
+
+  for (int i = 1; i <= _COL_COUNT; i++)
+  {
+    const int    _COL_IDX = i -1;
+    const string _CHECK_WORD = line[i];
+    const string _COL_NAME = tblFile.columnToName(_COL_IDX);
+
+    if ( _COL_IDX == 0 )
+    {
+      tblFile.cellForeColRC(row, _COL_NAME, TRANS_COLOR_CELL_REF_LANG);
+      continue;
+    }
+
+    if ( (_COL_NAME == TRANS_COLUMN_LOCATIONS ) || (_COL_NAME == TRANS_COLUMN_EDIT) )
+      continue;
+
+    if ( (_CHECK_WORD == \"\") || (_CHECK_WORD == TRANS_EMPTY_CELL) )
+      tblFile.cellForeColRC(row, _COL_NAME, TRANS_COLOR_CELL_EMPTY);
+    else if ( _REF_WORD == _CHECK_WORD )
+      tblFile.cellForeColRC(row, _COL_NAME, TRANS_COLOR_CELL_SAME_TRANSLATIONS);
+    else if ( _REF_WORD_LENGTH < strlen(_CHECK_WORD) )
+      tblFile.cellForeColRC(row, _COL_NAME, TRANS_COLOR_CELL_LONGER);
+    else
+      tblFile.cellForeColRC(row, _COL_NAME, TRANS_COLOR_CELL_DEFAULT);
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function append lines in table, content is stored in mapping
+
+  mapping key is the column name
+  mapping value is a dyn_anytype with column items
+
+  @param mValuesPerColumn mapping with table content
+  @param sTable shape name
+*/
+void appendLines(mapping &mValuesPerColumn, string sTable = \"tblFile\")
+{
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+  if (mappinglen(mValuesPerColumn) <= 0)
+  {
+    DebugFTN(__FUNCTION__, \"keine atributen bekommen\", mValuesPerColumn);
+    return;
+  }
+
+  const string _FIRST_COL = mappingGetKey(mValuesPerColumn, 1);
+  string sScript = \"int main(mapping m){\"+sTable+\".updateLinesThreshold() = 2;\";
+  sScript += sTable+\".appendLines(\"+dynlen(mValuesPerColumn[_FIRST_COL])+\",\\\"\" + _FIRST_COL + \"\"\"\\\",m[\\\"\" + _FIRST_COL + \"\"\"\\\"]\";
+
+  for (int j = 2; j <= mappinglen(mValuesPerColumn); j++)//stellt das evalscript zum befüllen der Tabelle zusammen
+  {
+    string sCollName = mappingGetKey(mValuesPerColumn,j);
+
+    sScript += \",\\\"\"+sCollName+\"\\\",m[\\\"\"+sCollName+\"\\\"]\";
+  }
+  sScript += \");\";
+  sScript += \"return 0;}\";
+
+  int err;
+
+  evalScript(err, sScript, makeDynString(), mValuesPerColumn);
+  if (err || dynlen(getLastError()) > 0)
+  {
+    DebugFTN(__FUNCTION__, \"fehler in eval script\", err, getLastError(), sScript);
+  }
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"End\");
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function put the dyn_dyn_string (content of dictionary) in to table
+
+  @param ddsDict the dictionary content
+*/
+int dynDynStringToTable(dyn_dyn_string &ddsDict)
+{
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"Start\");
+
+  // clear stired languages
+  dynClear(langs);
+  if ( dynlen(ddsDict) <= 0 )
+  {
+   // @toDo: throw err: dictionary is empty
+    return -1;
+  }
+
+  dyn_string header = ddsDict[1];
+  langs = header;
+
+  const int _LOCATION_IDX = dynContains(langs, TRANS_COLUMN_LOCATIONS);
+  if ( _LOCATION_IDX <= 0 )
+  {
+    // @toDo: throw err: locations column does not exists in the dictionary
+    return -2;
+  }
+
+  dynRemove(langs, _LOCATION_IDX); // remove location column form languages
+
+  int pos = dynContains(langs, \"FLAGS\");
+  if ( pos > 0 ) // the old format (before 3.14.0) have column FLAGS, we skip this one
+    dynRemove(langs, pos);
+
+  // init the table with the given languages
+  initTable(langs);
+
+  if ( dynlen(langs) < 1 )
+  {
+    // @toDo: throw err: table initialization has been canceled
+    return -3;
+  }
+
+  dynRemove(ddsDict, 1); // remove header of the dictionary
+
+  dyn_string emptyCol  = makeDynString();
+  dyn_string editCol   = makeDynString();
+  // remove column locations
+  dyn_string locations = getDynString(ddsDict, _LOCATION_IDX);
+  removeDynAnytype(ddsDict, _LOCATION_IDX);
+
+  // sort dyn with for the reference language
+//   dynDynSort(ddsDict, 1, TRUE);
+  // create dyn_dyn_anytype for append lines
+  // check the content of the dictionary and colored cells
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"make tableColored\");
+  dyn_dyn_anytype tableColored;
+  const int _DICT_LEN = dynlen(ddsDict);
+
+  for (int i = 1; i <= _DICT_LEN; i++)
+  {
+    dyn_string csvLine = ddsDict[i];
+    fillCsvLine(langs, header, csvLine);
+    dyn_anytype daLine = formatCsvLineToTableLine(csvLine);
+    tableColored[i] = daLine;
+    dynAppend(editCol, \"...\");
+  }
+
+  // create the mapping for the function appendLines()
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"make mapping\");
+  mapping map;
+  for (int i = 1; i <= dynlen(langs); i++)
+  {
+    const string _LANG_NAME = langs[i];
+    map[_LANG_NAME] = getDynAnytype(tableColored, i);
+  }
+
+  // we need to make native path of the locations
+  const int _LOC_LEN = dynlen(locations);
+  for (int i = 1; i <= _LOC_LEN; i++)
+  {
+    locations[i] = makeUnixPath(locations[i]);
+  }
+
+  map[TRANS_COLUMN_LOCATIONS] = locations;
+  map[TRANS_COLUMN_EDIT] = editCol;
+  // append lines with the colored content
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"set table content\");
+  tblFile.deleteAllLines();
+  appendLines(map);
+
+  tblFile.setCurrentLine(0);
+
+  // fill lang selector
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"fill additional shapes\");
+  fillCBwithLangs(langs);
+  txt_count.text() = _DICT_LEN + \"/\" + _DICT_LEN;
+
+  // good by
+  DebugFTN(TRANS_NFR_FLAG, __FUNCTION__, \"End\");
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function fill the filter -language selector with the langauges
+
+  first one language is the reference language
+
+  @param langs list with languages
+*/
+void fillCBwithLangs(dyn_string langs)
+{
+  cmbConflicts.items(makeDynString());
+
+  langs[1] = TRANS_FILTER_ALL_LANGS; // change the reference language with \"--all--\" flag
+
+  for (int i = 1; i <= dynlen(langs); i++)
+  {
+    const string _LANG_NAME      = langs[i];
+    const string _FULL_LANG_NAME = notificationBar_getCatStrDefault(\"trans\", _LANG_NAME, _LANG_NAME);
+    cmbConflicts.appendItem(_FULL_LANG_NAME);
+    cmbConflicts.userData(i, _LANG_NAME);
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+
+  @param langs
+  @param header
+  @param csvLine
+*/
+void fillCsvLine(dyn_string &langs, dyn_string &header, dyn_string &csvLine)
+{
+  dyn_string fullLine = makeDynString();
+
+  for (int i = 1; i <= dynlen(langs); i++)
+  {
+    const string _LANG_NAME = langs[i];
+    const int    _IDX = dynContains(header, _LANG_NAME);
+
+    if ( _IDX <= 0 )
+      dynAppend(fullLine, TRANS_EMPTY_CELL);
+    else
+      dynAppend(fullLine, csvLine[_IDX]);
+  }
+  csvLine = fullLine;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function formated dict line (cvs format) to the table line
+
+  we need:
+    replace all \\t with \\\\t
+    replace all \\n with \\\\n
+    set color of the cell
+
+  @param line
+  @param locationIdx
+  @return formated line
+*/
+dyn_anytype formatCsvLineToTableLine(dyn_string line, int locationIdx = - 1)
+{
+  const int _LINE_LEN = dynlen(line);
+  dyn_anytype daRet = makeDynAnytype();
+
+  if ( _LINE_LEN <= 0 )
+    return daRet;
+
+  const string _REF_WORD = line[1];
+  const int    _REF_WORD_LENGTH = strlen(_REF_WORD);
+
+  for (int i = 1; i <= _LINE_LEN; i++)
+  {
+    string word = line[i];
+    if ( locationIdx == i )
+    {
+      // dont repaint the location column
+      daRet[i] = word;
+      continue;
+    }
+
+    const string _CHECK_WORD = word;
+    string bCol = \"\";
+    string fCol = TRANS_COLOR_CELL_DEFAULT;
+
+    if ( \"\" == word )
+    {
+      word = TRANS_EMPTY_CELL;
+    }
+    else
+    {
+      strreplace(word, \"\\n\", \"\\\\n\");
+      strreplace(word, \"\\t\", \"\\\\t\");
+    }
+
+    if ( i == 1 ) // reference language
+      fCol = TRANS_COLOR_CELL_REF_LANG; // change foreground color to gray
+    else if ( _CHECK_WORD == _REF_WORD )
+      fCol = TRANS_COLOR_CELL_SAME_TRANSLATIONS; // change foreground color
+    else if ( _REF_WORD_LENGTH < strlen(_CHECK_WORD) )
+      fCol = TRANS_COLOR_CELL_LONGER; // change foreground color
+
+
+    if ( (_CHECK_WORD == \"\") || (_CHECK_WORD == TRANS_EMPTY_CELL) )
+      fCol = TRANS_COLOR_CELL_EMPTY; // change foreground color, this are setted also for reference language
+
+    daRet[i] = makeDynString(word, bCol, fCol);
+  }
+
+  return daRet;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function retunr header of the table
+
+  @return header of table
+*/
+dyn_string tableGetHeader()
+{
+  const int _COL_COUNT  = tblFile.columnCount();
+  dyn_string header;
+  for (int i = 0; i < _COL_COUNT; i++)
+  {
+    dynAppend(header, tblFile.columnToName(i));
+  }
+  return header;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function return content of table by given columns
+
+  if are no column given --> return all columns
+
+  ! dont return the edit column
+
+  @param result table content as dyn_dyn_string
+  @param columns columns to be readed [optional]: default all columns
+*/
+void tableToDynDynString(dyn_dyn_string &result, dyn_string columns = makeDynString())
+{
+  dynClear(result);
+  dyn_string header = tableGetHeader();
+
+  // we have no columns --> get all coulumns
+  if ( dynlen(columns) <= 0 )
+    columns = header;
+
+  const int _COL_EDIT_IDX = dynContains(columns, TRANS_COLUMN_EDIT);
+
+  if ( _COL_EDIT_IDX > 0 ) // remove column 'Edit'
+    dynRemove(columns, _COL_EDIT_IDX);
+
+  // 1. go for each column
+  // 2. get all items in the column
+  // 3. format items for result (change \\\\n to \\n and \\\\t to \\t)
+  // 4. replace all '<** not defined **>' with ''
+  // 5. and put items to result
+  const int _COL_COUNT = dynlen(columns);
+  for (int i = 1; i <= _COL_COUNT; i++)
+  {
+    const string _COLUMN = columns[i];
+    if ( dynContains(header, _COLUMN) <= 0 )
+      continue;
+
+    const string _COL_IDX = tblFile.nameToColumn(_COLUMN);
+    dyn_string items = tblFile.getColumnN(_COL_IDX);
+
+    dynReplace(items, \"\\\\n\", \"\\n\");
+    dynReplace(items, TRANS_EMPTY_CELL, \"\");
+    dynReplace(items, \"\\\\t\", \"\\t\");
+
+    instertDynAnytype(result, items, i);
+  }
+
+  // insert header
+  dynInsertAt(result, columns, 1);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/*                                                          dyn_* functions                                                            */
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function make search & replace for each item in the given array
+
+  @param items list with items
+  @param search string for search
+  @param replace string for replace
+*/
+void dynReplace(dyn_string &items, string search, string replace)
+{
+  const int _LEN = dynlen(items);
+  for (int i = 1; i <= _LEN; i++)
+  {
+    string value = items[i];
+    strreplace(value, search, replace);
+    items[i] = value;
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function remove the dyn_anytype form dyn_dyn_anyytpe from the given column index
+
+  Index begin with 1
+
+  @param dda dyn_dyn_anytype to be updated
+  @param colIdx column index
+*/
+void removeDynAnytype(dyn_dyn_anytype &dda, int colIdx)
+{
+  if ( colIdx <= 0 )
+    return;
+
+  const int _LEN = dynlen(dda);
+
+  for (int i = 1; i <= _LEN; i++)
+  {
+    const int _LINE_LEN = dynlen(dda[i]);
+    if ( _LINE_LEN >= colIdx )
+      dynRemove(dda[i], colIdx);
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function insert dyn_anytype in to dyn_dyn_anytype in the given column index
+
+  Index begin with 1
+
+  The length of the added items must be equal to lenght of the data
+  The data lenght check is ignored if the data list is empty
+
+  @param dda dyn_dyn_anytype to be updated
+  @param colItems items inthe column
+  @param colIdx column index
+  @return errCode
+*/
+int instertDynAnytype(dyn_dyn_anytype &dda, dyn_anytype &colItems, int colIdx)
+{
+  if ( colIdx <= 0 )
+    return -1;
+
+  const int _LEN_DATA  = dynlen(dda);
+  const int _LEN_ITEMS = dynlen(colItems);
+
+  if ( (_LEN_DATA > 0 ) && (_LEN_DATA != _LEN_ITEMS) )
+    return -2;
+
+  for (int i = 1; i <= _LEN_ITEMS; i++)
+  {
+    dynInsertAt(dda[i], colItems[i], colIdx);
+  }
+
+  return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  dyn_float dreturnf;
+  dyn_string dreturns, params;
+
+  if ( isModified() )
+  {
+    params[1] = getCatStr(\"trans\", \"warning_changed\");
+    params[2] = getCatStr(\"trans\", \"yes\");
+    params[3] = getCatStr(\"trans\", \"no\");
+    params[4] = getCatStr(\"trans\", \"cancel\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", getCatStr(\"trans\",\"dictionary\"), params, dreturnf, dreturns);
+
+    if ( (dynlen(dreturnf) <= 0) || (dreturnf[1] == 2) )
+      return; // user close the dialog
+
+    if( dreturnf[1] == 1 )
+    {
+      saveDict(txt_dictFileName.text());
+    }
+  }
+}
+
+" 0
+
+"dpi" "96"
+1 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 0
+"tblFile"
+""
+1 9 69 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E "//DoubleClick for more Info
+main()
+{
+  openDetailPanel();
+}
+
+
+" 0
+
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"ELangChanged" "main()
+{
+  initTable(langs);
+}"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  7 67 615 285
+"main()
+{
+  tblFile.visible(TRUE);
+  tblFile.tableMode(TABLE_SELECT_BROWSE);
+  tblFile.selectByClick = TABLE_SELECT_LINE;
+  tblFile.selectColors(\"grau\", \"schwarz\");
+    
+  tblFile.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"));
+  tblFile.enableColumnResize(TRUE);
+  tblFile.enableRowResize(TRUE);
+//   tblFile.columnMovingEnabled(TRUE); -- dont enable this, because we need reference language in the 1 column
+  tblFile.sortOnClick(TRUE);
+}" 0
+"main(string value)
+{
+  string ref, old;
+  int ret;
+  int row, column;
+
+  if ( getCurrentCell(row, column) )
+    return;
+
+  if ( this.columnToName(column) == TRANS_COLUMN_EDIT )
+  {
+    openDetailPanel();
+  }
+  else
+  {
+    rePaintLine(row);
+  }
+}
+
+
+
+
+
+
+
+" 0
+ 1 0 1 5 1 "lang1" 23 1 0 "s" 4
+LANG:10001 10 Language 1
+LANG:10004 8 语言 1
+LANG:10000 9 Sprache 1
+LANG:10027 10 Язык 1
+E
+4
+LANG:10001 38 Reference language must not be changed
+LANG:10004 24 基准语言不可更改
+LANG:10000 43 Referenzsprache kann nicht geändert werden
+LANG:10027 63 Опорный язык не может быть изменен
+
+270 "lang2" 23 1 1 "s" 4
+LANG:10001 10 Language 2
+LANG:10004 8 语言 2
+LANG:10000 9 Sprache 2
+LANG:10027 10 Язык 2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+270 "lang3" 23 1 1 "s" 4
+LANG:10001 10 Language 3
+LANG:10004 8 语言 3
+LANG:10000 9 Sprache 3
+LANG:10027 10 Язык 3
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+270 "Edit" 1 1 0 "s" 4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+E
+4
+LANG:10001 7 Details
+LANG:10004 6 详细
+LANG:10000 7 Details
+LANG:10027 12 Детали
+
+25 "location" 3 0 0 "s" 4
+LANG:10001 8 Location
+LANG:10004 6 位置
+LANG:10000 8 Location
+LANG:10027 24 Расположение
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 
+20 20 "" 1 4
+LANG:10001 1 1
+LANG:10004 1 1
+LANG:10000 1 1
+LANG:10027 1 1
+8 0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 2 1 7
+1 0
+19 35
+"optFilter"
+""
+1 9 446.7072321922888 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 6 Filter
+LANG:10004 6 过滤
+LANG:10000 6 Filter
+LANG:10027 12 Фильтр
+
+5
+"ELangChanged" "main()
+{
+  setCbFilter_text();
+}
+"
+"minimumSize" "-1 125"
+"maximumSize" "-1 125"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  7 321 171 449
+5
+T 
+4
+LANG:10001 16 Whole dictionary
+LANG:10004 12 全部字典
+LANG:10000 18 Ganzes Wörterbuch
+LANG:10027 23 Весь словарь
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 17 Same translations
+LANG:10004 12 相同翻译
+LANG:10000 22 Gleiche Übersetzungen
+LANG:10027 37 Одинаковые переводы
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Empty entries
+LANG:10004 9 空字段
+LANG:10000 15 Leere Einträge
+LANG:10027 25 Пустые записи
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 Longer entries
+LANG:10004 9 长字段
+LANG:10000 18 Längere Einträge
+LANG:10027 27 Длинные записи
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 16 Multiple entries
+LANG:10004 12 多个条目
+LANG:10000 18 Doppelte Einträge
+LANG:10027 39 Множественные записи
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+"main()
+{
+  setCbFilter_text();
+}
+" 0
+ "main(int button)
+{
+  startFilter();
+}
+
+" 0
+
+13 2
+"cmdLoad"
+""
+1 503 387.0417422867514 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 1 0 0 76 0
+E E E
+0
+4
+LANG:10001 4 Load
+LANG:10004 6 加载
+LANG:10000 5 Laden
+LANG:10027 18 Загрузить
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  501 362 615 389
+
+T 
+4
+LANG:10001 4 Load
+LANG:10004 6 加载
+LANG:10000 5 Laden
+LANG:10027 18 Загрузить
+"main()
+{
+  dyn_float dreturnf;
+  dyn_string dreturns, params;
+
+  if ( isModified() )
+  {
+    params[1] = getCatStr(\"trans\", \"warning_changed\");
+    params[2] = getCatStr(\"trans\", \"yes\");
+    params[3] = getCatStr(\"trans\", \"no\");
+    params[4] = getCatStr(\"trans\", \"cancel\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", getCatStr(\"trans\",\"dictionary\"), params, dreturnf, dreturns);
+    
+    if ( dynlen(dreturnf) <= 0 || (dreturnf[1] == 2) )
+      return; // user close the dialog
+    
+    if( dreturnf[1] == 1 )
+      saveDict(txt_dictFileName.text());
+  }
+
+  loadDict(txt_dictFileName.text());
+  
+}
+
+
+
+" 0
+ E E E
+13 1
+"cmdSave"
+""
+1 503 447.0417422867514 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 1 0 0 83 0
+E E E
+0
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 9 Speichern
+LANG:10027 18 Сохранить
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  501 422 615 449
+
+T 
+4
+LANG:10001 4 Save
+LANG:10004 6 保存
+LANG:10000 9 Speichern
+LANG:10027 18 Сохранить
+"main()
+{
+  enableShapes(FALSE);    
+  if ( !saveDict(txt_dictFileName.text()) )
+  { 
+    if ( isQuickTranslate() )
+      quickExport();
+  }
+  enableShapes(TRUE);
+}
+
+
+
+" 0
+ E E E
+13 14
+"cmdSearch"
+""
+1 269.0000000000002 383.0417422867514 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 1 0 0 70 0
+E E E
+0
+4
+LANG:10001 10 Search ...
+LANG:10004 9 搜索...
+LANG:10000 10 Suchen ...
+LANG:10027 10 Поиск
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  267 358 381 385
+
+T 
+4
+LANG:10001 10 Search ...
+LANG:10004 9 搜索...
+LANG:10000 10 Suchen ...
+LANG:10027 10 Поиск
+"//Suchen
+main()
+{
+  main_search();
+}
+void main_search()
+{
+  dyn_float dreturnf;
+  dyn_string dreturns, params;
+
+  params[1] = dynStringToString(langs, \",\"); // list with all languages
+  params[2] = getCatStr(\"trans\", \"labels_select_langs\");
+  params[3] = lastSearch;
+  params[4] = lastSearchPattern;
+
+  ChildPanelOnModalReturn(\"vision/trans/translator_search.pnl\", getCatStr(\"trans\",\"labels_search\"), params, 100, 100, dreturnf, dreturns);
+
+  if ( (dynlen(dreturnf) < 1) ||
+       (dynlen(dreturns) < 3) )
+    return;
+
+  if ( dreturnf[1] != 1 )
+    return;
+
+  if ( lastSearchPattern == dreturns[2] )
+    lastSearchIndex++;
+  else
+  {
+    lastSearchIndex = 1;
+    lastSearchPattern = dreturns[2];
+  }
+
+  int colIdx = dreturns[1];
+  colIdx--;
+  if( searchNew(colIdx, dreturns[2]) )
+  {
+    lastSearch = dreturns[3];
+    setInputFocus(myModuleName(), myPanelName(),\"cmdSearch\");
+  }
+  else
+  {
+    params[1] = getCatStr(\"trans\", \"return_search_not_found\");
+    params[2] = \"OK\";
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo1\", getCatStr(\"trans\", \"labels_search\"), params, dreturnf, dreturns);
+    main_search();
+  }
+}
+
+/* =======================================================================
+  sucht in angegebenen Spalten der Tabelle                    */
+int searchNew(int columnIdx, string searchText)
+{
+  if ( columnIdx < 0 )
+    return -1; // undefined column index
+
+  if ( searchText == \"\" )
+   return -1; // nothing to found
+
+  string     pattern = makePattern(searchText);
+  dyn_string items = tblFile.getColumnN(columnIdx);
+  dyn_string dsMatch = dynPatternMatch(pattern, items);
+
+  if ( dynlen(dsMatch) <= 0 )
+    return 0; // no match
+
+
+  if ( lastSearchIndex > dynlen(dsMatch) )
+    lastSearchIndex = 1;
+
+  int idx = dynContains(items, dsMatch[lastSearchIndex]);
+
+  if ( idx > 0 )
+  {
+    setValue(\"tblFile\",
+             \"selectLineN\", idx - 1,
+             \"lineVisible\", idx - 1);
+  }
+
+  return idx;
+}" 0
+ E E E
+13 30
+"cmdCopyRef"
+""
+1 386.0000000000001 417.041742287929 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 40 Fills up empty entries in the dictionary
+LANG:10004 33 在字典文件中全填入空白
+LANG:10000 34 Füllt leere Felder im Wörterbuch
+LANG:10027 58 Заполнить пустые поля в словаре
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  384 392 498 419
+
+T 
+4
+LANG:10001 17 Replace empty ...
+LANG:10004 15 替换"空" ...
+LANG:10000 17 Leere füllen ...
+LANG:10027 28 Заполнить пуст.
+"main()
+{
+  dyn_string params, ds;
+  dyn_float df;
+  
+  enableShapes(FALSE);
+  
+  params[1]= dynStringToString(langs, \",\"); // list with all languages  
+  
+  ChildPanelOnModalReturn(\"vision/trans/translator_dict_langselect.pnl\",
+                          getCatStr(\"trans\", \"labels_select_langs\"), params, 100, 100,
+                          df, ds);
+
+  if ( (dynlen(ds) <= 0) || (df[1] != 1) )
+  {
+    enableShapes(TRUE);
+    return;
+  }
+  
+  showWait(TRUE);
+  const int _SOURCE_LANG_IDX = tblFile.nameToColumn(ds[1]);
+  dyn_int colIdx;
+  for (int i = 2; i <= dynlen(ds); i++)
+  {
+    dynAppend(colIdx, tblFile.nameToColumn(ds[i]));
+  }
+  
+  int count = 0;
+  /*for (int i = 1; i <= dynlen(colIdx); i++)
+  {
+    dyn_string items = tblFile.getColumnN(colIdx[i]);
+    count += dynCount(items, TRANS_EMPTY_CELL);
+    count += dynCount(items, \"\");
+  }*/
+  
+  dyn_dyn_string tableContent;
+  tableToDynDynString(tableContent);
+
+  const int _TAB_LEN = dynlen(tableContent);
+  
+  // get the count of matches
+  for (int i = 2; i <= _TAB_LEN; i++)
+  {
+    dyn_string  line = tableContent[i];
+    const string _REF_WORD = line[_SOURCE_LANG_IDX + 1];
+    if ( (_REF_WORD == \"\") || (_REF_WORD == TRANS_EMPTY_CELL) )
+      continue; // dont change if the ref. word ist empty (because of never end loops)
+    
+    for (int j = 1; j <= dynlen(colIdx); j++) // go for each given column
+    {
+      const int _TARGET_COL_IDX = colIdx[j] + 1; // + 1 because indexes are from table
+      if ( (TRANS_EMPTY_CELL == line[_TARGET_COL_IDX]) || (\"\" == line[_TARGET_COL_IDX]) )
+        count++;
+    }
+  }
+  
+  // check if is some thing to replace
+  if ( !count )
+  {
+    // we have no empty lines
+    params[1] = getCatStr(\"trans\", \"return_no_replaced\");
+    params[2] = \"OK\";
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"...\", params);
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return;  
+  }
+  
+  // really replace ??
+  params[1] = count + getCatStr(\"trans\", \"question_replace\");
+  params[2] = getCatStr(\"trans\", \"yes\");
+  params[3] = getCatStr(\"trans\", \"no\");
+  params[4] = getCatStr(\"trans\", \"cancel\");
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", \"...\", params, df, ds);
+        
+  if ( (dynlen(df) <= 0) || (df[1] != 1) )
+  {
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return;
+  }
+  
+  // rewrite content of the table
+  for (int i = 2; i <= _TAB_LEN; i++)
+  {
+    dyn_string  line = tableContent[i];
+    const string _REF_WORD = line[_SOURCE_LANG_IDX + 1];
+    if ( (_REF_WORD == \"\") || (_REF_WORD == TRANS_EMPTY_CELL) )
+      continue; // dont change if the ref. word ist empty (because of never end loops)
+    
+    for (int j = 1; j <= dynlen(colIdx); j++) // go for each given column
+    {
+      const int _TARGET_COL_IDX = colIdx[j] + 1; // + 1 because indexes are from table
+      if ( (TRANS_EMPTY_CELL == line[_TARGET_COL_IDX]) || (\"\" == line[_TARGET_COL_IDX]) )
+        line[_TARGET_COL_IDX] = _REF_WORD;        
+    }
+    tableContent[i] = line;
+  }
+  optFilter.number(TRANS_FILTER_ALL); // set all lines visible
+  dynDynStringToTable(tableContent);
+  enableShapes(TRUE);
+  showWait(FALSE);
+}
+" 0
+ E E E
+13 36
+"cmdFont"
+""
+1 787.9999999999999 199.0417422867514 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 15 Select font ...
+LANG:10004 15 选择字体...
+LANG:10000 19 Schrift wählen ...
+LANG:10027 25 Выбрать шрифт
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  786 174 900 201
+
+T 
+4
+LANG:10001 15 Select font ...
+LANG:10004 15 选择字体...
+LANG:10000 19 Schrift wählen ...
+LANG:10027 25 Выбрать шрифт
+"main()
+{
+  fontSelector(fontString);  
+  tblFile.font(fontString);
+}
+
+" 0
+ E E E
+13 32
+"cmdDefaultFont"
+""
+1 759.9999999999999 255.0064729778041 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Default font
+LANG:10004 12 默认字体
+LANG:10000 16 Standard Schrift
+LANG:10027 27 Шрифт по умолч.
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  758 230 872 257
+
+T 
+4
+LANG:10001 12 Default font
+LANG:10004 12 默认字体
+LANG:10000 16 Standard Schrift
+LANG:10027 27 Шрифт по умолч.
+"main()
+{
+  int row, column;
+  
+  if ( getCurrentCell(row, column) )
+  {
+    tblFile.font = initFont;
+    return;
+  }
+  
+  const string _COLUMN = tblFile.columnToName(column);
+  if ( mappingHasKey(mapFonts, _COLUMN) )
+    tblFile.font(mapFonts[_COLUMN]);
+  
+  tblFile.font = initFont;
+}
+
+
+" 0
+ E E E
+22 40
+"cmbConflicts"
+""
+1 181.2494978479195 446.504208992796 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Language for conflicts
+LANG:10004 15 冲突的语言
+LANG:10000 22 Sprache für Konflikte
+LANG:10027 36 Язык для конфликтов
+
+4
+"minimumSize" "200 24"
+"maximumSize" "200 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  181 422 381 449
+0
+
+E
+"main()
+{
+  startFilter();
+}
+" 0
+
+E
+ 0 0
+13 43
+"cmdPrint"
+""
+1 117.8741418764325 509.3176043557168 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 1 0 0 80 0
+E E E
+0
+4
+LANG:10001 16 Print dictionary
+LANG:10004 12 打印字典
+LANG:10000 22 Wörterbuch ausdrucken
+LANG:10027 47 Вывести словарь на печать
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  501 332 615 359
+
+P 
+4294967295
+"pictures/printer_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"//Select LogFile
+main()
+{
+  int        i   = optFilter.number;
+  string     st, tbl = \"tblFile\";
+  dyn_string header, footer;
+
+  if ( TRANS_FILTER_ALL == i  ) 
+    st = getCatStr(\"trans\", \"whole_dictionary\");
+  if ( TRANS_FILTER_SAME_TRANSLATIONS == i ) 
+    st = getCatStr(\"trans\", \"translation_conflicts\");
+  if ( TRANS_FILTER_EMPTY_ENTRIES == i ) 
+    st = getCatStr(\"trans\", \"empty_entries\");
+  if ( TRANS_FILTER_LONGER_ENTRIES == i ) 
+    st = getCatStr(\"trans\", \"longer_entries\");
+  if ( TRANS_FILTER_MULTIPLE_ENTRIES == i ) 
+    st = getCatStr(\"trans\", \"mutliple_entries\");
+
+  header=makeDynString(\"\\\\left{\" + getCatStr(\"trans\", \"dictionary\") + \" - \" + st + \"}\\\\right{\\\\date \\\\time}\");
+  footer=makeDynString(\"\\\\left{}\\\\center{\\\\page / \\\\numpages}\");
+
+  printTable(tbl, TRUE, header, footer);
+}
+
+" 0
+ E E E
+13 45
+"cmdCopyAllRef"
+""
+1 386.0000000000002 447.0417422867513 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 38 Fills up all entries in the dictionary
+LANG:10004 27 填充字典的所有条目
+LANG:10000 33 Füllt alle Felder im Wörterbuch
+LANG:10027 52 Заполнить все поля в словаре
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  384 422 498 449
+
+T 
+4
+LANG:10001 15 Replace all ...
+LANG:10004 15 全部替换...
+LANG:10000 16 Alle füllen ...
+LANG:10027 23 Заменить все
+"main()
+{
+  dyn_string params, ds;
+  dyn_float df;
+  
+  enableShapes(FALSE);
+  showWait(TRUE);
+  params[1]= dynStringToString(langs, \",\"); // list with all languages  
+  
+  ChildPanelOnModalReturn(\"vision/trans/translator_dict_langselect.pnl\",
+                          getCatStr(\"trans\", \"labels_select_langs\"), params, 100, 100,
+                          df, ds);
+
+  if ( (dynlen(ds) <= 0) || (df[1] != 1) )
+  {
+    enableShapes(TRUE);
+    return;
+  }
+  
+  const int _SOURCE_LANG_IDX = tblFile.nameToColumn(ds[1]);
+  dyn_int colIdx;
+  for (int i = 2; i <= dynlen(ds); i++)
+  {
+    dynAppend(colIdx, tblFile.nameToColumn(ds[i]));
+  }
+  
+  int count = 0;
+  /*for (int i = 1; i <= dynlen(colIdx); i++)
+  {
+    dyn_string items = tblFile.getColumnN(colIdx[i]);
+    count += dynCount(items, TRANS_EMPTY_CELL);
+    count += dynCount(items, \"\");
+  }*/
+  
+  dyn_dyn_string tableContent;
+  tableToDynDynString(tableContent);
+
+  const int _TAB_LEN = dynlen(tableContent);
+  
+  // get the count of matches
+  for (int i = 2; i <= _TAB_LEN; i++)
+  {
+    dyn_string  line = tableContent[i];
+    const string _REF_WORD = line[_SOURCE_LANG_IDX + 1];
+     
+    for (int j = 1; j <= dynlen(colIdx); j++) // go for each given column
+    {
+      const int _TARGET_COL_IDX = colIdx[j] + 1; // + 1 because indexes are from table
+      if ( _REF_WORD != line[_TARGET_COL_IDX] )
+        count++;
+    }
+  }
+  
+  // check if is some thing to replace
+  if ( !count )
+  {
+    // we have no empty lines
+    params[1] = getCatStr(\"trans\", \"return_no_replaced\");
+    params[2] = \"OK\";
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"...\", params);
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return;  
+  }
+  
+  // really replace ??
+  params[1] = count + getCatStr(\"trans\", \"question_replace\");
+  params[2] = getCatStr(\"trans\", \"yes\");
+  params[3] = getCatStr(\"trans\", \"no\");
+  params[4] = getCatStr(\"trans\", \"cancel\");
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", \"...\", params, df, ds);
+        
+  if ( (dynlen(df) <= 0) || (df[1] != 1) )
+  {
+    enableShapes(TRUE);
+    showWait(FALSE);
+    return;
+  }
+  
+  // rewrite content of the table
+  for (int i = 2; i <= _TAB_LEN; i++)
+  {
+    dyn_string  line = tableContent[i];
+    const string _REF_WORD = line[_SOURCE_LANG_IDX + 1];
+    
+    for (int j = 1; j <= dynlen(colIdx); j++) // go for each given column
+    {
+      const int _TARGET_COL_IDX = colIdx[j] + 1; // + 1 because indexes are from table
+      line[_TARGET_COL_IDX] = _REF_WORD;      
+    }
+    tableContent[i] = line;
+  }
+  optFilter.number(TRANS_FILTER_ALL); // set all lines visible
+  dynDynStringToTable(tableContent);
+  enableShapes(TRUE);
+  showWait(FALSE);
+}
+" 0
+ E E E
+32 47
+"SPACER1"
+""
+1 176 447 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+ 176 447 177 316 1
+32 49
+"SPACER3"
+""
+1 115 309 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+ 115 309 613 290 1
+14 54
+"txtFileName"
+""
+1 93.99999999999997 33.4834394533192 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 4 File
+LANG:10004 6 文件
+LANG:10000 5 Datei
+LANG:10027 8 Файл
+
+3
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignVCenter"
+"textChangedCB" "main(string newText)
+{
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  92 10.5 577 35.5
+2 "0s" 0 0 0 0 0 -1  E E E
+13 55
+"cmdSelectFile"
+""
+1 582 36.14591291016506 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 1 0 0 79 0
+E E E
+0
+4
+LANG:10001 24 Select file to translate
+LANG:10004 24 选择文件进行翻译
+LANG:10000 28 Datei zum Übersetzen suchen
+LANG:10027 45 Выбор файла для перевода
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  580 7.5 615 38.5
+
+P 
+13434828
+"pictures/StandardIcons/Open_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"//Select LogFile
+main()
+{
+  if ( !isQuickTranslate() )
+    return;  // can happend when user press ctrl+o
+
+  dyn_float dreturnf;
+  dyn_string dreturns, params;
+
+  if ( isModified() )
+  {
+    params[1] = getCatStr(\"trans\", \"warning_changed\");
+    params[2] = getCatStr(\"trans\", \"yes\");
+    params[3] = getCatStr(\"trans\", \"no\");
+    params[4] = getCatStr(\"trans\", \"cancel\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\", getCatStr(\"trans\",\"dictionary\"), params, dreturnf, dreturns);
+
+    if ( dynlen(dreturnf) <= 0 )
+      return; // user close the dialog
+
+    if ( (dynlen(dreturnf) <= 0) || (dreturnf[1] == 2) )
+      saveDict(txt_dictFileName.text());
+  }
+
+  string fileName = txtFileName.text();
+  string  sPath = ( isfile(fileName) ) ? dirName(fileName) : getPath(PANELS_REL_PATH);
+
+  fileSelector(fileName, sPath, FALSE, \"*\");
+
+  if ( (fileName == \"\") || // user dont select the file
+       (makeNativePath(fileName) == makeNativePath(txtFileName.text())) ) // file is same as before
+  {
+    return;
+  }
+
+  txtFileName.text() = makeNativePath(fileName);
+
+  // create command for translator
+  string ParseCommand;
+
+  ParseCommand = PVSS_PATH + \"bin/\" + getComponentName(PARSE_COMPONENT) + \" -dictOUT tmp_dict.tmp -langid \";
+  ParseCommand += getGlobalLangId(getActiveLang());
+  ParseCommand += \",\";
+
+  int iNoL = getNoOfLangs();
+  for (int i = 0; i < iNoL; i++)
+  {
+    if( i != getActiveLang() )
+    {
+      ParseCommand += getGlobalLangId(i);
+      if ( i < iNoL - 1 )
+      {
+        ParseCommand += \",\";
+      }
+    }
+  }
+
+  ParseCommand += \" -files \";
+  ParseCommand += txtFileName.text;
+  ParseCommand += \" -overwrite -logP\";
+
+  bool quickLog;  //log only if checkbox is set
+  getValue(\"chkQuickLogProgress\", \"state\", 0, quickLog);
+
+  if (quickLog)  //IM 79789
+  {
+    system(ParseCommand + \" >>\" + PROJ_PATH + \"log/WCCOATranslator.log\");
+  }
+  else
+  {
+    system(ParseCommand);
+  }
+
+  txt_dictFileName.text = \"data/trans/tmp_dict.tmp\";
+  loadDict(PROJ_PATH + txt_dictFileName.text);
+}
+
+
+" 0
+ E E E
+20 56
+"chkQuickLogProgress"
+""
+1 8.999999999999957 61.46547074158622 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Log progress messages
+LANG:10004 18 记录过程消息
+LANG:10000 36 Fortschrittsmeldungen protokollieren
+LANG:10027 51 Протоколировать выполнение
+
+2
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  7 41 615 64
+1
+T 
+4
+LANG:10001 21 Log progress messages
+LANG:10004 18 记录过程消息
+LANG:10000 36 Fortschrittsmeldungen protokollieren
+LANG:10027 51 Протоколировать выполнение
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE13 60
+"cmdClose"
+""
+1 503 417.0417422867511 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 10 Close file
+LANG:10004 12 关闭文件
+LANG:10000 16 Datei schließen
+LANG:10027 23 Закрыть файл
+
+4
+"minimumSize" "111 24"
+"maximumSize" "111 24"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  501 392 615 419
+
+T 
+4
+LANG:10001 10 Close file
+LANG:10004 12 关闭文件
+LANG:10000 16 Datei schließen
+LANG:10027 23 Закрыть файл
+"main()
+{
+	dyn_float  dreturnf;
+	dyn_string dreturns;
+
+	if ( isModified() )
+	{
+    dyn_string params;
+		params[1] = getCatStr(\"trans\", \"warning_changed\");
+		params[2] = getCatStr(\"trans\", \"yes\");
+		params[3] = getCatStr(\"trans\", \"no\");
+		params[4] = getCatStr(\"trans\", \"cancel\");
+		ChildPanelOnCentralModalReturn(\"vision/MessageInfo3\",getCatStr(\"trans\",\"dictionary\"), params, dreturnf, dreturns);
+		
+    if ( dynlen(dreturnf) <= 0 )
+      return;
+    
+		if ( dreturnf[1] == 1 )
+		{
+			if ( !saveDict(txt_dictFileName.text()) )
+      {
+     	  if ( isQuickTranslate() )
+          quickExport();
+      }
+		}
+		else if( dreturnf[1] == 2 )
+			return;	
+	}
+	
+  tblFile.deleteAllLines();
+	txtFileName.text = \"\";
+  optFilter.number(TRANS_FILTER_ALL);
+  enableShapes(TRUE);
+	setInputFocus(myModuleName(), myPanelName(), \"txtFileName\");
+}
+
+
+
+
+" 0
+ E E E
+14 61
+"txt_count"
+""
+1 9 300.7841407113543 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+31 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "100 -1"
+"maximumSize" "100 -1"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  7 288.5 110 311.5
+2 "0s" 0 0 0 0 0 -1  E E E
+32 62
+"SPACER4"
+""
+1 183 387 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+ 183 387 262 355 1
+14 64
+"txt_dictFileName"
+""
+1 739 56.60000000000002 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  if ( !isfile(newText) )
+    return;
+  
+  if ( isQuickTranslate() )
+    return;
+
+  loadDict(PROJ_PATH + newText);
+}
+
+
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  737 47 839 78
+3 "0s" 0 0 0 0 0 -1  E E E
+14 72
+"txt_filter_pattern"
+""
+1 183 400.8974789915968 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "-1 24"
+"maximumSize" "200 24"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  181 392 381 419
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+//   this.visible(FALSE); // dont allow now, this feature is not tested
+}" 0
+ "main()
+{
+  startFilter();
+}" 0
+
+32 78
+"SPACER9"
+""
+1 9 316 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+ 9 316 169 317 2
+32 79
+"SPACER10"
+""
+1 183 316 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+ 183 316 379 348 2
+32 80
+"SPACER11"
+""
+1 386 316 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+ 386 316 496 387 2
+32 81
+"SPACER12"
+""
+1 503 316 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+ 503 316 613 327 2
+29 82
+"pls_wait"
+""
+1 44.10470682090147 104.0948060553545 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"color1" "color WF_EwoWait"
+"effectType" "enum 2"
+"contextMenuPolicy" "enum 1"
+"layoutDirection" "enum 0"
+"inputMethodHints" "enum 0"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  9 69 80 140
+19 AttentionEffect.ewo
+0
+E2 84
+"lblFileName"
+""
+1 10 10 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Preferred Maximum"
+"layoutAlignment" "AlignVCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.233333333333333 0 0.8000000496598413 -1.333333333333331 6.999999006803175 0 E 10 10 70 30
+0 2 2 "0s" 0 0 0 64 0 0  10 10 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 9 Filename:
+LANG:10004 7 文件:
+LANG:10000 10 Dateiname:
+LANG:10027 18 Имя файла:
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+4 3 "LAYOUT_GROUP3" 16
+1 0 
+0 
+
+"S 0" "0 0 1 1"
+"" ""
+0 1 0 0
+4 16 "LAYOUT_GROUP16" 19
+0 1 
+
+3 
+"G 3" "0 0 1 1"
+"" ""
+0 2 0 0
+4 19 "LAYOUT_GROUP19" 38
+0 1 
+
+16 
+"G 16" "0 0 1 1"
+"" ""
+0 2 0 0
+4 24 "LAYOUT_GROUP24" 29
+2 0 
+14 62 
+
+"S 14" "1 0 1 1"
+"S 62" "0 0 1 1"
+"" ""
+0 1 0 0
+4 27 "LAYOUT_GROUP27" 38
+2 0 
+61 49 
+
+"S 61" "0 0 1 1"
+"S 49" "1 0 1 1"
+"" ""
+0 1 0 0
+4 28 "LAYOUT_GROUP28" 37
+3 0 
+30 45 80 
+
+"S 30" "1 0 1 1"
+"S 45" "2 0 1 1"
+"S 80" "0 0 1 1"
+"" ""
+0 2 0 0
+4 29 "LAYOUT_GROUP29" 37
+3 1 
+40 72 79 
+24 
+"S 40" "3 0 1 1"
+"S 72" "2 0 1 1"
+"S 79" "0 0 1 1"
+"G 24" "1 0 1 1"
+"" ""
+0 2 0 0
+4 31 "LAYOUT_GROUP31" 37
+5 0 
+2 1 43 60 81 
+
+"S 2" "2 0 1 1"
+"S 1" "4 0 1 1"
+"S 43" "1 0 1 1"
+"S 60" "3 0 1 1"
+"S 81" "0 0 1 1"
+"" ""
+0 2 0 0
+4 36 "LAYOUT_GROUP36" 37
+2 0 
+35 78 
+
+"S 35" "1 0 1 1"
+"S 78" "0 0 1 1"
+"" ""
+0 2 0 0
+4 37 "LAYOUT_GROUP37" 38
+1 4 
+47 
+36 31 29 28 
+"S 47" "1 0 1 1"
+"G 36" "0 0 1 1"
+"G 31" "4 0 1 1"
+"G 29" "2 0 1 1"
+"G 28" "3 0 1 1"
+"" ""
+0 1 0 0
+4 39 "LAYOUT_GROUP39" 38
+3 0 
+84 54 55 
+
+"S 84" "0 0 1 1"
+"S 54" "1 0 1 1"
+"S 55" "2 0 1 1"
+"" ""
+0 1 0 0
+4 38 "LAYOUT_GROUP38" -1
+1 4 
+56 
+19 37 27 39 
+"S 56" "1 0 1 1"
+"G 19" "2 0 1 1"
+"G 37" "4 0 1 1"
+"G 27" "3 0 1 1"
+"G 39" "0 0 1 1"
+"" ""
+0 2 0 0
+0

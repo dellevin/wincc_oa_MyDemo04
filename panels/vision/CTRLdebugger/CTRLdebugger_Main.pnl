@@ -1,0 +1,1350 @@
+V 14
+4
+LANG:10001 13 CTRL Debugger
+LANG:10004 23 CTRL 程序调试环境
+LANG:10000 13 CTRL Debugger
+LANG:10027 21 Отладчик CTRL
+PANEL,-1 -1 1280 720 N "_3DFace" 3
+"$dp"
+"$moduleName"
+"$panelPath"
+"main()
+{
+  // 1. check user permission
+  if ( !getUserPermission(4) ) // userName == \"\" --> start from console without user name
+  {
+    dyn_string ds;
+    dyn_float df;
+    ChildPanelOnCentralReturn(\"vision/MessageWarning\", getCatStr(\"va\",\"headerPanelhost\") ,makeDynString(getCatStr(\"general\",\"permission\"), getCatStr(\"general\",\"cancel\")), ds, df);
+    PanelOff();
+  }
+
+  // check dollar params
+  if ( !isDollarDefined(\"$dp\") || $dp == \"\" )
+  {
+    ModuleOnWithPanel(myModuleName(), -2, -2, 100, 200, 1, 1, \"\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Selector.pnl\", \"\",
+                      makeDynString());
+    PanelOff();
+  }
+
+
+  string ctrlDbg_dp = $dp;
+
+  dyn_string dsDollars = makeDynString(\"$dp:\" + ctrlDbg_dp);
+
+  setWindowTitle(myModuleName(), myPanelName(), ctrlDbgPu_getPanelName(ctrlDbg_dp));
+
+  if ( isDollarDefined( \"$moduleName\") )
+    dynAppend(dsDollars, \"&moduleName:\" + $moduleName);
+
+  if ( isDollarDefined( \"$panelPath\") )
+    dynAppend(dsDollars, \"$panelPath:\" + $panelPath);
+
+  // *** variables and constants
+  mapping mSettings;
+  mSettings[\"area\"] = \"BottomDockWidgetArea\";
+  mSettings[\"allowedAreas\"] = \"AllDockWidgetAreas\";
+  mSettings[\"features\"] = \" AllDockWidgetFeatures\";
+  mSettings[\"floating\"] = FALSE;
+
+  const string _BASE_MODULE_NAME_PREFIX = myModuleName() + \":\";
+  // *** mPokorny 09.03.2015: wir wollen keine Konstanten sehen
+  // moduleAddDockModule(\"Constants\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Const.pnl\", dsDollars, mSettings);
+  // mSettings[\"tabifyWith\"] = \"Constants\"; // group with Constants
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"ThreadLocals\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_ThreadLocals.pnl\", dsDollars, mSettings);
+  mSettings[\"tabifyWith\"] = _BASE_MODULE_NAME_PREFIX + \"ThreadLocals\"; // group with ThreadLocals
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"ThreadGlobals\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_ThreadGlobals.pnl\", dsDollars, mSettings);
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"Globals\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Vars.pnl\", dsDollars, mSettings);
+
+  // *** ctrl Libs, scripts function ...
+  mSettings[\"area\"] = \"LeftDockWidgetArea\";
+  mappingRemove(mSettings, \"tabifyWith\"); // new dock
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"CtrLibs\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Libs.pnl\", dsDollars, mSettings);
+  mSettings[\"tabifyWith\"] = _BASE_MODULE_NAME_PREFIX + \"CtrLibs\";
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"CtrScripts\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Scripts.pnl\", dsDollars, mSettings);
+
+ // mPokorny 17.03.2105 : functions have no relevante information
+ // moduleAddDockModule(\"Functions\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Functions.pnl\", dsDollars, mSettings);
+
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"Breakpoints\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_Breakpoints.pnl\", dsDollars, mSettings);
+
+  // call stack, brack points, Command line, Log
+  mSettings[\"area\"] = \"BottomDockWidgetArea\";
+  mappingRemove(mSettings, \"tabifyWith\"); // new dock
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"CallStack\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_CallStack.pnl\", dsDollars, mSettings);
+  mSettings[\"tabifyWith\"] = _BASE_MODULE_NAME_PREFIX + \"CallStack\";
+  moduleAddDockModule(_BASE_MODULE_NAME_PREFIX + \"Commands\", CTRL_DBG_BASE_PANEL_PATH + \"CTRLdebugger_CMDs.pnl\", dsDollars, mSettings);
+
+  //!!! this does not work for distributed systems (only for own system)
+  const int _MY_MAN_TYPE = ctrlDbgPu_getDbgManType($dp);
+  string man = (_MY_MAN_TYPE == UI_MAN) ? \"Ui\" : \"Ctrl\";
+  dpConnect(\"manStatus_CB\", TRUE, \"_Connections.\" + man + \".ManNums\");
+
+  if ( _MY_MAN_TYPE == UI_MAN )
+    dpQueryConnectSingle(\"uiChange_CB\", FALSE, createUuid(), \"SELECT '_original.._value' FROM '_Ui_\" + ctrlDbgPu_getDbgManNr($dp) + \".**'\", 1000);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  call back function to show the manager status
+*/
+void manStatus_CB(string dpe, dyn_uint manNums)
+{
+  if ( dynContains(manNums, ctrlDbgPu_getDbgManNr($dp)) > 0 )
+    showErr_noConnection(FALSE, isAnswer());
+  else
+    showErr_noConnection(TRUE, isAnswer());
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+showErr_noConnection(bool show, bool init)
+{
+  if ( !show && !init )
+  {
+    // connection OK, reload trees
+    delay(0, 500); // wait that the manager has connection to our debug DP
+    reloadAllTrees();
+  }
+
+  err_txt.visible(show);
+  err_background.visible(show);
+}
+
+void uiChange_CB(string uuid, dyn_dyn_anytype foo)
+{
+  reloadAllTrees();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  200.9598813223906 22.91126851441243
+""0  1
+E "#uses \"CTRLdebugger.ctl\"
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function set/reset the break point in current selcted file at the given line
+  
+  @param line line number
+  @param on toogle on/off
+*/
+setBreakPoint(int line, bool on)
+{
+  int sLib;
+  getValue(\"libNum\", \"text\", sLib);
+
+  dyn_string result; 
+  int iErr;
+  if ( !on )  // breakpoint set -> remove it
+  {
+    if ( ctrlDbg_setCmdWait(result, CTRL_DBG_CMD_BREAKPOINT_REMOVE, makeDynString(line+1, sLib)) )
+      return;
+    if ( !ctrlDbg_isValidAnswer(result, \"breakpoint deleted\") )
+    {
+      ctrlDbgPu_actionErr(CTRL_DBG_CMD_BREAKPOINT_REMOVE, result);
+      return;
+    }
+  }      
+  else  // no breakpoint -> set it 
+  {
+    if ( ctrlDbg_setCmd(CTRL_DBG_CMD_BREAKPOINT_SET, makeDynString(line+1, sLib), CTRL_DBG_CMD_BREAKPOINT_SET) )
+      return;
+  }
+
+  ctrlDbg_setCmd(CTRL_DBG_CMD_ALL_BREAKPOINTS);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/** 
+  function create tooltiptext from variable value
+  @param value 
+  @return tooltiptext
+*/
+string makeToolTipText(anytype value)
+{
+  const int _MAX_LINE_COUNT = 15;
+  const int _MAX_CHAR_COUNT = 500;
+  
+  string text;
+  if ( strpos(getTypeName(value), \"dyn_\") == 0 )
+  {
+    for ( int i = 1; i <= dynlen(value); i++)
+    {
+      if ( i > _MAX_LINE_COUNT ) 
+      {
+        text += \" ... \";
+        break;
+      }
+      text += \"[\" + i + \"]: \" + makeToolTipText(value[i]);
+      
+      if ( dynlen(value) != i )
+        text += \"<br>\";      
+      
+    }
+  }
+  else if ( getType(value) == MAPPING_VAR )
+  {
+    dyn_string keys = mappingKeys(value);
+    dynSort(keys); // sort it
+    int maxKeyLen = 0;
+    int iLen = dynlen(keys);
+    if ( iLen > _MAX_LINE_COUNT )
+      iLen = _MAX_LINE_COUNT;
+    
+    for ( int i = 1; i <= iLen; i++)
+      if ( maxKeyLen < strlen(keys[i]) )
+        maxKeyLen = strlen(keys[i]);
+    
+    for ( int i = 1; i <= iLen; i++)
+    {
+      if ( i > _MAX_LINE_COUNT ) 
+      {
+        text += \" ... \";
+        break;
+      }
+      string key = keys[i];
+      string sFillString = strexpand(\"\\fill{ }\", maxKeyLen - strlen(key) + 1);
+      strreplace(sFillString, \" \", \"&nbsp;\");
+      text += \"<b>\" + key + sFillString + \"</b>: \" + makeToolTipText(value[key]);
+      if ( dynlen(keys) != i )
+        text += \"<br>\";
+    }
+  }
+  else  if ( getType(value) == LANGSTRING_VAR )
+  {
+    dyn_string langItems = value;
+    for ( int i = 0; i < dynlen(langItems); i++ )
+    {
+      text += \"<b>\" + getLocale(i) + \"</b>:\" + langItems[i + 1];
+      if ( dynlen(langItems) != (i + 1) )
+        text += \"<br>\";  
+    }
+  }
+  else  if ( getType(value) == TIME_VAR )
+  {
+    text = (string)value;
+  }
+  else
+    text = value;
+  
+  if ( text == \"\" )
+    text = \"--empty--\";
+  
+  if ( strlen(text) > _MAX_CHAR_COUNT )
+    text = substr(text, 0, _MAX_CHAR_COUNT - 3) + \"...\";
+  
+  return text;
+}
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  function relaod all trees
+  
+*/
+void reloadAllTrees()
+{
+  // @toDo: 28.1ß.2015 mpokorny: make this function to reload all tree automatically
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  ctrlDbg_setCmd(CTRL_DBG_CMD_BREAKPOINT_REMOVE_ALL); // remove all breakpoints before closing
+  ctrlDbg_setCmd(CTRL_DBG_CMD_CONTINUE); // and continue with your script
+  PanelOff();
+}
+
+
+" 0
+
+"dpi" "96"
+1 1 0 0 1 0 1 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+6 107
+"tab_background"
+""
+1 140 1 E E E 1 E 1 E N "WF_Frame" E N "WF_Frame" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"maximumSize" "-1 40"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "WF_Frame"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 5.351464435146443 0 1.15625 -321.0878661087866 29.4375 1 E 60 10 299 42
+29 1
+"sourceTab"
+"WF"
+1 0.1062758932064583 79 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"centerOnScroll" "bool TRUE"
+"showBreakpoints" "bool TRUE"
+"readOnly" "bool TRUE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 28 Courier,-1,12,5,50,0,0,0,0,0
+LANG:10004 28 Courier,-1,12,5,50,0,0,0,0,0
+LANG:10000 28 Courier,-1,12,5,50,0,0,0,0,0
+LANG:10027 28 Courier,-1,12,5,50,0,0,0,0,0
+0  0 79 1279 674.0000000000229
+10 ScriptEdit
+3
+0 "breakpointToggled" "(int line, bool on)"
+"  setBreakPoint(line, on);"
+0 "jumpTriggered" "(string fileName, string function)"
+"  string path = makeNativePath(ctrlDbgPu_getRelPath(fileName));
+  string fileType = ctrlDbg_getFileType(path);
+  mapping cahceData;
+  mapping options;
+ 
+  if ( makeNativePath(LIBS_REL_PATH) == fileType )
+  {
+    int ID = ctrlDbgPu_getCtrlLibIDbyPath(path);
+    if ( ID < 0 )
+      return;
+    
+    options = ctrlDbgPu_getCtrlLibOptionsById(ID);
+  }
+  // panel scope lib are not supported now
+  
+  ctrlDbgPu_displayFile(options);
+
+  this.gotoFunction(function);"
+0 "wordHovered" "(string word)"
+"  anytype aVar;
+  if ( ctrlDbgPu_getVar(word, aVar) )
+    return;
+
+  showToolTip(makeToolTipText(aVar));"
+"main()
+{
+  dpConnect(\"valueCB\", FALSE, ctrlDbg_getDbgDP() + CTRL_DBG_DPE_RESULT);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  This function is a callback from result dpe and update script viewer
+
+  @param dp result dpeName
+  @param result info about the script
+*/
+valueCB(string dp, dyn_string result)
+{
+  /* we get CB from source */
+  if ( ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_GET_SOURCE) )
+  {
+    dynRemove(result, 1);
+    if ( !ctrlDbg_isValidAnswer(result, \"source:\", TRUE) )
+    {
+      // dont throw message here
+      ctrlDbgPu_showErr(makeError(CTRL_DBG_CAT_NAME, PRIO_WARNING, ERR_CONTROL, CTRL_DBG_ERR_ACTION_ERR, CTRL_DBG_CMD_GET_SOURCE, result), FALSE);
+      return;
+    }
+
+    dynRemove(result, 1);
+    string s;
+    for ( int i = 1; i <= dynlen(result); i++)
+      s += result[i] + '\\n';
+
+    setValue(\"sourceTab\", \"plainText\", s);
+  }
+  /* script info update shapes */
+  else if ( ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_SCRIPT_INFO) )
+  {
+    mapping mOptions;
+    ctrlDbgPu_scriptTreeDecodeResultLine(result[2], CTRL_DBG_TREE_SCRIPTS, mOptions);
+
+    if ( !mappingHasKey(mOptions, \"ScriptId:\") )
+      return;
+
+    if ( mappingHasKey(mOptions, \"Path:\") )
+      currFile.text()  = mOptions[\"Path:\"];
+
+
+      // *** object name
+    bool bVisShape = mappingHasKey(mOptions, \"Object:\") && mappingHasKey(mOptions[\"Object:\"], \"Name:\");
+    setMultiValue(\"currObject\", \"visible\", bVisShape,
+                  \"txtObject\", \"visible\", bVisShape);
+    if ( bVisShape )
+      setValue(\"currObject\", \"text\", mOptions[\"Object:\"][\"Name:\"]);
+
+  }
+  else if ( ctrlDbg_isValidAnswer(result, \"all breakpoints deleted\") )
+  {
+    int lines = this.blockCount();
+    // remove all breakpoint markers
+    int lines = this.blockCount();
+    for (int i = 0; i < lines; i++)
+      this.setBreakpoint(i, FALSE);
+  }
+  /* check line position */
+  else if ( (ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_BREAKPOINT_SET) || // if breakpoint was setted
+             ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_BREAK) || // cmd break script return line No
+             ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_CONTINUE) || // cmd continue return line No
+             ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_STEP) || // cmd step return line No
+             ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_BACKTRACE) ||  // cmd get line return line No
+             ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_SCRIPT_GET_LINE)) &&
+            (strpos(result[2], \"line:\") == 0 ) )
+//   else if ( (dynlen(result) >= 2) && (strpos(result[2], \"line:\") == 0) )
+  {
+
+    int line;
+    sscanf(result[2], \"line: %d\", line);
+    mapping mOptions;
+    if ( line <= 0 )
+    {
+      // have no lin einfo, exit function here
+      this.currentLine(-1);
+      return;
+    }
+
+    if ( dynlen(result) >= 3 && strpos(result[3], \"lib:\") == 0)
+    {
+      // have info abaout ctrl-lib, decode thaht
+      ctrlDbgPu_scriptTreeDecodeResultLine(result[3], CTRL_DBG_TREE_LIBS, mOptions);
+    }
+    else
+    {
+      // have info abaout script, we need to ask fo actual script id ...
+      dyn_string answer;
+      ctrlDbg_setCmdWait(answer, CTRL_DBG_CMD_SCRIPT_INFO);
+
+      if ( !ctrlDbg_isValidAnswer(answer, \"ScriptId:\", TRUE) )
+      {
+        return; // maybe later,  this does not work now :-(
+      }
+
+      if ( !ctrlDbgPu_scriptTreeDecodeResultLine(answer[1], CTRL_DBG_TREE_SCRIPTS, mOptions) )
+      {
+        return;
+      }
+    }
+
+    mOptions[\"Line:\"] = line;
+    ctrlDbgPu_displayFile(mOptions);
+    // set 'current line' marker
+    this.currentLine(line - 1);
+  }
+  else if ( ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_CONTINUE) ||
+            ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_STEP) )
+  {
+    // remove 'current line' marker
+    this.currentLine(-1);
+  }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+14 90
+"currFile"
+"WF"
+1 822.2223565328712 45.93270640859822 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E "main()
+{
+  string relPath = this.text();
+  string absPaht = getPath(\"\", relPath);
+  
+  if ( (relPath == \"\") || (absPaht == \"\") )
+    return;
+  
+  // check if debugger is opened from gedi and gedi is allways running
+  if ( !globalExists(\"gObjwGediModuleName\") || (gObjwGediModuleName == \"\") || !isModuleOpen(gObjwGediModuleName) )
+      return;
+  
+  const string _FILE_TYPE = ctrlDbg_getFileType(relPath);
+  
+  if ( _FILE_TYPE == makeNativePath(PANELS_REL_PATH) )
+  {
+    RootPanelOnModule(absPaht, \"\", gObjwGediModuleName, makeDynString());
+    moduleRaise(gObjwGediModuleName);
+  }
+  else if ( (_FILE_TYPE == makeNativePath(SCRIPTS_REL_PATH)) || (_FILE_TYPE == makeNativePath(LIBS_REL_PATH)) )
+  {
+    scriptEditor(absPaht, absPaht);
+  }
+  
+  
+  
+}" 0
+
+37 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "450 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  822 45.5 1275 74.5
+2 "0s" 0 0 0 0 0 -1  E E E
+2 91
+"txtFile"
+""
+1 -10214.80315352534 -2477.411180934882 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.01044151041673 0 1.015045628032407 -22.68733666671795 -136.5542624905786 1 E 803.320341968912 186.2816296378419 830 201
+0 2 2 "0s" 0 0 0 192 0 0  803.320341968912 186.2816296378419 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 5 File:
+LANG:10004 9 文件：
+LANG:10000 6 Datei:
+LANG:10027 9 Файл:
+2 92
+"libNum"
+""
+1 3556.793103448275 -2302.72280066091 E E E 1 E 0 E N "WF_Text" E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignHCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.019205547758523 0 1.015045628032407 -221.9015377857786 512.9457375094214 0 E 839.320341968912 186.2816296378419 852 201
+0 2 2 "0s" 0 0 0 192 0 0  839.320341968912 186.2816296378419 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 -1
+LANG:10004 2 -1
+LANG:10000 2 -1
+LANG:10027 2 -1
+13 93
+"btn_break"
+""
+1 -13.03448275862069 36.05064655172413 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+40 0 0 0 16777224 0
+E E E
+1
+4
+LANG:10001 34 Interrupt script execution (Pause)
+LANG:10004 26 中断脚本执行(暂停)
+LANG:10000 38 Skriptausführung unterbrechen (Pause)
+LANG:10027 33 Сценарий останова
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  4 45.5 33 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/break_20.png"
+4
+LANG:10001 1 B
+LANG:10004 9 背景色
+LANG:10000 1 B
+LANG:10027 1 B
+"main()
+{
+//   ctrlDbgPu_enableShapes(FALSE);
+  ctrlDbg_setCmd(CTRL_DBG_CMD_BREAK, makeDynString(), CTRL_DBG_CMD_BREAK);
+  ctrlDbg_setCmd(CTRL_DBG_CMD_SCRIPT_GET_LINE, makeDynString(), CTRL_DBG_CMD_SCRIPT_GET_LINE);
+}
+
+" 0
+ E E "main()
+{
+  dpConnect(\"valueCB\", FALSE, ctrlDbg_getDbgDP() + CTRL_DBG_DPE_RESULT); 
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  This function is a callback from command CTRL_DBG_CMD_BREAK 
+
+  enabled cmd-buttons when cmd is finished
+  
+  @param dp result dpeName
+  @param result state of command
+*/
+void valueCB(string sDpe, dyn_string result)
+{  
+  if ( !ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_BREAK) )
+   return;
+
+  
+  if ( (\"continuing\" != result[2]) && 
+       (strpos(result[2], \"line:\" ) != 0) &&
+       (\"breakpoint set\" != result[2]) && 
+       (\"no threadId currently selected\" != result[2]) )
+  {
+    ctrlDbgPu_actionErr(CTRL_DBG_CMD_BREAK, result);
+    ctrlDbgPu_enableShapes(true);
+    return;
+  }  
+  
+  ctrlDbgPu_enableShapes(true);
+}
+
+
+
+
+" 0
+
+13 94
+"btn_stepOver"
+""
+1 35.93103448275862 36.05064655172413 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+41 0 0 0 119 0
+E E E
+1
+4
+LANG:10001 14 Step into (F8)
+LANG:10004 14 跳转到 (F8)
+LANG:10000 19 Hineinspringen (F8)
+LANG:10027 33 Пропустить строку
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  64 45.5 93 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/jump_line_20.png"
+4
+LANG:10001 1 S
+LANG:10004 1 S
+LANG:10000 1 S
+LANG:10027 1 S
+"main()
+{
+//   ctrlDbgPu_enableShapes(FALSE);
+  ctrlDbg_setCmd(CTRL_DBG_CMD_STEP, makeDynString(1), CTRL_DBG_CMD_STEP); // step over 1
+}
+
+
+" 0
+ E E "main()
+{
+  dpConnect(\"valueCB\", FALSE, ctrlDbg_getDbgDP() + CTRL_DBG_DPE_RESULT); 
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  This function is a callback from command CTRL_DBG_CMD_STEP 
+
+  enabled cmd-buttons when cmd is finished
+  
+  @param dp result dpeName
+  @param result state of command
+*/
+void valueCB(string sDpe, dyn_string result)
+{  
+  if ( !ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_STEP) )
+   return;
+
+  
+  if ( (\"continuing\" != result[2]) && 
+       (strpos(result[2], \"line:\") != 0) && 
+       (\"OK\" != result[2]) &&
+       (\"no threadId currently selected\" != result[2]) )
+  {
+    ctrlDbgPu_actionErr(CTRL_DBG_CMD_STEP, result);
+    ctrlDbgPu_enableShapes(true);
+    return;
+  }  
+  
+//   ctrlDbgPu_update();
+  ctrlDbgPu_enableShapes(true);
+}
+
+
+
+
+" 0
+
+13 95
+"btn_delBreakPoints"
+""
+1 137.9310344827586 36.29310344827582 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+42 1 0 0 120 0
+E E E
+1
+4
+LANG:10001 32 Delete all breakpoints (Ctrl+F9)
+LANG:10004 28 删除全部断点 (Ctrl+F9)
+LANG:10000 35 Alle Breakpoints löschen (Strg+F9)
+LANG:10027 42 Удалить точки останова
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  154 45.5 183 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/delete_bp_20.png"
+4
+LANG:10001 4 DelB
+LANG:10004 4 DelB
+LANG:10000 4 DelB
+LANG:10027 4 DelB
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+  wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO, \"DeleteAllBreakPoints\", getCatStr(\"CtrlDebugger\", \"warning_deleteAllBreakPoints\"), ds, df);
+  
+  if ( dynlen(df) > 0 && df[1] == TRUE )
+    ctrlDbg_setCmd(CTRL_DBG_CMD_BREAKPOINT_REMOVE_ALL);
+}
+
+" 0
+ E E E
+13 96
+"btn_breakPoint"
+""
+1 103.9310344827587 36.29310344827582 E E E 1 E 0 E N "_WindowText" E N "WF_Frame" E E
+ E E
+43 0 0 0 120 0
+E E E
+1
+4
+LANG:10001 22 Set / Reset Breakpoint
+LANG:10004 19 设置/复位断点
+LANG:10000 33 Breakpoint setzen / zurücksetzen
+LANG:10027 67 Установить / Сбросить точку останова
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  124 45.5 153 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/delete_bp_20.png"
+4
+LANG:10001 1 B
+LANG:10004 9 背景色
+LANG:10000 1 B
+LANG:10027 1 B
+"main()
+{  
+  ctrlDbgPu_enableShapes(FALSE);
+  
+  int line, pos;
+  sourceTab.getCursorPosition(line, pos);
+  
+  dyn_int diBreakPoints;
+  string path   = currFile.text();
+  
+  string sLibNr = libNum.text();
+  
+  if ( ctrlDbg_getFileType(path) != LIBS_REL_PATH )
+    sLibNr = scriptId.text();
+
+  ctrlDbg_getBreakPoints(diBreakPoints, path, sLibNr);
+    
+  bool on = (dynContains(diBreakPoints, (line + 1)) <= 0);
+  
+  sourceTab.setBreakpoint(line, on);
+  setBreakPoint(line, on);
+  
+  ctrlDbgPu_enableShapes(TRUE);
+}
+
+
+
+
+
+" 0
+ E E E
+13 97
+"btn_inLine"
+""
+1 69.93103448275861 36.05064655172413 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+44 0 0 0 121 0
+E E E
+1
+4
+LANG:10001 25 Jump to actual line (F10)
+LANG:10004 23 跳转到实际行(F10)
+LANG:10000 34 Zur aktuellen Zeile springen (F10)
+LANG:10027 62 перейти к текущей строке останова
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  94 45.5 123 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/jump_to_point_20.png"
+4
+LANG:10001 1 L
+LANG:10004 1 L
+LANG:10000 1 L
+LANG:10027 1 L
+"main()
+{
+  ctrlDbgPu_enableShapes(FALSE);
+  ctrlDbg_setCmd(CTRL_DBG_CMD_SCRIPT_GET_LINE, makeDynString(), CTRL_DBG_CMD_SCRIPT_GET_LINE);
+}
+
+" 0
+ E E "main()
+{
+  dpConnect(\"valueCB\", FALSE, ctrlDbg_getDbgDP() + CTRL_DBG_DPE_RESULT); 
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  This function is a callback from command CTRL_DBG_CMD_SCRIPT_GET_LINE 
+
+  enabled cmd-buttons when cmd is finished
+  
+  @param dp result dpeName
+  @param result state of command
+*/
+void valueCB(string sDpe, dyn_string result)
+{  
+  if ( !ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_SCRIPT_GET_LINE) )
+   return;
+
+  
+  if ( (\"continuing\" != result[2]) && 
+       (strpos(result[2], \"line:\") != 0) &&
+       (\"no threadId currently selected\" != result[2]) )
+  {
+    ctrlDbgPu_actionErr(CTRL_DBG_CMD_SCRIPT_GET_LINE, result);
+    ctrlDbgPu_enableShapes(true);
+    return;
+  }  
+  
+//   ctrlDbgPu_update();
+  ctrlDbgPu_enableShapes(true);
+}
+
+
+" 0
+
+13 98
+"btn_continue"
+""
+1 1.931034482758617 36.05064655172413 E E E 1 E 1 E N "_WindowText" E N "WF_Frame" E E
+ E E
+45 0 0 0 116 0
+E E E
+1
+4
+LANG:10001 13 Continue (F5)
+LANG:10004 11 继续 (F5)
+LANG:10000 15 Fortsetzen (F5)
+LANG:10027 20 Продолжить
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  34 45.5 63 74.5
+
+P 
+4294967295
+"pictures/CtrlDebugger/continue_20.png"
+4
+LANG:10001 1 C
+LANG:10004 1 C
+LANG:10000 1 C
+LANG:10027 1 C
+"main()
+{
+//   ctrlDbgPu_enableShapes(FALSE);
+  ctrlDbg_setCmd(CTRL_DBG_CMD_CONTINUE, makeDynString(), CTRL_DBG_CMD_CONTINUE);
+}
+" 0
+ E E "main()
+{
+  dpConnect(\"valueCB\", FALSE, ctrlDbg_getDbgDP() + CTRL_DBG_DPE_RESULT); 
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+/**
+  This function is a callback from command CTRL_DBG_CMD_CONTINUE 
+
+  enabled cmd-buttons when cmd is finished
+  
+  @param dp result dpeName
+  @param result state of command
+*/
+void valueCB(string sDpe, dyn_string result)
+{  
+  if ( !ctrlDbg_isValidAnswer(result, CTRL_DBG_CMD_CONTINUE) )
+   return;
+
+  
+  if ( (\"continuing\" != result[2]) && 
+       (strpos(result[2], \"line:\") != 0) && 
+       (\"no threadId currently selected\" != result[2]) )
+  {
+    ctrlDbgPu_actionErr(CTRL_DBG_CMD_CONTINUE, result);
+    ctrlDbgPu_enableShapes(true);
+    return;
+  }  
+  
+//   ctrlDbgPu_update();
+  ctrlDbgPu_enableShapes(true);
+}
+
+
+
+" 0
+
+32 99
+"SPACER4"
+""
+1 217 47 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"transparentForMouse" ""
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 217 47 468.9999999999812 72 1
+14 103
+"currObject"
+"WF"
+1 755.8031118520432 -12.65062692473532 E E E 1 E 0 E N "_WindowText" E N "WF_Frame" E E
+ E E
+50 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "150 26"
+"maximumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  527 45.5 783.0000000000106 74.5
+2 "0s" 0 0 0 0 0 -1  E E E
+2 104
+"txtObject"
+""
+1 -17091.21024746366 -2477.411180934882 E E E 1 E 0 E N "_WindowText" E N "WF_Frame" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignVCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.006718629749884 0 1.01504562803241 -331.7041166576515 -136.5542624905792 1 E 803.320341968912 186.2816296378419 847 201
+0 2 2 "0s" 0 0 0 192 0 0  803.320341968912 186.2816296378419 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Object:
+LANG:10004 7 对象:
+LANG:10000 7 Objekt:
+LANG:10027 13 Объект:
+14 106
+"scriptId"
+"WF"
+1 1146.499550861011 616.2553981522542 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "150 25"
+"maximumSize" "-1 25"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  -2 673 1281 701
+2 "0s" 0 0 0 0 0 -1  E E E
+6 111
+"err_background"
+""
+1 140 1 E E E 1 E 0 E N "NOTIFICATION_BAR_COLOR_PRIO_ERROR" E N "NOTIFICATION_BAR_COLOR_PRIO_ERROR" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"maximumSize" "-1 40"
+"sizePolicy" "Preferred Expanding"
+"layoutAlignment" "AlignNone"
+"dashclr"N "NOTIFICATION_BAR_COLOR_PRIO_ERROR"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 5.351464435146444 0 1.21875 -321.0878661087867 -11.1875 1 E 60 10 299 42
+2 112
+"err_txt"
+""
+1 -17091.21024746366 -2477.411180934882 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.001137256311447 0 0.908198719818471 -304.2316485853071 -155.3643401231496 1 E 803.320341968912 186.2816296378419 1081 201
+0 2 2 "0s" 0 0 0 192 0 0  803.320341968912 186.2816296378419 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 48 Please start the manager to be able to debug it.
+LANG:10004 43 请启动管理器以便能够进行调试.
+LANG:10000 44 Zum Debbuggen starten Sie bitte den Manager.
+LANG:10027 96 Для отладки сценария необходимо запустить менеджер.
+13 113
+"btn_help"
+""
+1 461.0000000000001 51.5 E E E 1 E 1 E N "WF_Text" E N "WF_Frame" E E
+ E E
+60 0 0 0 112 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignVCenter"
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0  184 45.5 213 74.5
+
+T 
+4
+LANG:10001 1 ?
+LANG:10004 1 ?
+LANG:10000 1 ?
+LANG:10027 1 ?
+"main()
+{
+  std_help(\"CTRL-Debugger\");
+}
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 0 "cmd_buttons" 1
+7 0 
+93 94 95 96 97 98 113 
+
+"S 93" "0 0 1 1"
+"S 94" "2 0 1 1"
+"S 95" "5 0 1 1"
+"S 96" "4 0 1 1"
+"S 97" "3 0 1 1"
+"S 98" "1 0 1 1"
+"S 113" "6 0 1 1"
+"" ""
+0 1 0 1 4
+4 1 "menu" 2
+6 1 
+107 90 91 99 103 104 
+0 
+"S 90" "5 0 1 1"
+"S 91" "4 0 1 1"
+"S 99" "1 0 1 1"
+"S 103" "3 0 1 1"
+"S 104" "2 0 1 1"
+"G 0" "0 0 1 1"
+"" ""
+1 1 1 5 5 5 5 1 5
+4 2 "LAYOUT_GROUP2" 3
+1 1 
+1 
+1 
+"S 1" "1 0 1 1"
+"G 1" "0 0 1 1"
+"" ""
+0 2 0 1 0
+4 3 "LAYOUT_GROUP3" 5
+2 1 
+92 106 
+2 
+"S 92" "2 0 1 1"
+"S 106" "1 0 1 1"
+"G 2" "0 0 1 1"
+"" ""
+0 2 0 1 0
+4 4 "LAYOUT_GROUP4" 5
+2 0 
+111 112 
+
+"S 112" "0 0 1 1"
+"" ""
+1 1 1 0 0 10 10 1 0
+4 5 "LAYOUT_GROUP5" -1
+0 2 
+
+3 4 
+"G 3" "1 0 1 1"
+"G 4" "0 0 1 1"
+"" ""
+0 2 0 1 0
+0

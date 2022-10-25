@@ -1,0 +1,444 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<panel version="14">
+ <properties>
+  <prop name="Name">
+   <prop name="de_AT.utf8"></prop>
+   <prop name="en_US.utf8"></prop>
+   <prop name="ru_RU.utf8"></prop>
+   <prop name="de_DE.utf8"></prop>
+  </prop>
+  <prop name="Size">133 49</prop>
+  <prop name="BackColor">_Transparent</prop>
+  <prop name="RefPoint">20 40</prop>
+  <prop name="InitAndTermRef">True</prop>
+  <prop name="SendClick">False</prop>
+  <prop name="RefFileName"></prop>
+  <prop name="DPI">120</prop>
+  <prop name="layoutType">VBox</prop>
+  <prop name="layoutLeftMargin">0</prop>
+  <prop name="layoutRightMargin">0</prop>
+  <prop name="layoutTopMargin">0</prop>
+  <prop name="layoutBottomMargin">0</prop>
+  <prop name="layoutSpacing">0</prop>
+ </properties>
+ <events>
+  <script name="ScopeLib" isEscaped="1"><![CDATA[const int MAX_ENTRIES_TO_SHOW = 100;
+const int SPACING_LEFT_RIGHT = 6;
+const int SPACING_TOP = 6;
+const int SPACING_SYMOBLS_HOR = 2;
+
+int highlighted = -1;
+int numOfEntries;
+dyn_bool isMenuEntry;
+dyn_int entryPosY;
+
+/*
+  @author Markus Trummer
+  Function which invokes menu closing procedure with the selected menu item info
+  @params:
+    iGroup - menu item group number
+    iSubGroup - menu item number withing a group
+*/
+public doClose(const int iGroup, int iSubGroup)
+{
+  invokeMethod($module + &quot;.&quot; + $panel + &quot;:&quot;, &quot;closePopUp&quot;, iGroup, iSubGroup);
+}
+]]></script>
+  <script name="Initialize" isEscaped="1"><![CDATA[main()
+{
+  // Get panel and module of embedded module shape (for resizing and setting opacity)
+  shape shPanel = this.parentPanel();
+  string sParentPanel = shPanel.name();
+  string sParentModule = shPanel.moduleName();
+
+  // Set window to transparent
+  setValue(sParentModule + &quot;.&quot; + sParentPanel + &quot;:&quot;, &quot;windowOpacity&quot;, 0.0);
+
+  int iRow = 0,
+      iHeadlineNr = 0,
+      iSymbolNr = 0,
+      iHighlightSymbolNr = 1;
+
+  string sLayoutName = &quot;layoutGrid&quot;;
+  string sModule = myModuleName(),
+         sPanel = myPanelName(),
+         sSymbolFile = getPath(PANELS_REL_PATH, &quot;examples/popupMenu/subPanels/symbol_PopUp.pnl&quot;);
+  string sSymbolHeadlineFile = getPath(PANELS_REL_PATH, &quot;examples/popupMenu/subPanels/symbol_PopUpHeadline.pnl&quot;);
+  bool visibleLine = FALSE;
+
+  // Construct menu items
+  for (int i = 1; i &lt;= dynlen(dmIfItems); i++)
+  {
+    // Separate line between menu blocks
+    if ( i &gt; 1 )
+      visibleLine = TRUE;
+
+    // Add Menu Header item
+    iHeadlineNr++;
+    addSymbol(sModule,
+              sPanel,
+              sSymbolHeadlineFile,
+              &quot;PANEL_REF_HEADLINE_&quot;+iHeadlineNr,
+              iRow,
+              0,
+              sLayoutName,
+              1,
+              1,
+              makeDynString(&quot;$TEXT:&quot; + (string)dmIfItems[i][KEY_TEXT], &quot;$VISIBLE:&quot; + (bool)visibleLine));
+
+    // Add Menu item
+    dynAppend(isMenuEntry, false);
+    for (int j = 1; j &lt;= dynlen(dmIfItems[i][KEY_ITEMS]); j++)
+    {
+      iRow++;
+      iSymbolNr++;
+      addSymbol(sModule,
+                sPanel,
+                sSymbolFile,
+                &quot;PANEL_REF_&quot;+iSymbolNr,
+                iRow,
+                0,
+                sLayoutName,
+                1,
+                1,
+                makeDynString(&quot;$TEXT:&quot; + dmIfItems[i][KEY_ITEMS][j][KEY_TEXT], &quot;$ICON:&quot; + dmIfItems[i][KEY_ITEMS][j][KEY_ICON], &quot;$GROUP:&quot; + i, &quot;$SUBGROUP:&quot; + j));
+      dynAppend(isMenuEntry, true);
+    }
+    iRow++;
+  }
+
+  numOfEntries = iSymbolNr;
+  int iSizeX,
+      iSizeY = SPACING_TOP + SPACING_SYMOBLS_HOR,
+      iTmpX,
+      iTmpY,
+      iEntry;
+
+  // Set panel and module sizes
+  for (int i = 0; i &lt; iRow; i++)
+  {
+    entryPosY[i + 1] = iTmpY + (i &gt; 0 ? entryPosY[i] : 0);
+
+    // Get width
+    getValue(myModuleName() + &quot;.&quot; + rootPanel(myModuleName()) + &quot;:layoutGrid&quot;, &quot;gridCellRect&quot;, i, 0, iSizeX, iTmpY);
+
+    int sizeCompare = iSizeY + iTmpY + SPACING_SYMOBLS_HOR;
+
+    // Limit menu size with max entries or 90% window size
+    if( (iEntry &lt; MAX_ENTRIES_TO_SHOW) &amp;&amp; (sizeCompare &lt; (windowSizeY * 0.9)) )
+    {
+      iSizeY += (iTmpY + SPACING_SYMOBLS_HOR);
+    }
+
+    if( isMenuEntry[i + 1] )
+      ++iEntry;
+  }
+
+  // No ScrollBar needed if menu is fully opened
+  if ( iSizeY &lt; (windowSizeY  * 0.8) )
+    setValue($module + &quot;.&quot; + $panel + &quot;:ebmIF&quot;, &quot;styleSheet&quot;, &quot;ScrollViewQT#ebmIF QScrollBar:vertical {width: 0px;}&quot;);
+  else
+    setValue($module + &quot;.&quot; + $panel + &quot;:ebmIF&quot;, &quot;styleSheet&quot;, &quot;ScrollViewQT#ebmIF QScrollBar:vertical {width: 15px;}&quot;);
+
+  shape sEmb = this.parentShape();
+
+  // Add possible scrollbar size
+  iSizeX += (2 * SPACING_LEFT_RIGHT + sEmb.width - sEmb.visibleWidth);
+
+  // Set the animation properties
+  mapping options;
+  options[&quot;duration&quot;] = 300;
+  int iAnimationGroup = createAnimation(&quot;parallel&quot;);
+  int iX, iY, ixSize, iySize;
+
+  getValue(sParentModule + &quot;.&quot; + sParentPanel + &quot;:&quot;, &quot;windowGeometry&quot;, iX, iY, ixSize, iySize);  // get menu panel size with items
+
+  // Adjust menu items sizes depending on the menu window size
+  animate(iAnimationGroup, sEmb, &quot;minimumSize&quot;, makeDynInt(iSizeX, 0), makeDynInt(iSizeX, iSizeY), options);
+  animate(iAnimationGroup,
+          sParentModule + &quot;.&quot; + sParentPanel + &quot;:&quot;,
+          &quot;windowGeometry&quot;,
+          makeDynInt(iX, iY, iSizeX + 10, 0),
+          makeDynInt(iX, iY, iSizeX + 10, iSizeY),
+          options);
+  animate(iAnimationGroup, sParentModule + &quot;.&quot; + sParentPanel + &quot;:&quot;, &quot;windowOpacity&quot;, 0.0, 1.0, options);
+
+  // Run the animation
+  startAnimationWait(iAnimationGroup);
+}
+]]></script>
+ </events>
+ <shapes>
+  <shape Name="ELLIPSE1" layerId="0" shapeType="ELLIPSE">
+   <properties>
+    <prop name="serialId">224</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">73 72</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">True</prop>
+    <prop name="ForeColor">_Transparent</prop>
+    <prop name="BackColor">_Transparent</prop>
+    <prop name="TabOrder">187</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="DashBackColor">_Transparent</prop>
+    <prop name="AntiAliased">True</prop>
+    <prop name="LineType">[solid,oneColor,JoinBevel,CapButt,1]</prop>
+    <prop name="BorderZoomable">False</prop>
+    <prop name="FillType">[solid]</prop>
+    <prop name="Geometry">1.4625 0 0 0.4125 -40.26249999999998 -5.199999999999999</prop>
+    <prop name="Center">73 72</prop>
+    <prop name="X-Radius">40</prop>
+    <prop name="Y-Radius">40</prop>
+   </properties>
+   <events>
+    <script name="Initialize" isEscaped="1"><![CDATA[main()
+{
+  this.visible(false);
+}
+]]></script>
+   </events>
+  </shape>
+  <shape Name="PUSH_BUTTON1" layerId="0" shapeType="PUSH_BUTTON">
+   <properties>
+    <prop name="serialId">225</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">7.000000000000001 3.272727272727272</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">False</prop>
+    <prop name="ForeColor">_ButtonText</prop>
+    <prop name="BackColor">_Button</prop>
+    <prop name="TabOrder">188</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="Hotkey">Up</prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="Font">
+     <prop name="de_AT.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="ru_RU.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="de_DE.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="en_US.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="zh_CN.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="neutral.iso88591">Arial,-1,11,5,75,0,0,0,0,0</prop>
+    </prop>
+    <prop name="Location">7 1</prop>
+    <prop name="Size">28 11</prop>
+    <prop name="BorderStyle">Normal</prop>
+    <prop name="Text">
+     <prop name="de_AT.utf8">up</prop>
+     <prop name="ru_RU.utf8">up</prop>
+     <prop name="de_DE.utf8">up</prop>
+     <prop name="en_US.utf8">up</prop>
+     <prop name="zh_CN.utf8">up</prop>
+     <prop name="neutral.iso88591">up</prop>
+    </prop>
+   </properties>
+  </shape>
+  <shape Name="PUSH_BUTTON2" layerId="0" shapeType="PUSH_BUTTON">
+   <properties>
+    <prop name="serialId">226</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">36 4.045454545454545</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">False</prop>
+    <prop name="ForeColor">_ButtonText</prop>
+    <prop name="BackColor">_Button</prop>
+    <prop name="TabOrder">189</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="Hotkey">Down</prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="Font">
+     <prop name="de_AT.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="ru_RU.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="de_DE.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="en_US.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="zh_CN.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="neutral.iso88591">Arial,-1,11,5,75,0,0,0,0,0</prop>
+    </prop>
+    <prop name="Location">36 2</prop>
+    <prop name="Size">33 10</prop>
+    <prop name="BorderStyle">Normal</prop>
+    <prop name="Text">
+     <prop name="de_AT.utf8">down</prop>
+     <prop name="ru_RU.utf8">down</prop>
+     <prop name="de_DE.utf8">down</prop>
+     <prop name="en_US.utf8">down</prop>
+     <prop name="zh_CN.utf8">down</prop>
+     <prop name="neutral.iso88591">down</prop>
+    </prop>
+   </properties>
+  </shape>
+  <shape Name="PUSH_BUTTON3" layerId="0" shapeType="PUSH_BUTTON">
+   <properties>
+    <prop name="serialId">227</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">71 4</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">False</prop>
+    <prop name="ForeColor">_ButtonText</prop>
+    <prop name="BackColor">_Button</prop>
+    <prop name="TabOrder">190</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="Hotkey">Space</prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="Font">
+     <prop name="de_AT.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="ru_RU.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="de_DE.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="en_US.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="zh_CN.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="neutral.iso88591">Arial,-1,11,5,75,0,0,0,0,0</prop>
+    </prop>
+    <prop name="Location">71 2</prop>
+    <prop name="Size">33 10</prop>
+    <prop name="BorderStyle">Normal</prop>
+    <prop name="Text">
+     <prop name="de_AT.utf8">blank</prop>
+     <prop name="ru_RU.utf8">blank</prop>
+     <prop name="de_DE.utf8">blank</prop>
+     <prop name="en_US.utf8">blank</prop>
+     <prop name="zh_CN.utf8">blank</prop>
+     <prop name="neutral.iso88591">blank</prop>
+    </prop>
+   </properties>
+   <events>
+    <script name="Clicked" isEscaped="1"><![CDATA[main()
+{
+  invokeMethod(&quot;PANEL_REF_&quot;+highlighted, &quot;clicked&quot;);
+}
+]]></script>
+   </events>
+  </shape>
+  <shape Name="PUSH_BUTTON4" layerId="0" shapeType="PUSH_BUTTON">
+   <properties>
+    <prop name="serialId">228</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">100 4</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">False</prop>
+    <prop name="ForeColor">_ButtonText</prop>
+    <prop name="BackColor">_Button</prop>
+    <prop name="TabOrder">191</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="Hotkey">Return</prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="Font">
+     <prop name="de_AT.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="ru_RU.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="de_DE.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="en_US.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="zh_CN.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="neutral.iso88591">Arial,-1,11,5,75,0,0,0,0,0</prop>
+    </prop>
+    <prop name="Location">100 2</prop>
+    <prop name="Size">33 10</prop>
+    <prop name="BorderStyle">Normal</prop>
+    <prop name="Text">
+     <prop name="de_AT.utf8">enter</prop>
+     <prop name="ru_RU.utf8">enter</prop>
+     <prop name="de_DE.utf8">enter</prop>
+     <prop name="en_US.utf8">enter</prop>
+     <prop name="zh_CN.utf8">enter</prop>
+     <prop name="neutral.iso88591">enter</prop>
+    </prop>
+   </properties>
+   <events>
+    <script name="Clicked" isEscaped="1"><![CDATA[main()
+{
+  invokeMethod(&quot;PANEL_REF_&quot;+highlighted, &quot;clicked&quot;);
+}
+]]></script>
+   </events>
+  </shape>
+  <shape Name="PUSH_BUTTON5" layerId="0" shapeType="PUSH_BUTTON">
+   <properties>
+    <prop name="serialId">229</prop>
+    <prop name="Type"></prop>
+    <prop name="RefPoint">100 14</prop>
+    <prop name="Enable">True</prop>
+    <prop name="Visible">False</prop>
+    <prop name="ForeColor">_ButtonText</prop>
+    <prop name="BackColor">_Button</prop>
+    <prop name="TabOrder">192</prop>
+    <prop name="ToolTipText">
+     <prop name="de_AT.utf8"></prop>
+     <prop name="en_US.utf8"></prop>
+     <prop name="ru_RU.utf8"></prop>
+     <prop name="de_DE.utf8"></prop>
+    </prop>
+    <prop name="Hotkey">Enter</prop>
+    <prop name="layoutAlignment">AlignCenter</prop>
+    <prop name="snapMode">Point</prop>
+    <prop name="Font">
+     <prop name="de_AT.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="ru_RU.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="de_DE.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="en_US.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="zh_CN.utf8">Arial,-1,11,5,75,0,0,0,0,0</prop>
+     <prop name="neutral.iso88591">Arial,-1,11,5,75,0,0,0,0,0</prop>
+    </prop>
+    <prop name="Location">100 12</prop>
+    <prop name="Size">33 10</prop>
+    <prop name="BorderStyle">Normal</prop>
+    <prop name="Text">
+     <prop name="de_AT.utf8">enter</prop>
+     <prop name="ru_RU.utf8">enter</prop>
+     <prop name="de_DE.utf8">enter</prop>
+     <prop name="en_US.utf8">enter</prop>
+     <prop name="zh_CN.utf8">enter</prop>
+     <prop name="neutral.iso88591">enter</prop>
+    </prop>
+   </properties>
+   <events>
+    <script name="Clicked" isEscaped="1"><![CDATA[main()
+{
+  invokeMethod(&quot;PANEL_REF_&quot;+highlighted, &quot;clicked&quot;);
+}
+]]></script>
+   </events>
+  </shape>
+ </shapes>
+ <groups>
+  <layout parentSerial="-1" Name="layoutGrid" serial="0">
+   <properties>
+    <prop rowSpan="1" name="shapeSerial" column="0" row="0" colSpan="1">224</prop>
+    <prop name="isContainerShape">False</prop>
+    <prop name="layoutType">Grid</prop>
+    <prop name="layoutLeftMargin">6</prop>
+    <prop name="layoutRightMargin">6</prop>
+    <prop name="layoutTopMargin">6</prop>
+    <prop name="layoutBottomMargin">6</prop>
+    <prop name="layoutSpacing">2</prop>
+   </properties>
+  </layout>
+ </groups>
+</panel>

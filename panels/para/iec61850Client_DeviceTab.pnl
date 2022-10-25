@@ -1,0 +1,997 @@
+V 14
+4
+LANG:10001 26 IEC 61850/61400 device tab
+LANG:10004 30 IEC 61850/61400设备选项卡
+LANG:10000 26 IEC 61850/61400 device tab
+LANG:10027 36 устройства IEC 61850/61400
+PANEL,-1 -1 330 580 N "_3DFace" 0
+"main()
+{
+  string filterTxtAll = getCatStr(\"iec61850\",\"FilterTextAll\");
+  
+  dynClear(connectedDrvList);
+  DeviceTree.clear();
+  DeviceTree.removeColumn(0);
+  DeviceTree.addColumn(IEC61850_DEVICE_TREE_TEXT_ID);
+  
+  if ( !DeviceTree.itemExists(IEC61850_DEVICE_TREE_TEXT_ID) )
+  {
+    DeviceTree.appendItem(\"\", IEC61850_DEVICE_TREE_TEXT_ID, IEC61850_DEVICE_TREE_TEXT);    
+    DeviceTree.setCheckable(IEC61850_DEVICE_TREE_TEXT_ID, TRUE);
+  }
+  
+  DeviceTree.headerHidden = TRUE;
+  initDeviceInstance();
+  
+  setMultiValue(\"btnRemoveDevice\", \"enabled\", FALSE,
+                \"btnEditDevice\",   \"enabled\", FALSE,
+                \"btnBrowse\",       \"enabled\", FALSE,
+                \"btnActivate\",     \"enabled\", FALSE,
+                \"btnDeactivate\",   \"enabled\", FALSE);
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  214 146
+""0  1
+E "#uses \"iec61850_plugin.ctl\"
+
+string prevSelectedDev;
+dyn_string connectedDrvList;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void changeBtnStatus1(bool state)
+{
+  btnRemoveDevice.enabled = state;
+  btnAddDevice.enabled = state;
+  btnBrowse.enabled = state;
+  DeviceTree.enabled = state;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initDeviceInstance()
+{
+  dyn_string dsDrvNameList, dsDrvList, dsAppendDrvList, dsFinalDrvList;
+  string sTrimDrvList, sDrvStr;
+
+  //for getting the names of devices stored in IEDlist
+  dsDrvNameList = dpNames(\"*\", IEC61850_CLIENT_DPT_NAME);
+
+  for (int iLoop = 1; iLoop <= dynlen(dsDrvNameList); iLoop++)
+    dpConnect(\"connectDeviceInstance\", FALSE, dsDrvNameList[iLoop] + IEC61850_CLIENT_IDP_IEDLIST);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectDeviceInstance(string dpName, dyn_string devList)
+{
+  string sLocation, svoltage, sType, sFilterSettings;
+  dyn_string dsElements;
+
+  sFilterSettings = txtFilterSettings.text;
+
+  if ( sFilterSettings != \"||\" )
+  {
+    dsElements = strsplit(sFilterSettings, \"|\");
+
+    switch (dynlen(dsElements))
+    {
+      case 0:
+        sLocation = \"\";
+        svoltage = \"\";
+        sType = \"\";
+        break;
+      case 1:
+        sLocation = dsElements[1];
+        svoltage = \"\";
+        sType = \"\";
+        break;
+      case 2:
+        sLocation = dsElements[1];
+        svoltage = dsElements[2];
+        sType = \"\";
+        break;
+      case 3:
+        sLocation = dsElements[1];
+        svoltage = dsElements[2];
+        sType = dsElements[3];
+        break;
+    }
+
+    iec61850_DeviceTab_modifyDeviceList(sLocation, svoltage, sType, prevSelectedDev, connectedDrvList);
+  }
+  else
+    iec61850_DeviceTab_modifyDeviceList(\"\", \"\", \"\", prevSelectedDev, connectedDrvList);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectDeviceState1(string dpName1, bool bState,
+                         string dpName2, int iDrvNum,
+                         string dpName3, bool bActive,
+                         string dpName4, dyn_int drvNumList)
+{
+  connectDeviceState2(dpName1, bState,
+                      dpName1, bState,
+                      dpName2, iDrvNum,
+                      dpName3, bActive,
+                      dpName4, drvNumList,
+                      dpName4, drvNumList);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//ToDo: remove the following function \"connectDeviceState2\", is the same as \"connectDeviceState1\"
+void connectDeviceState2(string dpName1, bool state1,
+                         string dpName2, bool state2,
+                         string dpName3, int iDrvNum,
+                         string dpName4, bool bActive,
+                         string dpName5, dyn_int drvNumList1,
+                         string dpName6, dyn_int drvNumList2)
+{
+  //tree node name is DP name without internal dp prefix
+  string deviceName = substr(dpSubStr(dpName1, DPSUB_DP), strlen(IEC61850_INOA));
+
+  if ( DeviceTree.itemExists(deviceName) )
+  {
+    dynAppend(drvNumList1, drvNumList2);
+    dynUnique(drvNumList1);
+
+    if ( dynContains(drvNumList1, iDrvNum) < 1 )
+    {
+      DeviceTree.setIcon(deviceName, 0, IEC61850_IMG_PLC_DISCONNECTED);
+      return;
+    }
+
+    // ETM: correct connection state of device
+    string sSys = getSystemName();
+    int iAnswer;
+    reduActive(iAnswer, sSys);
+
+    // Checking for device states if driver is running
+    // ETM: correct state for \"not connected\" --> 0-1-1 || 1-0-2
+    if ( (!state1 && state2 && iAnswer == 1) || (state1 && !state2 && iAnswer == 2) )
+      DeviceTree.setIcon(deviceName, 0, IEC61850_IMG_PLC_DISCONNECTED);
+    else if ( state1 || state2 )
+      DeviceTree.setIcon(deviceName, 0, IEC61850_IMG_PLC_CONNECTED);
+    else if ( !bActive && !state1 && !state2 )
+      DeviceTree.setIcon(deviceName, 0, IEC61850_IMG_PLC_INACTIVE);
+    else
+      DeviceTree.setIcon(deviceName, 0, IEC61850_IMG_PLC_DISCONNECTED);
+  }
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 8
+"DeviceTree"
+""
+1 10 13 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 List of created devices
+LANG:10004 24 已创建设备的列表
+LANG:10000 28 Liste der erstellten Geräte
+LANG:10027 50 Список созданных устройств
+
+5
+"alternatingRowColors" "bool TRUE"
+"selectionBehavior" "enum 1"
+"selectionMode" "enum 0"
+"autoExpandDelay" "int 1"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  10 14 319 523
+10 TreeWidget
+1
+0 "clicked" "(string id, int column)"
+"  string devName;
+  bool bAll;
+  
+  if ( id == \"\" || id == IEC61850_DEVICE_TREE_TEXT_ID )
+  {
+    if ( id == IEC61850_DEVICE_TREE_TEXT_ID && this.getCheckState(IEC61850_DEVICE_TREE_TEXT_ID) == 1 )
+      bAll = TRUE;
+    else
+      bAll = FALSE;
+    
+    this.setSelectedItem(id, FALSE);
+    
+    if ( this.itemExists(prevSelectedDev) )
+      this.setSelectedItem(prevSelectedDev, TRUE);
+    
+    // ETM: do not return here
+    //return;
+  }
+  else
+  {
+    if ( dpExists(iec61850_getIedDpName(id)) )
+    {
+      if ( prevSelectedDev != id )
+        prevSelectedDev = id;
+      
+      // Saving Device name to the text box in Engineering Tool panel
+      setValue(myModuleName() + \".\" + myPanelName() + \":txtDevice\", \"text\", id);
+      this.setSelectedItem(id, TRUE);
+    }
+  }
+    
+  // ETM: set buttons only active if at least one device is selected
+  dyn_string dsSelectedItems = this.selectedItems(); 
+  
+  if ( dynlen(dsSelectedItems) )
+    setValue(\"btnEditDevice\", \"enabled\", TRUE);
+  else
+    setValue(\"btnEditDevice\", \"enabled\", FALSE);
+  
+  // ETM: set buttons only active if at least one device is checked
+  dyn_string dsCheckedItems = this.getCheckedItems();  
+  
+  setMultiValue(\"btnRemoveDevice\", \"enabled\", ( dynlen(dsCheckedItems) || bAll ),
+                \"btnBrowse\",       \"enabled\", ( dynlen(dsCheckedItems) || bAll ),
+                \"btnActivate\",     \"enabled\", ( dynlen(dsCheckedItems) || bAll ),
+                \"btnDeactivate\",   \"enabled\", ( dynlen(dsCheckedItems) || bAll ));"
+E13 9
+"__btnAddDevice"
+""
+1 1094 180 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 58 Opens the client panel to create, delete or change devices
+LANG:10004 52 打开客户端面板以创建,删除或更改设备
+LANG:10000 74 Öffnet das Client-Panel zum Erstellen, Löschen oder Ändern von Geräten
+LANG:10027 129 Открыть панель клиента для создания, удаления или изменения устройств
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  138 553 166 581
+
+T 
+4
+LANG:10001 1 +
+LANG:10004 1 +
+LANG:10000 1 +
+LANG:10027 1 +
+"main()
+{
+  /*
+  // Open iec61850 device panel to add/delete/modify device
+  ChildPanelOn(IEC61850_DEVICE_PANEL_PATH, \"DevicePanel\", makeDynString(\"\"),0,0);
+  */
+}
+
+" 0
+ E E E
+13 11
+"__btnRemoveDevice"
+""
+1 976 210 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 62 Remove selected devices (only inactive devices can be deleted)
+LANG:10004 50 删除所选设备(只能删除未运行的设备)
+LANG:10000 80 Selektierte Geräte entfernen (es können nur inaktive Geräte gelöscht werden)
+LANG:10027 116 Удалить выбранные устройства (будут удалены только неактивные)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  198 553 226 581
+
+T 
+4
+LANG:10001 1 -
+LANG:10004 1 -
+LANG:10000 1 -
+LANG:10027 1 -
+"main()
+{
+  /*
+  dyn_float     df;
+  dyn_string    ds,dsChekdItems = DeviceTree.getCheckedItems, list;
+  int           iListPos, iDrvNum;
+  string        sList, deviceName;
+  bool          active, bDeleted;
+
+  // Checking for user permissions
+  if ( !getUserPermission(4) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\", \"permission\"));
+    return;
+  }
+  else
+  {
+    if (dynlen(dsChekdItems) == 0 || (dynlen(dsChekdItems) == 1 && dsChekdItems[1] == IEC61850_DEVICE_TREE_TEXT_ID))
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"RemoveDevice\"));
+      return;
+    }
+
+//     if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\",\"DeviceToDelete\")) )
+//       return;
+
+    setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+    bDeleted = FALSE;
+
+    // for removing internal dp prefix from Device names
+    for ( int iLoop = 1; iLoop <= dynlen(dsChekdItems); iLoop++)
+    {
+      if ( !dpExists(iec61850_getIedDpName(dsChekdItems[iLoop])) )
+        continue;
+
+      dpGet(iec61850_getIedDpName(dsChekdItems[iLoop]) + IEC61850_DPE_IDP_CONFIG_ACTIVE, active);
+
+      if ( active )
+      {
+        //iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\",\"DeviceActive\"));
+
+        // IM 114961 - ask to deactivate devices
+        string sMsg = getCatStr(\"iec61850\", \"DeviceActive\");
+        strreplace(sMsg, \"%dev\", dsChekdItems[iLoop]);
+
+        if ( !iec61850_ChildPanelOn_getUserInput(sMsg) )
+          continue;
+      }
+
+      // Removing RCB internal datapoints
+      string sSelDev = dsChekdItems[iLoop];
+      iec61850_clearRCBElements(sSelDev);
+
+      // Making device config state FALSE
+      dpSet(iec61850_getIedDpName(sSelDev)              + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+      if ( isRedundant() )
+        dpSet(iec61850_getIedDpName(sSelDev) + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+      // Deleting data points of the selected device
+      iec61850_DevicePnl_deleteDevice(\"_\" + sSelDev);
+
+      if ( !dpExists(iec61850_getIedDpName(sSelDev)) )
+        bDeleted = TRUE;
+    }
+
+    deviceName = txtSelectedDevice.text;
+    if ( !dpExists(iec61850_getIedDpName(deviceName)) )
+      txtSelectedDevice.text = \"\";
+
+    //chkBrowProgress.state(0) = FALSE;
+    setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+
+    if ( bDeleted )
+      iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\", \"DeleteDevice\"));
+  }
+  */
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+14 13
+"txtSelectedDevice"
+""
+1 40 558 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  38 553 66 581
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text = \"\";
+}
+" 0
+ E
+14 12
+"txtFilterSettings"
+""
+1 9 558 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "main(string newText)
+{
+  DeviceTree.clear();
+  DeviceTree.removeColumn(0);
+  DeviceTree.addColumn(IEC61850_DEVICE_TREE_TEXT_ID);
+  
+  if(!DeviceTree.itemExists(IEC61850_DEVICE_TREE_TEXT_ID))
+  {
+    DeviceTree.appendItem(\"\", IEC61850_DEVICE_TREE_TEXT_ID, IEC61850_DEVICE_TREE_TEXT);    
+    DeviceTree.setCheckable(IEC61850_DEVICE_TREE_TEXT_ID, TRUE);
+  }
+  
+  DeviceTree.headerHidden = TRUE;
+  connectDeviceInstance(\"\", makeDynString());
+}
+
+
+
+"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  8 553 36 581
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  string sAll = getCatStr(\"iec61850\",\"FilterTextAll\");
+  this.text = sAll+\"|\"+sAll+\"|\"+sAll;
+}
+" 0
+ E
+13 16
+"__btnEditDevice"
+""
+1 1124 180 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 50 Opens the client panel to edit the selected device
+LANG:10004 42 打开客户端面板以编辑所选设备
+LANG:10000 63 Öffnet das Client Panel zum Bearbeiten des selektieren Geräts
+LANG:10027 50 Opens the client panel to edit the selected device
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  168 553 196 581
+
+T 
+4
+LANG:10001 4 Edit
+LANG:10004 6 编辑
+LANG:10000 10 Bearbeiten
+LANG:10027 4 Edit
+"main()
+{
+  /*
+  // Open iec61850 device panel to modify device
+  string sIed = DeviceTree.selectedItem();
+  ChildPanelOn(IEC61850_DEVICE_PANEL_PATH,
+               \"DevicePanel\",
+               makeDynString(\"$Ied:\" + sIed),
+               0, 0); 
+  */ 
+}
+
+
+" 0
+ E E E
+13 10
+"btnBrowse"
+""
+1 740 277 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Browse selected devices
+LANG:10004 6 浏览
+LANG:10000 27 Selektierte Geräte browsen
+LANG:10027 54 Просмотр выбранных устройств
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 Arial,-1,11,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,11,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,11,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,11,5,50,0,0,0,0,0,Standard
+0  293 553 321 581
+
+T 
+4
+LANG:10001 6 Browse
+LANG:10004 6 浏览
+LANG:10000 7 Browsen
+LANG:10027 17 Просмотр 
+"//-------------------------------------------------------------------------------------------------
+// Creator: Chandrashekar
+// Date:    20-03-2013
+// Version: v1.0
+// Purpose: Browse Device or parse SCL file for the selected Devices
+//-------------------------------------------------------------------------------------------------
+
+main()
+{
+  // Checking for user permissions
+  if ( !iec61850_getUserPermission(TRUE) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\", \"permission\"));
+    return;
+  }
+
+  //dyn_string dsCheckedItems = DeviceTree.getCheckedItems();
+  //iec61850_browse_SelectedDevices(dsCheckedItems);
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 14
+"btnDeactivate"
+""
+1 170 545 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Deactivate selected devices
+LANG:10004 6 停用
+LANG:10000 32 Selektierte Geräte deaktivieren
+LANG:10027 27 Deactivate selected devices
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  293 528 321 556
+
+P 
+4294967295
+"pictures/StandardIcons/plc_inactive_20.png"
+4
+LANG:10001 10 Deactivate
+LANG:10004 6 停用
+LANG:10000 12 Deaktivieren
+LANG:10027 10 Deactivate
+"main()
+{
+  dyn_string dsCheckedItems = DeviceTree.getCheckedItems();
+
+  if ( dynlen(dsCheckedItems) )
+  {
+    if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeviceListDeactivate\")) )
+      return;
+
+    for ( int i = 1; i <= dynlen(dsCheckedItems); i++ )
+      dpSet(iec61850_getIedDpName(dsCheckedItems[i]) + IEC61850_DPE_IDP_CONFIG_ACTIVE, false);
+  }
+}
+" 0
+ E E E
+13 15
+"btnActivate"
+""
+1 227 578 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Activate selected devices
+LANG:10004 6 启用
+LANG:10000 30 Selektierte Geräte aktivieren
+LANG:10027 25 Activate selected devices
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  263 528 291 556
+
+P 
+4294967295
+"pictures/StandardIcons/plc_connected_20.png"
+4
+LANG:10001 8 Activate
+LANG:10004 6 激活
+LANG:10000 10 Aktivieren
+LANG:10027 24 Активировать
+"main()
+{
+  dyn_string dsCheckedItems = DeviceTree.getCheckedItems();
+
+  if ( dynlen(dsCheckedItems) )
+  {
+    if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeviceListActivate\")) )
+      return;
+
+    for ( int i = 1; i <= dynlen(dsCheckedItems); i++ )
+      dpSet(iec61850_getIedDpName(dsCheckedItems[i]) + IEC61850_DPE_IDP_CONFIG_ACTIVE, true);
+  }
+}
+" 0
+ E E E
+13 17
+"btnAddDevice"
+""
+1 8 528 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 58 Opens the client panel to create, delete or change devices
+LANG:10004 52 打开客户端面板以创建,删除或更改设备
+LANG:10000 74 Öffnet das Client-Panel zum Erstellen, Löschen oder Ändern von Geräten
+LANG:10027 58 Opens the client panel to create, delete or change devices
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 528 36 556
+
+P 
+13434828
+"pictures/StandardIcons/Insert_end_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  // Open iec61850 device panel to add a new device
+  bool bNew = TRUE;
+  ChildPanelOn(IEC61850_DEVICE_PANEL_PATH,
+               \"DevicePanel\",
+               makeDynString(\"$New:\" + bNew),
+               0, 0);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 18
+"btnRemoveDevice"
+""
+1 68 528 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 62 Remove selected devices (only inactive devices can be deleted)
+LANG:10004 50 删除所选设备(只能删除未运行的设备)
+LANG:10000 80 Selektierte Geräte entfernen (es können nur inaktive Geräte gelöscht werden)
+LANG:10027 116 Удалить выбранные устройства (будут удалены только неактивные)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  68 528 96 556
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_float     df;
+  dyn_string    ds,dsChekdItems = DeviceTree.getCheckedItems, list;
+  int           iListPos, iDrvNum;
+  string        sList, deviceName;
+  bool          active, bDeleted;
+
+  // Checking for user permissions
+  if ( !getUserPermission(4) )
+  {
+    iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"general\", \"permission\"));
+    return;
+  }
+  else
+  {
+    if (dynlen(dsChekdItems) == 0 || (dynlen(dsChekdItems) == 1 && dsChekdItems[1] == IEC61850_DEVICE_TREE_TEXT_ID))
+    {
+      iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"RemoveDevice\"));
+      return;
+    }
+
+    if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeviceToDelete\")) )
+      return;
+
+    setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"1\");
+    bDeleted = FALSE;
+
+    // for removing internal dp prefix from Device names
+    for ( int iLoop = 1; iLoop <= dynlen(dsChekdItems); iLoop++)
+    {
+      if ( !dpExists(iec61850_getIedDpName(dsChekdItems[iLoop])) )
+        continue;
+
+
+      dpGet(iec61850_getIedDpName(dsChekdItems[iLoop]) + IEC61850_DPE_IDP_CONFIG_ACTIVE, active);
+
+      if ( active )
+      {
+        //iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceActive\"));
+        //continue;
+        iec61850_ChildPanelOnErrorMessagePopup(getCatStr(\"iec61850\", \"DeviceDeactivate\"));
+        break;
+
+        //IM 114961 - ask to deactivate devices
+//         string sMsg = getCatStr(\"iec61850\", \"DeviceActive\");
+//         strreplace(sMsg, \"%dev\", dsChekdItems[iLoop]);
+//
+//         if ( !iec61850_ChildPanelOn_getUserInput(sMsg) )
+//           continue;
+      }
+//       else
+//         if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeleteSingleDevice\")) )
+//           continue;
+
+      // Removing RCB internal datapoints
+      string sSelDev = dsChekdItems[iLoop];
+      string sIedDp = iec61850_getIedDpName(sSelDev);
+
+      iec61850_clearRCBElements(sSelDev);
+
+      iec61850_deleteCommandObjectDps(sSelDev);
+
+      // Making device config state FALSE
+      dpSet(sIedDp + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+      if ( isRedundant() )
+        dpSet(sIedDp + IEC61850_2 + IEC61850_DPE_IDP_CONFIG_ACTIVE, FALSE);
+
+      // Deleting data points of the selected device
+      iec61850_DevicePnl_deleteDevice(sIedDp);
+
+      if ( !dpExists(sIedDp) )
+        bDeleted = TRUE;
+    }
+
+    deviceName = txtSelectedDevice.text;
+    if ( !dpExists(iec61850_getIedDpName(deviceName)) )
+      txtSelectedDevice.text = \"\";
+
+    //chkBrowProgress.state(0) = FALSE;
+    setValue(myModuleName()+\".\"+ myPanelName() + \":txtProgress\", \"text\", \"0\");
+
+    if ( bDeleted )
+      iec61850_ChildPanelOnInfoPopUpMessage(getCatStr(\"iec61850\", \"DeleteDevice\"));
+
+    // tfs 27079
+    if ( dynlen(DeviceTree.children(IEC61850_DEVICE_TREE_TEXT_ID)) <= 0 )
+    {
+      DeviceTree.setAllChecked(0);
+      btnEditDevice.enabled(0);
+      btnRemoveDevice.enabled(0);
+    }
+  }
+}
+
+
+
+" 0
+ E E E
+13 19
+"btnEditDevice"
+""
+1 38 528 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 50 Opens the client panel to edit the selected device
+LANG:10004 42 打开客户端面板以编辑所选设备
+LANG:10000 63 Öffnet das Client Panel zum Bearbeiten des selektieren Geräts
+LANG:10027 50 Opens the client panel to edit the selected device
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  38 528 66 556
+
+P 
+13434828
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  // Open iec61850 device panel to modify device
+  string sIed = DeviceTree.selectedItem();
+  ChildPanelOn(IEC61850_DEVICE_PANEL_PATH,
+               \"DevicePanel\",
+               makeDynString(\"$Ied:\" + sIed),
+               0, 0);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

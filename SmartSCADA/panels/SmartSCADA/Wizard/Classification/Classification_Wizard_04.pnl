@@ -1,0 +1,1250 @@
+V 14
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+PANEL,-1 -1 1280 560 N "WF_PanelBackground" 0
+"#uses \"SmartSCADA/util/ssc_license\"
+
+main()
+{
+  if(!ssc_CheckLicense(SSC_LIC_DM_CLS))
+  {
+    btn_predict.enabled(false);
+    string notification = getCatStr(\"ssc_errors\", \"00031\");
+    strreplace(notification, \"$1\", \"DM/CLS\");
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", \"License Check\", notification);
+    return;
+  }
+  ssc_initPanelGlobal(4);
+  
+  int pixelWidth = 65; //Die zu setzende Breite (Pixel)
+
+  //Status Bar
+  initPanel();
+      
+  //INFO TEXTS
+  txt_infoconf.text = \"\";
+  txt_infoimp.text = \"\";
+  txt_infooob.text = \"\";
+  txt_infotest.text = \"\";
+
+  txt_infoconf.insert(getCatStr(SSC_WIZARDS_CAT, \"cl00025\"));  // \"The Confusion Matrix shows the actual classes (rows) compared to the predicted classes (columns). The diagonal elements in the matrix contain the counts of the correct predictions and the off-diagonal elements the incorrect predictions.\");    
+  txt_infoimp.insert(getCatStr(SSC_WIZARDS_CAT, \"cl00026\"));   // \"The Importance Matrix shows how important each variable is for the prediction model. If a variable is removed from the model, the error rate would increase by the percentage points specified in the corresponding matrix cell. Variables with negative importance values may be reconsidered.\");
+  txt_infooob.insert(getCatStr(SSC_WIZARDS_CAT, \"cl00027\"));   // \"The OOB error rate is the expected percentage of elements that can be not classified correctly.\");
+  txt_infotest.insert(getCatStr(SSC_WIZARDS_CAT, \"cl00028\"));  // \"Enter custom input values below and click 'Prediction' to see which classifications would be computed for these values.\");
+
+  initModels();
+  
+  // CONFUSION MATRIX
+  string dp_qm;
+  string dp_model=\"_SSC_Model_\" + g_currentRfModel;
+  dyn_dyn_float confusion;
+  dyn_float dynf_confusion;
+  int labelCount;
+  dyn_string labelset, labelsetComplete;
+  string c, r;
+  float oob_error;
+  string randomForestModelDP;
+  string labelsetRef;
+  dyn_int labelVector, labelVectorFeedback, labelVectorUnique;
+  
+  tbl_confusion.deleteAllLines();
+  tbl_confusion.rowHeight(25);
+   
+  //Get labelvector and labels
+  dpGet(dp_model + \".metadataRef\", dp_qm);
+  dpGet(dp_qm + \".labelVector\", labelVector,
+        dp_qm + \".feedbackDataLabel\", labelVectorFeedback,
+        dp_qm + \".labelsetRef\", labelsetRef);
+  dpGet(labelsetRef + \".labels\", labelsetComplete);
+  //txt_modelname.text=randomForestName;
+
+  dynAppend(labelVector,  labelVectorFeedback);
+  labelVectorUnique=labelVector;
+  labelCount=dynUnique(labelVectorUnique);
+  dynSort(labelVectorUnique);
+  
+  for(int i=1; i<=dynlen(labelVectorUnique); i++)
+  {
+    if(labelVectorUnique[i] <= dynlen(labelsetComplete))
+    {
+      dynAppend(labelset, labelsetComplete[labelVectorUnique[i]]);  
+    }
+  }
+  
+  if ( isDbgFlag(SSC_DEBUG_FLAG) )
+  {
+    DebugN(\"labelsetComplete\", labelsetComplete);
+    DebugN(\"labelVectorUnique\", labelVectorUnique);
+    DebugN(\"labelset\", labelset);
+  }
+  
+  //Get confusion matrix
+  dpGet(dp_qm + \".confusionMatrix.elements\", dynf_confusion);
+  confusion=ssc_dyn_to_dyndyn(dynf_confusion, labelCount);
+
+  if(sizeof(confusion) > 0)
+  {
+    //Generate confusion matrix table
+    tbl_confusion.insertColumn(0);
+    tbl_confusion.columnName(0,\"##0\");
+    tbl_confusion.columnHeader(0, \"Label\");
+
+    for(int i=1; i<labelCount+1; i++)
+    {
+      tbl_confusion.insertColumn(i);
+      tbl_confusion.columnName(i,\"##\" + i);
+      tbl_confusion.columnHeader(i, labelVectorUnique[i] + \"-\" + labelset[i]);
+    
+    }
+  
+    tbl_confusion.insertColumn(labelCount+1);
+    tbl_confusion.columnHeader(labelCount+1, getCatStr(SSC_WIZARDS_CAT, \"cl00029\"));  // \"error rate\");
+    c=labelCount+1;
+    tbl_confusion.columnName(labelCount+1,\"##\" + c);
+    tbl_confusion.insertColumn(labelCount+2);
+    c=labelCount+2;
+    tbl_confusion.columnHeader(labelCount+2, \" \");
+    tbl_confusion.columnName(labelCount+2,\"##\" + c);
+    tbl_confusion.deleteColumn(labelCount+3);
+ 
+    for(int i=0; i<sizeof(confusion[1]); i++)
+    {
+      tbl_confusion.insertLineN(\"##0\", labelVectorUnique[i+1]  + \"-\" + labelset[i+1]);
+    }
+  
+    for(int i=0; i<sizeof(confusion[1]); i++) //Zeilen Tabelle
+    {
+      for(int j=1; j<sizeof(confusion)+1; j++) //Spalten Spalten
+      {
+        c=(j);
+        tbl_confusion.cellValueRC(i,\"##\"+c,ssc_round(confusion[j][i+1],3));
+      }
+    }
+   
+    for(int i=0; i<tbl_confusion.lineCount; i++)
+    {
+      c=labelCount+2;
+      tbl_confusion.cellWidgetRC(i,\"##\" + c, \"Bar\", makeDynAnytype(0,100));
+      tbl_confusion.cellValueRC(i,\"##\" + c,confusion[labelCount+1][i+1]*100);
+    }
+  
+    for(int i=0; i<tbl_confusion.columnCount; i++)
+    {
+      tbl_confusion.columnWidth(i, pixelWidth);
+    } 
+    tbl_confusion.columnWidth(0, 120);
+    for(int i=1; i<sizeof(confusion[1])+1; i++) //Zeilen Tabelle
+    {
+        tbl_confusion.cellBackColRC(i-1,\"##\" + i, \"distsync_OK\");
+    }
+  }
+  // IMPORTANCE MATRIX  
+  // Format:
+  // Col 0    Col 1    Col 2   ... Col n    Col MeanDecreaseAccuracy    Col Bar
+  // header   DPE Desc Label 1 ... Label n  value of MeanDecreaseAcc    Bar Widget
+  dyn_dyn_float importance;
+  dyn_float dynf_importance;
+  string meanDecreaseAccuracyLabel, barWidgetLabel, c, r;
+  dyn_string colnames, dsInputDPs;
+  langString unit;
+  dyn_langString units;
+  float maximp=0;
+  int rows=0;
+  dpGet(dp_qm + \".headers\", colnames, dp_qm + \".inputDPs\", dsInputDPs);
+  int colNamesCount = dynlen(colnames);
+  for (int i = 1; i <= colNamesCount; i++)
+  {
+    unit = dpGetUnit(colnames[i]);
+    dynAppend(units, unit);
+  }
+           
+  tbl_importance.deleteAllLines(); 
+  tbl_importance.rowHeight(25);
+  
+  //Get importance matrix
+  
+  dpGet(dp_qm + \".importanceMatrix.elements\", dynf_importance);  
+  rows=sizeof(dynf_importance)/ (labelCount+2);  
+  importance=ssc_dyn_to_dyndyn(dynf_importance, rows);
+  
+  if(sizeof(importance) > 0)
+  {
+    //Generate importance table
+  
+    tbl_importance.insertColumn(0);
+    tbl_importance.columnName(0,\"headers\");
+    tbl_importance.columnHeader(0, getCatStr(SSC_WIZARDS_CAT, \"cl00030\"));  // \"Metric\");  
+
+    tbl_importance.insertColumn(1);
+    tbl_importance.columnName(1,\"dpe_desc\");
+    tbl_importance.columnHeader(1, getCatStr(SSC_WIZARDS_CAT, \"cl00030\"));  // \"Metric\");  
+  
+   
+    //0 - dpe, 1 - Description, 2 - Value    
+    // Offset for first label Column: 1
+    for(int i=1; i<labelCount+1; i++)
+    {
+      int col = i+1;
+      tbl_importance.insertColumn(col);
+      tbl_importance.columnName(col,\"#\" + col);
+      tbl_importance.columnHeader(col, i + \"-\" + labelset[i]);
+    
+    }
+    
+    // Offset for additional Columns: 2 (0--> header, 1--> descripton, 2-->1st Label ... nth Label, labelcount+2
+    // MeanDecreaseAccuracy
+    tbl_importance.insertColumn(labelCount+2);
+    tbl_importance.columnHeader(labelCount+2, \"MeanDecreaseAccuracy\");
+    meanDecreaseAccuracyLabel = labelCount+2;
+    meanDecreaseAccuracyLabel = \"#\" + meanDecreaseAccuracyLabel;  
+    tbl_importance.columnName(labelCount+2, meanDecreaseAccuracyLabel);
+    // Bar Widget
+    tbl_importance.insertColumn(labelCount+3);
+    tbl_importance.columnHeader(labelCount+3, \" \");
+    barWidgetLabel = labelCount+3;
+    barWidgetLabel = \"#\" + barWidgetLabel;
+    tbl_importance.columnName(labelCount+3, barWidgetLabel);
+
+    // Remove spare column
+    tbl_importance.deleteColumn(labelCount+4);
+  
+    for(int i=0; i<rows; i++)
+    {
+      string dpe_desc;
+      if (dynlen(colnames) == dynlen(dsInputDPs))
+      {
+        langString desc = dpGetDescription(dsInputDPs[i+1]);
+        dpe_desc = desc; // cast to actual language
+      }
+      else
+      {
+        dpe_desc = colnames[i+1];
+      }
+      
+      tbl_importance.insertLineN(\"headers\", colnames[i+1], \"dpe_desc\", dpe_desc);
+    }
+
+    // Importance values  
+    for(int i=0; i<sizeof(importance[1]); i++) //Zeilen Tabelle
+    {
+      for(int j=1; j<sizeof(importance); j++) //Spalten Tabelle
+      {
+        c=(j+1);
+        tbl_importance.cellValueRC(i,\"#\"+c,ssc_round(importance[j][i+1],3));
+      }
+    }
+  
+    for(int i=0; i<tbl_importance.lineCount; i++)
+    {
+      if(importance[labelCount+1][i+1]>maximp)
+      {
+        maximp=importance[labelCount+1][i+1];
+      }
+    }
+    
+    for(int i=0; i<tbl_importance.lineCount; i++)
+    {
+      tbl_importance.cellValueRC(i, barWidgetLabel,importance[labelCount+1][i+1]*100);
+      tbl_importance.cellWidgetRC(i, barWidgetLabel, \"Bar\", makeDynAnytype(0,100));
+    }
+  
+         
+    for(int i=0; i<tbl_importance.columnCount; i++)
+    {
+      tbl_importance.columnWidth(i, pixelWidth);
+    } 
+    tbl_importance.columnWidth(0, 120);
+    tbl_importance.columnVisibility(0, FALSE);
+    tbl_importance.columnWidth(1, 120);
+  
+    tbl_importance.sort(false, meanDecreaseAccuracyLabel);
+  }
+  //Out of bag error
+  dpGet(dp_qm + \".outOfBagError\", oob_error);
+  txt_prog.text=(ssc_round(oob_error,3) * 100 + \" %\");
+  
+  prg_bar.progress(ssc_round(oob_error*100,0));
+
+  //FILL TEST TABLE
+  tbl_test.rowHeight(25);
+  tbl_test.sortOnClick(FALSE);
+  tbl_test.deleteAllLines();
+  for(int i=1; i<=colNamesCount; i++)
+  {
+    string dpe_desc;
+    if (dynlen(colnames) == dynlen(dsInputDPs))
+    {
+      langString desc = dpGetDescription(dsInputDPs[i]);
+      dpe_desc = desc; // cast to actual language
+    }
+    else
+    {
+      dpe_desc = colnames[i];
+    }  
+
+    tbl_test.appendLine(\"variable\", colnames[i], \"dpe_desc\", dpe_desc, \"value\", \"0.00\", \"unit\", units[i]);
+    tbl_test.cellBackColRC(i-1, \"value\", \"white\");
+  }
+}
+
+
+
+initModels() 
+{
+  if(g_currentKmModel == \"\") {
+    g_currentKmModel = \"km_temp\";
+    g_currentRfModel = \"rf_temp\";
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  157 115
+""0  1
+E "#uses \"SmartSCADA/util/util\"
+#uses \"SmartSCADA/analytics/ClassificationWizard\"
+
+void initPanel()
+{
+  if(g_currentKmModel == \"\") {
+    g_currentKmModel = g_kmTempModel;
+    g_currentRfModel = g_rfTempModel;
+  }
+  ssc_displayModelName();
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+2
+LANG:10001 0 
+LANG:10004 0 
+25 12
+"tbl_confusion"
+"WF"
+1 185.4741347384544 43.59829059829059 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Maximum"
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int myLines;
+  txt_cluster.text=tbl_labels.cellValueRC(myLines[1], \"Cluster\");
+  txt_label.text=tbl_labels.cellValueRC(myLines[1], \"Label\");
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -3 23 662 282
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+E 1 0 1 1 0 "#1" 4 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+60 
+25 25 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+2 16
+"PRIMITIVE_TEXT2"
+""
+1 400 195.87 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 400 195.87 490 235.87
+0 2 2 "0s" 0 0 0 64 0 0  400 195.87 1
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+25 21
+"tbl_importance"
+"WF"
+1 -172.5020308128924 279.2569629114131 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Expanding Maximum"
+"layoutAlignment" "AlignCenter"
+"selectionChangedCB" "synchronized main()
+{
+  dyn_int myLines;
+  txt_cluster.text=tbl_labels.cellValueRC(myLines[1], \"Cluster\");
+  txt_label.text=tbl_labels.cellValueRC(myLines[1], \"Label\");
+}
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  -2.999999999999886 303 662.0000000000001 562
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+E 1 0 1 1 0 "#1" 4 1 0 "s" 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+60 
+25 25 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+2 30
+"PRIMITIVE_TEXT9"
+""
+1 881.7533764088612 482.9254166666667 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 881.7533764088612 482.9254166666667 924 498
+0 2 2 "0s" 0 0 0 192 0 0  881.7533764088612 482.9254166666667 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Result:
+LANG:10004 7 Result:
+LANG:10000 9 Resultat:
+LANG:10027 7 Result:
+14 31
+"txt_result"
+"WF"
+1 941.7445528794493 485.7554166666668 E E E 1 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,75,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  941 478 1203 501
+2 "0s" 0 0 0 1 0 -1  E E E
+13 32
+"btn_predict"
+"WF"
+1 977.5000000000001 521 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  976.5000000000001 514 1155.5 544
+
+T 
+4
+LANG:10001 10 Prediction
+LANG:10004 10 Prediction
+LANG:10000 10 Vorhersage
+LANG:10027 10 Prediction
+"#uses \"CtrlR\"
+
+main()
+{
+  const string SSC_SLIB=\"randomForest\";
+  dyn_string headers, dps;
+  dyn_string input_dps;
+  dyn_float input_dpsf;
+  int resLib = RLoadLibrary(SSC_SLIB);
+  blob sRData;
+  string model;
+  int result;
+  string dp_qm;
+  string labelsetRef;
+  dyn_string labelVector, labelsetComplete;
+  int labelCount;
+  
+  string dp_model=\"_SSC_Model_\" + g_currentRfModel;
+  txt_result.text = getCatStr(SSC_WIZARDS_CAT, \"cl00024\");    // \"Predicting...\";
+  dpGet(dp_model + \".metadataRef\", dp_qm);
+  
+  const string SSC_SLIB=\"randomForest\";
+  dpGet(dp_model + \".model\", sRData);
+  dpGet(dp_model + \".modelName\", model);
+  
+  //Load model
+  RSetVarSerialized(model, sRData);
+  
+  //Get headers
+  int headerCount = tbl_test.lineCount();
+  for(int i = 1; i <= headerCount; i++)
+  {
+    dynAppend(headers, \"dp\" + i);
+  }
+
+  //Get values
+  getValue(\"tbl_test\",\"getColumnN\",2,input_dpsf);
+  
+  //Get labelvector and labels
+  dpGet(dp_model + \".metadataRef\", dp_qm);  
+  dpGet(dp_qm + \".labelsetRef\", labelsetRef);
+  dpGet(labelsetRef + \".labels\", labelsetComplete);
+
+  result = RPredict(model, headers, input_dpsf);
+  if(result > 0 && result <= dynlen(labelsetComplete))
+  {
+    txt_result.text = result + \"-\" + labelsetComplete[result];
+  }
+  else
+  {
+    //calculation failed
+    txt_result.text = result + \"-\" + 0;
+  }
+}
+
+
+
+
+
+" 0
+ E E E
+6 99
+"RECTANGLE1"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 1.033204148601499 0 1 0.4632340899729327 0 1 E 0 0 1237 24
+2 100
+"PRIMITIVE_TEXT14"
+""
+1 15 4 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 15 4 93 19
+0 2 2 "0s" 0 0 0 192 0 0  15 4 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Error matrix
+LANG:10004 12 Error matrix
+LANG:10000 12 Fehlermatrix
+LANG:10027 12 Error matrix
+2 102
+"PRIMITIVE_TEXT15"
+""
+1 865 4 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 865 4 942 19
+0 2 2 "0s" 0 0 0 192 0 0  865 4 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 14 OOB error rate
+LANG:10004 13 OOB 错误率
+LANG:10000 14 OOB Fehlerrate
+LANG:10027 14 OOB error rate
+6 103
+"RECTANGLE2"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 0.3468014589544163 0 1 850 145 1 E 0 0 1237 24
+2 104
+"PRIMITIVE_TEXT16"
+""
+1 865 149 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 865 149 977 164
+0 2 2 "0s" 0 0 0 192 0 0  865 149 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Classification test
+LANG:10004 19 Classification test
+LANG:10000 19 Klassifikationstest
+LANG:10027 19 Classification test
+6 105
+"RECTANGLE3"
+""
+1 0 0 E E E 1 E 1 E N "WF_BtnBottomPanelFore" E N "WF_BtnBottomPanelBack" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 2 1 E 0.6878003955821542 0 1 -1 280 1 E 0 0 1237 24
+2 106
+"PRIMITIVE_TEXT17"
+""
+1 14.8090893351248 283.698 E E E 1 E 1 E N "White" E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 14.8090893351248 283.698 133 299
+0 2 2 "0s" 0 0 0 192 0 0  14.8090893351248 283.698 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Importance matrix
+LANG:10004 17 Importance matrix
+LANG:10000 18 Wichtigkeitsmatrix
+LANG:10027 17 Importance matrix
+29 110
+"txt_infoconf"
+""
+1 670 35.39365482233501 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+17
+"wordWrap" "enum 1"
+"sizeAdjustPolicy" "enum 0"
+"wrapPolicy" "enum 0"
+"alignment" "enum 1"
+"horizontalScrollBarPolicy" "enum 0"
+"layoutDirection" "enum 0"
+"frameShape" "enum 0"
+"textInteractionFlags" "enum 1"
+"inputMethodHints" "enum 1024"
+"autoFormatting" "enum 0"
+"verticalScrollBarPolicy" "enum 0"
+"contextMenuPolicy" "enum 1"
+"textFormat" "enum 2"
+"frameShadow" "enum 48"
+"readOnly" "bool TRUE"
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  670 35.00000000000001 840.0000000000002 270
+15 PVSS.TextEdit.1
+0
+E29 112
+"txt_infoimp"
+""
+1 670 315.089467005076 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"frameShape" "enum 0"
+"readOnly" "bool TRUE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  670 315.0000000000001 840.0000000000001 550.0000000000001
+15 PVSS.TextEdit.1
+0
+E29 113
+"txt_infooob"
+""
+1 865.1249999999998 35 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"frameShape" "enum 0"
+"readOnly" "bool TRUE"
+"lineWidth" "int 0"
+"layoutAlignment" "AlignTop"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  859.9999999999999 35 1270 89.99999999999997
+15 PVSS.TextEdit.1
+0
+E29 114
+"txt_infotest"
+""
+1 859.9999999999999 180 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"frameShape" "enum 0"
+"readOnly" "bool TRUE"
+"layoutAlignment" "AlignTop"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  859.9999999999999 180 1270 235
+15 PVSS.TextEdit.1
+0
+E25 115
+"tbl_test"
+"WF"
+1 849.4025456665371 244.9279261363637 E E E 1 E 1 E N "_WindowText" E N "WF_PanelBackground" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  848.0000000000001 243 1282 462
+"main()
+{
+  this.alternatingRowColors(makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"));
+}" 0
+E 1 0 1 4 0 "variable" 26 0 0 "s" 4
+LANG:10001 21 Input parameter / DPE
+LANG:10004 21 Input parameter / DPE
+LANG:10000 22 Eingangsgröße / DPE
+
+LANG:10027 21 Input parameter / DPE
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+303 "dpe_desc" 26 1 0 "s" 4
+LANG:10001 33 Input parameter / DPE Description
+LANG:10004 33 Input parameter / DPE Description
+LANG:10000 34 Eingangsgröße / DPE Beschreibung
+LANG:10027 33 Input parameter / DPE Description
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+303 "value" 5 1 1 "[0.2f,False,False,AlignRight,False]" 4
+LANG:10001 5 Value
+LANG:10004 5 Value
+LANG:10000 4 Wert
+LANG:10027 5 Value
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+70 "unit" 2 1 0 "s" 4
+LANG:10001 4 Unit
+LANG:10004 4 Unit
+LANG:10000 5 Einh.
+LANG:10027 4 Unit
+E
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+40 
+25 25 10 0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+29 117
+"prg_bar"
+"WF"
+1 1072.8125 76 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+2
+"percentageVisible" "bool FALSE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  865.0000000000001 100 1265 127
+11 ProgressBar
+0
+E14 118
+"txt_prog"
+""
+1 1038 112 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+57 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1036 101 1094 126
+3 "0s" 0 0 0 1 0 -1  E E E
+4 101
+"LINE2"
+""
+1 850 45.3432018411619 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E  850 -3.552713678800501e-15 850 588
+29 126
+"txt_modelLoaded"
+"WF_Transparent"
+1 -568.1551326121049 -221.4817096541493 E E E 0 E 1 E N "White" E N "_Transparent" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+8
+"frameShape" "enum 0"
+"styleSheet" "string WF"
+"currentFont" "font Arial,-1,13,5,50,0,0,0,0,0"
+"textFormat" "enum 0"
+"alignment" "enum 2"
+"currentColor" "color White"
+"text" "string Model loaded: (updated in panel initialize)"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  150 0 835 24
+15 PVSS.TextEdit.1
+0
+E4 127
+"LINE3"
+""
+1 1280 25 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1280 25 -0.5139482808885987 25
+4 128
+"LINE4"
+""
+1 849.8090893351246 280 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  849.8090893351246 280 -1 280
+4 129
+"LINE5"
+""
+1 849.8090893351247 305 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  849.8090893351247 305 -0.9999999999998863 305
+4 130
+"LINE6"
+""
+1 1278.993404726613 145 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1278.993404726613 145 850 145
+4 131
+"LINE7"
+""
+1 1278.993404726613 170 E E E 1 E 1 E N "WF_Text" E N {255,255,255} E E
+ E E
+71 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1278.993404726613 170 850 170
+0
+LAYER, 1 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 2 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 3 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 4 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 5 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 6 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+LAYER, 7 
+2
+LANG:10001 0 
+LANG:10004 0 
+0
+0

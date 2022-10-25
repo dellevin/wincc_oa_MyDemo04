@@ -1,0 +1,1608 @@
+V 14
+4
+LANG:10001 22 S7+ symbolic selection
+LANG:10004 16 S7+ 符号选择
+LANG:10000 20 S7+ Symbolik-Auswahl
+LANG:10027 54 Выбор символьной адресации S7+
+PANEL,-1 -1 1000 585 N "_3DFace" 2
+"$SERVER"
+"$STATION"
+"main()
+{
+  g_s7drvdp = $SERVER;
+  g_requestId = myUiNumber() + \"_\" + myModuleName() + \"_\" + myPanelName();
+  g_station = $STATION;
+  g_stationsaved = g_station;
+  g_parentId = \"\";
+  g_saved = FALSE;
+  g_hmiVisible = 1;
+  g_reduact = 0;
+  g_newconn = 0;
+
+  if ( isDollarDefined(\"$NEWCONN\") )
+    g_newconn = 1;
+
+  ptProjSaved.text = \"\";
+  ptPlcSaved.text = \"\";
+
+  g_stationinit = ptPlcSaved.text;
+
+  showWaitModule(1);
+
+  if ( strpos(g_station, \"|\") != -1 )
+  {
+    g_project = strsplit(g_station, \"|\")[1];
+    g_stationshort = strsplit(g_station, \"|\")[2];
+  }
+
+  // get list of plcs from driver
+  tabPlcs.tableMode = TABLE_SELECT_BROWSE;
+  tabPlcs.selectByClick = TABLE_SELECT_LINE;
+  tabPlcs.sortOnClick = FALSE;
+  tabPlcs.alternatingRowColors(makeDynString(\"_AlternatingRowColorLight\", \"_AlternatingRowColorDark\"));
+
+  cmdOk.enabled = FALSE;
+  cmdExport.enabled = FALSE;
+
+  trItems.addColumn(getCatStr(\"s7plus\", \"tiaBrowseNP\")); // 0 node paths --> station
+  trItems.addColumn(getCatStr(\"s7plus\", \"tiaBrowseST\")); // 1 system types
+  trItems.addColumn(getCatStr(\"s7plus\", \"tiaBrowseVT\")); // 2 value types
+  trItems.addColumn(getCatStr(\"s7plus\", \"tiaBrowseIL\")); // 3 item lengths
+  trItems.addColumn(getCatStr(\"s7plus\", \"tiaBrowseNC\")); // 4 node comments
+  trCfgSaved.addColumn(\"#1\");
+
+  if ( g_project != \"\" )
+    setValue(\"ptProjSaved\", \"text\", g_project);
+
+  // TFS 12634
+  if ( isRedundant() )
+    reduActive(g_reduact);
+
+  if ( g_reduact == 2 )
+    g_s7drvdp += S7PLUS_REDU;
+
+  trItems.clear();
+
+  treeConnect(g_s7drvdp);
+
+  g_parentId = g_station;
+
+  trItems.enabled(FALSE);
+  trItems.updatesEnabled(FALSE);
+
+  showWaitModule(0);
+}
+
+" 0
+ E E E E 1 -1 -1 0  450 80
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// s7+ driver - symbolic selection
+
+string sBRO = \".Browse.\";
+
+string g_s7drvdp;
+string g_separator;
+string g_parentId;
+string g_requestId;
+string g_project;
+string g_station;
+string g_stationshort;
+string g_stationsaved;
+string g_stationinit;
+string g_plc;
+uint   g_conntype;
+int    g_reduact;
+bool   g_saved;
+int    g_hmiVisible;
+bool   g_newconn;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void savePlcData(bool bOk = FALSE)
+{
+  dyn_int di = tabPlcs.getSelectedLines();
+  dyn_string ds;
+
+  if ( dynlen(di) )
+  {
+    getValue(\"tabPlcs\", \"getLineN\", di[1], ds);
+
+    if ( dynlen(ds) )
+    {
+      string sProj = ds[1];
+      string sPlc = trItems.selectedItem();
+
+      if ( ptPlcSaved.text != \"\" )
+      {
+        if ( !bOk )
+        {
+          if ( ptPlcSaved.text == g_stationinit )
+            ptPlcSaved.text = \"\";
+
+          string sMsg = getCatStr(\"s7plus\", \"tiaSelStation\");
+          strreplace(sMsg, \"$1\", ptPlcSaved.text);
+
+          setMultiValue(\"cmdOk\", \"enabled\", (ptPlcSaved.text != \"\"),
+                        \"cmdExport\", \"enabled\", (ptPlcSaved.text != \"\"),
+                        \"ptPlcSelect\", \"text\", sMsg);
+        }
+        else
+        {
+          string sProjSaved = (string)ptProjSaved.text;
+          string sPlcSaved = (string)ptPlcSaved.text;
+
+          string sCfgSaved;
+          dyn_string dsCfgSaved = trCfgSaved.children(\"\");
+          dyn_string dsCfgSavedTemp;
+
+          for ( int i = 1; i <= dynlen(dsCfgSaved); i++ )
+            dsCfgSavedTemp[i] = strsplit(dsCfgSaved[i], \"|\")[1];
+
+          if ( dynlen(dsCfgSavedTemp) && dynContains(dsCfgSavedTemp, sPlcSaved) > 0 )
+            sCfgSaved = dsCfgSaved[dynContains(dsCfgSavedTemp, sPlcSaved)];
+
+          if ( g_stationsaved == \"\" || ( g_project == sProjSaved && g_stationshort == sPlcSaved ) )
+            PanelOffReturn(makeDynFloat(1), makeDynString(sProjSaved + \"|\" + sPlcSaved, sCfgSaved));
+          else
+          {
+            dyn_float dfRet;
+            dyn_string dsRet;
+
+            ChildPanelOnCentralModalReturn(\"para/s7plus_message\",
+                                           getCatStr(\"para\", \"information\"),
+                                           makeDynString(getCatStr(\"s7plus\", \"tiaSymbChangeData\"),
+                                                         getCatStr(\"para\", \"yes\"),
+                                                         getCatStr(\"para\", \"no\"),
+                                                         sCfgSaved),
+                                           dfRet, dsRet);
+
+            if ( dynlen(dfRet) < 1 || dfRet[1] == 0 )
+              return;
+            else
+              PanelOffReturn(makeDynFloat(1), makeDynString(sProjSaved + \"|\" + sPlcSaved, sCfgSaved, dsRet[2]));
+          }
+        }
+      }
+      else
+        setMultiValue(\"cmdOk\", \"enabled\", FALSE,
+                      \"cmdExport\", \"enabled\", FALSE);
+    }
+  }
+  else
+    setMultiValue(\"cmdOk\", \"enabled\", FALSE,
+                  \"cmdExport\", \"enabled\", FALSE);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void enableShapes(bool bState)
+{
+  setMultiValue(\"tabPlcs\",      \"enabled\", bState,
+                \"ptProjSelect\", \"enabled\", bState,
+                \"trItems\",      \"enabled\", bState,
+                \"ptPlcSelect\",  \"enabled\", bState,
+                \"cmdCancel\",    \"enabled\", bState,
+                \"frmSymbolics\", \"enabled\", bState,
+                \"cbHmiVisible\", \"enabled\", bState);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+tabConnect(string sDrvDp)
+{
+  string sReqIdSet = g_requestId;
+  string sReqIdGet;
+
+  dpSetWait(sDrvDp + sBRO + \"RequestId\" , \"\");
+  dpSetWait(sDrvDp + sBRO + \"GetBranch\" , makeDynString(sReqIdSet, g_station, g_hmiVisible));
+
+  int iCnt = 1;
+
+  while ( sReqIdGet != sReqIdSet && iCnt++ < 600 )
+  {
+    dpGet(g_s7drvdp + sBRO + \"RequestId\" , sReqIdGet);
+
+    // avoid infinite loop - wait for max 30 seconds
+    if ( iCnt >= 600 )
+    {
+      throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to detect station data\"));
+      return;
+    }
+
+    if (iCnt%20 == 0)
+      throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting station data...\"));
+
+    iCnt++;
+    delay(0, 100);
+  }
+
+  if ( sReqIdGet == sReqIdSet )
+  {
+    dpConnect(\"work_cb\", sDrvDp + sBRO + \"GetBranch\" ,
+                         sDrvDp + sBRO + \"NodePaths\" );
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+tabDisconnect(string sDrvDp)
+{
+  dpDisconnect(\"work_cb\", sDrvDp + sBRO + \"GetBranch\" ,
+                          sDrvDp + sBRO + \"NodePaths\" );
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+treeConnect(string sDrvDp)
+{
+  dpConnect(\"refreshTree\", FALSE, sDrvDp + sBRO + \"RequestId\"    ,
+                                  sDrvDp + sBRO + \"NodePaths\"    ,
+                                  sDrvDp + sBRO + \"NodeComments\" ,
+                                  sDrvDp + sBRO + \"SystemTypes\"  ,
+                                  sDrvDp + sBRO + \"ValueTypes\"   ,
+                                  sDrvDp + sBRO + \"ItemLengths\"  );
+  dpSet(sDrvDp + sBRO + \"GetBranch\" , makeDynString(g_requestId, \"\", g_hmiVisible));
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+treeDisconnect(string sDrvDp)
+{
+  dpDisconnect(\"refreshTree\", sDrvDp + sBRO + \"RequestId\"    ,
+                              sDrvDp + sBRO + \"NodePaths\"    ,
+                              sDrvDp + sBRO + \"NodeComments\" ,
+                              sDrvDp + sBRO + \"SystemTypes\"  ,
+                              sDrvDp + sBRO + \"ValueTypes\"   ,
+                              sDrvDp + sBRO + \"ItemLengths\"  );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void refreshTree(string dp1, string sRI,
+                 string dp2, dyn_string dsNP,
+                 string dp3, dyn_langString dlsNC,
+                 string dp4, dyn_string dsST,
+                 string dp5, dyn_string dsVT,
+                 string dp6, dyn_int diIL)
+{
+  string id;
+  bool bAsk = FALSE;
+  dyn_string dsTemp = dsNP;
+
+  if ( sRI != g_requestId )
+  {
+    trItems.enabled(TRUE);
+    trItems.updatesEnabled(TRUE);
+    return;
+  }
+
+  trItems.enabled(FALSE);
+  trItems.updatesEnabled(FALSE);
+
+  dyn_string dsGB;
+
+  dpGet(g_s7drvdp + sBRO + \"GetBranch\" , dsGB);
+
+  if ( dynlen(dsGB) == 3 && dsGB[2] == \"\" && dsGB[3] == 1 )
+  {
+    tabPlcs.deleteAllLines();
+
+    if ( !dynlen(dsNP) )
+    {
+      setMultiValue(\"tabPlcs\",      \"enabled\", FALSE,
+                    \"ptProjSelect\", \"enabled\", FALSE,
+                    \"trItems\",      \"enabled\", FALSE,
+                    \"ptPlcSelect\",  \"enabled\", FALSE,
+                    \"trItems\",      \"headerHidden\", TRUE);
+
+      showWaitModule(0);
+
+      tabPlcs.appendLine(\"#1\", getCatStr(\"s7plus\", \"tiaNoProj\"));
+      //return;
+    }
+
+    for ( int i = 1; i <= dynlen(dsST); i++ )
+      if ( dsST[i] == \"Project\" )
+        tabPlcs.appendLine(\"#1\", dsNP[i]);//, \"#2\", dsST[i], \"#3\", dsNP[i]);
+  }
+  else
+  {
+    if ( dynlen(dsNP) > 50 )
+      showWaitModule(1);
+
+    for ( int i = 1; i <= dynlen(dsNP); i++ )
+    {
+      // browsing has no result for queried node
+      if ( !strlen(dsNP[i]) )
+        continue;
+
+      if ( dsST[i] == \"Station\" )
+      {
+        dyn_string dsTemp = strsplit(dsNP[i], \"|\");
+        if ( dynlen(dsTemp) )
+          id = dsTemp[1];
+      }
+      else if ( dsST[i] == \"Block\" )
+        id = g_parentId + \"|Blocks|\" + dsNP[i];
+      else if ( dsST[i] == \"ComplexTag\" )
+        id = g_parentId + \"|Tags|\" + dsNP[i];
+      else
+        id = g_parentId + \"|\" + dsNP[i];
+
+      // etm: show first 50 items only
+      if ( i > 50 && !bAsk )
+      {
+        string sParentST = trItems.getText(g_parentId, 1);
+        int iParentIL = trItems.getText(g_parentId, 3);
+        string sMsg = getCatStr(\"s7plus\", \"tiaArray>50\");
+        strreplace(sMsg, \"$1\", iParentIL);
+
+        if ( sParentST == \"Array\" )
+        {
+          dyn_float df;
+          dyn_string ds;
+
+          ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                         getCatStr(\"para\", \"information\"),
+                                         makeDynString(sMsg,
+                                                       getCatStr(\"para\", \"yes\"),
+                                                       getCatStr(\"para\", \"no\")),
+                                         df, ds);
+          bAsk = TRUE;
+
+          if ( !dynlen(df) || !df[1] )
+            break;
+          else
+            continue;
+        }
+      }
+
+      if ( !trItems.itemExists(id) )
+      {
+        if ( dsST[i] == \"Station\" )
+        {
+          trItems.appendItem(\"\", id, id);
+          trItems.setExpandable(id, TRUE);
+
+          if ( !trCfgSaved.itemExists(dsNP[i]) )
+            trCfgSaved.appendItem(\"\", dsNP[i], dsNP[i]);
+
+          // ???
+          g_parentId = id;
+        }
+        else
+          if ( trItems.itemExists(g_parentId) )
+            trItems.appendItem(g_parentId, id, dsNP[i]);
+      }
+
+      //if ( dsST[i] != \"Variable\" )
+      //  trItems.setText(id, 1, dsST[i]);
+      trItems.setText(id, 1, dsST[i]);
+
+      //if ( dsST[i] == \"Block\" || dsST[i] == \"Array\" )
+      if ( dsST[i] != \"Variable\" && dsST[i] != \"Tag\" )
+        trItems.setExpandable(id, TRUE);
+
+      trItems.setText(id, 2, dsVT[i]);
+
+
+      if ( strpos(dsVT[i], \"[\") >= 0 )
+        dsVT[i] = substr(dsVT[i], 0, strpos(dsVT[i], \"[\"));
+
+      if ( dsST[i] != \"Array\" && ( dsVT[i] == \"String\" || dsVT[i] == \"WString\" ) )
+         diIL[i] = diIL[i] - 2;
+
+      if ( diIL[i] != -1 )
+        trItems.setText(id, 3, diIL[i]);
+
+      trItems.setText(id, 4, (string)dlsNC[i]);
+    }
+  }
+
+  if ( g_project != \"\" && !g_saved )
+  {
+    g_saved = TRUE;
+
+    dyn_string dsRes;
+    for ( int i = 1; i <= tabPlcs.lineCount(); i++ )
+    {
+      getValue(\"tabPlcs\", \"getLineN\", i-1, dsRes);
+
+      if ( g_project == dsRes[1] )
+      {
+        showWaitModule(1);
+        tabPlcs.enabled = 0;
+
+        tabPlcs.selectLineN(i-1);
+        string sSelProj = getCatStr(\"s7plus\", \"tiaSelProj\");
+        string sShortProj = g_project;
+        strreplace(sSelProj, \"$1\", sShortProj);
+        setValue(\"ptProjSelect\", \"text\", sSelProj);
+
+
+        string sReqIdSet = g_requestId;
+        string sReqIdGet;
+
+        dpSetWait(g_s7drvdp + sBRO + \"RequestId\" , \"\");
+        dpSetWait(g_s7drvdp + sBRO + \"GetBranch\" , makeDynString(sReqIdSet, g_project, g_hmiVisible));
+
+        int iCnt = 1;
+
+        while ( sReqIdGet != sReqIdSet && iCnt++ < 600 )
+        {
+          dpGet(g_s7drvdp + sBRO + \"RequestId\" , sReqIdGet);
+
+          // avoid infinite loop - wait for max 30 seconds
+          if ( iCnt >= 600 )
+          {
+            throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to detect station data\"));
+            return;
+          }
+
+          if (iCnt%20 == 0)
+            throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting station data...\"));
+
+          iCnt++;
+          delay(0, 100);
+        }
+
+        if ( sReqIdGet == sReqIdSet )
+        {
+          if ( g_stationshort != \"\" )
+          {
+            dyn_string dsPlcs;
+            dyn_string dsType;
+
+            dpGet(g_s7drvdp + sBRO + \"NodePaths\"   , dsPlcs,
+                  g_s7drvdp + sBRO + \"SystemTypes\" , dsType);
+
+            for ( int i = 1; i <= dynlen(dsPlcs); i++ )
+            {
+              if ( dsType[i] == \"Station\" && !trCfgSaved.itemExists(dsPlcs[i]) )
+                trCfgSaved.appendItem(\"\", dsPlcs[i], dsPlcs[i]);
+
+              dsPlcs[i] = strsplit(dsPlcs[i], \"|\")[1];
+
+              trItems.appendItem(\"\", dsPlcs[i], dsPlcs[i]);
+              trItems.setExpandable(dsPlcs[i], TRUE);
+            }
+
+            if ( dynContains(dsPlcs, g_stationshort) > 0 )
+            {
+              string sSelPlc = getCatStr(\"s7plus\", \"tiaSelStation\");
+              strreplace(sSelPlc, \"$1\", g_stationshort);
+              setMultiValue(\"ptPlcSelect\", \"text\", sSelPlc,
+                            \"ptPlcSaved\", \"text\", g_stationshort);
+
+              trItems.setSelectedItem(g_stationshort, TRUE);
+              trItems.setEnabled(g_stationshort, TRUE);
+
+              g_station = g_project;
+
+              setMultiValue(\"cmdOk\", \"enabled\", TRUE,
+                            \"cmdExport\", \"enabled\", TRUE);
+            }
+          }
+          tabPlcs.enabled = 1;
+
+          break;
+        }
+
+      }
+    }
+  }
+
+  trItems.setSorting(0, 1);
+  trItems.setSorting(1, 1);
+
+  trItems.enabled(TRUE);
+  trItems.updatesEnabled(TRUE);
+
+  showWaitModule(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+work_cb(string sDp1, dyn_string dsGB,
+        string sDp2, dyn_string dsNP)
+{
+  if ( !dynlen(dsNP) && dynlen(dsGB) && dsGB[2] == \"\" )
+  {
+    setMultiValue(\"trItems\",     \"enabled\", FALSE,
+                  \"ptPlcSelect\", \"enabled\", FALSE);
+
+    if ( !trItems.itemExists(\"NoPlc\") )
+      trItems.appendItem(\"\", \"NoPlc\", getCatStr(\"s7plus\", \"tiaNoStation\"));
+  }
+  else
+  {
+    setMultiValue(\"trItems\",     \"enabled\", TRUE,
+                  \"ptPlcSelect\", \"enabled\", TRUE);
+
+    if ( trItems.itemExists(\"NoPlc\") )
+      trItems.removeItem(\"NoPlc\");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+//   cmdHelp.enabled   = !bVisible;
+//   cmdExport.enabled = !bVisible;
+//   cmdOk.enabled     = !bVisible;
+//   cmdCancel.enabled = !bVisible;
+
+  if ( !bVisible )
+    delay(0, 500);
+
+  wait_modul_config.visible = bVisible;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 225
+"trItems"
+""
+1 374.5 170.0000000000001 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+214 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"alternatingRowColors" "bool TRUE"
+"allColumnsShowFocus" "bool TRUE"
+"sortingEnabled" "bool TRUE"
+"showSortIndicator" "bool FALSE"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  274.5 170.0000000000001 973.5 509.0000000000001
+10 TreeWidget
+3
+0 "expanded" "(string id)"
+"  g_parentId = id;
+
+  string sST = trItems.getText(g_parentId, 1);
+  if ( sST == \"Station\" && g_stationshort != g_parentId )
+  {
+    if ( g_station == \"\" )
+      g_station = (g_project!=\"\") ? g_project : ptProjSaved.text;
+
+    ptPlcSaved.text = g_parentId;
+
+    string sMsg = getCatStr(\"s7plus\", \"tiaSelStation\");
+    strreplace(sMsg, \"$1\", ptPlcSaved.text);
+
+    setMultiValue(\"cmdOk\", \"enabled\", (ptPlcSaved.text != \"\"),
+                  \"cmdExport\", \"enabled\", (ptPlcSaved.text != \"\"),
+                  \"ptPlcSelect\", \"text\", sMsg);
+  }
+
+  dyn_string dsChildren = this.children(id);
+  if ( dynlen(dsChildren) )
+    this.removeItems(dsChildren);
+
+  dpSet(g_s7drvdp + sBRO + \"GetBranch\" , makeDynString(g_requestId, g_station + \"|\" + g_parentId, g_hmiVisible));
+
+  this.enabled(TRUE);
+  this.updatesEnabled(TRUE);"
+0 "clicked" "(string id, int column)"
+"  dyn_string dsSplit = strsplit(id, \"|\");
+  
+  if ( dynlen(dsSplit) ) //&& this.parent(id) == \"\" )
+  {
+    ptPlcSaved.text = dsSplit[1];
+    g_parentId = id;
+  }
+  
+  savePlcData();"
+0 "doubleClicked" "(string id, int column)"
+"  savePlcData(TRUE);"
+E25 226
+"tabPlcs"
+""
+1 -16.96596858638745 101.0000000000002 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+215 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"acceptDrops" ""
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  22.5 168.0000000000001 255.5 511.0000000000001
+E"main(int row, string column, string value)
+{
+  if ( g_parentId != \"\" )
+    g_parentId = \"\";
+
+  showWaitModule(1);
+  this.enabled = 0;
+
+  trItems.clear();
+  trCfgSaved.clear();
+
+  string sNoProj = getCatStr(\"s7plus\", \"tiaSelStation\");
+  strreplace(sNoProj, \"$1\", \"\");
+  ptPlcSelect.text = sNoProj;
+
+  dyn_string ds;
+  getValue(\"\", \"getLineN\", row, ds);
+
+  if ( dynlen(ds) && ds[1] != \"\" )
+  {
+    g_station = ds[1];
+
+    string sMsg = getCatStr(\"s7plus\", \"tiaSelProj\");
+    strreplace(sMsg, \"$1\", g_station);
+    setMultiValue(\"ptProjSelect\", \"text\",    sMsg,
+                  \"ptProjSaved\",  \"text\",    g_station,
+                  \"ptPlcSaved\",   \"text\",    \"\",
+                  \"cmdOk\",        \"enabled\", FALSE,
+                  \"cmdExport\",    \"enabled\", FALSE);
+  }
+
+  tabConnect(g_s7drvdp);
+
+  this.enabled = 1;
+  showWaitModule(0);
+}
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ 1 0 1 3 1 "#1" 26 1 0 "s" 4
+LANG:10001 12 TIA projects
+LANG:10004 12 TIA projects
+LANG:10000 12 TIA Projekte
+LANG:10027 18 TIA-проекты
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 "#2" 7 0 0 "s" 4
+LANG:10001 14 File / Version
+LANG:10004 14 File / Version
+LANG:10000 15 Datei / Version
+LANG:10027 23 Файл / Версия
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+92 "#3" 2 0 0 "s" 4
+LANG:10001 4 Path
+LANG:10004 6 路径
+LANG:10000 4 Pfad
+LANG:10027 8 Путь
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+40 
+16 16 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 0 7
+1 0
+30 187
+"frmSymbolics"
+""
+1 127 445 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+187 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.495118337214231 0 11.87547954379473 -180.3800288262073 -5164.588396988655 0 E 127 445 783 480
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 S7+ symbolic
+LANG:10004 10 S7+ 符合
+LANG:10000 12 S7+ Symbolik
+LANG:10027 43 Символьная адресация S7+
+13 194
+"cmdOk"
+""
+1 765 480 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+195 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 49 Save selected project and station and close panel
+LANG:10004 49 Save selected project and station and close panel
+LANG:10000 63 Selektiertes Projekt und Station speichern und Panel schließen
+LANG:10027 99 Сохранить выбранные проект и станцию и закрыть панель
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  788 548 886 576
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  savePlcData(TRUE);
+}
+
+" 0
+ E E E
+13 195
+"cmdCancel"
+""
+1 865 480 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+196 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  888 548 986 576
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  if ( g_newconn )
+    PanelOffReturn(makeDynFloat(0), makeDynString(\"-1\"));
+  else
+    PanelOffReturn(makeDynFloat(0), makeDynString());
+}
+
+
+
+
+
+" 0
+ E E E
+13 196
+"cmdHelp"
+""
+1 -10 480 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+197 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 548 111 576
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"s7plus_symbolic\");
+}
+
+
+
+" 0
+ E E E
+1 270 0 "" 0
+0
+2 231
+"ptPlcSaved"
+""
+1 647.5 144.0000000000001 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+218 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 649.5 146.0000000000001 765 163.0000000000001
+0 2 0 "0s" 0 0 0 64 0 0  649.5 146.0000000000001 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 <Saved station>
+LANG:10004 17 <已保存的站>
+LANG:10000 22 <Gespeicherte Station>
+LANG:10027 15 <Saved station>
+2 234
+"ptProjSelect"
+""
+1 23 143.0000000000001 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+219 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"elideMode" "ElideRight"
+E E 0 1 1 0 1 E U  0 E 25 145.0000000000001 250 162.0000000000001
+0 2 0 "0s" 0 0 0 64 0 0  25 145.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 TIA project:
+LANG:10004 11 TIA 项目:
+LANG:10000 12 TIA Projekt:
+LANG:10027 17 TIA-проект:
+29 238
+"wait_modul_config"
+""
+1 276 194 E E E 1 E 0 E N "_WindowText" E N {63,63,63,131} E E
+ E E
+221 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"frameShape" "enum 0"
+"frameShadow" "enum 48"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  276 194 375 293
+15 Canvas.Canvas.1
+0
+"main()
+{
+  this.backCol(\"_3DFace\");
+  this.ModuleName = \"wait_modul_config\";
+
+  dyn_int diSize = makeDynInt(698, 315);
+  wait_modul_config.size(diSize[1], diSize[2]);
+
+  RootPanelOnModule(\"vision/wf/objects/Ewo_PlsWait.pnl\",
+                    \"wait_modul_config\",
+                    \"wait_modul_config\",
+                    makeDynString(\"$1:\"+diSize[1],
+                                  \"$2:\"+diSize[2]));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+6 244
+"rectS7TiaSymbolic"
+""
+1 80 25 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+225 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.144 0 1.557142857142858 -92.51999999999998 -39.92857142857145 1 E 80 25 955 95
+2 245
+"ptS7TiaSymbolic"
+""
+1 25 25 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+226 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1 0 0.9999999999999999 -10 -14.99999999999999 0 E 25 25 172 40
+0 2 2 "0s" 0 0 0 192 0 0  25 25 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 22 S7+ symbolic selection
+LANG:10004 16 S7+ 符号选择
+LANG:10000 20 S7+ Symbolik-Auswahl
+LANG:10027 54 Выбор символьной адресации S7+
+2 249
+"ptS7TiaSymbolicDetails"
+""
+1 42.75 29 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+228 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Maximum Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 42.75 29 921 98
+0 2 2 "0s" 0 0 0 64 0 0  42.75 29 5
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 116 Please start with selecting a project from the list 'TIA projects'. Projects must be stored at ../data/TIA_Projects.
+LANG:10004 99 请启动已经从TIA projects里面选择好的项目。项目必须存储在../data/TIA_Projects.
+LANG:10000 156 Wählen Sie zunächst eines der verfügbaren Projekte aus der Liste 'TIA Projekte'. Die Projekte müssen dafür unter ../data/TIA_Projects gespeichert sein.
+LANG:10027 208 В качестве первого шага выберите проект из списка 'TIA-проекты'. Проекты должны находиться в директории ../data/TIA_Projects.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 123 Then select one of the stations (PLCs) available in this project. Expand the tree view to see the elements of this station.
+LANG:10004 57 之后，选择其中一个PLC站。打开项目树视图
+LANG:10000 147 Wählen Sie anschließend eine im Projekt vorhandene Station (SPS). Durch Aufklappen der Baumansicht können Sie die Elemente der Station anzeigen.
+LANG:10027 217 Далее выберите станцию (ПЛК), доступную для данного проекта. Для просмотра элементов данной станции разверните дерево.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 85 For assigning an address please use the address configuration of a datapoint element.
+LANG:10004 50 ，请使用地址配置DP来分配一个地址。
+LANG:10000 106 Die Zuweisung einer Adresse müssen Sie in der Adress-Konfiguration eines Datenpunktelements durchführen.
+LANG:10027 204 Для назначения адреса необходимо настроить конфигурационный элемент Периферии (адреса) элемента точки данных.
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+2 254
+"ptTiaNoPlcs"
+""
+1 396.25 213.0000000000001 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+231 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 398.25 215.0000000000001 643.25 232.0000000000001
+0 2 0 "0s" 0 0 0 64 0 0  398.25 215.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 No PLCs found!
+LANG:10004 14 No PLCs found!
+LANG:10000 19 Keine SPS gefunden!
+LANG:10027 27 ПЛК не найдены!
+2 253
+"ptTiaNoProjs"
+""
+1 46.5 213.0000000000001 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+230 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 48.5 215.0000000000001 293.5 232.0000000000001
+0 2 0 "0s" 0 0 0 64 0 0  48.5 215.0000000000001 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 No TIA projects found!
+LANG:10004 22 No TIA projects found!
+LANG:10000 28 Keine TIA Projekte gefunden!
+LANG:10027 39 TIA-проекты не найдены!
+2 257
+"ptProjSaved"
+""
+1 137.5 145.0000000000001 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+232 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 139.5 147.0000000000001 255 164.0000000000001
+0 2 0 "0s" 0 0 0 64 0 0  139.5 147.0000000000001 1
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 <Saved project>
+LANG:10004 14 <保存项目>
+LANG:10000 20 <Gespeichertes Proj>
+LANG:10027 15 <Saved project>
+2 235
+"ptPlcSelect"
+""
+1 362.5 113 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+220 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"elideMode" "ElideRight"
+E E 0 1 1 0 1 E 0.9979999999999992 0 1 -88.77499999999969 30.00000000000006 0 E 364.5 115 680 132
+0 2 0 "0s" 0 0 0 64 0 0  364.5 115 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Station name:
+LANG:10004 9 站点名
+LANG:10000 13 Stationsname:
+LANG:10027 22 Имя станции:
+20 260
+"cbHmiVisible"
+""
+1 96.36632783789952 692.3690476190477 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+233 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 74 Show only elemets for which this property has been set in the TIA project.
+LANG:10004 74 Show only elemets for which this property has been set in the TIA project.
+LANG:10000 79 Nur Elemente anzeigen, für die diese Eigenschaft im TIA-Projekt gesetzt wurde.
+LANG:10027 144 Отображать только те элементы, для которых данное свойство задано в TIA-проекте.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  502.5 552.5 525.5 575.5
+1
+T 
+4
+LANG:10001 26 Visible in HMI engineering
+LANG:10004 26 Visible in HMI engineering
+LANG:10000 27 Sichtbar in HMI Engineering
+LANG:10027 53 Отображение в Разработке ЧМИ
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  showWaitModule(1);
+  this.enabled = 0;
+  tabPlcs.enabled = 0;
+
+  trItems.clear();
+
+  if ( state )
+    g_hmiVisible = 1;
+  else
+    g_hmiVisible = 0;
+
+  tabConnect(g_s7drvdp);
+
+  tabPlcs.enabled = 1;
+  this.enabled = 1;
+  showWaitModule(0);
+}
+
+
+
+
+
+
+" 0
+29 266
+"trCfgSaved"
+""
+1 299 592.5 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+237 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  480 554.5 499 573.5
+10 TreeWidget
+0
+E13 269
+"cmdExport"
+""
+1 611 -422 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+238 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 65 Exports the content of the selected TIA project into a text file.
+LANG:10004 65 Exports the content of the selected TIA project into a text file.
+LANG:10000 68 Exportiert den Inhalt des gewählten TIA-Projekts in eine Textdatei.
+LANG:10027 108 Экспорт содержимого выбранного TIA-проекта в текстовый файл
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  878 135 976 163
+
+T 
+4
+LANG:10001 6 Export
+LANG:10004 6 导出
+LANG:10000 6 Export
+LANG:10027 14 Экспорт
+"main()
+{
+  if ( g_project == \"\" )
+    g_project = ptProjSaved.text;
+
+  uint uiDrvNum;
+  string sStation = ptPlcSaved.text;
+
+  // 26.09.2016 gstrauhs
+  // return if the required driver is not running
+//   dpGet(sConn + sCFG + \"StationName\" , sStation,
+//         sConn + sCFG + \"DrvNumber\"   , uiDrvNum);
+
+//   dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+//   if ( !dynContains(drvRunning, uiDrvNum) )
+//   {
+//     string sSymMsg = getCatStr(\"s7plus\", \"tiaDrvNumForSym\");
+//     strreplace(sSymMsg, \"$1\", uiDrvNum);
+//
+//     ChildPanelOnCentralModal( \"vision/MessageWarning\",
+//                                getCatStr(\"para\",\"warning\"),
+//                                makeDynString(sSymMsg));
+//     return;
+//   }
+
+  if ( sStation == \"\" )
+  {
+    ChildPanelOnCentralModal( \"vision/MessageWarning\",
+                               getCatStr(\"para\",\"warning\"),
+                               getCatStr(\"s7plus\", \"tiaNoProjLoaded\"));
+    return;
+  }
+
+  int        iTemp;
+  file       fExport, fTemp;
+  string     sFileName, sTemp;
+  dyn_string dsTemp;
+
+  fileSelector(sFileName, DATA_PATH, FALSE, \"*.txt\", FALSE);
+
+  if ( sFileName == \"\" || sFileName == \".txt\" )
+    return;
+
+  if ( strpos(sFileName, \".txt\") < 1 )
+    sFileName += \".txt\";
+
+  if ( access(sFileName, F_OK) == 0 )
+  {
+    dyn_float  dfRet;
+    dyn_string dsRet;
+
+    string sMsg = getCatStr(\"general\", \"fexist\");
+    strreplace(sMsg, \"§\", \"\\n\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                   getCatStr(\"general\",\"information\"),
+                                   makeDynString(sMsg,
+                                                 getCatStr(\"general\", \"yes\"),
+                                                 getCatStr(\"general\", \"no\")),
+                                   dfRet, dsRet);
+
+    if ( !dynlen(dsRet) || ( dynlen(dfRet) && dfRet[1] == 0 ) )
+      return;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////
+  // export start
+
+  openProgressBar(\"Export TIA project data\", \"export.gif\", \"Export in progress\", \"\", \"\", 1);
+
+  fExport = fopen(sFileName, \"w+\");
+
+  fprintf(fExport, \"%s\\n\", \" \");  //write a '\\n', otherwise the first row is missing in the file
+
+  dyn_string dsNP;
+  dyn_string dsST;
+  dyn_string dsVT;
+  dyn_int diIL;
+  dyn_langString dlsNC;
+
+  string sReqIdSet = \"RequestExport_\" + g_project;
+
+  dpSetWait(g_s7drvdp + sBRO + \"RequestId\" , \"\");
+  dpSetWait(g_s7drvdp + sBRO + \"GetBranch\" , makeDynString(sReqIdSet, g_project, 1, 0));
+
+  string sReqIdGet;
+
+  int cnt = 1;
+
+  while ( sReqIdGet != sReqIdSet && cnt++ < 600 )
+  {
+    dpGet(g_s7drvdp + sBRO + \"RequestId\" , sReqIdGet);
+
+    // avoid infinite loop - wait for max 30 seconds
+    if ( cnt >= 600 )
+    {
+      throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to export TIA project data\"));
+      return;
+    }
+
+    if ( cnt%20 == 0 )
+      throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Exporting TIA project data ...\"));
+
+    cnt++;
+    delay(0, 100);
+  }
+
+  if ( sReqIdGet == sReqIdSet )
+  {
+    dpGet(g_s7drvdp + sBRO + \"NodePaths\"    , dsNP,
+          g_s7drvdp + sBRO + \"SystemTypes\"  , dsST,
+          g_s7drvdp + sBRO + \"ValueTypes\"   , dsVT,
+          g_s7drvdp + sBRO + \"ItemLengths\"  , diIL,
+          g_s7drvdp + sBRO + \"NodeComments\" , dlsNC);
+
+    string sFirst =  \"Station data;\\tSystem types;\\tValue types;\\tItem lengths;\\tDescription;\";
+    string sSecond = \"------------;\\t------------;\\t-----------;\\t------------;\\t-----------;\";
+    fprintf(fExport, \"%s\\n\", sFirst);
+    fprintf(fExport, \"%s\\n\", sSecond);
+
+    for ( int i = 1; i <= dynlen(dsNP); i++ )
+    {
+      string sNC = (string)dlsNC[i];
+      strreplace(sNC, \"\\r\", \"\");
+      strreplace(sNC, \"\\n\", \"\");
+
+      string sLine = dsNP[i] + \";\\t\" + dsST[i] + \";\\t\" + dsVT[i] + \";\\t\" + diIL[i] + \";\\t\" + sNC + \";\";
+      fprintf(fExport, \"%s\\n\", sLine);
+    }
+
+    int iErr = ferror(fExport);
+
+    if ( iErr != 0 )
+      throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Export of TIA symbolic data failed with: \"+iErr+\"!\"));
+    else
+      throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"TIA symbolic data was exported successfully!\"));
+
+    fflush(fExport);
+    fclose(fExport);
+
+    // export end
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+
+    delay(1);
+
+    while ( access(sFileName, F_OK) != 0 )
+      delay(0,1);
+
+    fTemp = fopen(sFileName, \"r\");
+    int iTemp = 1;
+
+    while ( !feof(fTemp) )
+    {
+      fgets(sTemp, 65535, fTemp);
+      strreplace(sTemp, \"\\\"\", \"\");
+      dsTemp[iTemp] = sTemp;
+      iTemp++;
+    }
+
+    fflush(fTemp);
+    fclose(fTemp);
+    dynRemove(dsTemp, 1);
+
+    delay(1);
+
+    while ( access(sFileName, F_OK) != 0 )
+      delay(0,1);
+
+    fTemp = fopen(sFileName, \"w\");
+
+    for ( int i = 1; i <= dynlen(dsTemp); i++)
+      fputs(dsTemp[i], fTemp);
+
+    fflush(fTemp);
+    fclose(fTemp);
+
+    if ( isProgressBarOpen() )
+      closeProgressBar();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 1 315 T 194 2.002004008016032 0 1 -2.002004008016032 225
+0
+0

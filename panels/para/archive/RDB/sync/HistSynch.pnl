@@ -1,0 +1,876 @@
+V 13
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 612 452 N "_3DFace" 0
+"//#uses \"rdb.ctl\" //only for gDebug
+
+main()
+{
+  bool bAuto;
+  
+  panelEnable(false);
+
+  dpGet(\"HistSynch.Auto\", bAuto);
+  if(bAuto)
+    rbxAutoSync.number = 0;
+  else
+    rbxAutoSync.number = 1;
+  
+  tblSyncs.tableMode = TABLE_SELECT_BROWSE;
+  tblSyncs.selectByClick = TABLE_SELECT_LINE;
+
+  if (gDebug)
+  {
+    int err;
+    string sDataSource, sUserId, sPass, sConnString;
+    dyn_float dfRet;
+    dyn_string dsRet;
+
+    dpGet(\"HistSynch.dbName\", sDataSource, \"HistSynch.dbUser\", sUserId, \"HistSynch.dbPass\", sPass);
+    err = rdbOpen(db, \"Provider=msdaora;Data Source=\" + sDataSource + \";User Id=\" + sUserId + \";Password=\" + sPass + \";\");
+    if(err != 0)
+    {
+      rdbClose(db);
+      ChildPanelOnCentralModalReturn(\"dbLogin.pnl\", \"Login\",
+                                     makeDynString(\"$Source:\" + sDataSource, \"$UserId:\" + sUserId, \"$Password:\" + sPass),
+                                     dfRet, dsRet);
+    
+      if(dynlen(dfRet) == 1 && dfRet[1] == 1 && dynlen(dsRet) == 3)
+      {
+        err = rdbOpen(db, \"Provider=msdaora;Data Source=\" + dsRet[1] + \";User Id=\" + dsRet[2] + \";Password=\" + dsRet[3] + \";\");
+        if(err != 0)
+        {
+          ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\", makeDynString(\"$1:\" + getCatStr(\"Sync\", \"LogOnDenied\")));
+        }
+        else
+        {
+          refresh();
+          panelEnable();
+        }
+      }
+    }
+  }
+  refresh();
+  panelEnable();
+}
+" 0
+ E E E E 1 -1 -1 0  60 70
+""0  1
+E "dbConnection db;
+bool otherSys;
+bool done;
+string MCCSys,DRCCSys;
+string dp1,dp2,dp3,dp4,dp5;
+string g_sWhere;
+const int SYNC_INFO        =  1;
+const int SYNC_TODO        =  2;
+const int SYNC_BUSY_FAILED = 10;
+const int SYNC_FAILED1     = 11;
+const int SYNC_FAILED2     = 12;
+const int SYNC_BUSY        = 25;
+const int SYNC_DONE        = 30;
+
+bool gDebug = false;
+
+//------------------------------------------------------------------------
+void panelEnable(bool bEnabled = true)
+{
+  bool bAuto;
+  dpGet(\"HistSynch.Auto\", bAuto);
+  
+  if(bEnabled)
+    delay(0, 100);
+    
+  cmdRefresh.enabled = bEnabled;
+  tblSyncs.enabled = bEnabled;
+  cmdLogin.enabled = bEnabled;
+  rbxAutoSync.enabled = bEnabled;
+  cmdFilter.enabled = bEnabled;
+  
+  cmdDelete.enabled = bEnabled && !bAuto;
+  cmdForward.enabled = bEnabled && !bAuto;
+}
+//------------------------------------------------------------------------
+int sqlSelect(string sSql, dyn_dyn_anytype &ddaDat)
+{
+  int iErr;
+  if (gDebug)
+    iErr = rdbSelectRC(db, sSql, ddaDat);
+  else
+    iErr = runRealSQLQuery(sSql, ddaDat);
+  
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN(sSql, (string)dynlen(ddaDat)+\" rows selected\");
+
+  if(iErr)
+  {
+    DebugN(\"SELECT Statement not successfully executed\", iErr, sSql);
+    dynClear(ddaDat);
+    return -1;
+  }
+  
+  return 0;
+}
+//------------------------------------------------------------------------
+int sqlExecute(string sSql)
+{
+  int iErr;
+
+  if (gDebug)
+    iErr=rdbExecute(db, sSql);
+  else
+    iErr = runRealSQL(sSql);
+
+  if(iErr)
+  {
+//   DebugN(\"Command not successfully executed\", iErr, sSql);
+    //wegen \"WARNING,    54, Unexpected state, Database query has been cancelled (too much data?)\" auskommentiert
+   DebugN(sSql);
+   return -1;
+  }
+  return 0;
+}
+//------------------------------------------------------------------------
+void refresh()
+{
+  string sSql;
+  dyn_dyn_anytype ddaDat;
+  
+  tblSyncs.deleteAllLines();
+  
+
+  // Status table
+//  sSql = \"SELECT bulk_id, sys_id, group_name, status , to_char(status_time, 'DD.MM.YYYY HH24:MI:SS') FROM statusfwd \" +
+  sSql = \"SELECT bulk_id, sys_id, group_name, status, status_time FROM vstatusfwd \" +
+          (g_sWhere == \"\" ? \"\" : \"WHERE \" + g_sWhere) + \" ORDER BY status, status_time\";
+  
+  int err = sqlSelect(sSql, ddaDat);
+  
+  if (err)
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\", makeDynString(getCatStr(\"Sync\",\"errordbquery\")));
+  else if (dynlen(ddaDat) == 0) //check if table is empty or if it is locked (ORA-01591)
+  {
+    sSql = \"SELECT count(*) FROM vstatusfwd \" + (g_sWhere == \"\" ? \"\" : \"WHERE \" + g_sWhere);
+    sqlSelect(sSql, ddaDat);
+    if (dynlen(ddaDat) == 0) // --> probably locking error
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\", makeDynString(getCatStr(\"Sync\",\"errorlock\")));
+    else if (ddaDat[1][1] == 0) // --> empty table
+      //ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\", makeDynString(getCatStr(\"Sync\",\"empty\")));
+      DebugN(getCatStr(\"Sync\",\"empty\"));
+    else // --> error because latest two select-results contradict
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\", \"\", makeDynString(getCatStr(\"Sync\",\"errorunknown\")));
+  }
+  else  //fill table
+    for(int i = 1; i <= dynlen(ddaDat); i++)
+      tblSyncs.appendLine(\"bulkid\", ddaDat[i][1], \"sysid\", ddaDat[i][2], \"groupName\", ddaDat[i][3],
+                          \"status\", getStatusName(ddaDat[i][4]), \"statTime\", ddaDat[i][5]);
+
+  // Autosync radio buttons
+  sSql = \"SELECT job_name, enabled FROM user_scheduler_jobs WHERE job_name = 'J_SYNCFWD'\";
+
+  err = sqlSelect(sSql, ddaDat);
+
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN(ddaDat);
+
+  if (!err)
+  {
+    if(ddaDat[1][2] == \"TRUE\")
+      rbxAutoSync.number = 0;
+    else
+      rbxAutoSync.number = 1;
+  }
+}
+//------------------------------------------------------------------------
+string getStatusName(int iStatusId)
+{
+  string sRet;
+  
+  switch(iStatusId)
+  {
+    case SYNC_INFO:
+      sRet = \"INFO\";
+      break;
+    case SYNC_TODO:
+      sRet = \"TODO\";
+      break;
+    case SYNC_BUSY:
+      sRet = \"BUSY\";
+      break;
+    case SYNC_BUSY_FAILED:
+      sRet = \"BUSY FAILED\";
+      break;
+    case SYNC_FAILED1:
+      sRet = \"FAILED 1\";
+      break;
+    case SYNC_FAILED2:
+      sRet = \"FAILED 2\";
+      break;
+    case SYNC_DONE:
+      sRet = \"DONE\";
+      break;
+  }
+  
+  return sRet;
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  if (gDebug)
+    rdbClose(db);
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"tblSyncs"
+""
+1 20 40 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"selectionChangedCB" "synchronized main()
+{
+  int iValue;
+  dyn_int diLines = tblSyncs.getSelectedLines;
+  
+  if(dynlen(diLines) == 1)
+  {
+    iValue = tblSyncs.cellValueRC(diLines[1], \"status\");
+    switch(iValue)
+    {
+      case SYNC_INFO:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_INFO\"));
+        break;
+      case SYNC_TODO:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_TODO\"));
+        break;
+      case SYNC_BUSY:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_BUSY\"));
+        break;
+      case SYNC_BUSY_FAILED:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_BUSY_FAILED\"));
+        break;
+      case SYNC_FAILED1:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_FAILED1\"));
+        break;
+      case SYNC_FAILED2:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_FAILED2\"));
+        break;
+      case SYNC_DONE:
+        tblSyncs.namedColumnToolTipText(\"status\", getCatStr(\"Sync\", \"SYNC_DONE\"));
+        break;
+    }
+  }
+}
+
+"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 38 592 373
+EE 1 0 1 5 0 "bulkid" 3 1 0 "s" 4
+LANG:10001 7 Bulk-ID
+LANG:10004 8 批量ID
+LANG:10000 7 Bulk-ID
+LANG:10027 21 ИД процесса
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "sysid" 8 1 0 "s" 4
+LANG:10001 6 Sys-ID
+LANG:10004 6 SYS-ID
+LANG:10000 6 Sys-ID
+LANG:10027 19 ИД системы
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "groupName" 8 1 0 "s" 4
+LANG:10001 5 Group
+LANG:10004 3 组
+LANG:10000 6 Gruppe
+LANG:10027 12 Группа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "statTime" 12 1 0 "s" 4
+LANG:10001 11 Status time
+LANG:10004 12 状态时间
+LANG:10000 10 Statuszeit
+LANG:10027 29 Время состояния
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "status" 8 1 0 "s" 4
+LANG:10001 5 State
+LANG:10004 6 状态
+LANG:10000 6 Status
+LANG:10027 18 Состояние
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 
+18 18 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+30 3
+"FRAME1"
+""
+1 20 23 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 1.438194790111167 0 0.8481262327416174 -18.76389580222334 -9.506903353057199 0 E 20 23 431 531
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 26 Historical Synchronisation
+LANG:10004 12 历史同步
+LANG:10000 27 Historische Synchronisation
+LANG:10027 49 Синхр. исторических данных
+13 9
+"cmdForward"
+""
+1 70 388 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Forward current row
+LANG:10004 15 转发当前行
+LANG:10000 31 Ausgewählte Zeile weiterleiten
+LANG:10027 46 Переслать текущую строку
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  68 388 107 427
+
+P 
+13434828
+"pictures/swapinout_24.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  panelEnable(false);
+  dyn_int diLines = tblSyncs.getSelectedLines();
+  string sSql;
+  string sBulkId, sSysId, sGroupName;
+  int    ret;
+  
+  // cleaning everything done and older than 60 minutes and forwarding of configuration data
+  sSql = \"begin\" +
+         \"  ArcUtils.setRunningJobNr('MANUAL');\" +
+         \"  syncForwardLink.cleanQueue;\" +
+         \"  syncForwardLink.fwdElements;\" +
+         \"end;\";
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN(sSql);
+  ret = sqlExecute(sSql);
+
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugN((string)dynlen(diLines)+\" lines selected.\");
+
+  for(int i = 1; i <= dynlen(diLines); i++)
+  {
+    sBulkId    = tblSyncs.cellValueRC(diLines[i], \"bulkid\");
+    sSysId     = tblSyncs.cellValueRC(diLines[i], \"sysid\");
+    sGroupName = tblSyncs.cellValueRC(diLines[i], \"groupName\");
+    sSql = \"begin\" +
+           \"  ArcUtils.setRunningJobNr('MANUAL');\" +
+           \"  syncForwardLink.doForward(\" + sBulkId + \",\" +
+           \"                            \" + sSysId + \",\" +
+           \"                           '\" + sGroupName + \"');\" +
+           \"end;\";
+    if (isDbgFlag(DBGFLAG_IMPEXP))
+      DebugN(sSql);
+    ret = sqlExecute(sSql);
+  }
+  
+  refresh();
+
+  panelEnable();
+}
+
+" 0
+ E E E
+13 15
+"cmdDelete"
+""
+1 20 388 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Delete current row
+LANG:10004 15 删除当前行
+LANG:10000 27 Ausgewählte Zeile löschen
+LANG:10027 46 Удалить выбранную строку
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 388 57 427
+
+P 
+13434828
+"pictures/delete_24.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  panelEnable(false);
+  string sBulkId, sSysId;
+  dyn_int diLines = tblSyncs.getSelectedLines();
+  string sSql;
+  
+  for(int i = 1; i <= dynlen(diLines); i++)
+  {
+    sBulkId = tblSyncs.cellValueRC(diLines[i], \"bulkid\");
+    sSysId = tblSyncs.cellValueRC(diLines[i], \"sysid\");
+    if (isDbgFlag(DBGFLAG_IMPEXP))
+      DebugN(\"syncForward.fwdDeleteQueue(\" + sBulkId + \",\" + sSysId + \");\");
+    sSql = \"begin\" +
+           \"  syncForward.fwdDeleteQueue(\" + sBulkId + \",\" + sSysId + \");\" +
+           \"end;\";
+    sqlExecute(sSql);
+  } 
+  
+  refresh();
+ 
+  panelEnable();
+}
+
+
+" 0
+ E E E
+13 25
+"cmdRefresh"
+""
+1 120 388 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 13 Aktualisieren
+LANG:10027 16 Обновить
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  118 388 157 427
+
+P 
+13434828
+"pictures/refresh_32.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  panelEnable(false);
+  refresh();
+  panelEnable();
+}" 0
+ E E E
+13 26
+"cmdClose"
+""
+1 555 388 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+
+0
+4
+LANG:10001 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10004 33 MS Shell Dlg,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  553 388 592 427
+
+P 
+4294967295
+"pictures/exit_24.bmp"
+3
+LANG:10000 5 Close
+LANG:10001 0 
+LANG:10027 14 Закрыть
+"main()
+{
+  if (gDebug)
+    rdbClose(db);
+  PanelOff();
+}" 0
+ E E E
+13 27
+"cmdLogin"
+""
+1 505 390 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 21 Opens the login panel
+LANG:10004 18 打开登录面板
+LANG:10000 22 Öffnet das Loginpanel
+LANG:10027 52 Открыть окно входа в систему
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  503 388 542 427
+
+P 
+4294967295
+"pictures/HistSynch/login.png"
+4
+LANG:10001 12 PUSH_BUTTON1
+LANG:10004 12 PUSH_BUTTON1
+LANG:10000 12 PUSH_BUTTON1
+LANG:10027 12 PUSH_BUTTON1
+"main()
+{
+  int err;
+  dyn_float dfRet;
+  dyn_string dsRet;
+  
+  rdbClose(db);
+  ChildPanelOnCentralModalReturn(\"para/archive/RDB/sync/dbLogin.pnl\", \"Login\",
+                                 makeDynString(), dfRet, dsRet);
+  
+  if(dynlen(dfRet) == 1 && dfRet[1] == 1 && dynlen(dsRet) == 3)
+  {
+    err = rdbOpen(db, \"Provider=msdaora;Data Source=\" + dsRet[1] + \";User Id=\" + dsRet[2] + \";Password=\" + dsRet[3] + \";\");
+    if(err != 0)
+    {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", \"\", makeDynString(\"$1:\" + getCatStr(\"Sync\", \"LogOnDenied\")));
+      panelEnable(false);
+      cmdLogin.enabled = true;
+    }
+    else
+      panelEnable();
+  }
+  else
+  {
+    panelEnable(false);
+    cmdLogin.enabled = true;
+  }
+}
+
+
+" 0
+ E E "main()
+{
+  if (gDebug)
+    this.visible = true;
+}" 0
+
+13 28
+"cmdFilter"
+""
+1 170 390 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Opens the filter panel
+LANG:10004 21 打开过滤器面板
+LANG:10000 23 Öffnet das Filterpanel
+LANG:10027 38 Открыть окно фильтра
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  168 388 207 427
+
+P 
+4294967295
+"pictures/find.png"
+4
+LANG:10001 12 PUSH_BUTTON2
+LANG:10004 12 PUSH_BUTTON2
+LANG:10000 12 PUSH_BUTTON2
+LANG:10027 12 PUSH_BUTTON2
+"main()
+{
+  panelEnable(false);
+  dyn_float dfRet;
+  dyn_string dsRet;
+  
+  ChildPanelOnCentralModalReturn(\"para/archive/RDB/sync/dbFilter.pnl\", \"Filter\", makeDynString(), dfRet, dsRet);
+  
+  if(dynlen(dfRet) == 1 && dynlen(dsRet) == 4 && dfRet[1] == 1)
+  {
+    g_sWhere = \"\";
+    g_sWhere += (dsRet[1] != \"%\" ? \"group_name LIKE '\" + dsRet[1] + \"' AND \" : \"\");
+    g_sWhere += (dsRet[2] != \"0\" ? \"status = \" + dsRet[2] + \" AND \" : \"\");
+//    g_sWhere += (dsRet[3] != \"\" && dsRet[4] != \"\" ? \"status_time BETWEEN TO_DATE('\" + dsRet[3] + \"', 'YYYY.MM.DD HH24:MI:SS') \" +
+//                                                                    \"AND TO_DATE('\" + dsRet[4] + \"', 'YYYY.MM.DD HH24:MI:SS') AND \" : \"\");
+//  date comes as string because of interface problems -> string comparison, valid because of descending time format 'YYYY.MM.DD HH24:MI:SS'
+    g_sWhere += (dsRet[3] != \"\" && dsRet[4] != \"\" ? \"status_time BETWEEN '\" + dsRet[3] + \"' AND '\" + dsRet[4] + \"' AND \" : \"\");
+    g_sWhere = strrtrim(g_sWhere, \" AND\");
+  }
+
+  refresh();
+  
+  panelEnable();
+}
+" 0
+ E E E
+19 29
+"rbxAutoSync"
+""
+1 226 391 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  224 389 434 427
+2
+T 
+4
+LANG:10001 23 Automatic Synchronizing
+LANG:10004 12 自动同步
+LANG:10000 28 Automatische Synchronisation
+LANG:10027 55 Автоматическая синхронизация
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Manual Synchronizing
+LANG:10004 12 手动同步
+LANG:10000 24 Manuelle Synchronisation
+LANG:10027 37 Ручная сихронизация
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  panelEnable(false);
+
+  dyn_float dfRet;
+  dyn_string dsRet;
+  bool bAuto;
+  string sSql;
+  int iErr;
+  
+  if(button == 1)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", \"warning\",
+                                   makeDynString(\"$1:\" + getCatStr(\"Sync\", \"manual\"),
+                                                 \"$2:\" + getCatStr(\"Sync\", \"yes\"),
+                                                 \"$3:\" + getCatStr(\"Sync\", \"no\")), dfRet, dsRet);
+    
+    if(dynlen(dfRet) == 1 && dfRet[1] == 1)
+      dpSet(\"HistSynch.Auto\", false);
+    else if(dynlen(dfRet) == 1 && dfRet[1] == 0)
+    {
+      dpSet(\"HistSynch.Auto\", true);
+      rbxAutoSync.number = 0;
+    }
+  }
+  else
+    dpSet(\"HistSynch.Auto\", true);
+  
+  dpGet(\"HistSynch.Auto\", bAuto);
+  
+  sSql = \"begin\" +
+         \"  syncForwardLink.activateAutosync(\" + (string)bAuto + \");\" +
+         \"end;\";
+  
+  iErr = sqlExecute(sSql);
+  
+  panelEnable();
+}" 0
+
+13 30
+"PUSH_BUTTON1"
+""
+1 410 430 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Opens the filter panel
+LANG:10004 21 打开过滤器面板
+LANG:10000 23 Öffnet das Filterpanel
+LANG:10027 42 Открывает окно фильтра
+
+1
+"isToggle" ""
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 34 MS Shell Dlg 2,-1,9,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  408 428 477 452
+
+T 
+4
+LANG:10001 15 Test Standalone
+LANG:10004 12 独立测试
+LANG:10000 15 Test Standalone
+LANG:10027 15 Test Standalone
+"main()
+{
+  gDebug = !gDebug;
+  panelEnable();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+0

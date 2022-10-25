@@ -1,0 +1,365 @@
+V 13
+4
+LANG:10001 22 Wizard Export & Import
+LANG:10004 19 导入&导出向导
+LANG:10000 22 Wizard Export & Import
+LANG:10027 22 Wizard Export & Import
+PANEL,-1 -1 390 141 N "WF_PanelBackground" 2
+"$1"
+"$2"
+"main()
+{
+  delay(0,50);
+  
+  WIZ_NAME = $1;
+  WIZ_ACTION = $2;//TRUE == ACTION_IMPORT
+  
+  if(WIZ_ACTION == ACTION_EXPORT)// == 1
+  {
+    if(WIZ_LASTDIR == \"\")
+      WIZ_LASTDIR = getPath(DATA_REL_PATH);
+    WIZ_FILE = WIZ_LASTDIR+WIZ_NAME+\".WZ\";
+  
+    bExport = TRUE;
+    bImport = FALSE;
+
+    bool bSaveEnabled = wf_panelGetEnable(WIZ_FILE);
+    bool bSaveVisible = wf_panelGetVisible();
+    text.text = getCatStr(\"wfGeneral\",\"hdrExport\");
+  }
+  else if(WIZ_ACTION == ACTION_IMPORT)// == 2
+  {    
+    bExport = FALSE;
+    bImport = TRUE;
+
+    if(WIZ_LASTDIR == \"\")
+      WIZ_LASTDIR = getPath(DATA_REL_PATH);
+
+    bool bSaveEnabled = wf_panelGetEnable();
+    bool bSaveVisible = wf_panelGetVisible();
+    text.text = getCatStr(\"wfGeneral\",\"hdrImport\");
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  251 55
+""0  1
+E "
+bool bImport;
+bool bExport;
+bool bSaveEnabled;
+
+const int ACTION_EXPORT = 1;
+const int ACTION_IMPORT = 2;
+
+bool wf_panelGetVisible()
+{
+  setValue(\"bottomBar.btn_BottomBar_save\",\"text\",(bExport?getCatStr(\"wfGeneral\",\"export\"):getCatStr(\"wfGeneral\",\"import\")));
+  setValue(\"bottomBar.btn_BottomBar_cancel\",\"text\",getCatStr(\"wfGeneral\",\"close\"));
+  setValue(\"bottomBar.btn_BottomBar_save\",\"visible\",TRUE);
+  setValue(\"bottomBar.btn_BottomBar_cancel\",\"visible\",TRUE);
+  return TRUE;
+}
+
+bool wf_panelGetEnable(string s = \"\")
+{
+  filePath.text = s;
+  setValue(\"bottomBar.btn_BottomBar_save\",\"enabled\",(filePath.text() != \"\"));
+  setValue(\"bottomBar.btn_BottomBar_cancel\",\"enabled\",TRUE);
+  return TRUE;
+}
+
+wf_import()
+{
+  string fileName;
+  int err;
+  
+  if(!isdir(WIZ_LASTDIR))
+    WIZ_LASTDIR = getPath(DATA_REL_PATH);
+
+  if(fileSelector(fileName,WIZ_LASTDIR,FALSE,\"*.WZ\",FALSE) < 0)
+  {
+    //Fehlerbehandlung
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"nofile\")));
+    bSaveEnabled = wf_panelGetEnable();
+    return;
+  }
+  else
+  {
+    if(fileName == \"\")//File Selector abgebrochen
+    {
+      filePath.text = \"\";
+      bSaveEnabled = wf_panelGetEnable();
+      return;
+    }
+    if(access(fileName,F_OK) != 0)//Datei nicht vorhanden
+    {
+      ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"fnotexists\")));
+      filePath.text = \"\";
+      bSaveEnabled = wf_panelGetEnable();
+      return;
+    }
+  }
+  filePath.text = WIZ_FILE = fileName;
+  WIZ_LASTDIR = fileName;
+  strreplace(WIZ_LASTDIR,baseName(fileName),\"\");
+  //Import Button freigeben
+  bool bSaveEnabled = wf_panelGetEnable(WIZ_FILE);
+}
+
+wf_export()
+{
+  string fileName;
+  int err;
+  
+  if(!isdir(WIZ_LASTDIR))
+    WIZ_LASTDIR = getPath(DATA_REL_PATH);
+  if(fileSelector(fileName,WIZ_LASTDIR,FALSE,\"*.WZ\",FALSE) < 0)
+  {
+    //Fehlerbehandlung
+    ChildPanelOnCentralModal(\"vision/MessageInfo1\",getCatStr(\"general\",\"information\"),makeDynString(getCatStr(\"wfErrors\",\"nofile\")));
+    bSaveEnabled = wf_panelGetEnable();
+    return;
+  }
+  else
+  {
+    if(fileName == \"\")//File Selector abgebrochen
+    {
+      filePath.text = \"\";
+      bSaveEnabled = wf_panelGetEnable();
+      return;
+    }
+    if(getExt(fileName) == \"\")
+      fileName += \".WZ\";
+    //Prüfung
+    if(access(fileName,F_OK) == 0)//Datei schon vorhanden
+    {
+      //Abfrage: Datei überschreiben ??
+      dyn_float df;
+      dyn_string ds;
+      ChildPanelOnCentralReturn(\"vision/MessageInfo\",myModuleName()+\"Info\",
+                                makeDynString(getCatStr(\"wfErrors\",\"fexists\"),getCatStr(\"para\",\"yes\"),getCatStr(\"para\",\"no\")),
+                                df,ds);
+      if(!dynlen(ds) || !df[1])//NEIN - nicht überschreiben
+      {
+        filePath.text = \"\";
+        bSaveEnabled = wf_panelGetEnable();
+        return;
+      }
+      else//JA - überschreiben
+        WIZ_OVERWRITE = TRUE;
+    }
+  }
+  filePath.text = WIZ_FILE = fileName;
+  WIZ_LASTDIR = fileName;
+  strreplace(WIZ_LASTDIR,baseName(fileName),\"\");
+  //Export Button freigeben
+  bool bSaveEnabled = wf_panelGetEnable(WIZ_FILE);
+}
+
+
+" 0
+ 2
+"CBRef" "0"
+"EClose" E
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 13
+"text"
+""
+1 63 15 E E E 1 E 1 E N "WF_Text" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"main()
+{
+  //wf_dialogs_init();
+}
+
+
+
+" 0
+ E 0 1 1 0 1 E U  0 E 65 17 327 31
+0 2 0 "0s" 0 0 0 192 0 0  65 17 1
+4
+LANG:10001 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10004 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10000 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10027 25 Arial,9,-1,5,50,0,0,0,0,0
+0 4
+LANG:10001 45 Error messagexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LANG:10004 45 错误消息 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LANG:10000 45 Fehlermeldungxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LANG:10027 62 Сообщение об ошибкеxxxxxxxxxxxxxxxxxxxxxxxxxx
+6 5
+"imgInfo"
+""
+1 14 14 E E E 1 E 1 E N "_3DFace" E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 1 -9 2  0 3  "pictures/StandardIcons/info_40.png" 13434828 E 14 14 54 54
+1 61 0 "" 1
+0
+14 24
+"filePath"
+"WF"
+1 40 60 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10004 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10000 25 Arial,9,-1,5,50,0,0,0,0,0
+LANG:10027 25 Arial,9,-1,5,50,0,0,0,0,0
+0  38 44 344 68
+2 "0s" 0 0 0 0 0 -1  "main()
+{
+  if(bExport)
+    wf_export();
+  else if(bImport)
+    wf_import();
+}
+" 0
+ E "main()
+{
+  if(bExport)
+    wf_export();
+  else if(bImport)
+    wf_import();
+}
+" 0
+
+13 60
+"btnWizardName"
+"WF"
+1 353 48.5 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 File selection
+LANG:10004 14 File selection
+LANG:10000 12 Dateiauswahl
+LANG:10027 21 Выбор файла
+
+1
+"sizePolicy" "Preferred Preferred"
+4
+LANG:10001 28 Verdana,12,-1,5,50,0,0,0,0,0
+LANG:10004 28 Verdana,12,-1,5,50,0,0,0,0,0
+LANG:10000 28 Verdana,12,-1,5,50,0,0,0,0,0
+LANG:10027 28 Verdana,12,-1,5,50,0,0,0,0,0
+0  351 41 380 70
+
+P 
+4294967295
+"pictures/openpanel.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  if(bExport)
+    wf_export();
+  else if(bImport)
+    wf_import();
+}" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "bottomBar" -1
+"" ""
+"vision/wf/objects/BtnBottomBar.pnl" 40 108 T 5 1 0 1 -40 -30
+6
+"$dsButtons""btn_BottomBar_save|btn_BottomBar_cancel"
+"$dsEnabledFunc""wf_alwaysTrue|wf_alwaysTrue"
+"$dsExecFunc""wf_panelAction|wf_panelClose"
+"$dsIcons"" | "
+"$dsVisibleFunc""wf_alwaysFalse|wf_alwaysFalse"
+"$sReferenceName""bottomBar"
+0

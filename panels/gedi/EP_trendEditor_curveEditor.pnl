@@ -1,0 +1,1512 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 547 385 N "_3DFace" 2
+"$NEW_SHAPE"
+"$SHAPE"
+"main()
+{
+  shape  trend = getConstructShape(),curve,curve2;
+  dyn_string ds,marks=strsplit(paGetCatStr(\"ngedi\",\"marks\"),\"|\");
+  bool       t=trend.timeTrend;
+  fromDpe.visible(t);
+  label_fromDpe.visible(t);
+  LegendUnit.visible(t);
+  label_LegendUnit.visible(t);
+  if ( !t )
+  {
+    Text7.position(314, 0);
+    LegendName.position(138, 92);
+  }
+
+  Fill.visible=trend.timeTrend;
+  tFill.visible=trend.timeTrend;
+  FillReferenceValue.visible=trend.timeTrend;
+  tFillReferenceValue.visible=trend.timeTrend;
+  PointType.items=marks;
+  MinPointType.items=marks;
+  MaxPointType.items=marks;
+  CurveType.items=strsplit(paGetCatStr(\"ngedi\",\"curvetypes\"),\"|\");
+  Fill.items=strsplit(paGetCatStr(\"ngedi\",\"filling\"),\"|\");
+  DataSource.editable=t;
+  DataSource.backCol=t?\"_Window\":\"_3DFace\";
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+  if (dynlen(ds)>0)
+  {
+    if (ngSelectedTrendCurve<1) ngSelectedTrendCurve=1;
+    setGediTrendParameterCurveEditor(trend,ds[ngSelectedTrendCurve],ngSelectedTrendCurve);
+  }
+  else
+  {
+    ngSelectedTrendCurve=0;
+    setGediTrendParameterCurveEditor(trend,\"\" ,ngSelectedTrendCurve);
+  }
+}" 0
+ E E E E 1 -1 -1 0  0 0
+"refFileName"0  1
+E "TrendCurveName_Command()
+{
+  int        oldpos,newpos;
+  shape  trend=getConstructShape();
+  dyn_string ds;
+ 
+  oldpos=dynContains(ngCurvesInArea,OldName.text);
+  newpos=dynContains(ngCurvesInArea,this.text);
+  if (newpos>0 && newpos!=oldpos)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",  
+                   paGetCatStr(\"para\",\"warning\"),  
+                   makeDynString(paGetCatStr(\"ngedi\",\"curveexists\")+\"\\n\"+this.text));  
+    return;
+  }
+
+  if (ngSelectedTrendCurve<1) return;
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+
+  trend.curveName(ds[ngSelectedTrendCurve])=this.text;
+  if (oldpos>0)
+    ngCurvesInArea[oldpos]=this.text; 
+  OldName.text=this.text;
+}
+
+DataSource_Command()
+{
+  shape  trend=getConstructShape();
+
+  if ( !trend.timeTrend )
+    return;  // this function only works for value-over-time trend
+  
+  dyn_string ds,dds;
+  langString ls,ls2;
+  dyn_float  df;
+  dyn_int    di=makeDynInt(DPEL_BOOL,DPEL_UINT,DPEL_INT,DPEL_FLOAT,DPEL_ULONG,DPEL_LONG,DPEL_STRING);
+  anytype    min=0.0,max=0.0;
+  string     unit,dp;
+  int        i,type;
+
+  dds = trend.curveNames(ngSelectedTrendArea);
+
+  dp=DataSource.text;
+  if (!dpExists(dpSubStr(dp,DPSUB_SYS_DP)))
+  {
+    ds=makeDynString();
+    for (i=1;i<=getNoOfLangs();i++) ds[i]=\"\";
+    ls=ds;
+    if ( !fromDpe.state(0) )
+      trend.curveLegendName(dds[ngSelectedTrendCurve]) = ls;
+
+    LegendName.text=ls;
+    trend.curveDataSource(dds[ngSelectedTrendCurve]) = dp;
+    DataSource.text=dp;
+    return;
+  }
+  if (strpos(dp,\".\")<0)
+    dp+=\".\";
+
+  if (dpExists(dpSubStr(dp,DPSUB_SYS_DP)) &&
+      (dpElementType(dp)==DPEL_BOOL  ||
+        dpElementType(dp)==DPEL_UINT ||
+        dpElementType(dp)==DPEL_INT ||
+        dpElementType(dp)==DPEL_ULONG ||
+        dpElementType(dp)==DPEL_LONG ||
+        dpElementType(dp)==DPEL_FLOAT ||
+        dpElementType(dp)==DPEL_STRING
+       ) )
+  {
+    if ( containsSystemName(dp) )
+      dp = dpSubStr(dp, DPSUB_SYS_DP_EL);  // when system name specified
+    else
+      dp = dpSubStr(dp, DPSUB_DP_EL);  // when system name is not needed
+
+    ls=dpGetComment(dpSubStr(dp,DPSUB_SYS_DP_EL));
+    
+    //if dp is a RDB-Compression-Value, add the detailname like ('_1min_sum') to the DpName
+    //same like in the ES
+    if (useRDBArchive() && sf_isValidStatFuncDpe(dp))        
+    {
+      //_offline._1min_sum
+      string detail = dpSubStr(dp, DPSUB_CONF_DET);
+      //_1min_sum
+      strreplace(detail, \":_offline.\", \"\");
+      LegendName.text = ls + \" (\" + detail + \")\";    
+    } 
+    else
+      LegendName.text=ls;
+
+    if ( !fromDpe.state(0) )
+      trend.curveLegendName(dds[ngSelectedTrendCurve]) = LegendName.text;
+
+     unit=dpGetUnit(dpSubStr(dp,DPSUB_SYS_DP_EL));
+     LegendUnit.text(unit);
+     if ( !fromDpe.state(0) )
+       trend.curveLegendUnit(dds[ngSelectedTrendCurve]) = unit;
+
+    dpGet(dpSubStr(dp,DPSUB_SYS_DP_EL)+\":_pv_range.._type\",type);   
+    if (type==DPCONFIG_MINMAX_PVSS_RANGECHECK)
+    {
+      dpGet(dpSubStr(ds[1],DPSUB_SYS_DP_EL)+\":_pv_range.._min\",min,
+            dpSubStr(ds[1],DPSUB_SYS_DP_EL)+\":_pv_range.._max\",max);
+      trend.curveAutoscale(dds[ngSelectedTrendCurve]) = 0;
+      trend.curveMin(dds[ngSelectedTrendCurve])=min;
+      trend.curveMax(dds[ngSelectedTrendCurve])=max;
+    }
+    trend.curveDataSource(dds[ngSelectedTrendCurve]) = dp;
+    DataSource.text=dp;
+    return;
+    RootPanelOn(\"gedi/EP_trendEditor\",myModuleName(),
+    makeDynString(\"$SHAPE:\"+$SHAPE,\"$NEW_SHAPE:\"+$NEW_SHAPE));
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"ngedi\",\"warning\"),
+      makeDynString(getCatStr(\"ngedi\",\"invaliddp\")));
+  }
+}
+
+LegendName_Command()
+{
+  shape trend = getConstructShape();
+  dyn_string ds;
+
+  if (ngSelectedTrendCurve < 1) return;
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+  if (trend.timeTrend)
+  {
+    if ( fromDpe.state(0) )
+    {
+      trend.curveLegendName(ds[ngSelectedTrendCurve]) = \"\";
+      trend.curveLegendUnit(ds[ngSelectedTrendCurve]) = \"\";
+    }
+    else
+    {
+      trend.curveLegendName(ds[ngSelectedTrendCurve]) = LegendName.text;
+      trend.curveLegendUnit(ds[ngSelectedTrendCurve]) = LegendUnit.text;
+    }
+  }
+  else
+  {
+    dyn_string txt = strsplit(LegendName.text, \"/\");
+    if ( (dynlen(txt) > 0) && !fromDpe.state(0) )
+      trend.curveLegendName(ds[ngSelectedTrendCurve]) = txt[1];
+    else
+      trend.curveLegendName(ds[ngSelectedTrendCurve]) = \"\";
+
+    if ( dynlen(txt) > 1 )
+      trend.curveLegendNameX(ds[ngSelectedTrendCurve]) = txt[2];
+  }
+}
+
+FillReferenceValue_Command()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  float      fRef = this.text;
+
+  if (ngSelectedTrendCurve<1) return;
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+
+  if ( trend.logarithmicTrend && fRef <= 0 )
+  {
+    fRef = 1.0;
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"dpeMonitor\",\"dpeMon_attention_space\")));
+    this.text = fRef;
+  }
+  trend.refValue(ds[ngSelectedTrendCurve]) = this.text;
+}
+
+
+" 0
+ 3
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer0
+LANG:10004 6 Layer0
+LANG:10000 6 Layer0
+LANG:10027 6 Layer0
+6 4
+"Border2"
+""
+1 11 261 E E E 1 E 0 E N "_Window" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 11 261 541 308
+6 27
+"Border8"
+""
+1 11 191 E E E 1 E 1 E N "_Window" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 11 191 541 241
+6 7
+"Border4"
+""
+1 11 141 E E E 1 E 1 E N "_Window" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 11 141 541 191
+6 21
+"Border6"
+""
+1 11 21 E E E 1 E 1 E N "_Window" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.69 0 -14.49 0 E 11 21 541 121
+6 3
+"Border1"
+""
+1 10 260 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 10 260 540 307
+2 5
+"Text1"
+""
+1 20 278 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 317 59 331
+0 2 2 "0s" 0 0 0 192 0 0  20 317 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 9  Marking 
+LANG:10004 9 标记符
+LANG:10000 12  Markierung 
+LANG:10027 11  Метка
+6 6
+"Border3"
+""
+1 10 140 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 10 140 540 190
+2 8
+"Text2"
+""
+1 20 138 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 197 88 211
+0 2 2 "0s" 0 0 0 192 0 0  20 197 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 12  Curve type 
+LANG:10004 12 曲线类型
+LANG:10000 11  Kurventyp 
+LANG:10027 20  Тип кривой
+2 9
+"Text3"
+""
+1 140 138 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 140 197 199 211
+0 2 2 "0s" 0 0 0 192 0 0  140 197 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 12  Point type 
+LANG:10004 9 点类型
+LANG:10000 11  Markertyp 
+LANG:10027 18  Тип точек
+2 10
+"tFill"
+""
+1 270 138 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 270 197 322 211
+0 2 2 "0s" 0 0 0 192 0 0  270 197 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 9  Filling 
+LANG:10004 7  填充
+LANG:10000 10  Füllung 
+LANG:10027 15  Заливка
+2 11
+"tFillReferenceValue"
+""
+1 400 138 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 400 197 517 211
+0 2 2 "0s" 0 0 0 192 0 0  400 197 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 16  Fill ref.value 
+LANG:10004 18 填写参考数值
+LANG:10000 16  Füll.Ref.Wert 
+LANG:10027 34 Опорн.знач.заливки
+2 18
+"Text4"
+""
+1 154 287 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 140 317 198 331
+0 2 2 "0s" 0 0 0 192 0 0  140 317 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 9  Minimum 
+LANG:10004 6 最小
+LANG:10000 9  Minimum 
+LANG:10027 15  Минимум
+2 19
+"Text5"
+""
+1 345 287 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 270 317 333 331
+0 2 2 "0s" 0 0 0 192 0 0  270 317 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 9  Maximum 
+LANG:10004 6 最大
+LANG:10000 9  Maximum 
+LANG:10027 17  Максимум
+6 20
+"Border5"
+""
+1 10 20 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1.69 0 -13.79999999999999 0 E 10 20 540 120
+2 22
+"Text6"
+""
+1 470 12 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 70 96 84
+0 2 2 "0s" 0 0 0 192 0 0  20 70 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 12  Curve name:
+LANG:10004 13 曲线名称:
+LANG:10000 12  Kurvenname:
+LANG:10027 21  Имя кривой:
+2 25
+"Text7"
+""
+1 314 28 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 128 111 142
+0 2 2 "0s" 0 0 0 192 0 0  20 128 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 16  Name in legend:
+LANG:10004 19 图例中的名称:
+LANG:10000 17  Name in Legende:
+LANG:10027 26  Имя в легенде:
+6 26
+"Border7"
+""
+1 10 190 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 67 0 E 10 190 540 240
+4 31
+"TrendCurveLine"
+""
+1 259 282 E E E 1 E 1 E N "_3DText" E N {204,204,204} E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E  259 282 530 282
+2 40
+"Text10"
+""
+1 548 8 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 10 123 24
+0 2 2 "0s" 0 0 0 192 0 0  20 10 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 13  Data source 
+LANG:10004 9 数据源
+LANG:10000 13  Datenquelle 
+LANG:10027 30  Источник данных
+2 41
+"Text11"
+""
+1 720 38 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 40 99 54
+0 2 2 "0s" 0 0 0 192 0 0  20 40 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 12  DP-element:
+LANG:10004 5  DPE:
+LANG:10000 12  DP-Element:
+LANG:10027 19  Элемент DP:
+14 45
+"OldName"
+""
+1 121 268 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  101 58 165 88
+3 "0s" 0 0 0 0 0 -1  E E E
+22 12
+"CurveType"
+""
+1 20 219 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  20 219 130 248
+0
+
+E
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  
+  if (ngSelectedTrendCurve<1) return;
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+  int sel = this.selectedPos-1;
+
+  if ( sel >= 3 ) sel++; // skip SPLINE selection
+  trend.curveType(ds[ngSelectedTrendCurve]) = sel;
+  setGediTrendParameterCurveEditor(trend,ds[ngSelectedTrendCurve],ngSelectedTrendCurve);
+}" 0
+
+E
+ 0 0
+22 13
+"PointType"
+""
+1 140 221 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  140 221 262 248
+0
+
+E
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+
+  if (ngSelectedTrendCurve<1) return;
+  
+  ds = trend.curveNames(ngSelectedTrendArea);
+  trend.pointType(ds[ngSelectedTrendCurve]) = this.selectedPos-1;
+  setGediTrendParameterCurveEditor(trend,ds[ngSelectedTrendCurve],ngSelectedTrendCurve);
+}" 0
+
+E
+ 0 0
+22 14
+"Fill"
+""
+1 270 221 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  270 221 392 248
+0
+
+E
+"main()
+{
+  float fRef = FillReferenceValue.text;
+  shape trend=getConstructShape();
+  dyn_string ds;
+  
+  if (ngSelectedTrendCurve<1) return;
+  
+  ds = trend.curveNames(ngSelectedTrendArea);
+  trend.curveFilled(ds[ngSelectedTrendCurve]) = this.selectedPos - 1;  // Combo = 1-based
+
+  setGediTrendParameterCurveEditor(trend,ds[ngSelectedTrendCurve],ngSelectedTrendCurve);
+}" 0
+
+E
+ 0 0
+14 15
+"FillReferenceValue"
+""
+1 400 221 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+888 0 0 0 0 0
+E "main()
+{
+  FillReferenceValue_Command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  400 221 522 248
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  FillReferenceValue_Command();
+}
+
+" 0
+
+22 16
+"MinPointType"
+""
+1 140 337 E E E 1 E 0 E N {0,0,0} E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  140 337 250 366
+0
+
+E
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  
+  if (ngSelectedTrendCurve<1) return;
+  
+  ds = trend.curveNames(ngSelectedTrendArea);
+  //trend.curveMinPointType(ds[ngSelectedTrendCurve]) = this.selectedPos-1;
+}" 0
+
+E
+ 0 0
+22 17
+"MaxPointType"
+""
+1 270 337 E E E 1 E 0 E N {0,0,0} E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  270 337 390 366
+0
+
+E
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  
+  if (ngSelectedTrendCurve<1) return;
+  
+  ds = trend.curveNames(ngSelectedTrendArea);
+  //trend.curveMaxPointType(ds[ngSelectedTrendCurve]) = this.selectedPos-1;
+}" 0
+
+E
+ 0 0
+14 23
+"TrendCurveName"
+""
+1 138 60 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+888 0 0 0 0 0
+E "main()
+{
+  TrendCurveName_Command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  138 60 492 87
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  TrendCurveName_Command();
+}
+" 0
+
+14 24
+"LegendName"
+""
+1 138 120 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+888 0 0 0 0 0
+E "main()
+{
+  LegendName_Command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  138 120 492 147
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  LegendName_Command();
+}
+" 0
+
+13 29
+"Button1"
+""
+1 20 269 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  20 269 130 296
+
+T 
+4
+LANG:10001 10 Line color
+LANG:10004 12 线条颜色
+LANG:10000 11 Linienfarbe
+LANG:10027 19 Цвет линии
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  string     color;
+  
+  if (ngSelectedTrendCurve<1) return;
+  
+  ds = trend.curveNames(ngSelectedTrendArea);
+  color=trend.curveColor(ds[ngSelectedTrendCurve]);
+  colorEditor(color);
+  if (color==\"\") return;
+
+  trend.curveColor(ds[ngSelectedTrendCurve]) = color;
+  TrendCurveLine.foreCol = color;
+}" 0
+ E E E
+13 30
+"Button2"
+""
+1 140 269 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  140 269 250 296
+
+T 
+4
+LANG:10001 10 Line style
+LANG:10004 12 线条样式
+LANG:10000 9 Linienart
+LANG:10027 17 Тип линии
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds;
+  string style;
+  
+  if (ngSelectedTrendCurve<1) return;
+
+  style = TrendCurveLine.border;
+
+  lineSelector(style);
+
+  TrendCurveLine.border = style;
+
+  ds = trend.curveNames(ngSelectedTrendArea);
+  trend.curvePattern(ds[ngSelectedTrendCurve]) = style;
+}" 0
+ E E E
+14 37
+"DataSource"
+""
+1 138 30 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E "main()
+{
+  DataSource_Command();  
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  138 30 492 57
+2 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  DataSource_Command();
+}
+" 0
+
+13 39
+"selectDataSource"
+""
+1 508 28 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  508 28 535 59
+
+P 
+4294967295
+"pictures/dpeMon_tree.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  shape  trend=getConstructShape();
+  dyn_string ds,dds;
+  langString ls,ls2;
+  dyn_float  df;
+  dyn_int    di=makeDynInt(DPEL_BOOL,DPEL_UINT,DPEL_INT,DPEL_FLOAT,DPEL_ULONG,DPEL_LONG,DPEL_STRING);
+  anytype    min=0.0,max=0.0;
+  string     s=DataSource.text,unit,dp=\"\";
+  bool       t=trend.timeTrend;
+  int        type;
+  int        iReturn;
+
+  if (!t)
+  {
+    dds = trend.curveNames(ngSelectedTrendArea);
+    ChildPanelOnCentralModalReturn(\"gedi/EP_curve2DpSelector.pnl\",
+      getCatStr(\"ngedi\",\"datasourcefor\")+
+      getCatStr(\"ngedi\",\"area\")+\"#\"+(ngSelectedTrendArea+1)+
+      getCatStr(\"ngedi\",\"curve\")+dds[ngSelectedTrendCurve],
+      makeDynString(\"$SHAPE:\"+$SHAPE,\"$DP: \"+s),df,ds);
+    if (df[1]>0)
+    {
+      string dpel;
+
+      dpel = ds[1];
+      iReturn = getTrendDPE(dpel);
+
+      DataSource.text=ds[1]+\"/\"+ds[2];
+      trend.curveDataSource(dds[ngSelectedTrendCurve])  = ds[1];
+      trend.curveDataSourceX(dds[ngSelectedTrendCurve]) = ds[2];
+      if (ds[1]!=\"\")
+      {
+        ls=dpGetComment(dpel);
+        if ( !fromDpe.state(0) )
+          trend.curveLegendName(dds[ngSelectedTrendCurve]) = ls;
+
+        unit=dpGetUnit(dpel);
+        LegendUnit.text(unit);
+        if ( !fromDpe.state(0) )
+          trend.curveLegendUnit(dds[ngSelectedTrendCurve]) = unit;
+
+        dpGet(dpel+\":_pv_range.._type\",type);
+        if (type==DPCONFIG_MINMAX_PVSS_RANGECHECK)
+        {
+          dpGet(dpel+\":_pv_range.._min\",min,
+                dpel+\":_pv_range.._max\",max);
+          trend.curveAutoscale(dds[ngSelectedTrendCurve]) = 0;
+          trend.curveMin(dds[ngSelectedTrendCurve]) = min;
+          trend.curveMax(dds[ngSelectedTrendCurve]) = max;
+        }
+      }
+      else
+      {
+        ls=\"\";
+        trend.curveLegendName(dds[ngSelectedTrendCurve]) = ls;
+      }
+      LegendName.text=trend.curveLegendName(dds[ngSelectedTrendCurve]); // +\"/\"+curve2.LegendName;
+      RootPanelOn(\"gedi/EP_trendEditor\",myModuleName(),
+        makeDynString(\"$SHAPE:\"+$SHAPE,\"$NEW_SHAPE:\"+$NEW_SHAPE));
+    }
+  }
+  else
+  {
+    ds = trend.curveNames(ngSelectedTrendArea);
+    while (true)
+    {
+      dpSelector(dp,true,\"ALL_SYSTEM_NAME_SYS\");
+      if (dp==\"\") return;
+
+      iReturn = getTrendDPE(dp);
+
+      if ( iReturn > 0 && dp != \"\" )
+      {
+        ls=dpGetComment(dp);
+
+        //if dp is a RDB-Compression-Value, add the detailname like ('_1min_sum') to the DpName
+        //same like in the ES
+        if (useRDBArchive() && sf_isValidStatFuncDpe(dp))
+        {
+          //_offline._1min_sum
+          string detail = dpSubStr(dp, DPSUB_CONF_DET);
+          //_1min_sum
+          strreplace(detail, \":_offline.\", \"\");
+          LegendName.text = ls + \" (\" + detail + \")\";
+        }
+        else
+          LegendName.text=ls;
+
+        trend.curveLegendName(ds[ngSelectedTrendCurve]) = LegendName.text;
+
+        unit=dpGetUnit(dp);
+        LegendUnit.text(unit);
+        trend.curveLegendUnit(ds[ngSelectedTrendCurve]) = unit;
+        if (useRDBArchive() && sf_isValidStatFuncDpe(dp))
+          	dpGet(dp,type);
+        else
+        	dpGet(dp+\":_pv_range.._type\",type);
+        if (type==DPCONFIG_MINMAX_PVSS_RANGECHECK)
+        {
+          dpGet(dp+\":_pv_range.._min\",min,
+                dp+\":_pv_range.._max\",max);
+          trend.curveAutoscale(ds[ngSelectedTrendCurve]) = 0;
+          trend.curveMin(ds[ngSelectedTrendCurve]) = min;
+          trend.curveMax(ds[ngSelectedTrendCurve]) = max;
+        }
+
+        trend.curveDataSource(ds[ngSelectedTrendCurve]) = dp;
+        DataSource.text=dp;
+        return;
+        RootPanelOn(\"gedi/EP_trendEditor\",myModuleName(),
+        makeDynString(\"$SHAPE:\"+$SHAPE,\"$NEW_SHAPE:\"+$NEW_SHAPE));
+      }
+      else if ( iReturn == -1 )
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                 getCatStr(\"ngedi\",\"warning\"),
+                                 makeDynString(getCatStr(\"_errors\",\"00071\")));
+        dp = \"\";
+      }
+      else if ( iReturn == -2 )
+      {
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                                 getCatStr(\"ngedi\",\"warning\"),
+                                 makeDynString(getCatStr(\"ngedi\",\"invaliddp\")));
+        dp = \"\";
+      }
+    }
+  }
+
+
+}
+" 0
+ E E E
+2 46
+"label_LegendUnit"
+""
+1 315 60 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+889 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 160 57 174
+0 2 2 "0s" 0 0 0 192 0 0  20 160 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 7  Units:
+LANG:10004 14  物理单位:
+LANG:10000 13  Maßeinheit:
+LANG:10027 16  Единицы:
+14 47
+"LegendUnit"
+""
+1 138 152 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+890 0 0 0 0 0
+E "main()
+{
+  LegendName_Command();
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0  138 152 492 179
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  LegendName_Command();
+}
+" 0
+
+20 48
+"fromDpe"
+""
+1 137 96 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+891 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  138 94 162 118
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  LegendName.enabled(!state);
+  LegendUnit.enabled(!state);
+  LegendName_Command();
+  if ( !state )
+    DataSource_Command();
+}" 0
+2 49
+"label_fromDpe"
+""
+1 314 -1 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+892 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 20 99 67 113
+0 2 2 "0s" 0 0 0 192 0 0  20 99 1
+4
+LANG:10001 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10004 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10000 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+LANG:10027 46 Arial [Microsoft Windows],-1,12,5,47,0,0,0,0,0
+0 4
+LANG:10001 9  From DPE
+LANG:10004 9 来自DPE
+LANG:10000 8  Von DPE
+LANG:10027 9  От DPE
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+0

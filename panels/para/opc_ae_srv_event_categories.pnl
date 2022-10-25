@@ -1,0 +1,1169 @@
+V 13
+4
+LANG:10001 16 Event Categories
+LANG:10004 21 正在运行的类别
+LANG:10000 16 Event Categories
+LANG:10027 33 Категории событий
+PANEL,-1 -1 595 355 N "_3DFace" 0
+"main()
+{
+  EnableButtons(!LINES_DELETED_BUT_NOT_SAVED);
+}
+
+" 0
+ E E E E 1 -1 -1 0  15 15
+""0  1
+E "
+bool LINES_DELETED_BUT_NOT_SAVED=FALSE; // panel global variable that informs whether user has deleted lines or changed Event Types and not saved the changes with button übernehmen after that
+dyn_string DELETED_ROWS; // panel global variable that includes the deleted rows that were not saved yet
+bool CHANGES=FALSE; // panel global variable that informs whether user has added some rows or changed the event type
+
+void EnableButtons(bool enable)
+{
+  Button3.enabled(enable);
+  Button8.enabled(enable);
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 2
+"Table1"
+""
+1 14.99999999999996 15 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 13 582 267
+"main()
+{
+// initialize table and list existing event category names and event types from datasource
+
+  dyn_string content1; // Event Category Names
+  dyn_uint content2; // Event Types
+  shape table=getShape(\"Table1\");
+
+  // initialize the table
+  setValue(\"\",\"tableMode\",TABLE_SELECT_BROWSE,
+              \"selectByClick\",TABLE_SELECT_LINE,
+              \"columnEditable\",0,FALSE,
+              \"columnEditable\",1,FALSE);              
+
+  if(table.lineCount()==0)  // to prevent problems caused by doublerunning this application
+  {
+    // Read Event Category Names from datasource              
+    dpGet(\"_AEServer1.EventCategories.EventCategoryNames\", content1);
+    showEventCategoryNames(content1);
+  
+    // Read Event Types from datasource
+    dpGet(\"_AEServer1.EventCategories.EventTypes\", content2);
+    showEventTypes(content2);
+  }
+}
+
+//
+// Function shows Event Category Names, received by an argument \"names\", in column \"EventCategoryNames\"
+//
+void showEventCategoryNames(dyn_string names)
+{
+  int i=1,
+      number=0; // number of event category names
+  shape table=getShape(\"Table1\");
+
+  number = dynlen(names);
+  
+  for(i=1;i<=number;i++)  // insert Event Category Names in the table
+    table.appendLine(\"EventCategoryNames\", names[i]);
+}
+
+//
+// Function shows Event Types, received by an argument \"types\", in column \"EventTypes\"
+//
+void showEventTypes(dyn_uint types)
+{
+  int i=0,
+      number=0; // number of event types
+  shape table=getShape(\"Table1\");
+  
+  number = dynlen(types);
+  
+  for(i=0;i<number;i++)  // insert Event Types in the table
+  {
+    switch(types[i+1])
+    {
+      case 1: // type number 1 represent Simple event
+      {
+        setValue(table, \"cellValueRC\",i, \"EventTypes\", \"Simple\");
+        break;
+      }
+      case 2: // type number 2 represent Conditional event
+      {
+        setValue(table, \"cellValueRC\",i, \"EventTypes\", \"Conditional\");
+        break;
+      }
+      case 3: // type number 3 represent Tracking event
+      {
+        setValue(table, \"cellValueRC\",i, \"EventTypes\", \"Tracking\");
+        break;
+      }
+      default: // no type defined
+        setValue(table, \"cellValueRC\",i, \"EventTypes\", \"\");
+    } // switch
+  } // for
+}
+" 0
+"main(int row, string column, string value)
+{
+// opens dialog Select Event Type (para/opc_ae_srv_event_type.pnl) when user clicks an element in column EventTypes
+
+  shape table=getShape(\"Table1\");
+  string name, // name of the event category name
+         type; // name of the event type (\"Simple\" or \"Conditional\")
+  dyn_float df; // not used
+  dyn_string ds; // return value from panel opc_ae_srv_event_type.pnl whether user chose Simple or Conditional event type
+  
+  if (column == \"EventTypes\") // check whether an item in column EventTypes was selected
+  { 
+    getValue(table, \"cellValueRC\", row, \"EventCategoryNames\",name); // read selected Event Category Name
+    if (name != \"\")
+    {
+      getValue(table, \"cellValueRC\", row, \"EventTypes\",type); // read selected Event Type
+      if(type == \"\") // open event type panel only in case no type was selected so far
+      {
+        ChildPanelOnCentralReturn(\"para/opc_ae_srv_event_type.pnl\",\"PanelEventType\",makeDynString(\"$TYPE:\" + type),df,ds); // open new window Event Types, give the selected event type (empty, \"Simple\" or \"Conditional\") as an argument
+        if (dynlen(ds) != 0) // check whether new window was closed properly (with ok or abbrechen)
+        {
+          if (ds[1] != 0) // check whether user selected an event type
+          {
+            if(ds[1] != table.cellValueRC(row,\"EventTypes\")) // check whether user has made any changes
+            {
+              setValue(table, \"cellValueRC\",row, \"EventTypes\", ds[1]); // show the selected event type in the table 
+              LINES_DELETED_BUT_NOT_SAVED=TRUE; // set the flag in order to hinder problems that result from unsaved changes (do not allow pressing button events without saving the new event type first)
+              EnableButtons(!LINES_DELETED_BUT_NOT_SAVED);
+              CHANGES=TRUE; // set the flag in order to inform that there are changes to be saved
+            } // if
+          } // if  
+        } // if
+      } // if
+    } // if
+  } // if
+}" 0
+ 1 0 1 2 10 "EventCategoryNames" 28 1 0 "s" 4
+LANG:10001 19 Event Category Name
+LANG:10004 18 事件类别名称
+LANG:10000 19 Event Category Name
+LANG:10027 25 Имя категории
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+320 "EventTypes" 21 1 1 "s" 4
+LANG:10001 10 Event Type
+LANG:10004 12 事件类型
+LANG:10000 10 Event Type
+LANG:10027 21 Тип события
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+242 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 1 1 1 7
+1 0
+13 6
+"Button1"
+""
+1 495 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  493 273 581 301
+
+T 
+4
+LANG:10001 3 Add
+LANG:10004 6 添加
+LANG:10000 11 Hinzufügen
+LANG:10027 16 Добавить
+"main() 
+{ 
+// adds the text (event category name) given in TextField1 in the table in column EventCategoryNames
+
+  dyn_string dpe_table; // Event Category Names as written in the datasource
+  string new_dpe, // new event category name that user has given
+         found, // found is empty besides when new event category name already exists in the datasource
+         name; // name of the event category read from the table
+  int rows, // number of rows in the table (event category names)
+  	  i=0;
+  shape table=getShape(\"Table1\");
+  dyn_float df; // not used
+  dyn_string ds; // return value from panel event_type.pnl whether user chose Simple or Conditional event type 
+  int language=0; // selected language, 0 = German, 1 = English
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  language=getActiveLang();    
+  
+  new_dpe = TextField1.text; // read the given new event category name
+
+  if (new_dpe != \"\") // check whether user gave any input
+  {
+    dpGet(\"_AEServer1.EventCategories.EventCategoryNames\",dpe_table); // read event category names from the datasource
+    found = dynPatternMatch(new_dpe, dpe_table); // found is empty when new event category name does not exist in the datasource, otherwise new event category
+
+    if (found == \"\") // check whether new event category name already exists in the datasource
+    {
+      rows=table.lineCount(); // number of rows in the table
+      for(i=0;i<rows;i++) // read from the table from each row condition name and compare it to the new condition
+      {
+        getValue(table, \"cellValueRC\", i, \"EventCategoryNames\",name); // read condition name
+        if (new_dpe == name) // compare new condition name to the one in the table
+          break;
+      } //for
+      if (new_dpe != name) // in case new condition name does not exist in the table (break was used above)
+      {
+        table.appendLine(\"EventCategoryNames\", new_dpe, \"EventTypes\", \"\"); // add new event category name in the table in column EventCategoryNames
+        CHANGES=TRUE;
+        table.selectLineN(table.lineCount()-1);
+        ChildPanelOnCentralReturn(\"para/opc_ae_srv_event_type.pnl\",\"PanelEventType\",makeDynString(\"$TYPE:\" + \"\"),df,ds); // open new window Event Types, give the selected event type (empty, \"Simple\" or \"Conditional\") as an argument
+        if (dynlen(ds) != 0) // check whether new window was closed properly (with ok or abbrechen)
+        {
+          if (ds[1] != 0) // check whether user selected an event type
+          {
+            if(ds[1] != table.cellValueRC(table.lineCount()-1,\"EventTypes\")) // check whether user has made any changes
+            {
+              setValue(table, \"cellValueRC\",table.lineCount()-1, \"EventTypes\", ds[1]); // show the selected event type in the table
+
+              LINES_DELETED_BUT_NOT_SAVED=TRUE; // set the flag in order to hinder problems that result from unsaved changes (do not allow pressing button events without saving the new event type first)
+              EnableButtons(!LINES_DELETED_BUT_NOT_SAVED);
+            } // if
+          } // if
+        } // if
+      } // if
+      else // inform user that the given event category name already exists (in the table)
+      {
+        if (language == 0) // German
+          ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Event Category '\" + new_dpe + \"' existiert bereits\") );
+        else
+          ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Event Category '\" + new_dpe + \"' already exists\") );        
+      } // else
+    }
+    else // inform user that the given event category name already exists (in the datasource)
+    {
+      if (language == 0) // German
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Event Category '\" + new_dpe + \"' existiert bereits\") );
+      else
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Event Category '\" + new_dpe + \"' already exists\") );      
+    } // else
+    TextField1.text = \"\";  // clean the text field
+  } // if
+  else // inform user that no event category name was given
+  {
+    if (language == 0) // German
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Bitte geben Sie einen Namen für die Event Category ein\") );
+    else
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please enter a name for the event category\") );
+  } // else
+} " 0
+ E E E
+13 7
+"Button2"
+""
+1 404.9999999999999 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  403 273 491 301
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+// deletes selected row from the table
+
+  dyn_int row; // selected row
+  shape table=getShape(\"Table1\");
+  int language=0; // selected language, 0 = German, 1 = English
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+ 
+  language=getActiveLang();    
+
+  getValue(table,\"getSelectedLines\",row); // read which row was selected
+
+  if (dynlen(row) != 0) // in case a row was selected, delete that row
+  {
+    dynAppend(DELETED_ROWS,table.cellValueRC(row[1],\"EventCategoryNames\"));
+    setValue(table, \"deleteLineN\", row[1]);
+    LINES_DELETED_BUT_NOT_SAVED = TRUE;
+    EnableButtons(!LINES_DELETED_BUT_NOT_SAVED);
+  } // if
+
+  else // in case no row was selected, inform user to do so
+  {
+    if (language == 0) // German
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Bitte wählen Sie eine Reihe aus\") );
+    else
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please select a row\") );    
+  } // else
+}" 0
+ E E E
+13 8
+"Button3"
+""
+1 224.9999999999999 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  223 273 311 301
+
+T 
+4
+LANG:10001 6 Events
+LANG:10004 6 事件
+LANG:10000 6 Events
+LANG:10027 14 События
+"main()
+{
+// depending on Event Type in the selected row, open either panel para/opc_ae_srv_conditions.pnl or para/opc_ae_srv_simple_events.pnl
+
+  shape table=getShape(\"Table1\");
+  string name, // event category name on the selected row
+  	     head; // panelname
+  dyn_int row; // selected row
+  int language=0; // selected language, 0 = German, 1 = English
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+ 
+  language=getActiveLang();    
+
+  // it's not allowed to use this functionality in case after deleting rows from the table the changes were not saved with button übernehmen
+  if (LINES_DELETED_BUT_NOT_SAVED == true)
+  {
+    if (language == 0) // German
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Diese Funktionalität ist nur nach dem Speichern der Änderungen verfügbar. Bitte wählen Sie zu erst 'Übernehmen' aus.\") );
+    else
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please save changes before using this functionality (use button 'Save' first).\") );  
+  } // if
+
+  else  
+  {
+    getValue(table, \"getSelectedLines\", row); // read which row was selected
+    
+    if(dynlen(row)!=0) // check whether user selected any row
+    {
+      getValue(table, \"cellValueRC\", row[1], \"EventCategoryNames\",name); // read event category name from the selected row
+    
+      if (table.cellValueRC(row[1],\"EventTypes\") == \"Conditional\") // check whether event type on the selected row is \"Conditional\"
+      {
+//         head = getCatStr(\"PanelHeadlines\", \"Conditions\"); // initialize new panel
+         ChildPanelOnCentral(\"para/opc_ae_srv_conditions.pnl\",\"PanelConditions\",makeDynString(\"$EVENT_CATEGORY:\" + name)); // open panel para/opc_ae_srv_conditions.pnl and give event category name from the selected row as an argument
+      } // if
+
+      else
+      {
+        if (language == 0) // German
+          ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Diese Funktionalität ist nur für Conditional Events konfigurierbar. Simple und Tracking Events werden automatisch konfiguriert.\") );
+        else
+          ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"This functionality is only available for Conditional Events. Simple and Tracking Events will be configured automatically.\") );
+      } // else
+    } // if
+    else  // ask user to select a row / event category name
+    {  
+      if (language == 0) // German
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Bitte wählen Sie eine Event Category aus, die Sie bearbeiten wollen.\") );
+      else
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please select an event category whose events you want to modify.\") );
+    }
+  }
+}" 0
+ E E E
+13 9
+"Button4"
+""
+1 314.9999999999999 320 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  313 318 401 346
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+// saves event category names and event types listed in the table in datasource and closes the panel
+// notice that dyn_string index starts from 1 (categories[1]), but table index in PVSS starts from 0 (row[0]) !!!
+// removes deleted event category names, their conditions, subconditions, server items and simple events
+
+  dyn_string categories_table, // event category names read from the table
+  			 categories,
+  			 conditions_categories,
+  			 conditions_names,
+  			 alarm_dps;
+  dyn_uint types,types_table; // event types in unsigned integer form (0,1,2 or 3) read from the table
+  string type; // event type in string form (\"Conditional\" or \"Simple\")
+
+  int rows; // number of event category names/rows in the table
+  int i=0,j=1,index,k=1,exist,m=1,n,p=0,s,t;
+  string remove_dp,meldetext,sClass;
+  unsigned bereiche;  
+  dyn_string event_category_names,alert_dps;  
+  dyn_langString alerttexts;
+  dyn_string subconditionnames;
+  int iError=0;  // return value for deleting datagroup  
+  dyn_string dp_group_names,source_items; // server items
+  string condition_with_prefix; // condition name with prefix \"OPC_AE_\"  
+  shape table=getShape(\"Table1\");
+  int alarm_type;
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  dpGet(\"_AEServer1.ServerItems.DpGroupNames\",dp_group_names); // server item
+  dpGet(\"_AEServer1.ServerItems.SourceItems\",source_items); // server item
+  dpGet(\"_AEServer1.EventCategories.EventCategoryNames\",categories); 
+  dpGet(\"_AEServer1.EventCategories.EventTypes\",types);
+
+// REMOVE CONDITIONS, SUBCONDITIONS AND/OR SIMPLE EVENTS DEFINED FOR DELETED ROWS
+  if(LINES_DELETED_BUT_NOT_SAVED)  // case rows were deleted but changes not yet saved
+  {
+    for(j=1;j<=dynlen(DELETED_ROWS);j++)
+    {
+      index=dynContains(categories,DELETED_ROWS[j]);
+
+      //---------------------DELETE CONDITIONS AND SUBCONDITIONS-----------------------------------------------------
+      if(types[index] == 2) // case Conditional
+      {
+          dpGet(\"_AEServer1.Conditions.EventCategoryNames\",conditions_categories);
+          dpGet(\"_AEServer1.Conditions.ConditionNames\",conditions_names);
+          dpGet(\"_AEServer1.Conditions.AlertDps\",alarm_dps);
+          
+          dpGet(\"_AEServer1.SubConditions.AlertRangeTexts\",alerttexts);        
+          dpGet(\"_AEServer1.SubConditions.SubConditionNames\",subconditionnames);
+          
+          k=1;
+          while(k <= dynlen(conditions_categories))
+          {
+            if(conditions_categories[k] == DELETED_ROWS[j]) // delete conditions_categories[k], conditions_names[k], alarm_dps[k] and its subconditions
+            {
+              //---------------------DELETE SUBCONDITIONS---------------------------------------------
+              remove_dp=alarm_dps[k];
+              alarm_dps[k]=\"\";
+			  exist=dynContains(alarm_dps,remove_dp);
+  
+          	  if(exist == 0)  // no other condition has this subcondition defined, so it has to be deleted
+              { 
+                dpGet(remove_dp+\":_alert_hdl.._type\",alarm_type);
+            
+                if(alarm_type == 13)  // check that meldebehandlung is not binary
+                {            
+                  dpGet(remove_dp+\":_alert_hdl.._num_ranges\",bereiche);         
+
+        		  for(s=1;s<=bereiche;s++)
+         		  {
+                    dpGet(remove_dp+\":_alert_hdl.\" + s + \"._text\",meldetext);
+        	        dpGet(remove_dp+\":_alert_hdl.\" + s + \"._class\",sClass);
+
+            	    if(sClass != \"\")
+            	    {  
+              	      t=dynContains(alerttexts,meldetext);   	    
+                      dynRemove(alerttexts,t);
+                      dynRemove(subconditionnames,t);
+        	        } // if
+      		      } // for  		
+      	        } // if (alarm_type == 13)
+      	    
+      	        else if (alarm_type == 12) // binary meldebehandlung
+      		    {
+                  dpGet(remove_dp+\":_alert_hdl.1._text\",meldetext);
+       	          dpGet(remove_dp+\":_alert_hdl.1._class\",sClass);
+          	      if(sClass != \"\")
+        	      {  
+          	        t=dynContains(alerttexts,meldetext);   	    
+                    dynRemove(alerttexts,t);
+                    dynRemove(subconditionnames,t);
+        	      } // if            	     	            		
+          	    } // else if (alarm_type == 12)
+                         	    
+      	      } // if (exist==0)  
+        	  // at this point the subconditions for alarm[k] (renamed as \"\") have been removed
+      	      //---------------------SUBCONDITIONS DELETED---------------------------------------------            
+        
+              condition_with_prefix=\"OPC_AE_\"+conditions_names[k];
+              p=dynContains(dp_group_names,condition_with_prefix);        
+              while (p > 0) // remove all server items that belong to this condition
+              {
+                dynRemove(dp_group_names,p);
+                dynRemove(source_items,p);
+                p=dynContains(dp_group_names,condition_with_prefix);
+              }
+
+              groupDeleteFilter(\"OPC_AE\",\"OPC_AE_\"+conditions_names[k],\"\",iError); // remove filter deleted Condition from datagroup OPC_AE
+              groupDelete(\"OPC_AE_\"+conditions_names[k],iError); // remove datapointgroup of deleted Condition
+
+			  dynRemove(conditions_categories,k);
+			  dynRemove(conditions_names,k);
+			  dynRemove(alarm_dps,k);
+			  
+                   
+            } // if (conditions_categories[k] == DELETED_ROWS[j])
+            
+            else // another condition than one for this event category was checked
+              k++;
+
+          }  // while   
+
+          dpSet(\"_AEServer1.Conditions.EventCategoryNames\",conditions_categories);
+          dpSet(\"_AEServer1.Conditions.ConditionNames\",conditions_names);
+          dpSet(\"_AEServer1.Conditions.AlertDps\",alarm_dps);
+          
+          dpSet(\"_AEServer1.SubConditions.AlertRangeTexts\",alerttexts);        
+          dpSet(\"_AEServer1.SubConditions.SubConditionNames\",subconditionnames);
+
+          dpSet(\"_AEServer1.ServerItems.DpGroupNames\",dp_group_names); // server item
+          dpSet(\"_AEServer1.ServerItems.SourceItems\",source_items); // server item
+                              
+      } // else if (case Conditional!!)
+      //---------------------CONDITIONS AND SUBCONDITIONS DELETED-----------------------------------------------------
+
+      dynRemove(categories,index);
+      dynRemove(types,index);
+            
+    } // for
+    dpSet(\"_AEServer1.EventCategories.EventCategoryNames\",categories); // save event categories names in the datasource
+    dpSet(\"_AEServer1.EventCategories.EventTypes\",types); // save event types in the datasource
+  } // if (lines deleted but not saved)
+// CONDITIONS, SUBCONDITIONS AND/OR SIMPLE EVENTS DEFINED FOR DELETED ROWS HAVE BEEN REMOVED
+  
+  if(CHANGES)  // in this case lets save new event category names and/or new event type definitions
+  {
+    getValue(table, \"lineCount\", rows); // read number of rows in the table
+
+    for(i=0;i<rows;i++) // read from each row event category name and event type, convert event types to uint form
+    {
+      getValue(table, \"cellValueRC\", i, \"EventCategoryNames\",categories_table[i+1]); // read event category name
+      getValue(table, \"cellValueRC\", i, \"EventTypes\",type); // read event type
+      switch (type)  // convert event type to uint form so that Simple=1, Conditional=2, Tracking=3, empty=0
+      {
+  	    case \"Simple\":
+  	      {types_table[i+1] = 1;break;}
+        case \"Conditional\":
+          {types_table[i+1] = 2;break;}
+        case \"Tracking\":
+          {types_table[i+1] = 3;break;}
+        default:
+          types_table[i+1] = 0;
+      } // switch     
+    } // for
+   
+    dpSet(\"_AEServer1.EventCategories.EventCategoryNames\",categories_table); // save event categories names in the datasource
+    dpSet(\"_AEServer1.EventCategories.EventTypes\",types_table); // save event types in the datasource
+
+  } // if(CHANGES)
+  
+  PanelOff(); // close panel
+} 
+" 0
+ E E E
+13 10
+"Button5"
+""
+1 494.9999999999999 320 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  493 318 581 346
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+// closes the panel
+
+  PanelOff();
+}" 0
+ E E E
+13 11
+"Button6"
+""
+1 404.9999999999999 320 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  403 318 491 346
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+// saves event category names and event types listed in the table in datasource
+// notice that dyn_string index starts from 1 (categories[1]), but table index in PVSS starts from 0 (row[0]) !!!
+// removes deleted event category names, their conditions, subconditions, server items and simple events
+
+  dyn_string categories_table, // event category names read from the table
+  			 categories,
+  			 conditions_categories,
+  			 conditions_names,
+  			 alarm_dps;
+  dyn_uint types,types_table; // event types in unsigned integer form (0,1,2 or 3) read from the table
+  string type; // event type in string form (\"Conditional\" or \"Simple\")
+
+  int rows; // number of event category names/rows in the table
+  int i=0,j=1,index,k=1,exist,m=1,n,p=0,s,t;
+  string remove_dp,meldetext,sClass;
+  unsigned bereiche;  
+  dyn_string event_category_names,alert_dps;  
+  dyn_langString alerttexts;
+  dyn_string subconditionnames;
+  int iError=0;  // return value for deleting datagroup  
+  dyn_string dp_group_names,source_items; // server items
+  string condition_with_prefix; // condition name with prefix \"OPC_AE_\"
+  shape table=getShape(\"Table1\");
+  int alarm_type;
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  dpGet(\"_AEServer1.ServerItems.DpGroupNames\",dp_group_names); // server item
+  dpGet(\"_AEServer1.ServerItems.SourceItems\",source_items); // server item
+  dpGet(\"_AEServer1.EventCategories.EventCategoryNames\",categories); 
+  dpGet(\"_AEServer1.EventCategories.EventTypes\",types);
+
+// REMOVE CONDITIONS, SUBCONDITIONS AND/OR SIMPLE EVENTS DEFINED FOR DELETED ROWS
+  if(LINES_DELETED_BUT_NOT_SAVED)  // case rows were deleted but changes not yet saved
+  {
+    for(j=1;j<=dynlen(DELETED_ROWS);j++)
+    {
+      index=dynContains(categories,DELETED_ROWS[j]);
+
+      //---------------------DELETE CONDITIONS AND SUBCONDITIONS-----------------------------------------------------
+      if(types[index] == 2) // case Conditional
+      {
+          dpGet(\"_AEServer1.Conditions.EventCategoryNames\",conditions_categories);
+          dpGet(\"_AEServer1.Conditions.ConditionNames\",conditions_names);
+          dpGet(\"_AEServer1.Conditions.AlertDps\",alarm_dps);
+          
+          dpGet(\"_AEServer1.SubConditions.AlertRangeTexts\",alerttexts);        
+          dpGet(\"_AEServer1.SubConditions.SubConditionNames\",subconditionnames);
+          
+          k=1;
+          while(k <= dynlen(conditions_categories))
+          {
+            if(conditions_categories[k] == DELETED_ROWS[j]) // delete conditions_categories[k], conditions_names[k], alarm_dps[k] and its subconditions
+            {
+              //---------------------DELETE SUBCONDITIONS---------------------------------------------
+              remove_dp=alarm_dps[k];
+              alarm_dps[k]=\"\";
+			  exist=dynContains(alarm_dps,remove_dp);
+  
+          	  if(exist == 0)  // no other condition has this subcondition defined, so it has to be deleted
+              { 
+                dpGet(remove_dp+\":_alert_hdl.._type\",alarm_type);
+            
+                if(alarm_type == 13)  // check that meldebehandlung is not binary
+                {            
+                  dpGet(remove_dp+\":_alert_hdl.._num_ranges\",bereiche);         
+
+        		  for(s=1;s<=bereiche;s++)
+         		  {
+                    dpGet(remove_dp+\":_alert_hdl.\" + s + \"._text\",meldetext);
+        	        dpGet(remove_dp+\":_alert_hdl.\" + s + \"._class\",sClass);
+
+            	    if(sClass != \"\")
+            	    {  
+              	      t=dynContains(alerttexts,meldetext);   	    
+                      dynRemove(alerttexts,t);
+                      dynRemove(subconditionnames,t);
+        	        } // if
+      		      } // for  		
+      	        } // if (alarm_type == 13)
+      	    
+      	        else if (alarm_type == 12) // binary meldebehandlung
+      		    {
+                  dpGet(remove_dp+\":_alert_hdl.1._text\",meldetext);
+       	          dpGet(remove_dp+\":_alert_hdl.1._class\",sClass);
+          	      if(sClass != \"\")
+        	      {  
+          	        t=dynContains(alerttexts,meldetext);   	    
+                    dynRemove(alerttexts,t);
+                    dynRemove(subconditionnames,t);
+        	      } // if            	     	            		
+          	    } // else if (alarm_type == 12)
+                         	    
+      	      } // if (exist==0)  
+        	  // at this point the subconditions for alarm[k] (renamed as \"\") have been removed
+      	      //---------------------SUBCONDITIONS DELETED---------------------------------------------            
+        
+              condition_with_prefix=\"OPC_AE_\"+conditions_names[k];
+              p=dynContains(dp_group_names,condition_with_prefix);        
+              while (p > 0) // remove all server items that belong to this condition
+              {
+                dynRemove(dp_group_names,p);
+                dynRemove(source_items,p);
+                p=dynContains(dp_group_names,condition_with_prefix);
+              }
+
+              groupDeleteFilter(\"OPC_AE\",\"OPC_AE_\"+conditions_names[k],\"\",iError); // remove filter deleted Condition from datagroup OPC_AE
+              groupDelete(\"OPC_AE_\"+conditions_names[k],iError); // remove datagroup of deleted Condition
+
+			  dynRemove(conditions_categories,k);
+			  dynRemove(conditions_names,k);
+			  dynRemove(alarm_dps,k);
+			  
+                   
+            } // if (conditions_categories[k] == DELETED_ROWS[j])
+            
+            else // another condition than one for this event category was checked
+              k++;
+
+          }  // while   
+
+          dpSet(\"_AEServer1.Conditions.EventCategoryNames\",conditions_categories);
+          dpSet(\"_AEServer1.Conditions.ConditionNames\",conditions_names);
+          dpSet(\"_AEServer1.Conditions.AlertDps\",alarm_dps);
+          
+          dpSet(\"_AEServer1.SubConditions.AlertRangeTexts\",alerttexts);        
+          dpSet(\"_AEServer1.SubConditions.SubConditionNames\",subconditionnames);
+
+          dpSet(\"_AEServer1.ServerItems.DpGroupNames\",dp_group_names); // server item
+          dpSet(\"_AEServer1.ServerItems.SourceItems\",source_items); // server item
+                              
+      } // else if (case Conditional!!)
+      //---------------------CONDITIONS AND SUBCONDITIONS DELETED-----------------------------------------------------
+
+      dynRemove(categories,index);
+      dynRemove(types,index);
+            
+    } // for
+    dpSet(\"_AEServer1.EventCategories.EventCategoryNames\",categories); // save event categories names in the datasource
+    dpSet(\"_AEServer1.EventCategories.EventTypes\",types); // save event types in the datasource
+  } // if (lines deleted but not saved)
+// CONDITIONS, SUBCONDITIONS AND/OR SIMPLE EVENTS DEFINED FOR DELETED ROWS HAVE BEEN REMOVED
+  
+  if(CHANGES)  // in this case lets save new event category names and/or new event type definitions
+  {
+    getValue(table, \"lineCount\", rows); // read number of rows in the table
+
+    for(i=0;i<rows;i++) // read from each row event category name and event type, convert event types to uint form
+    {
+      getValue(table, \"cellValueRC\", i, \"EventCategoryNames\",categories_table[i+1]); // read event category name
+      getValue(table, \"cellValueRC\", i, \"EventTypes\",type); // read event type
+      switch (type)  // convert event type to uint form so that Simple=1, Conditional=2, Tracking=3, empty=0
+      {
+  	    case \"Simple\":
+  	      {types_table[i+1] = 1;break;}
+        case \"Conditional\":
+          {types_table[i+1] = 2;break;}
+        case \"Tracking\":
+          {types_table[i+1] = 3;break;}
+        default:
+          types_table[i+1] = 0;
+      } // switch     
+    } // for
+   
+    dpSet(\"_AEServer1.EventCategories.EventCategoryNames\",categories_table); // save event categories names in the datasource
+    dpSet(\"_AEServer1.EventCategories.EventTypes\",types_table); // save event types in the datasource
+
+  } // if(CHANGES)
+  
+  LINES_DELETED_BUT_NOT_SAVED=FALSE;
+  EnableButtons(!LINES_DELETED_BUT_NOT_SAVED);
+  CHANGES=FALSE;
+  dynClear(DELETED_ROWS);
+}
+
+" 0
+ E E E
+13 12
+"Button7"
+""
+1 14.99999999999996 320 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 318 101 346
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+   std_help(\"opc_ae_srv_event_categories\");
+}" 0
+ E E E
+14 13
+"TextField1"
+""
+1 15 276 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  13 274 217 300
+3 "0s" 0 0 0 0 0 -1  E E E
+13 14
+"Button8"
+""
+1 314.9999999999999 275 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  313 273 401 301
+
+T 
+4
+LANG:10001 6 Rename
+LANG:10004 9 重命名
+LANG:10000 10 Umbenennen
+LANG:10027 17 Переимен.
+"main()
+{
+  shape table=getShape(\"Table1\");
+  string name; // event category name on the selected row
+  dyn_int row; // selected row
+  dyn_float df; // not used
+  dyn_string ds; // return value from panel opc_ae_srv_event_type.pnl whether user chose Simple or Conditional event type
+  int language=0; // selected language, 0 = German, 1 = English
+ 
+  language=getActiveLang();    
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  // it's not allowed to use this functionality in case after deleting rows from the table the changes were not saved with button übernehmen
+  if ((LINES_DELETED_BUT_NOT_SAVED == true) || CHANGES)
+  {
+    if (language == 0) // German
+      ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Diese Funktionalität ist nur nach dem Speichern der Änderungen verfügbar. Bitte wählen Sie zu erst 'Übernehmen' aus.\") );
+    else
+       ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please save changes before using this functionality (use button 'Save' first).\") );   
+  } // if  
+
+  else  
+  {
+    getValue(table, \"getSelectedLines\", row); // read which row was selected
+    
+    if(dynlen(row)!=0) // check whether user selected any row
+    {
+      getValue(table, \"cellValueRC\", row[1], \"EventCategoryNames\",name); // read event category name from the selected row
+      ChildPanelOnCentralReturn(\"para/opc_ae_srv_rename.pnl\",\"PanelRename\",makeDynString(\"$EVENT_CATEGORY:\" + name),df,ds); // open panel para/opc_ae_srv_rename.pnl and give event category name from the selected row as an argument
+      if (dynlen(ds) != 0) // check whether new window was closed properly (with ok or abbrechen)
+      {
+        if(ds[1] != table.cellValueRC(row[1],\"EventCategoryNames\")) // check whether user has made any changes
+          setValue(table, \"cellValueRC\",row[1], \"EventCategoryNames\", ds[1]); // show the selected event type in the table     
+      } // if
+    } // if
+    else  // ask user to select a row / event category name
+    {
+      if (language == 0) // German
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Bitte wählen Sie die Event Category aus, die Sie umbenennen wollen.\") );
+      else
+        ChildPanelOnCentral(\"vision/MessageWarning\", \"MessageWarning\", makeDynString(\"$1:\" + \"Please select an event category whose name you want to modify.\") );      
+    } // else
+  }
+}" 0
+ E E E
+1 15 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 10 375 T 14 1.242484969939879 0 1 -32.42484969939879 -65
+0
+0

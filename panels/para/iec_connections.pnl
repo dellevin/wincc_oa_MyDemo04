@@ -1,0 +1,2268 @@
+V 14
+4
+LANG:10001 15 IEC Connections
+LANG:10004 9 IEC连接
+LANG:10000 16 IEC Verbindungen
+LANG:10027 26 Подключения IEC
+PANEL,-1 -1 1048 575 N "_3DFace" 1
+"$Target"
+"main()
+{
+  string dp = \"\";
+
+  if (isDollarDefined(\"$Target\"))
+    dp = $Target;
+
+  setMultiValue(\"tblConfig_ActiveAllConnections\", \"tableMode\", TABLE_SELECT_BROWSE,
+                \"tblConfig_ActiveAllConnections\", \"selectByClick\", TABLE_SELECT_LINE,
+                \"ptReduState\", \"visible\", iecConnection_isRedundant(),
+                \"ptStates_ConnState_2\", \"visible\", iecConnection_isRedundant()
+                );
+
+  mDriverData = iecConnection_loadDataIntoMapping();
+
+  if(dp == \"\")
+    return;
+
+  iecConnection_mappingToPanel(mDriverData, dp);
+  tfConnectTrigger.text = \"_\" + cbIecConnection.text;
+}
+
+" 0
+ E E E E 1 -1 -1 0  160 60
+""0  1
+E "#uses \"iecConnection_plugin.ctl\"
+#uses \"para.ctl\"
+
+mapping mDriverData;
+string sPrevConnectionDp = \"\";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void apply()
+{
+  if (!getUserPermission(4))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\"))
+                             );
+    return;
+  }
+
+  iecConnection_panelToMapping(mDriverData);
+  iecConnection_saveDataFromMapping(mDriverData, cbIecConnection.text);
+  tfConnectTrigger.text = \"_\" + cbIecConnection.text; // dpConnect to Status for newly created connection. No cbChange is needed.
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string buildSingleConnection(const dyn_string &dsParams, bool bIsRedu = false)
+{
+  if (dynlen(dsParams) == 4 && dsParams[1] == \"101\")
+    return dsParams[1] + \" \" + dsParams[3] + \" \" + dsParams[4];  // 101
+  else if (dynlen(dsParams) == 4 && dsParams[1] == \"104\")
+    return dsParams[1] + \" \" + dsParams[2] + \" \" + dsParams[3];  // nonredundant 104
+  else if (dynlen(dsParams) == 6) // redundant 104
+  {
+    if (!bIsRedu)
+      return dsParams[1] + \" \" + dsParams[2] + \" \" + dsParams[4];
+    else
+      return dsParams[1] + \" \" + dsParams[3] + \" \" + dsParams[5];
+  }
+  return \"\";
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectToTarget(const string &sConnectionDp)
+{
+  if (sPrevConnectionDp != \"\")
+  {
+    if (dpExists(sPrevConnectionDp))  // No error message is shown after new connection has been created which is not saved
+    {
+      dpDisconnect(\"showStates_ConnState\", sPrevConnectionDp + \".States.ConnState:_online.._value\");
+      dpDisconnect(\"showStates_ConnState\", sPrevConnectionDp + \"_2.States.ConnState:_online.._value\");
+      dpDisconnect(\"showStates_AllConnStates\", sPrevConnectionDp + \".States.AllConnStates:_online.._value\");
+      dpDisconnect(\"showStates_AllConnStates\", sPrevConnectionDp + \"_2.States.AllConnStates:_online.._value\");
+    }
+  }
+  if(dpExists(sConnectionDp))
+  {
+    if (dpExists(sConnectionDp)) // dpConnect will be done only if the dp exists
+    {
+      dpConnect(\"showStates_ConnState\", sConnectionDp + \".States.ConnState:_online.._value\");
+      dpConnect(\"showStates_ConnState\", sConnectionDp + \"_2.States.ConnState:_online.._value\");
+      dpConnect(\"showStates_AllConnStates\", sConnectionDp + \".States.AllConnStates:_online.._value\");
+      dpConnect(\"showStates_AllConnStates\", sConnectionDp + \"_2.States.AllConnStates:_online.._value\");
+    }
+  }
+
+  sPrevConnectionDp = sConnectionDp;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool isConnectionUnique(const dyn_string &dsParams, bool bCheckAll = false)
+{
+  dyn_dyn_string connections;
+  dyn_string dps = dpNames(\"*.Config.ConnInfo\", \"_IecConnection\");
+  dpGet(dps, connections);
+
+  // Check if redundant input is not the same
+  string conn = buildSingleConnection(dsParams);
+  string conn_redu = buildSingleConnection(dsParams, true);
+
+  // iec 104
+  //if ( dynlen(dsParams) == 6 && iecConnection_isRedundant() )
+  //  if ( conn == conn_redu )
+  //    return false;
+
+  // Check if the given connection is anywhere already present
+  for (int i = 1; i <= dynlen(connections); i++)
+  {
+    for (int j = 1; j <= dynlen(connections[i]); j++)
+    {
+      // Don't compare with \"yourself\"
+      if (!bCheckAll && (strpos(dps[i], cbIecConnection.text + \".\") != -1 || strpos(dps[i], cbIecConnection.text + \"_2.\") != -1))
+        continue;
+
+      if (strpos(connections[i][j], conn) == 0)
+        return false; // nonredundant check
+
+      if (iecConnection_isRedundant() && strpos(connections[i][j], conn_redu) == 0)
+        return false; // redundant check
+    }
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void listDelete(shape liDelete, shape list)
+{
+  int pos = list.selectedPos;
+  dyn_string ds = list.items;
+
+  if(pos > 0)
+  {
+    dynRemove(ds, pos);
+    list.items = ds;
+  }
+
+  if (pos > dynlen(ds)) pos--;
+
+  if (pos > 0)
+  {
+    list.items = ds;
+    list.selectedPos = pos;
+    liDelete.text = ds[pos];
+  }
+  else
+  {
+    list.items = ds;
+    liDelete.text = \"\";
+  }
+
+  updateMapping();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void listInsert(shape insert, shape list, bool before)
+{
+  string newInsert = insert.text;
+  int err = iecConnection_checkConnection(newInsert);
+
+  if (err != -1)
+  {
+    dyn_anytype lb = list.items;
+    int pos = list.selectedPos;
+    if (pos < 1) pos = dynlen(lb);
+    dynInsertAt(lb, newInsert, (before) ? pos : pos + 1);
+
+    list.items = lb;
+    list.selectedPos = (before) ? pos : pos + 1;
+    insert.text = newInsert;
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             \"\",
+                             makeDynString(getCatStr(\"iec\", \"wrongInput\"))
+                             );
+    insert.text = \"\";
+  }
+
+  updateMapping();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void listSelect(shape select, shape list)
+{
+  int pos = list.selectedPos;
+
+  if (pos != -1)
+  {
+    select.text = list.selectedText;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void listUpdate(shape update, shape list)
+{
+  string dp = update.text;
+  dyn_string ds = list.items;
+  int pos = list.selectedPos;
+
+  if (pos > 0 && dp != \"\")	ds[pos]= dp;
+
+  list.items = ds;
+
+  updateMapping();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showStates_ConnState(string sDp, int iState)
+{
+  string sh = \"ptStates_ConnState\";
+
+  if (isReduDp(dpSubStr(sDp, DPSUB_DP))) sh += \"_2\";
+  if (iState < 0 || iState > 3)
+  {
+    setValue(sh, \"text\", getCatStr(\"iec\", \"State_ConnStateUndef\") + \" (\" + iState + \")\");
+    return;
+  }
+  setValue(sh, \"text\", getCatStr(\"iec\", \"State_ConnState\" + iState));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showStates_AllConnStates(string sDp, dyn_int diStates)
+{
+  sDp = dpSubStr(sDp, DPSUB_DP);
+  if (isReduDp(sDp)) sDp = substr(sDp, 0, strlen(sDp) - 2);  // cut off _2
+  iecConnection_updateAllConnStates(sDp);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void updateConnection()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  if (!getUserPermission(4))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  dyn_int lines;
+  dyn_anytype values;
+  getValue(\"tblConfig_ActiveAllConnections\", \"getSelectedLines\", lines);
+  if (dynlen(lines) >= 1) getValue(\"tblConfig_ActiveAllConnections\", \"getLineN\", lines[1], values);
+  else return;
+
+  dyn_string dsParams = makeDynString(\"$Only104:0\", \"$Name101:\" + cbIecConnection.text, \"$Redu:\" + iecConnection_isRedundant());
+
+  for (int i = 1; i <= dynlen(values); i++)
+  {
+    dynAppend(dsParams, \"$P\" + i + \":\" + values[i]);
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/iec_params.pnl\", // define dp name
+                                 getCatStr(\"iec\",\"paramTitle\"),
+                                 dsParams,
+                                 df, ds);
+
+  if (dynlen(ds) == 0)
+    return;
+
+  if (!isConnectionUnique(ds, false))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"iec\",\"Connection_Present\")));
+    return;
+  }
+
+  if (dynlen(ds) == 4)
+  {
+    setMultiValue(\"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#1\", ds[1], //Format
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#4\", ds[2], //Host IP
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#5\", ds[3], //Host Port
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#6\", ds[4]  //Timeout
+                  );
+  }
+  else if (dynlen(ds) == 6)
+  {
+    setMultiValue(\"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#1\", ds[1], //Format
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#4\", ds[2], //Host 1 IP
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#5\", ds[4], //Host 1 Port
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#7\", ds[3], //Host 2 IP
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#8\", ds[5], //Host 2 Port
+                  \"tblConfig_ActiveAllConnections\", \"cellValueRC\", lines[1], \"#6\", ds[6]  //Timeout
+                  );
+  }
+
+  updateMapping();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void updateMapping()
+{
+  //iecConnection_panelToMapping(mDriverData, cbIecConnection.text);
+  //iecConnection_displayConnection(mDriverData, cbIecConnection.text);
+  iecConnection_setConnectionModified(cbIecConnection.text, mDriverData);
+  if (iecConnection_isRedundant()) iecConnection_setConnectionModified(cbIecConnection.text + \"_2\", mDriverData);
+}
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 97
+"Text20"
+""
+1 15 7 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+27 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.314606741573035 0 1.132075471698114 -24.7191011235955 -2.924528301886795 0 E 15 7 461 61
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Target
+LANG:10004 6 目标
+LANG:10000 4 Ziel
+LANG:10027 22 Подключение
+13 52
+"pbConnectionCreate"
+""
+1 943 27.99999999999989 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 34 Creates a new connection datapoint
+LANG:10004 20 创建新的连接DP
+LANG:10000 41 Erzeugt einen neuen Verbindungsdatenpunkt
+LANG:10027 72 Создать новую точку данных подключения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  943 28 1031 56
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  iecConnection_checkUnsavedConnections(cbIecConnection.text);
+
+  dyn_float df;
+  dyn_string ds;
+
+  if (!getUserPermission(4))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                 getCatStr(\"da\",\"createdp\"),
+                                 makeDynString(getCatStr(\"para\",\"apc_inputdpname\"), \"\"), df, ds);
+
+  if (dynlen(ds) != 1 || dynlen(df) != 1) return;
+  if (df[1] != 1) return;
+
+  // Check if this is a proper DP name
+  string dpname = ds[1];
+  int rv = nameCheck(dpname);
+  if (strlen(dpname) == 0)
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(getCatStr(\"general\", \"invalidcharacter\")),df,ds);
+    return;
+  }
+  if (rv == -1)
+  {
+    string msg = getCatStr(\"general\", \"invalidcharacter\");
+    msg += \"\\n\" + getCatStr(\"iec\", \"Invalid_DPName\");
+    strreplace(msg, \"§1\", dpname);
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning2\", getCatStr(\"para\",\"warning\"), makeDynString(msg, getCatStr(\"general\", \"yes\"), getCatStr(\"general\", \"no\")),df,ds);
+    if (dynlen(df) > 0 && df[1] == 0) return;
+  }
+
+  if (dpExists(\"_\" + dpname))
+  {
+    string msg = getCatStr(\"iec\", \"tarExist\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(msg),df,ds);
+    return;
+  }
+
+  // _2 can not be used at the end of the name
+  if (substr(dpname, strlen(dpname)-2) == \"_2\")
+  {
+    string msg = getCatStr(\"iec\", \"_2CanNotBeUsed\");
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(msg),df,ds);
+    return;
+  }
+
+  iecConnection_panelToMapping(mDriverData);
+  iecConnection_createConnection(dpname, mDriverData, iecConnection_isRedundant(), false);
+  iecConnection_createConnection(dpname + \"_2\", mDriverData, iecConnection_isRedundant(), true);
+
+  iecConnection_mappingToPanel(mDriverData);
+  iecConnection_displayConnection(mDriverData, dpname);
+  iecConnection_setConnectionModified(cbIecConnection.text, mDriverData);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 36
+"pbConnectionDelete"
+""
+1 853 27.99999999999989 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 Removes the selected connection datapoint
+LANG:10004 23 删除选定的连接DP
+LANG:10000 46 Löscht den selektierten Verbindungsdatenpunkt
+LANG:10027 82 Удалить точку данных выбранного подключения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  853 28 941 56
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  if(cbIecConnection.text() == \"\" || dynlen(cbIecConnection.items()) < 2)
+    return;
+
+  if (!getUserPermission(4))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+
+    return;
+  }
+
+  dyn_float  df;
+  dyn_string ds;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"para\", \"information\"),
+                                 makeDynString(getCatStr(\"diskspace\", \"dpDelete\"),
+                                               getCatStr(\"para\", \"yes\"),
+                                               getCatStr(\"para\", \"no\")),
+                                 df, ds);
+
+  if ( !df[1] )
+    return;
+
+  // Delete Dp and ReduDp from mapping
+  string sConnToDelete = cbIecConnection.text;
+  iecConnection_removeConnection(sConnToDelete, mDriverData);
+  iecConnection_removeConnection(sConnToDelete + \"_2\", mDriverData);
+  iecConnection_mappingToPanel(mDriverData);
+}
+
+
+
+
+
+" 0
+ E E E
+13 3
+"pbOk"
+""
+1 773 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  773 538 861 566
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+  dyn_float df;
+  dyn_string ds;
+
+  apply();
+  PanelOffReturn(df, ds);
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 2
+"pbCancel"
+""
+1 953 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  953 538 1041 566
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  iecConnection_checkUnsavedConnections(cbIecConnection.text);
+  dyn_float df = makeDynFloat(1);
+  dyn_string ds = makeDynString(\"2\");
+  PanelOffReturn(df, ds);
+}
+
+
+
+" 0
+ E E E
+13 6
+"pbApply"
+""
+1 863 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  863 538 951 566
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+  apply();
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 55
+"pbHelp"
+""
+1 955 1384 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 538 96 566
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"IEC104\" );
+}" 0
+ E E E
+17 58
+"slLocalList"
+""
+1 20.00000000000003 100 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 98 441 231
+0
+
+E
+"main()
+{
+  listSelect(getShape(\"tfLocalListNew\"), getShape(\"slLocalList\"));
+}
+
+
+
+" 0
+
+E
+
+0 0
+17 59
+"slGlobalList"
+""
+1 420.0000000000001 96 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  568 98 991 231
+0
+
+E
+"main()
+{
+  listSelect(getShape(\"tfGlobalListNew\"), getShape(\"slGlobalList\"));
+}
+
+
+
+" 0
+
+E
+
+0 0
+13 90
+"pbLocalListInsertAfter"
+""
+1 448 128 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 128 476 156
+
+P 
+13434828
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listInsert(getShape(\"tfLocalListNew\"), getShape(\"slLocalList\"), false);
+}
+
+
+
+
+
+
+
+" 0
+ E E E
+13 88
+"pbLocalListInsertBefore"
+""
+1 448 158 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 158 476 186
+
+P 
+13434828
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listInsert(getShape(\"tfLocalListNew\"), getShape(\"slLocalList\"), true);
+}
+
+
+
+" 0
+ E E E
+13 91
+"pbLocalListUpdate"
+""
+1 448 188 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 188 476 216
+
+P 
+13434828
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listUpdate(getShape(\"tfLocalListNew\"), getShape(\"slLocalList\"));
+}
+
+
+" 0
+ E E E
+13 89
+"pbLocalListDelete"
+""
+1 448 218 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  448 218 476 246
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listDelete(getShape(\"tfLocalListNew\"), getShape(\"slLocalList\"));
+}
+
+
+" 0
+ E E E
+13 93
+"Button1"
+""
+1 1003 98 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 98 1031 126
+
+P 
+12632256
+"pictures/StandardIcons/copy_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  if (dpExists(\"_\" + cbIecConnection.text))
+  {
+    ChildPanelOnCentralModalReturn(\"para/iec_connections_gList.pnl\",
+                                   getCatStr(\"iec\", \"gList\"),
+                                   makeDynString(cbIecConnection.text),
+                                   df, ds);
+  }
+  else
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             \"\",
+                             makeDynString(getCatStr(\"iec\", \"tarNotExist\")));
+  }
+
+  if (dynlen(df) > 0)
+    if (df[1] == -1)
+      return;
+
+  slGlobalList.deleteAllItems;
+  slGlobalList.items = ds;
+
+  updateMapping();
+}
+
+" 0
+ E E E
+13 73
+"pbGlobalListInsertAfter"
+""
+1 1003 128 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 128 1031 156
+
+P 
+13434828
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listInsert(getShape(\"tfGlobalListNew\"), getShape(\"slGlobalList\"), false);
+}
+
+
+" 0
+ E E E
+13 71
+"pbGlobalListInsertBefore"
+""
+1 1003 158 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 158 1031 186
+
+P 
+13434828
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listInsert(getShape(\"tfGlobalListNew\"), getShape(\"slGlobalList\"), true);
+}
+
+
+" 0
+ E E E
+13 72
+"pbGlobalListDelete"
+""
+1 1003 218 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 218 1031 246
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listDelete(getShape(\"tfGlobalListNew\"), getShape(\"slGlobalList\"));
+}
+
+
+" 0
+ E E E
+14 86
+"tfLocalListNew"
+""
+1 17.68750000000003 234 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 233 441 259
+3 "0s" 0 0 0 0 0 -1  E E E
+14 85
+"tfGlobalListNew"
+""
+1 420 234 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  568 233 991 259
+3 "0s" 0 0 0 0 0 -1  E E E
+2 100
+"PRIMITIVE_TEXT1"
+""
+1 10862.35938680709 2474 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.108108108108108 0 1 3.054054054054063 27 1 E 20 50 90 70
+0 2 2 "0s" 0 0 0 66 0 0  20 50 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 0 
+LANG:10004 0 
+LANG:10000 0 
+LANG:10027 0 
+22 44
+"cbIecConnection"
+""
+1 17.373949579832 28.86363636363623 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  18 28 847 56
+0
+
+E
+"synchronized main() // synchronized: In order to avoid inconsistent data
+{
+  // tfs 55028
+  //iecConnection_panelToMapping(mDriverData);
+  iecConnection_displayConnection(mDriverData, this.text);
+  tfConnectTrigger.text = \"_\" + this.text;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+E
+ 0 0
+30 98
+"FRAME2"
+""
+1 10 52 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+28 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.288888888888889 0 0.7186311787072248 -12.88888888888889 39.63117870722434 0 E 10 52 461 316
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10 Local List
+LANG:10004 12 本地列表
+LANG:10000 12 Lokale Liste
+LANG:10027 31 Локальный список
+2 61
+"Text2"
+""
+1 6245 564.9999999999955 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999999 335 -4.999999999999986 1 E 230 85 308 100
+0 0 0 "0s" 0 0 0 192 0 0  230 85 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 13  Global List 
+LANG:10004 12 全局列表
+LANG:10000 15  Globale Liste 
+LANG:10027 35  Глобальный список 
+13 103
+"pbGlobalListUpdate"
+""
+1 1003 188 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 188 1031 216
+
+P 
+13434828
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  listUpdate(getShape(\"tfGlobalListNew\"), getShape(\"slGlobalList\"));
+}
+
+
+
+" 0
+ E E E
+2 110
+"ptStates_ConnState"
+""
+1 -6800 16899.99999999999 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999999 -210 399.9999999999999 1 E 230 85 328 100
+0 0 0 "0s" 0 0 0 192 0 0  230 85 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 State.ConnState
+LANG:10004 15 State.ConnState
+LANG:10000 15 State.ConnState
+LANG:10027 15 State.ConnState
+20 111
+"cbConfig_Active"
+""
+1 20 294.9999999999998 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 45 Switches status of all redundant connections.
+LANG:10004 27 冗余设备的切换状态
+LANG:10000 44 Setzt status aller redundanten Verbindungen.
+LANG:10027 45 Switches status of all redundant connections.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 293 161 316
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  dyn_bool active = mDriverData[\"Connection\"][cbIecConnection.text][\"Config_ActiveAllConnections\"];
+
+  for (int i = 1; i <= dynlen(active); i++)
+  {
+    setValue(\"tblConfig_ActiveAllConnections\", \"cellValueRC\", i - 1, \"#2\", (bool)state);
+    active[i] = state;
+  }
+
+  mDriverData[\"Connection\"][cbIecConnection.text][\"Config_ActiveAllConnections\"] = active;
+  updateMapping();
+}
+
+" 0
+22 112
+"cbConfig_ActiveAllConnections"
+""
+1 92.91596638655469 323.8636363636363 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  94 323 1032 351
+0
+
+E
+"main()
+{
+  updateMapping();
+}
+
+
+
+
+
+" 0
+
+E
+ 0 0
+2 113
+"PRIMITIVE_TEXT3"
+""
+1 -6683 11137.99999999998 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999999 -139 244.9999999999998 1 E 160 85 230 100
+0 0 0 "0s" 0 0 0 194 0 0  230 85 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Force active
+LANG:10004 12 强制激活
+LANG:10000 12 Aktiv setzen
+LANG:10027 15 Уст. акт.
+25 117
+"tblConfig_ActiveAllConnections"
+""
+1 15 359.9999999999998 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main(int row, string column)
+{
+  updateConnection();
+}
+" 0
+
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  13 358 1002 447
+E"main(int row, string column, string value)
+{
+  if (column == \"#2\")
+  {
+    bool active1;
+    int lines;
+    getMultiValue(\"cbConfig_Active\", \"state\", 0, active1,
+                  \"tblConfig_ActiveAllConnections\", \"lineCount\", lines);
+
+    if (active1 == false)
+    {
+      for (int i = 0; i < lines; i++)
+      {
+        setValue(\"tblConfig_ActiveAllConnections\", \"cellValueRC\", i, \"#2\", false);
+      }
+    }
+
+    updateMapping();
+  }
+}
+
+" 0
+ 1 0 1 9 0 "#1" 4 1 0 "s" 4
+LANG:10001 6 Format
+LANG:10004 6 格式
+LANG:10000 6 Format
+LANG:10027 12 Формат
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+55 "#4" 12 1 0 "s" 4
+LANG:10001 2 P1
+LANG:10004 2 P1
+LANG:10000 2 P1
+LANG:10027 2 P1
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+140 "#5" 9 1 0 "s" 4
+LANG:10001 2 P2
+LANG:10004 2 P2
+LANG:10000 2 P2
+LANG:10027 2 P2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "#3" 9 1 0 "s" 4
+LANG:10001 12 Host 1 State
+LANG:10004 13 主机1状态
+LANG:10000 13 Host 1 Status
+LANG:10027 30 Хост 1, состояние
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "#7" 12 1 0 "s" 4
+LANG:10001 4 P1_2
+LANG:10004 4 P1_2
+LANG:10000 4 P1_2
+LANG:10027 4 P1_2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+140 "#8" 9 1 0 "s" 4
+LANG:10001 4 P2_2
+LANG:10004 4 P2_2
+LANG:10000 4 P2_2
+LANG:10027 4 P2_2
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "#9" 9 1 0 "s" 4
+LANG:10001 12 Host 2 State
+LANG:10004 13 主机2状态
+LANG:10000 13 Host 2 Status
+LANG:10027 30 Хост 2, состояние
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "#6" 9 1 0 "s" 4
+LANG:10001 2 P3
+LANG:10004 2 P3
+LANG:10000 2 P3
+LANG:10027 2 P3
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+115 "#2" 4 1 1 "s" 4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 14 Активно
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+55 
+14 14 10 10
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 118
+"pbConnectionAdd"
+""
+1 1003 357.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 358 1031 386
+
+P 
+13434828
+"pictures/StandardIcons/Insert_end_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_string ds;
+  dyn_float df;
+
+  if (!getUserPermission(4))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  dyn_string dsParams = makeDynString(\"$Name101:\" + cbIecConnection.text, \"$Redu:\" + iecConnection_isRedundant());
+
+  if (tblConfig_ActiveAllConnections.lineCount >= 1)
+    dsParams = makeDynString(\"$Only104:0\", \"$Redu:\" + iecConnection_isRedundant());
+
+  ChildPanelOnCentralModalReturn(\"para/iec_params.pnl\", // define dp name
+                                 getCatStr(\"iec\",\"paramTitle\"),
+                                 dsParams,
+                                 df, ds);
+
+  if (dynlen(ds) == 0)
+    return;
+
+//   if (!isConnectionUnique(ds, true))
+//   {
+//     ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(getCatStr(\"iec\",\"Connection_Present\")));
+//     return;
+//   }
+
+  //IM 103 635
+  if(iecConnection_isRedundant())
+  {
+    for(int i = 0; i < tblConfig_ActiveAllConnections.lineCount(); i++)
+    {
+      dyn_string tmp;
+      getValue(\"tblConfig_ActiveAllConnections\",\"getLineN\",i,tmp);
+//       if((tmp[2] == ds[2]) && (tmp[3] == ds[4]) && (tmp[5] == ds[3]) && (tmp[6] == ds[5]))
+//       {
+//         ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(getCatStr(\"iec\",\"Connection_Present\")));
+//         return;
+//       }
+    }
+  }
+  else
+  {
+    for(int i = 0; i < tblConfig_ActiveAllConnections.lineCount(); i++)
+    {
+      dyn_string tmp;
+      getValue(\"tblConfig_ActiveAllConnections\",\"getLineN\",i,tmp);
+//       if((tmp[2] == ds[2]) && (tmp[3] == ds[3]))
+//       {
+//         ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\",\"warning\"), makeDynString(getCatStr(\"iec\",\"Connection_Present\")));
+//         return;
+//       }
+    }
+  }
+  if (dynlen(ds) == 4)
+  {
+    setValue(\"tblConfig_ActiveAllConnections\", \"appendLine\",
+             \"#1\", ds[1], //Format
+             \"#4\", ds[2], //Host IP
+             \"#5\", ds[3], //Host Port
+             \"#6\", ds[4], //Timeout
+             \"#2\", true   //Active
+             );
+  }
+  else
+  {
+    setValue(\"tblConfig_ActiveAllConnections\", \"appendLine\",
+             \"#1\", ds[1], //Format
+             \"#4\", ds[2], //Host 1 IP
+             \"#5\", ds[4], //Host 1 Port
+             \"#7\", ds[3], //Host 2 IP
+             \"#8\", ds[5], //Host 2 Port
+             \"#6\", ds[6], //Timeout
+             \"#2\", true   //Active
+             );
+  }
+
+  updateMapping();
+}
+
+" 0
+ E E E
+13 119
+"pbConnectionRemove"
+""
+1 1003 417.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 418 1031 446
+
+P 
+13434828
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  dyn_int lines;
+
+  getValue(\"tblConfig_ActiveAllConnections\", \"getSelectedLines\", lines);
+
+  if (dynlen(lines) >= 1)
+    setValue(\"tblConfig_ActiveAllConnections\", \"deleteLineN\", lines[1]);
+
+  updateMapping();
+}
+
+" 0
+ E E E
+13 122
+"pbConnectionUpdate"
+""
+1 1003 387.9999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  1003 388 1031 416
+
+P 
+13434828
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  updateConnection();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+30 123
+"FRAME6"
+""
+1 15 7 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+45 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.314606741573033 0 3.472670850140358 -24.71910112359505 241.6913040490178 0 E 15 7 461 61
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Connection settings
+LANG:10004 12 连接设置
+LANG:10000 23 Verbindungeinstellungen
+LANG:10027 41 Настройки подключения
+30 124
+"FRAME7"
+""
+1 15 7 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+46 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 2.314606741573033 0 1.038026612813695 -24.71910112359551 452.7338137103041 0 E 15 7 461 61
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Host 1 State
+LANG:10004 13 主机1状态
+LANG:10000 13 Host 1 Status
+LANG:10027 30 Хост 1, состояние
+2 125
+"ptReduState"
+""
+1 2839 15262.99999999999 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999999 345 374.9999999999999 1 E 230 85 307 100
+0 0 0 "0s" 0 0 0 192 0 0  230 85 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 12 Host 2 State
+LANG:10004 13 主机2状态
+LANG:10000 13 Host 2 Status
+LANG:10027 30 Хост 2, состояние
+2 126
+"ptStates_ConnState_2"
+""
+1 5065 16899.99999999999 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 0.9999999999999999 345 399.9999999999999 1 E 230 85 342 100
+0 0 0 "0s" 0 0 0 192 0 0  230 85 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 State.ConnState_2
+LANG:10004 15 State.ConnState
+LANG:10000 17 State.ConnState_2
+LANG:10027 17 State.ConnState_2
+1 144 1 "" 0
+0
+14 130
+"tfConnectTrigger"
+""
+1 100 540 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"textChangedCB" "synchronized main(string newText) // synchronized: In order to avoid inconsistent state
+{
+  // IM 102417:
+  // First dpConnect is called from the panel Initialize event, but the first dpDisconnect and second dpConnect
+  // is called from the ComboBox Changed events. Therefore the very first dpDisconnect would throw errors. That's
+  // why we go via this hidden textfield which is triggered by the Initialize and the Changed events. So all 
+  // dpConnect and dpDisconnect are executed in the same script.
+  connectToTarget(newText);
+}
+
+
+
+
+
+"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  98 538 132 561
+3 "0s" 0 0 0 0 0 -1  E E E
+20 136
+"cbConfig_Encrypt"
+""
+1 190 295 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+54 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 43 Activates TLS security for this connection.
+LANG:10004 33 为该连接激活TLS安全性。
+LANG:10000 52 Aktiviert TLS Verschlüsselung für diese Verbindung
+LANG:10027 43 Activates TLS security for this connection.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  188 293 331 316
+1
+T 
+4
+LANG:10001 10 Encryption
+LANG:10004 6 加密
+LANG:10000 16 Verschlüsselung
+LANG:10027 10 Encryption
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  updateMapping();
+}
+
+
+
+
+
+
+
+
+
+" 0
+20 140
+"cbConfig_ChangeRole"
+""
+1 360 294.9999999999998 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 128 Activates change of IEC 104 driver communication role to
+TCP-server is Controlling station and
+TCP-client is Controlled station.
+LANG:10004 108 该激活将IEC 104驱动程序通信角色更改为
+TCP服务器是控制站，
+TCP客户端是受控站。
+LANG:10000 137 Aktiviert Änderung der Treiber IEC 104 Kommunikationsrolle zu
+TCP-Server ist Controlling Station und
+TCP-Client ist Controlled Station.
+
+LANG:10027 128 Activates change of IEC 104 driver communication role to
+TCP-server is Controlling station and
+TCP-client is Controlled station.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  358 293 482 316
+1
+T 
+4
+LANG:10001 11 Change Role
+LANG:10004 12 改变角色
+LANG:10000 13 Rolle ändern
+LANG:10027 11 Change role
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  updateMapping();
+}
+
+
+
+
+
+
+
+
+
+" 0
+22 141
+"cbConfig_SetInvalidBit"
+""
+1 700 297 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 126 Configures invalid bit setting on connection loss.
+See IEC driver online help internal DP
+_IecConnection.Config.SetInvalidBit.
+LANG:10004 131 配置连接丢失时的无效位设置。
+请参阅IEC驱动程序在线帮助 internal DP 
+_IecConnection.Config.SetInvalidBit。
+LANG:10000 138 Stellt das Ungültig-Bit setzen bei Verbindungsverlust ein.
+Siehe IEC Treiber OnlineHilfe interner DP _IecConnection.Config.SetInvalidBit.
+LANG:10027 126 Configures invalid bit setting on connection loss.
+See IEC driver online help internal DP
+_IecConnection.Config.SetInvalidBit.
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0  698 292 822 317
+3
+4
+LANG:10001 8 Inactive
+LANG:10004 6 禁用
+LANG:10000 7 Inaktiv
+LANG:10027 8 Inactive
+
+0
+4
+LANG:10001 9 With time
+LANG:10004 12 带时间戳
+LANG:10000 8 Mit Zeit
+LANG:10027 9 With time
+
+0
+4
+LANG:10001 7 No time
+LANG:10004 7 No time
+LANG:10000 9 Ohne Zeit
+LANG:10027 7 No time
+
+0
+
+E
+"main()
+{
+  updateMapping();
+}" 0
+
+E
+ 1 0
+2 143
+"PRIMITIVE_TEXT4"
+""
+1 574 297 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E U  0 E 574 297 657 312
+0 2 2 "0s" 0 0 0 192 0 0  574 297 1
+4
+LANG:10001 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10004 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10000 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+LANG:10027 34 Arial,-1,13,5,50,0,0,0,0,0,Regular
+0 4
+LANG:10001 16 Set invalid bit:
+LANG:10004 16 设置无效位:
+LANG:10000 21 Ungültig-Bit setzen:
+LANG:10027 16 Set invalid bit:
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 1 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 5 375 T 50 2.234468937875752 0 1 -11.17234468937881 155
+0
+0

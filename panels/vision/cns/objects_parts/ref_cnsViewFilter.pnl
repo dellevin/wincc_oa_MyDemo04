@@ -1,0 +1,520 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 290 560 N "_3DFace" 1
+"$id"
+"main()
+{
+  CNS_TREE.showHeader(FALSE);
+
+  if (CNS_TREE.columns <= 0)
+  {
+    CNS_TREE.addColumn(\"ID\");
+  }
+  
+  if (systemName != \"\" && systemName[strlen(systemName)] != ':')
+  {
+    systemName += \":\";
+  }
+  
+  // Always add the selected system
+  addViewsForSystemIds(getSystemId(systemName));
+  
+  // Determine which systems the selected system sees
+  if (dpConnect(\"cbDist\", systemName + \"_DistConnections.Dist.ManNums\",
+                          systemName + \"_DistConnections_2.Dist.ManNums\") != 0)
+  {
+    throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 39, \"Unable to update connected systems from remote system\"));
+  }
+  
+  // Get CNS updates to update the views
+  if (!cnsAddObserver(\"cbCns\"))
+  {
+    throwError(makeError(\"\", PRIO_INFO, ERR_SYSTEM, 54, \"Unable to update CNS changes\"));
+  }
+}
+
+void cbCns(string where, int what)
+{
+  DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"(\" + where + \", \" + what + \")\");
+  
+  switch (what)
+  {
+    case CNS_CHANGE_SYSTEM_NAMES:
+      DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() The display names of system \" + where + \" have changed\");
+      break;
+    case CNS_CHANGE_VIEW_SEPARATORS:
+      DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() The separators of view \" + where + \" have changed\");
+      break;
+    case CNS_CHANGE_NAMES:
+      DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() The name or display names of view or node \" + where + \" have changed\");
+      
+      // Check if the name has been changed
+      if (!cns_viewExists(where) && !cns_treeExists(where) && !cns_nodeExists(where))
+      {
+        string parent = cnsSubStr(where, CNSSUB_PARENT);
+        string sys    = cnsSubStr(where, CNSSUB_SYS);
+        
+        DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"(\" + where + \", \" + what + \") parent: \" + parent + \" sys: \" + sys);
+        
+        // Check if the name of a view has been changed
+        if (parent == \"\")
+        {
+          dyn_string views = cns_getReadableViews(sys);
+          dyn_string items = CNS_TREE.children(sys);
+          
+          dynSort(views);
+          
+          DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"(\" + where + \", \" + what + \") views: \" + views + \" items: \" + items);
+          
+          // Remove the old view(s), which do not exist anymore
+          for (int i = 1; i <= dynlen(items); i++)
+          {
+            int index = dynContains(views, items[i]);
+            
+            if (index > 0)
+            {
+              dynRemove(views, index);
+            }
+            else
+            {
+              CNS_TREE.removeItem(items[i]);
+            }
+          }
+          // Add the new view(s)
+          for (int i = 1; i <= dynlen(views); i++)
+          {
+            addView(views[i]);
+          }
+        }
+      }
+      break;
+    case CNS_CHANGE_DATA:
+      DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() The CNSDataIdentifier of node \" + where + \" has changed\");
+      break;
+    case CNS_CHANGE_STRUCTURE:
+      DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() The view, tree or node \" + where + \" was created or deleted\");
+      if (cns_viewExists(where)) // create view
+      {
+        DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() Show new view \" + where + \" in tree object\");
+        addView(where);
+      }
+      else if (cns_treeExists(where)) // create tree
+      {
+        DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() Show new tree \" + where + \" in treeobject\");
+      }
+      else if (cns_nodeExists(where)) // create node
+      {
+        DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() Show new node \" + where + \" in tree object\");
+      }
+      else // node or view does not exist anymore
+      {
+        DebugFN(\"CNS_VIEW\", __FUNCTION__ + \"() Delete node \" + where + \" in tree object\");
+        
+        // Remove the view
+        if (CNS_TREE.itemExists(where))
+        {
+          CNS_TREE.removeItem(where);
+        }
+      }
+      break;
+  }
+}
+
+void cbDist(string dpe1, dyn_uint manNums,
+            string dpe2, dyn_uint manNums2)
+{
+  DebugFN(\"CNS_VIEWS_DIST\", __FUNCTION__ + \"(\" + dpe1 + \"..., ..., ...) manNums: \" + manNums);
+
+  // Make a single list of system numbers
+  dynAppend(manNums, manNums2);
+  dynSort(manNums);
+  dynUnique(manNums);
+  
+  CNS_TREE.updatesEnabled = FALSE;
+  
+  // Add the new views
+  addViewsForSystemIds(manNums);
+  
+  // Add the own systemId
+  dynAppend(manNums, getSystemId(dpSubStr(dpe1, DPSUB_SYS)));
+  dynSort(manNums);
+  
+  // Remove systems that are not visible anymore
+  dyn_string systems = CNS_TREE.children(\"\");
+  
+  for (int i = 1; i <= dynlen(systems); i++)
+  {
+    unsigned systemId = getSystemId(systems[i] + \":\");
+    
+    DebugFN(\"CNS_VIEWS_DIST\", __FUNCTION__ + \"(\" + dpe1 + \"..., ..., ...) systemId: \" + systemId);
+    
+    if (dynContains(manNums, systemId) <= 0)
+    {
+      // Also remove the views from this system,
+      // so when this system reconnect the correct views are shown
+      dyn_string views = CNS_TREE.children(systems[i]);
+      
+      CNS_TREE.removeItems(views);
+      CNS_TREE.removeItem(systems[i]);
+    }
+  }
+  
+  CNS_TREE.updatesEnabled = TRUE;
+}
+
+void addViewsForSystemIds(dyn_uint manNums)
+{
+  for (int i = 1; i <= dynlen(manNums); i++)
+  {
+    int systemId = manNums[i];
+    
+    string name = cnsSubStr(getSystemName(systemId), CNSSUB_SYS);
+        
+    if (name != \"\" && !CNS_TREE.itemExists(name))
+    {
+      CNS_TREE.appendItem(\"\", name, name);
+      CNS_TREE.setOpen(name, TRUE);
+      CNS_TREE.setIcon(name, 0, \"wf/nodes/system.png\");
+    }
+    
+    dyn_string views = cns_getReadableViews(name);
+
+    DebugFN(\"CNS_VIEWS\", __FUNCTION__ + \"(\" + manNums + \") system: \" + name + \" views: \" + views);
+      
+    for (int j = 1; j <= dynlen(views); j++)
+    {
+      addView(views[j]);
+    }
+  }
+}
+
+void addView(string viewId)
+{
+  DebugFN(\"CNS_VIEW_ADD\", __FUNCTION__ + \"(\" + viewId + \") exists: \" + CNS_TREE.itemExists(viewId));
+  
+  if (!CNS_TREE.itemExists(viewId))
+  {
+    string sys  = cnsSubStr(viewId, CNSSUB_SYS);
+    string view = cnsSubStr(viewId, CNSSUB_VIEW);
+    
+    CNS_TREE.appendItemNC(sys, viewId, view);
+    CNS_TREE.setIcon(viewId, 0, \"wf/nodes/view.png\");
+    CNS_TREE.setDragEnabled(viewId, TRUE);
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  0 0
+""0  1
+E "string systemName = $id;
+string orginalStyle = CNS_TREE.styleSheet;
+
+void setCnsViewFilter(string filter)
+{
+  FILTER_DELETE.enabled = filter != \"\";
+
+  DebugFN(\"CNS_VIEW_FILTER\", __FUNCTION__ + \"(\" + filter + \") enabled: \" + FILTER_DELETE.enabled);
+
+  if (strlen(filter) == 0 || filter[strlen(filter) - 1] != '*')
+  {
+    filter += \"*\";
+  }
+
+  CNS_TREE.updatesEnabled = FALSE;
+
+  // Go thru all system to get all views
+  dyn_string systems = CNS_TREE.children(\"\");
+
+  for (int i = 1; i <= dynlen(systems); i++)
+  {
+    dyn_string views = CNS_TREE.children(systems[i]);
+
+    // Go thru all views and only show the ones which match the filter
+    for (int j = 1; j <= dynlen(views); j++)
+    {
+      string text = CNS_TREE.getText(views[j], 0);
+
+      CNS_TREE.setVisible(views[j], patternMatch(filter, text));
+    }
+  }
+
+  CNS_TREE.updatesEnabled = TRUE;
+}
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+2 1 0 0 0 0 1 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 0
+"CNS_FILTER"
+"WF"
+1 -194.8166332140318 27 E E E 1 E 1 E N "WF_Text" E N "_Window" E E
+ E E
+0 0 0 0 0 0
+E "main()
+{
+  setCnsViewFilter(this.text);
+}" 0
+ E
+0
+4
+LANG:10001 19 Display name filter
+LANG:10004 21 显示名称过滤器
+LANG:10000 18 Displaynamenfilter
+LANG:10027 36 Фильтр имени экрана
+
+5
+"acceptDrops" ""
+"minimumSize" "-1 26"
+"sizePolicy" "Expanding Fixed"
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  setCnsViewFilter(newText);
+}"
+4
+LANG:10001 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,12,5,50,0,0,0,0,0
+0  -2 33 239 62
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  setCnsViewFilter(this.text);
+}
+" 0
+
+13 1
+"FILTER_APPLY"
+"WF"
+1 264.1838928571429 35 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 Start search
+LANG:10004 12 开始寻找
+LANG:10000 13 Suche starten
+LANG:10027 23 Начать поиск
+
+3
+"minimumSize" "-1 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  262 33 291 62
+
+P 
+4294967295
+"pictures/cns/search_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  setCnsViewFilter(CNS_FILTER.text);
+}" 0
+ E E E
+13 2
+"FILTER_DELETE"
+"WF"
+1 238 35 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Delete filter
+LANG:10004 13 Delete filter
+LANG:10000 15 Filter löschen
+LANG:10027 27 Удалить фильтр
+
+3
+"minimumSize" "-1 26"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  236 33 265 62
+
+P 
+4294967295
+"pictures/cns/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  CNS_FILTER.text = \"\";
+}
+" 0
+ E E E
+6 3
+"tab_background"
+""
+1 60.15158066600755 10 E E E 1 E 1 E N "WF_CardActive" E N "WF_CardActive" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"hoverfclr" "N \"WF_CardActive\""
+"hoverbclr" "N \"WF_CardActive\""
+"layoutAlignment" "AlignNone"
+"dashclr"N "WF_CardActive"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.209205020920502 0 1.0625 -72.55230125523012 -10.625 1 E 60 10 299 42
+2 4
+"txt_tree_tab_name"
+""
+1 14.81610714285705 9 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 14.81610714285705 9 83 24
+0 2 2 "0s" 0 0 0 192 0 0  14.81610714285705 9 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 9 CNS views
+LANG:10004 10 CNS 视图
+LANG:10000 9 CNS Views
+LANG:10027 29 Представление DP
+29 5
+"CNS_TREE"
+"WF"
+1 0 61 E E E 1 E 1 E N "WF_Text" E N "WF_PanelBackground" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"styleSheet" "string QWidget {font-family: Arial; font-size: 13px; font-style: normal; font-weight: 400; }QWidget:enabled {background: #ffedeff1; color: #ff505a64; }"
+"alternatingRowColors" "bool TRUE"
+"showDropIndicator" "bool FALSE"
+"DragStart" "main(int keys, string id)
+{
+  // Only allow views to be dragged (the parent at server items is empty)
+  if (this.parent(id) != \"\")
+  {
+    dragStart(\"CNSView#\" + id);
+  }
+}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 26 Arial,-1,17,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,17,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  0 61 289 559
+10 TreeWidget
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 0 "LAYOUT_FILTER" 1
+3 0 
+0 2 1 
+
+"S 0" "0 0 1 1"
+"S 2" "1 0 1 1"
+"S 1" "2 0 1 1"
+"" ""
+0 1 0 1 0
+4 1 "LAYOUT_GROUP1" -1
+2 1 
+5 3 
+0 
+"S 5" "2 0 1 1"
+"S 3" "0 0 1 1"
+"G 0" "1 0 1 1"
+"" ""
+0 2 0 1 0
+0

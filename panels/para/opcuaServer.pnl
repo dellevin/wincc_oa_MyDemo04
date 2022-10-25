@@ -1,0 +1,1257 @@
+V 14
+4
+LANG:10001 26 OPCUA server configuration
+LANG:10004 21 OPCUA 服务器配置
+LANG:10000 27 OPCUA Server Parametrierung
+LANG:10027 26 OPCUA server configuration
+PANEL,-1 -1 480 569 N "_3DFace" 0
+"main()
+{
+  alarmPrioTabRegister = tabMappings.panelAt(0);
+  statusMapTabRegister = tabMappings.panelAt(1);
+
+  // connect to events from alarmPrio tab register
+  uiConnect(\"alarmPrioInsertCB\", alarmPrioTabRegister.insertClicked);
+  uiConnect(\"alarmPrioUpdateCB\", alarmPrioTabRegister.updateClicked);
+  uiConnect(\"alarmPrioDeleteCB\", alarmPrioTabRegister.deleteClicked);
+  uiConnect(\"alarmPrioDeleteAllCB\", alarmPrioTabRegister.deleteAllClicked);
+
+  // connect to events from statusMap tab register
+  uiConnect(\"statusMapInsertCB\", statusMapTabRegister.insertClicked);
+  uiConnect(\"statusMapUpdateCB\", statusMapTabRegister.updateClicked);
+  uiConnect(\"statusMapDeleteCB\", statusMapTabRegister.deleteClicked);
+  uiConnect(\"statusMapDeleteAllCB\", statusMapTabRegister.deleteAllClicked);
+
+  loadAllConfigs();
+
+  // init cmbConfig
+  cmbConfig.deleteAllItems();
+
+  for (uint i = 0; i < configs.count(); ++i)
+  {
+    shared_ptr<OpcUaSDpConfig> config = configs.at(i);
+    cmbConfig.appendItem(config.getName());
+  }
+
+  // update state texts
+  initHosts();
+  lblNumClients.text = host1;
+
+  if (isRedundant())
+  {
+    lblNumClientsRedu.text = host2;
+  }
+  else
+  {
+    lblNumClientsRedu.enabled(false);
+    tfNumClientsRedu.enabled(false);
+  }
+
+  // show first config
+  if (configs.count() > 0)
+  {
+    selectConfig(1);
+  }
+  else
+  {
+    selectConfig(0);
+  }
+}
+
+" 0
+ E E E E 1 -1 -1 0  470 170
+""0  1
+E "#uses \"classes/opcuasrv/OpcUaSDpConfig\"
+#uses \"hosts\"
+
+//--------------------------------------------------------------------------------
+
+shape alarmPrioTabRegister;
+shape statusMapTabRegister;
+
+vector< shared_ptr<OpcUaSDpConfig> > configs;
+shared_ptr<OpcUaSDpConfig> currentConfig;
+
+//--------------------------------------------------------------------------------
+// loads all available OPCUAPvssServer configs into configs vector and updates the UI accordingly
+void loadAllConfigs()
+{
+  dyn_string configDps = dpNames(\"*\", OpcUaSDpConfig::DPT_NAME);
+
+  for (int i = 0; i < dynlen(configDps); ++i)
+  {
+    if (!isReduDp(configDps.at(i)))
+    {
+      configs.append(OpcUaSDpConfig::getFromDp(configDps.at(i)));
+    }
+  }
+}
+
+//--------------------------------------------------------------------------------
+
+void numberOfClientsChangedCB(bool isRedu, string dp1, int numClients, string dp2, bool maxConnected)
+{
+  string tfName = \"tfNumClients\";
+  int maxConnections = 0;
+  if (currentConfig != nullptr)
+      maxConnections = currentConfig.getMaxNumConnections();
+
+  if (isRedu)
+  {
+    tfName = \"tfNumClientsRedu\";
+  }
+
+  string connTxt = numClients;
+
+  if (maxConnections > 0)
+    connTxt += \" / \" + maxConnections;
+
+  string backCol = \"_3DFace\";
+  if (maxConnected)
+    backCol = \"alertCamAckn\";
+
+  setValue(tfName, \"text\", connTxt,
+                   \"backCol\", backCol);
+}
+
+//--------------------------------------------------------------------------------
+
+void showSelectedConfiguration()
+{
+  bool sessionLogging = false;
+  bool valueChangeLogging = false;
+  bool disableDataUpdate = false;
+  uint disableWriteSelectedPos = 0;
+  dyn_dyn_anytype alarmPrioTab;
+  dyn_dyn_anytype statusTab;
+
+  if (currentConfig != nullptr)
+  {
+    sessionLogging = currentConfig.getSessionDatapointLogging();
+    valueChangeLogging = currentConfig.getWriteDatapointLogging();
+    disableDataUpdate = currentConfig.getDisableDataUpdate();
+    disableWriteSelectedPos = (uint)currentConfig.getDisableWrite() + 1;
+    alarmPrioTab = currentConfig.getAlarmPrioTab();
+    statusTab = currentConfig.getStatusTab();
+  }
+
+  cbAuditing.state(0, sessionLogging);
+  cbAuditing.state(1, valueChangeLogging);
+
+  cbDisableDataUpdate.state(0, disableDataUpdate);
+  cmbDisableWrite.selectedPos(disableWriteSelectedPos);
+
+  // fill mapping tables
+  invokeMethod(alarmPrioTabRegister, \"showAlarmPrioMap\", alarmPrioTab);
+  invokeMethod(statusMapTabRegister, \"showStatusMap\", statusTab);
+
+  inputsEnabled(currentConfig != nullptr);
+}
+
+//--------------------------------------------------------------------------------
+
+void saveChanges()
+{
+  if (currentConfig != nullptr)
+    currentConfig.saveToDp();
+}
+
+//--------------------------------------------------------------------------------
+
+void selectConfig(int pos) // pos starts at 1
+{
+  string configDp = \"nullptr\";
+
+  if (pos > 0 && pos <= configs.count())
+  {
+    shared_ptr<OpcUaSDpConfig> newSelectedConfig = configs.at(pos - 1);
+    configDp = newSelectedConfig.getConfigDp();
+    cmbConfig.selectedPos(pos);
+  }
+  else
+  {
+    cmbConfig.selectedPos(0);
+  }
+
+  // update currentConfig
+  tfSelectedDp.text(configDp);
+}
+
+//--------------------------------------------------------------------------------
+
+void inputsEnabled(bool enable)
+{
+  cmdRemoveDp.enabled(enable);
+  cbAuditing.enabled(enable);
+  cbDisableDataUpdate.enabled(enable);
+  cmbDisableWrite.enabled(enable);
+  lblDisableWrite.enabled(enable);
+
+  invokeMethod(alarmPrioTabRegister, \"inputsEnabled\", enable);
+  invokeMethod(statusMapTabRegister, \"inputsEnabled\", enable);
+
+  lblNumClients.enabled(enable);
+  tfNumClients.enabled(enable);
+  lblNumClientsRedu.enabled(enable && isRedundant());
+  tfNumClientsRedu.enabled(enable && isRedundant());
+}
+
+//--------------------------------------------------------------------------------
+
+void alarmPrioInsertCB(string alertClass, unsigned severity)
+{
+  string alertClassWithoutPrio = normalizeAlertClass(alertClass);
+  int ret = currentConfig.insertAlarmPrioEntry(alertClassWithoutPrio, severity);
+
+  if (ret == 0)
+    invokeMethod(alarmPrioTabRegister, \"insert\", alertClass, severity);
+  else if (ret == -1) // already configured
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"alarmPrioExists\")));
+  else
+    DebugTN(\"Error inserting alarm priority entry\", ret);
+}
+
+void alarmPrioUpdateCB(uint index, string alertClass, unsigned severity)
+{
+  string alertClassWithoutPrio = normalizeAlertClass(alertClass);
+  int ret = currentConfig.updateAlarmPrioEntry(index, alertClassWithoutPrio, severity);
+
+  if (ret == 0)
+    invokeMethod(alarmPrioTabRegister, \"updateAt\", index, alertClass, severity);
+  else if (ret == -1) // index out of bounds
+    DebugTN(\"Error updating alarm priority: Entry with index \" + index + \" does not exist.\");
+  else if (ret == -2) // already configured
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"alarmPrioExists\")));
+  else
+    DebugTN(\"Error updating alarm priority entry\", ret);
+}
+
+void alarmPrioDeleteCB(uint index)
+{
+  int ret = currentConfig.deleteAlarmPrioEntry(index);
+
+  if (ret == 0)
+    invokeMethod(alarmPrioTabRegister, \"deleteAt\", index);
+  else if (ret == -1)
+    DebugTN(\"Error deleting from alarm priority: Entry with index \" + index + \" does not exist.\");
+  else
+    DebugTN(\"Error deleting alarm priority entry\", ret);
+}
+
+void alarmPrioDeleteAllCB()
+{
+  int ret = currentConfig.clearAlarmPrioMapping();
+
+  if (ret == 0)
+    invokeMethod(alarmPrioTabRegister, \"deleteAll\");
+  else
+    DebugTN(\"Error deleting all alarm priority entries\", ret);
+}
+
+// gets alertclass without prio of \"<prio>_<alertclass>\"
+string normalizeAlertClass(string alertClass)
+{
+  return substr(alertClass, 4); // remove first 4 characters (e.g. \"010_\")
+}
+
+//--------------------------------------------------------------------------------
+
+void statusMapInsertCB(uint userBit, string statusCode)
+{
+  int ret = currentConfig.insertStatusEntry(userBit, statusCode);
+
+  if (ret == 0)
+    invokeMethod(statusMapTabRegister, \"insert\", userBit, statusCode);
+  else if (ret == -1) // invalid statusCode
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"statusCodeInvalid\")));
+  else if (ret == -2) // statusCode for userBit already configured
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"statusExists\")));
+  else
+    DebugTN(\"Error inserting status mapping entry\", ret);
+}
+
+void statusMapUpdateCB(uint index, uint userBit, string statusCode)
+{
+  int ret = currentConfig.updateStatusEntry(index, userBit, statusCode);
+
+  if (ret == 0)
+    invokeMethod(statusMapTabRegister, \"updateAt\", index, userBit, statusCode);
+  else if (ret == -1) // index not found
+    DebugTN(\"Error updating status mapping: Entry with index \" + index + \" does not exist.\");
+  else if (ret == -2) // invalid statusCode
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"statusCodeInvalid\")));
+  else if (ret == -3) // statusCode for userBit already configured
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"general\", \"warning\"),
+                             makeDynString(getCatStr(\"opcuasrv\", \"statusExists\")));
+  else
+    DebugTN(\"Error updating status mapping entry\", ret);
+}
+
+void statusMapDeleteCB(uint index)
+{
+  int ret = currentConfig.deleteStatusEntry(index);
+
+  if (ret == 0)
+    invokeMethod(statusMapTabRegister, \"deleteAt\", index);
+  else if (ret == -1) // index not existing
+    DebugTN(\"Error deleting from status mapping: Entry with index \" + index + \" does not exist.\");
+  else
+    DebugTN(\"Error deleting status mapping entry\", ret);
+}
+
+void statusMapDeleteAllCB()
+{
+  int ret = currentConfig.clearStatusMapping();
+
+  if (ret == 0)
+    invokeMethod(statusMapTabRegister, \"deleteAll\");
+  else
+    DebugTN(\"Error deleting all status mapping entries\", ret);
+}
+
+//--------------------------------------------------------------------------------
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "120"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+14 34
+"tfSelectedDp"
+""
+1 300 36 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  shared_ptr<OpcUaSDpConfig> newSelectedConfig;
+
+  if (cmbConfig.selectedPos() > 0 && cmbConfig.selectedPos() <= configs.count())
+    newSelectedConfig = configs.at(cmbConfig.selectedPos() - 1);
+
+  if (newSelectedConfig != currentConfig || newSelectedConfig == nullptr)
+  {
+    // dpDisconnect from previous config
+    if (currentConfig != nullptr)
+    {
+      string connectedClientsDPE = currentConfig.getConnectedClientsDPE();
+      string maxConnectedClientsDPE = currentConfig.getMaxConnectedDPE();
+      if (dpExists(connectedClientsDPE) && dpExists(maxConnectedClientsDPE))
+      {
+        dpDisconnectUserData(\"numberOfClientsChangedCB\", false, connectedClientsDPE, maxConnectedClientsDPE);
+      }
+
+      if (isRedundant())
+      {
+        string connectedClientsReduDPE = currentConfig.getConnectedClientsDPERedu();
+        string maxConnectedClientsReduDPE = currentConfig.getMaxConnectedDPERedu();
+        if (dpExists(connectedClientsReduDPE) && dpExists(maxConnectedClientsReduDPE))
+        {
+          dpDisconnectUserData(\"numberOfClientsChangedCB\", true, connectedClientsReduDPE, maxConnectedClientsReduDPE);
+        }
+      }
+    }
+
+    // restore old config values when config is changed
+    if (currentConfig != nullptr && newSelectedConfig != nullptr && currentConfig.getChanged())
+    {
+      currentConfig.load();
+    }
+
+    assignPtr(currentConfig, newSelectedConfig);
+    string connectedClientsDPE;
+    string maxConnectedClientsDPE;
+
+    if (currentConfig != nullptr)
+    {
+      connectedClientsDPE = currentConfig.getConnectedClientsDPE();
+      maxConnectedClientsDPE = currentConfig.getMaxConnectedDPE();
+    }
+
+    if (dpExists(connectedClientsDPE) && dpExists(maxConnectedClientsDPE))
+    {
+      // dpConnect to new config
+      dpConnectUserData(\"numberOfClientsChangedCB\", false, connectedClientsDPE, maxConnectedClientsDPE);
+    }
+    else
+    {
+      numberOfClientsChangedCB(false, \"\", 0, \"\", false);
+    }
+
+    if (isRedundant())
+    {
+      string connectedClientsReduDPE;
+      string maxConnectedClientsReduDPE;
+      if (currentConfig != nullptr)
+      {
+        connectedClientsReduDPE = currentConfig.getConnectedClientsDPERedu();
+        maxConnectedClientsReduDPE = currentConfig.getMaxConnectedDPERedu();
+      }
+
+      if (dpExists(connectedClientsReduDPE) && dpExists(maxConnectedClientsReduDPE))
+      {
+        dpConnectUserData(\"numberOfClientsChangedCB\", true, connectedClientsReduDPE, maxConnectedClientsReduDPE);
+      }
+      else
+      {
+        numberOfClientsChangedCB(true, \"\", 0, \"\", false);
+      }
+    }
+    showSelectedConfiguration();
+  }
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  298 30 422 55
+3 "0s" 0 0 0 0 0 -1  E E E
+22 5
+"cmbConfig"
+""
+1 20 30 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Select a configuration
+LANG:10004 12 选择配置
+LANG:10000 24 Konfiguration auswählen
+LANG:10027 22 Select a configuration
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  18 29 252 55
+0
+
+E
+"main()
+{
+  shared_ptr<OpcUaSDpConfig> newConfig = configs.at(this.selectedPos() - 1);
+
+  if (currentConfig == newConfig)
+    return;
+
+  tfSelectedDp.text(newConfig.getConfigDp());
+}
+" 0
+
+E
+ 0 0
+30 6
+"frmServer"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.7431340872374798 0 0.4934190388735885 2.568659127625201 -14.01285583103828 0 E 10 50 630 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 6 Server
+LANG:10004 6 Server
+LANG:10000 6 Server
+LANG:10027 6 Server
+13 7
+"cmdNewDp"
+""
+1 369 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 48 Create a new configuration with default settings
+LANG:10004 33 使用默认设定创建新配置
+LANG:10000 51 Neue Konfiguration mit Grundeinstellungen erstellen
+LANG:10027 48 Create a new configuration with default settings
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  361 28 459 56
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main(mapping event)
+{
+  // show input for name
+  dyn_float df;
+  dyn_string ds, ds2;
+  ChildPanelOnCentralModalReturn(\"vision/stringInput.pnl\", // define dp name
+                                 getCatStr(\"da\", \"createdp\"),
+                                 makeDynString(getCatStr(\"para\", \"apc_inputdpname\"), cmbConfig.text), df, ds);
+
+  if (dynlen(df) < 1 || df[1] == 0)
+    return;
+
+  if (!dpIsLegalName(ds[1]))
+  {
+    string s = getCatStr(\"STD_Symbols\",\"invaliddpname\")+\"\\n\"+ds[1];
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                   getCatStr(\"da\",\"createdp\"),
+                                   makeDynString(s), df, ds2);
+    return;
+  }
+
+  if (dpExists(OPCUASRV_INOA + ds[1]))
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+                                   getCatStr(\"da\",\"createdp\"),
+                                   makeDynString(getCatStr(\"general\", \"existcfg\")), df, ds2);
+    return;
+  }
+
+  // show new configuration
+  shared_ptr<OpcUaSDpConfig> newConfig = OpcUaSDpConfig::getFromDp(OPCUASRV_INOA + ds[1]);
+  configs.append(newConfig);
+  cmbConfig.appendItem(newConfig.getName());
+
+  selectConfig(cmbConfig.itemCount());
+}
+" 0
+ E E E
+13 8
+"cmdRemoveDp"
+""
+1 258 25 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 Remove a configuration
+LANG:10004 12 删除配置
+LANG:10000 23 Konfiguration entfernen
+LANG:10027 22 Remove a configuration
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  261 28 359 56
+
+T 
+4
+LANG:10001 6 Remove
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main(mapping event)
+{
+  dyn_float df;
+  dyn_string ds;
+
+  int deletePos = cmbConfig.selectedPos();
+  if (deletePos <= 0)
+    return;
+
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 getCatStr(\"general\", \"info\"),
+                                 makeDynString(getCatStr(\"opcuasrv\", \"applyDeleteConfig\"),
+                                               getCatStr(\"general\", \"yes\"),
+                                               getCatStr(\"general\", \"no\")),
+                                 df, ds);
+
+  if (dynlen(df) < 1 || df[1] < 1)
+    return;
+
+  shared_ptr<OpcUaSDpConfig> toDelete;
+  assignPtr(toDelete, currentConfig);
+
+  // switch to other config
+  if (deletePos == 1)
+  {
+    if (configs.count() == 1)
+      selectConfig(0);
+    else
+      selectConfig(2);
+  }
+  else
+    selectConfig(1);
+
+  // delete DP
+  toDelete.removeDp();
+  assignPtr(toDelete, nullptr);
+
+  // remove from list
+  configs.removeAt(deletePos - 1);
+  cmbConfig.deletePos(deletePos);
+}
+" 0
+ E E E
+30 9
+"frmSettings"
+""
+1 10 282 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+8 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 4.070796460176991 0 1.171875000000003 -30.70796460176992 -265.468750000001 0 E 10 282 124 347
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 8 Settings
+30 10
+"frmState"
+""
+1 30 493 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+9 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 0 1 0 1 E 0.9583333333333333 0 0.7241379310344822 -18.75 95.00000000000026 0 E 30 493 511 581
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 27 Number of connected Clients
+LANG:10004 24 连接的客户端数量
+LANG:10000 25 Anzahl verbundene Clients
+LANG:10027 27 Number of connected Clients
+20 11
+"cbAuditing"
+""
+1 20 85 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 121 Session Logging logs every session that is opened or closed.
+Write Logging logs every value change performed by a client.
+LANG:10004 106 会话日志记录每个打开或关闭的会话。
+写入日志记录客户端执行的每个值更改。
+LANG:10000 131 Mittels Session Logging wird geloggt wenn sich ein Client verbindet oder trennt.
+Write Logging loggt Wertänderungen durch Clients.
+LANG:10027 121 Session Logging logs every session that is opened or closed.
+Write Logging logs every value change performed by a client.
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  18 83 232 134
+2
+T 
+4
+LANG:10001 22 Enable Session Logging
+LANG:10004 24 启用会话过程记录
+LANG:10000 26 Session Logging aktivieren
+LANG:10027 22 Enable Session Logging
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 20 Enable Write Logging
+LANG:10004 21 启用写操作日志
+LANG:10000 24 Write Logging aktivieren
+LANG:10027 20 Enable Write Logging
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if (button == 0)
+  {
+    currentConfig.setSessionDatapointLogging(state == 1);
+  }
+  else if (button == 1)
+  {
+    currentConfig.setWriteDatapointLogging(state == 1);
+  }
+}
+" 0
+2 12
+"lblDisableWrite"
+""
+1 610 -945 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 64 Write-Requests from the client can be denied using this setting.
+LANG:10004 60 使用此设置可以拒绝来自客户端的写入请求。
+LANG:10000 63 Schreib-Anfragen vom Client können hierdurch untersagt werden.
+LANG:10027 64 Write-Requests from the client can be denied using this setting.
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.037564706370346 0 1 16.70415836529078 -3 0 E 214 115.3985615063331 319 132.3985615063331
+0 2 2 "0s" 0 0 0 64 0 0  214 115.3985615063331 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Disable Write:
+LANG:10004 12 禁用写：
+LANG:10000 17 Schreiben deakt.:
+LANG:10027 14 Disable Write:
+22 14
+"cmbDisableWrite"
+""
+1 347 106.8723927218206 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 64 Write-Requests from the client can be denied using this setting.
+LANG:10004 60 使用此设置可以拒绝来自客户端的写入请求。
+LANG:10000 63 Schreib-Anfragen vom Client können hierdurch untersagt werden.
+LANG:10027 64 Write-Requests from the client can be denied using this setting.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  345 105.8723927218206 459 131.8723927218206
+3
+4
+LANG:10001 3 Off
+LANG:10004 3 Off
+LANG:10000 3 Aus
+LANG:10027 3 Off
+
+0
+4
+LANG:10001 10 With Error
+LANG:10004 10 With Error
+LANG:10000 10 mit Fehler
+LANG:10027 10 With Error
+
+0
+4
+LANG:10001 13 Without Error
+LANG:10004 12 没有错误
+LANG:10000 11 ohne Fehler
+LANG:10027 13 Without Error
+
+0
+
+E
+"main()
+{
+  currentConfig.setDisableWrite(this.selectedPos() - 1);
+}
+" 0
+
+E
+ 0 0
+13 15
+"cmdApply"
+""
+1 286 535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  274 533 372 561
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main(mapping event)
+{
+  saveChanges();
+}
+" 0
+ E E E
+13 16
+"cmdCancel"
+""
+1 386 535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+27 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 30 放弃修改的数值并关闭
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  374 533 472 561
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main(mapping event)
+{
+  if (currentConfig.getChanged())
+  {
+    dyn_float df;
+    dyn_string ds;
+    ChildPanelOnCentralReturn(\"vision/MessageWarning2\",
+                              getCatStr(\"general\", \"warning\"),
+                              makeDynString(getCatStr(\"general\", \"discardChanges\"),
+                                            getCatStr(\"general\", \"yes\"),
+                                            getCatStr(\"general\", \"no\")),
+                              df, ds);
+    if (dynlen(df) < 1 || df[1] == 0)
+    {
+      return;
+    }
+  }
+
+  PanelOff();
+
+}
+" 0
+ E E E
+13 17
+"cmdHelp"
+""
+1 10 533 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 533 106 561
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"opcuasrv\");
+}
+" 0
+ E E E
+13 18
+"cmdOk"
+""
+1 186 535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 21 接受更改并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  174 533 272 561
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 2 OK
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main(mapping event)
+{
+  saveChanges();
+  PanelOff();
+}
+" 0
+ E E E
+1 35 0 "" 0
+31 "transform" 0 0 1 0 1 1.714782608695652 43
+0
+1 36 0 "" 1
+31 "transform" 0 0 1 0 1 1.714782608695652 43
+0
+14 21
+"tfNumClients"
+""
+1 82.09749043768565 488.8595306063324 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Number of clients connected to the OPC UA Server.
+LANG:10004 45 连接到 OPC UA 服务器的客户端数量.
+LANG:10000 49 Anzahl der zum OPC UA Server verbundenen Clients.
+LANG:10027 49 Number of clients connected to the OPC UA Server.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  126.4440884577516 477 205.4440884577516 502
+2 "0s" 0 0 0 0 0 -1  E E E
+2 22
+"lblNumClients"
+""
+1 834 -88.77982039344573 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.31150787116335 0 0.9190297401556399 26.20243544976587 11.5912952672528 1 E 3 511.9999999999999 74 531.0897637795275
+0 2 2 "0s" 0 0 0 66 0 0  3 511.9999999999999 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 8 Server 1
+LANG:10004 8 Server 1
+LANG:10000 8 Server 1
+LANG:10027 8 Server 1
+28 26
+"tabMappings"
+""
+1 10 160.5714285714286 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  8 148 474 448
+E2 "AlarmPrioMap" 4
+LANG:10001 22 Alarm Priority Mapping
+LANG:10004 18 报警等级映射
+LANG:10000 23 Alarmgewichtungsmapping
+LANG:10027 22 Alarm Priority Mapping
+1 "para/opcuaServer_alarmpriomapping.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"StatusMapping" 4
+LANG:10001 14 Status Mapping
+LANG:10004 12 状态映射
+LANG:10000 14 Status-Mapping
+LANG:10027 14 Status Mapping
+1 "para/opcuaServer_statusmapping.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+14 29
+"tfNumClientsRedu"
+""
+1 378.519956827119 488.8595306063324 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 49 Number of clients connected to the OPC UA Server.
+LANG:10004 45 连接到 OPC UA 服务器的客户端数量.
+LANG:10000 49 Anzahl der zum OPC UA Server verbundenen Clients.
+LANG:10027 49 Number of clients connected to the OPC UA Server.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  380 477 459 502
+2 "0s" 0 0 0 0 0 -1  E E E
+2 30
+"lblNumClientsRedu"
+""
+1 834 -88.77982039344573 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E 1.320548689878842 0 0.9190297401556399 278.6623926410456 11.5912952672528 1 E 3 511.9999999999999 74 531.0897637795275
+0 2 2 "0s" 0 0 0 66 0 0  3 511.9999999999999 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 8 Server 2
+LANG:10004 10 服务器 
+LANG:10000 8 Server 2
+LANG:10027 8 Server 2
+20 31
+"cbDisableDataUpdate"
+""
+1 236.7430055285448 87 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 83 Disables updates in the OPC UA process space, which are triggered by value changes.
+LANG:10004 62 禁用由值更改触发的 OPC UA 进程空间中的更新。
+LANG:10000 97 Deaktiviert Aktualisierungen im OPC UA Prozessraum, die durch Wertänderungen angestoßen werden.
+LANG:10027 83 Disables updates in the OPC UA process space, which are triggered by value changes.
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  234.7430055285448 85 441.7430055285449 109
+1
+T 
+4
+LANG:10001 20 Disable Data Updates
+LANG:10004 18 禁用数据更新
+LANG:10000 26 Daten-Updates deaktivieren
+LANG:10027 20 Disable Data Updates
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+E"main(int button, int state)
+{
+  if (button == 0)
+  {
+    currentConfig.setDisableDataUpdate(state == 1);
+  }
+}
+" 0
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF2" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 25 680 T 14 0.9879759519038076 0 1 -29.41418140629085 -199
+0
+0

@@ -1,0 +1,1463 @@
+V 14
+4
+LANG:10001 13 alert_hdl_bit
+LANG:10004 13 alert_hdl_bit
+LANG:10000 13 alert_hdl_bit
+LANG:10027 40 Обработка_алармов_бит
+PANEL,-1 -1 620 480 N "_3DFace" 1
+"$1"
+"main()
+{
+  int        i,iPrior, tmp;
+  string     dpe=dpSubStr($1,DPSUB_SYS_DP_EL),form,s,s1,
+             sysname=dpSubStr(dpe,DPSUB_SYS),sPrior;
+  dyn_string ds=dpNames(sysname+\"*;\",\"_AlertClass\"),dss=makeDynString();
+  dyn_anytype  da;    
+  
+  bPvssBelow_3_8  = isPvssVersionBelow(\"03.08\", dpSubStr($1, DPSUB_SYS));
+  bPvssBelow_3_10 = isPvssVersionBelow(\"03.10\", dpSubStr($1, DPSUB_SYS));
+  
+  //fill AlarmMode Combobox for Boolean AlertHdl
+  paIntitAlarmModeCombobox(bPvssBelow_3_8, bPvssBelow_3_10, TRUE);
+
+  cmb_alarmmode.visible(!bPvssBelow_3_8);
+
+  if ($1==\"\")
+  {
+    RootPanelOn(
+      \"vision/MessageWarning\",
+      paGetCatStr(\"para\",\"warning\"),
+      makeDynString(paGetCatStr(\"para\",\"novision\")));
+    delay(1);
+  }
+
+  paInitPanel(dpe,\":_alert_hdl\");
+
+  if (dynContains(dpTypes(),\"_MeldeKlasse\")>0)
+  {
+    dss=dpNames(sysname+\"*;\",\"_MeldeKlasse\");
+    dynAppend(ds,dss);
+  }
+  
+  for(i=1;i<=dynlen(ds);i++)
+  {
+    dss[i] = ds[i]+\":_alert_class.._prior\";  
+  }
+  dpGet( dss, da);
+
+  if ( dynlen(da) < 1 )  //check if alertClass exists
+  {
+    bool bError = false;    
+    for(i=1;i<=dynlen(ds);i++)
+    {
+      dpGet(ds[i]+\":_alert_class.._type\", tmp);
+      if ( tmp == 0 )
+      {
+        bError = true;
+
+        errClass err = makeError(\"_errors\", PRIO_WARNING, ERR_PARAM, \"00182\",ds[i]+\":_alert_class\");        
+        throwError (err);    
+        dynRemove(ds, i);
+        i--;    
+      }
+      else
+        dpGet (dss[i], da[i]);
+    }
+    if ( bError )
+    {
+      dyn_float ret_df;
+      dyn_string ret_ds;      
+      ChildPanelOnCentralReturn (\"vision/MessageWarning\",
+        paGetCatStr(\"para\",\"warning\"),
+        makeDynString(paGetCatStr(\"para\",\"missing_alert_class_config\")), ret_df, ret_ds);
+    }
+  }
+  
+  for(i=1;i<=dynlen(ds) && i<=dynlen(da); i++)
+  {
+    sprintf(sPrior,\"%03d_\",da[i]);
+    ds[i]=sPrior+dpSubStr(ds[i],DPSUB_DP_EL);
+  }  
+  dynSortAsc(ds);
+
+  setValue(\"k1\",\"items\",ds); 
+
+  dpGet(dpe+\":_alert_hdl.._type\", i);
+
+  if (i==DPCONFIG_ALERT_BINARYSIGNAL) //non discret
+  {
+    setAlarmModeShapes(PARA_ALARM_MODE_CONTINUOUS);
+    setValue(\"cb_InitDiscretState\", \"state\",0,false);
+    setSelectedPosByUserData(\"cmb_alarmmode\", PARA_ALARM_MODE_CONTINUOUS);
+    
+    if ( dpSubStr(dpe+\":_alert_hdl.._impulse\", DPSUB_CONF_DET_ATT) != \"\" ) // IM 65800
+    {
+      chbImpulseAlert.visible = true; // IM 65800
+      if (!bPvssBelow_3_10)
+        dpConnect(\"ConnectToAlertHdlFrom310\",dpe+\":_alert_hdl.._text1\",
+                                        dpe+\":_alert_hdl.._text0\",
+                                        dpe+\":_alert_hdl.._param\",
+                                        dpe+\":_alert_hdl.._class\",
+                                        dpe+\":_alert_hdl.._panel\",
+                                        dpe+\":_alert_hdl.._panel_param\",
+                                        dpe+\":_alert_hdl.._help\",
+                                        dpe+\":_alert_hdl.._act_range\",
+                                        dpe+\":_alert_hdl.._act_state_text\",
+                                        dpe+\":_alert_hdl.._act_state_color\",
+                                        dpe+\":_alert_hdl.._act_state_fore_color\",
+                                        dpe+\":_alert_hdl.._act_state_font_style\",
+                                        dpe+\":_alert_hdl.._act_state\",
+                                        dpe+\":_alert_hdl.._ack_possible\",
+                                        dpe+\":_alert_hdl.._ok_range\",
+                                        dpe+\":_alert_hdl.._orig_hdl\",
+                                        dpe+\":_alert_hdl.._active\",
+                                        dpe+\":_alert_hdl.._min_prio\",
+                                        dpe+\":_alert_hdl.._multi_instance\",
+                                        dpe+\":_alert_hdl.._impulse\");
+      else 
+        dpConnect(\"ConnectToAlertHdlBelow38\",dpe+\":_alert_hdl.._text1\",
+                                        dpe+\":_alert_hdl.._text0\",
+                                        dpe+\":_alert_hdl.._param\",
+                                        dpe+\":_alert_hdl.._class\",
+                                        dpe+\":_alert_hdl.._panel\",
+                                        dpe+\":_alert_hdl.._panel_param\",
+                                        dpe+\":_alert_hdl.._help\",
+                                        dpe+\":_alert_hdl.._act_range\",
+                                        dpe+\":_alert_hdl.._act_state_text\",
+                                        dpe+\":_alert_hdl.._act_state_color\",
+                                        dpe+\":_alert_hdl.._act_state_fore_color\",
+                                        dpe+\":_alert_hdl.._act_state_font_style\",
+                                        dpe+\":_alert_hdl.._act_state\",
+                                        dpe+\":_alert_hdl.._ack_possible\",
+                                        dpe+\":_alert_hdl.._ok_range\",
+                                        dpe+\":_alert_hdl.._orig_hdl\",
+                                        dpe+\":_alert_hdl.._active\",
+                                        dpe+\":_alert_hdl.._min_prio\");
+    }
+  // IM 65800 begin
+    else
+    {
+      if (!bPvssBelow_3_10)
+        dpConnect(\"ConnectToAlertHdlFrom310\",dpe+\":_alert_hdl.._text1\",
+                                        dpe+\":_alert_hdl.._text0\",
+                                        dpe+\":_alert_hdl.._param\",
+                                        dpe+\":_alert_hdl.._class\",
+                                        dpe+\":_alert_hdl.._panel\",
+                                        dpe+\":_alert_hdl.._panel_param\",
+                                        dpe+\":_alert_hdl.._help\",
+                                        dpe+\":_alert_hdl.._act_range\",
+                                        dpe+\":_alert_hdl.._act_state_text\",
+                                        dpe+\":_alert_hdl.._act_state_color\",
+                                        dpe+\":_alert_hdl.._act_state_fore_color\",
+                                        dpe+\":_alert_hdl.._act_state_font_style\",
+                                        dpe+\":_alert_hdl.._act_state\",
+                                        dpe+\":_alert_hdl.._ack_possible\",
+                                        dpe+\":_alert_hdl.._ok_range\",
+                                        dpe+\":_alert_hdl.._orig_hdl\",
+                                        dpe+\":_alert_hdl.._active\",
+                                        dpe+\":_alert_hdl.._min_prio\",
+                                        dpe+\":_alert_hdl.._multi_instance\",
+                                        dpe+\":_online.._value\");
+      else 
+        dpConnect(\"ConnectToAlertHdlBelow38\",dpe+\":_alert_hdl.._text1\",
+                                        dpe+\":_alert_hdl.._text0\",
+                                        dpe+\":_alert_hdl.._param\",
+                                        dpe+\":_alert_hdl.._class\",
+                                        dpe+\":_alert_hdl.._panel\",
+                                        dpe+\":_alert_hdl.._panel_param\",
+                                        dpe+\":_alert_hdl.._help\",
+                                        dpe+\":_alert_hdl.._act_range\",
+                                        dpe+\":_alert_hdl.._act_state_text\",
+                                        dpe+\":_alert_hdl.._act_state_color\",
+                                        dpe+\":_alert_hdl.._act_state_fore_color\",
+                                        dpe+\":_alert_hdl.._act_state_font_style\",
+                                        dpe+\":_alert_hdl.._act_state\",
+                                        dpe+\":_alert_hdl.._ack_possible\",
+                                        dpe+\":_alert_hdl.._ok_range\",
+                                        dpe+\":_alert_hdl.._orig_hdl\",
+                                        dpe+\":_alert_hdl.._active\",
+                                        dpe+\":_alert_hdl.._min_prio\");
+    }
+  // IM 65800 end
+    bit64 state_pattern;  //for initialize ToolTips
+    displayDiscretAttributes(state_pattern, \"\");
+  }
+  else //discret State
+  {
+    setValue(\"cb_InitDiscretState\", \"state\",0,true);
+    setSelectedPosByUserData(\"cmb_alarmmode\", PARA_ALARM_MODE_DISCRET);
+    setAlarmModeShapes(PARA_ALARM_MODE_DISCRET);
+    
+    
+    if (bPvssBelow_3_10)
+        dpConnect(\"_alert_hdl_getvalue_discret\", true,dpe+\":_alert_hdl.2._text\",
+                                            dpe+\":_alert_hdl.1._text\",
+                                            dpe+\":_alert_hdl.2._went_text\",
+                                            dpe+\":_alert_hdl.1._went_text\",
+                                            dpe+\":_alert_hdl.._param\",
+                                            dpe+\":_alert_hdl.2._class\",
+                                            dpe+\":_alert_hdl.1._class\",
+                                            dpe+\":_alert_hdl.._panel\",
+                                            dpe+\":_alert_hdl.._panel_param\",
+                                            dpe+\":_alert_hdl.._help\",
+                                            dpe+\":_alert_hdl.._act_range\",
+                                            dpe+\":_alert_hdl.._act_state_text\",
+                                            dpe+\":_alert_hdl.._act_state_color\",
+                                            dpe+\":_alert_hdl.._act_state_fore_color\",
+                                            dpe+\":_alert_hdl.._act_state_font_style\",
+                                            dpe+\":_alert_hdl.._act_state\",
+                                            dpe+\":_alert_hdl.._ack_possible\",
+//                                            dpe+\":_alert_hdl.._ok_range\",
+                                            dpe+\":_alert_hdl.._orig_hdl\",
+                                            dpe+\":_alert_hdl.._active\",
+                                            dpe+\":_alert_hdl.._min_prio\",
+                                            dpe+\":_alert_hdl.._impulse\",
+                                            dpe+\":_alert_hdl.2._status64_pattern\",
+                                            dpe+\":_alert_hdl.1._status64_pattern\",
+                                            dpe+\":_alert_hdl.2._add_text\",
+                                            dpe+\":_alert_hdl.1._add_text\",
+                                            dpe+\":_alert_hdl.2._status64_match\",
+                                            dpe+\":_alert_hdl.2._match\");
+  
+  else
+    dpConnect(\"_alert_hdl_getvalue_discret\", true,dpe+\":_alert_hdl.2._text\",
+                                            dpe+\":_alert_hdl.1._text\",
+                                            dpe+\":_alert_hdl.2._went_text\",
+                                            dpe+\":_alert_hdl.1._went_text\",
+                                            dpe+\":_alert_hdl.._param\",
+                                            dpe+\":_alert_hdl.2._class\",
+                                            dpe+\":_alert_hdl.1._class\",
+                                            dpe+\":_alert_hdl.._panel\",
+                                            dpe+\":_alert_hdl.._panel_param\",
+                                            dpe+\":_alert_hdl.._help\",
+                                            dpe+\":_alert_hdl.._act_range\",
+                                            dpe+\":_alert_hdl.._act_state_text\",
+                                            dpe+\":_alert_hdl.._act_state_color\",
+                                            dpe+\":_alert_hdl.._act_state_fore_color\",
+                                            dpe+\":_alert_hdl.._act_state_font_style\",
+                                            dpe+\":_alert_hdl.._act_state\",
+                                            dpe+\":_alert_hdl.._ack_possible\",
+//                                            dpe+\":_alert_hdl.._ok_range\",
+                                            dpe+\":_alert_hdl.._orig_hdl\",
+                                            dpe+\":_alert_hdl.._active\",
+                                            dpe+\":_alert_hdl.._min_prio\",
+                                            dpe+\":_alert_hdl.._impulse\",
+                                            dpe+\":_alert_hdl.2._status64_pattern\",
+                                            dpe+\":_alert_hdl.1._status64_pattern\",
+                                            dpe+\":_alert_hdl.2._add_text\",
+                                            dpe+\":_alert_hdl.1._add_text\",
+                                            dpe+\":_alert_hdl.2._status64_match\",
+                                            dpe+\":_alert_hdl.2._match\",
+                                            dpe+\":_alert_hdl.._multi_instance\");
+}
+}
+
+
+void ConnectToAlertHdlFrom310(string dp1 ,langString text1,
+                              string dp2 ,langString text0,
+                              string dp3 ,int par,
+                              string dp4 ,string klasse,
+                              string dp5 ,string panel,
+                              string dp6 ,dyn_string panel_param,
+                              string dp7 ,langString hilfe,
+                              string dp8 ,int akt_ber,
+                              string dp9 ,string akt_zust_text,
+                              string dp10,string akt_zust_farbe,
+                              string dp17,string akt_zust_forefarbe,
+                              string dp18,string akt_zust_font,
+                              string dp11,int akt_zust,
+                              string dp12,bool zu_quitt,
+                              string dp13,bool ok_ber,
+                              string dp14,bool orig_beh,
+                              string dp15,bool aktiv,
+                              string dp16,int min_prio,
+                              string dp20,bool multi_instance,
+                              string dp19,int impulse)
+{
+  _alert_hdl_getvalue(dp1, text1, 
+                      dp2, text0, 
+                      dp3, par, 
+                      dp4, klasse, 
+                      dp5, panel, 
+                      dp6, panel_param, 
+                      dp7, hilfe, 
+                      dp8, akt_ber, 
+                      dp9, akt_zust_text, 
+                      dp10, akt_zust_farbe, 
+                      dp17, akt_zust_forefarbe, 
+                      dp18, akt_zust_font, 
+                      dp11, akt_zust, 
+                      dp12, zu_quitt, 
+                      dp13, ok_ber, 
+                      dp14, orig_beh, 
+                      dp15, aktiv, 
+                      dp16, min_prio, 
+                      dp20, multi_instance, 
+                      dp19, impulse);
+}
+
+void ConnectToAlertHdlBelow38(string dp1 ,langString text1,
+                              string dp2 ,langString text0,
+                              string dp3 ,int par,
+                              string dp4 ,string klasse,
+                              string dp5 ,string panel,
+                              string dp6 ,dyn_string panel_param,
+                              string dp7 ,langString hilfe,
+                              string dp8 ,int akt_ber,
+                              string dp9 ,string akt_zust_text,
+                              string dp10,string akt_zust_farbe,
+                              string dp17,string akt_zust_forefarbe,
+                              string dp18,string akt_zust_font,
+                              string dp11,int akt_zust,
+                              string dp12,bool zu_quitt,
+                              string dp13,bool ok_ber,
+                              string dp14,bool orig_beh,
+                              string dp15,bool aktiv,
+                              string dp16,int min_prio)
+{
+  _alert_hdl_getvalue(dp1, text1, 
+                      dp2, text0, 
+                      dp3, par, 
+                      dp4, klasse, 
+                      dp5, panel, 
+                      dp6, panel_param, 
+                      dp7, hilfe, 
+                      dp8, akt_ber, 
+                      dp9, akt_zust_text, 
+                      dp10, akt_zust_farbe, 
+                      dp17, akt_zust_forefarbe, 
+                      dp18, akt_zust_font, 
+                      dp11, akt_zust, 
+                      dp12, zu_quitt, 
+                      dp13, ok_ber, 
+                      dp14, orig_beh, 
+                      dp15, aktiv, 
+                      dp16, min_prio);
+}
+
+_alert_hdl_getvalue(string dp1 ,langString text1,
+                    string dp2 ,langString text0,
+                    string dp3 ,int par,
+                    string dp4 ,string klasse,
+                    string dp5 ,string panel,
+                    string dp6 ,dyn_string panel_param,
+                    string dp7 ,langString hilfe,
+                    string dp8 ,int akt_ber,
+                    string dp9 ,string akt_zust_text,
+                    string dp10,string akt_zust_farbe,
+                    string dp17,string akt_zust_forefarbe,
+                    string dp18,string akt_zust_font,
+                    string dp11,int akt_zust,
+                    string dp12,bool zu_quitt,
+                    string dp13,bool ok_ber,
+                    string dp14,bool orig_beh,
+                    string dp15,bool aktiv,
+                    string dp16,int min_prio,
+                    string dp20 = \"\",bool multi_instance = false,
+                    string dp19 = \"\",int impulse = 0)
+{
+  int        nol=getNoOfLangs(),iPrior,iAckType;
+  string     t1=text1,t0=text0,sPrior;
+  dyn_string ds1=text1,ds0=text0,ds_lt=hilfe;
+
+  if (klasse!=\"\")
+  {
+    dpGet(klasse+\":_alert_class.._prior\",iPrior,
+          klasse+\":_alert_class.._ack_type\",iAckType);
+    sprintf(sPrior,\"%03d_\",iPrior);
+  }
+  setAlarmModeShapes(multi_instance?PARA_ALARM_MODE_MULTIINSTANCE:PARA_ALARM_MODE_CONTINUOUS);
+  if (multi_instance && t1==\"\" && t0==\"\")
+    fillMultiinstanceDefaultAlarmTexts();
+  
+  setMultiValue(\"aktiv\",\"enabled\",(!zu_quitt && paIsLockedByMe()),
+                \"ok\",\"enabled\",(par && paIsLockedByMe()),
+                \"save\",\"enabled\",(par && paIsLockedByMe()),
+                \"cancel\",\"text\",aktiv?paGetCatStr(\"para\",\"close\"):
+                                      paGetCatStr(\"para\",\"cancel\"),
+                \"cmb_alarmmode\", \"enabled\",(par && paIsLockedByMe()),
+                \"t1\",\"text\",t1,
+                \"t0\",\"text\",t0,
+                \"langliste1\",\"items\",ds1,
+                \"langliste0\",\"items\",ds0,
+                \"k1\",\"text\",sPrior+dpSubStr(klasse,DPSUB_DP_EL),
+                \"TB_Panel\",\"text\",panel,
+                \"dyn_list\",\"items\",panel_param,
+                \"hilfe\",\"text\",hilfe,
+                \"langtextliste\",\"items\",ds_lt,   
+                \"langtexteditor\",\"visible\",(nol>1),
+                \"aktiv\",\"state\",0,aktiv,
+                \"RB_GutBer\",\"number\",!ok_ber,
+                \"q1\",\"backCol\",ok_ber?\"Green\":\"Red\",
+                \"q0\",\"backCol\",ok_ber?\"Red\":\"Green\",
+                \"CB_ori\",\"selectedPos\",orig_beh+1,
+                \"quitt\",\"visible\",!par && !multi_instance,
+//                \"quitt\",\"enabled\",(zu_quitt && paIsLockedByMe()),
+                \"quitt\",\"enabled\",(zu_quitt) && !multi_instance,
+                \"min_prio\",\"text\",min_prio,
+                \"t1\",\"enabled\",par,
+                \"t0\",\"enabled\",par,
+                \"t1\",\"editable\",(nol<2),
+                \"t0\",\"editable\",(nol<2),
+                \"pbUserBits\", \"visible\", false,
+                \"rcUserBitsConfigurated\", \"visible\", false,
+                \"k1\",\"enabled\",par,
+                \"PB_sel1\",\"enabled\",par,
+                \"TB_Panel\",\"enabled\",par,
+                \"PB_Panel\",\"enabled\",par,
+                \"dyn_list\",\"enabled\",par,
+                \"dyn_input\",\"enabled\",par,
+                \"pb_after\",\"enabled\",par,
+                \"pb_before\",\"enabled\",par,
+                \"pb_modify\",\"enabled\",par,
+                \"pb_delete\",\"enabled\",par,
+                \"pb_select\",\"enabled\",par,
+                \"pb_editor\",\"visible\",paIsNative[paMyModuleId()],
+                \"hilfe\",\"enabled\",par,
+                \"RB_GutBer\",\"enabled\",par,
+                \"CB_ori\",\"enabled\",par,
+                \"CB_ori\",\"visible\",!multi_instance,
+
+                \"am\",\"visible\",!par && !multi_instance,
+                \"am\",\"text\",akt_zust_text,
+                \"am\",\"backCol\",akt_zust_farbe,
+                \"am\",\"foreCol\",akt_zust_forefarbe,
+                \"az\",\"visible\",!par && !multi_instance,
+                \"chbImpulseAlert\", \"enabled\", (par && (iAckType==0 || iAckType==1 || iAckType==2 || iAckType==3)),
+                \"chbImpulseAlert\", \"state\", 0 , (iAckType==0 || iAckType==1 || iAckType==2 || iAckType==3)?impulse:false);
+  
+  setSelectedPosByUserData(\"cmb_alarmmode\", multi_instance?PARA_ALARM_MODE_MULTIINSTANCE:PARA_ALARM_MODE_CONTINUOUS);
+                
+  if (akt_zust==0)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"noalert\"));
+  else
+  if (akt_zust==1)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"camenack\"));
+  else
+  if (akt_zust==2)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"cameack\"));
+  else
+  if (akt_zust==3)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"gonenack\"));
+  else
+  if (akt_zust==4)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"camegonenack\"));
+}
+
+_alert_hdl_getvalue_discret(string dp1 ,langString text1,
+                            string dp2 ,langString text0,
+                            string dp20 ,langString text1_went,
+                            string dp21 ,langString text0_went,
+                            string dp3 ,int par,
+                            string dp4 ,string klasse,
+                            string dp26 ,string klasse1,
+                            string dp5 ,string panel,
+                            string dp6 ,dyn_string panel_param,
+                            string dp7 ,langString hilfe,
+                            string dp8 ,int akt_ber,
+                            string dp9 ,string akt_zust_text,
+                            string dp10,string akt_zust_farbe,
+                            string dp17,string akt_zust_forefarbe,
+                            string dp18,string akt_zust_font,
+                            string dp11,int akt_zust,
+                            string dp12,bool zu_quitt,
+//                            string dp13,bool ok_ber,
+                            string dp14,bool orig_beh,
+                            string dp15,bool aktiv,
+                            string dp16,int min_prio,
+                            string dp22,int impulse,
+                            string dp23,bit64 status64_pattern1,
+                            string dp24,bit64 status64_pattern0,
+                            string dp25,string add_text1,
+                            string dp30,string add_text0,
+                            string dp31,string rangeStateBits,
+                            string dp32,string sMatchRange2,
+                            string dp33 = \"\",bool multi_instance = false
+)
+{
+  int        nol=getNoOfLangs(),iPrior,iAckType;
+
+  bool ok_ber = sMatchRange2==\"0\";  //good range is first or second range? -> fist range match pattern = \"*\" second = \"0\" or \"1\"
+  
+  if(ok_ber)
+  {
+    string stmp = text1;
+    text1 = text0;
+    text0 = stmp;
+    stmp = text1_went;
+    text1_went = text0_went;
+    text0_went = stmp;
+  }
+
+  string     t1=text1, t0=text0, t1_went=text1_went, t0_went=text0_went, sPrior;
+  dyn_string ds1=text1, ds0=text0, ds_lt=hilfe, ds1_went=text1_went, ds0_went=text0_went;
+  
+  //write userBits to hidden text field
+  setRangeUserBits(rangeStateBits);
+  
+  bool bUserRangeBits = false;
+  if (strpos(rangeStateBits, \"0\")>=0 || strpos(rangeStateBits, \"1\")>=0)
+    bUserRangeBits = true;
+  
+  if (klasse==\"\")
+  {
+    klasse = klasse1;
+  }
+  dpGet(klasse+\":_alert_class.._prior\",iPrior,
+        klasse+\":_alert_class.._ack_type\",iAckType);
+  sprintf(sPrior,\"%03d_\",iPrior);
+
+  setMultiValue(\"aktiv\",\"enabled\",(!zu_quitt && paIsLockedByMe()),
+                \"ok\",\"enabled\",(par && paIsLockedByMe()),
+                \"save\",\"enabled\",(par && paIsLockedByMe()),
+                \"cancel\",\"text\",aktiv?paGetCatStr(\"para\",\"close\"):
+                                      paGetCatStr(\"para\",\"cancel\"),
+                \"cmb_alarmmode\", \"enabled\",(par && paIsLockedByMe()),
+                \"t1\",\"text\",t1,
+                \"t0\",\"text\",t0,
+                \"t3\",\"text\",t1_went,
+                \"t2\",\"text\",t0_went,
+                \"langliste1\",\"items\",ds1,
+                \"langliste0\",\"items\",ds0,
+                \"langliste3\",\"items\",ds1_went,
+                \"langliste2\",\"items\",ds0_went,
+                \"k1\",\"text\",sPrior+dpSubStr(klasse,DPSUB_DP_EL),
+                \"TB_Panel\",\"text\",panel,
+                \"dyn_list\",\"items\",panel_param,
+                \"hilfe\",\"text\",hilfe,
+                \"langtextliste\",\"items\",ds_lt,   
+                \"langtexteditor\",\"visible\",(nol>1),
+                \"aktiv\",\"state\",0,aktiv,
+                \"RB_GutBer\",\"number\",!ok_ber,
+                \"q1\",\"backCol\",ok_ber?\"Green\":\"Red\",
+                \"q0\",\"backCol\",ok_ber?\"Red\":\"Green\",
+                \"CB_ori\",\"selectedPos\",orig_beh+1,
+                \"quitt\",\"visible\",!par,
+//                \"quitt\",\"enabled\",(zu_quitt && paIsLockedByMe()),
+                \"quitt\",\"enabled\",(zu_quitt),
+                \"min_prio\",\"text\",min_prio,
+                \"t1\",\"enabled\",par,
+                \"t0\",\"enabled\",par,
+                \"t1\",\"editable\",(nol<2),
+                \"t0\",\"editable\",(nol<2),
+                \"t3\",\"enabled\",par,
+                \"t2\",\"enabled\",par,
+                \"t3\",\"editable\",(nol<2),
+                \"t2\",\"editable\",(nol<2),
+                \"pbUserBits\", \"enabled\", true,
+                \"k1\",\"enabled\",par,
+                \"PB_sel1\",\"enabled\",par,
+                \"TB_Panel\",\"enabled\",par,
+                \"PB_Panel\",\"enabled\",par,
+                \"dyn_list\",\"enabled\",par,
+                \"dyn_input\",\"enabled\",par,
+                \"pb_after\",\"enabled\",par,
+                \"pb_before\",\"enabled\",par,
+                \"pb_modify\",\"enabled\",par,
+                \"pb_delete\",\"enabled\",par,
+                \"pb_select\",\"enabled\",par,
+                \"pb_editor\",\"visible\",paIsNative[paMyModuleId()],
+                \"hilfe\",\"enabled\",par,
+                \"RB_GutBer\",\"enabled\",par,
+                \"CB_ori\",\"enabled\",par,
+                \"CB_ori\",\"visible\",!multi_instance,
+
+                \"am\",\"visible\",!par,
+                \"am\",\"text\",akt_zust_text,
+                \"am\",\"backCol\",akt_zust_farbe,
+                \"am\",\"foreCol\",akt_zust_forefarbe,
+                \"az\",\"visible\",!par,
+                \"chbImpulseAlert\", \"enabled\", (par && (iAckType==0 || iAckType==1 || iAckType==2 || iAckType==3)),
+                \"chbImpulseAlert\", \"state\", 0 , (iAckType==0 || iAckType==1 || iAckType==2 || iAckType==3)?impulse:false,
+                \"rcUserBitsConfigurated\", \"visible\", bUserRangeBits);
+  
+  setSelectedPosByUserData(\"cmb_alarmmode\", multi_instance?PARA_ALARM_MODE_MULTIINSTANCE:PARA_ALARM_MODE_DISCRET);
+  setAlarmModeShapes(multi_instance?PARA_ALARM_MODE_MULTIINSTANCE:PARA_ALARM_MODE_DISCRET);
+
+
+  if (akt_zust==0)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"noalert\"));
+  else
+  if (akt_zust==1)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"camenack\"));
+  else
+  if (akt_zust==2)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"cameack\"));
+  else
+  if (akt_zust==3)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"gonenack\"));
+  else
+  if (akt_zust==4)
+    setValue(\"az\",\"text\",paGetCatStr(\"para\",\"camegonenack\"));
+  enableUserBits((par && paIsLockedByMe()));
+  displayDiscretAttributes(status64_pattern1, add_text1);
+}
+
+void displayDiscretAttributes(bit64 state_pattern, string sAddText)
+{
+  //set Visibility of BitPattern and addText-ComboBox
+  dyn_string dsAddText;
+    
+  dsAddText = dpNames(\"*\", \"_AlertStatusText\");
+    
+  //cut Systemname
+  int pos;
+  for (int i = dynlen(dsAddText); i>=1; i--)
+  {
+    pos = strpos(dsAddText[i],\":\");
+    if (pos>0)
+      dsAddText[i] = substr(dsAddText[i],pos+1);
+  }  
+  //dispaly BitPattern
+  paDisplayAlertBits(state_pattern);
+    
+  //display AddText
+  setValue(\"cbAddText\", \"items\", dsAddText);
+  
+  //remove SystemName
+  dyn_string dsSplittedAddText = strsplit(sAddText, \":\");
+  if (dynlen(dsSplittedAddText)>=1)
+    setValue(\"cbAddText\",\"text\", dsSplittedAddText[dynlen(dsSplittedAddText)]);
+}
+
+//------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ "main()
+{
+  //IM 106997
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()) && (dpSubStr(gMpLastDpLocked[myModuleName()],DPSUB_SYS_DP_EL) == $1) && dpExists(dpSubStr($1,DPSUB_DP_EL)))
+    dpSet($1+\":_lock._alert_hdl._locked\",FALSE);
+  if(mappingHasKey(gMpLastDpLocked,myModuleName()))
+  {
+    gMpLastDpLocked[myModuleName()] = \"\";
+    mappingRemove(gMpLastDpLocked,myModuleName());
+  }
+}" 0
+ E E E 1 -1 -1 0  160 60
+"refFileName"0  1
+E "const int USERBITS_TAB = 2;
+bool bPvssBelow_3_8; //for enabling discret alarm configuration
+bool bPvssBelow_3_10; //for enabling multiinstance alarm configuration
+
+//display or hide Shapes for discret, continuous or multiinstance alarms
+void setAlarmModeShapes(int iAlarmMode) //PARA_ALARM_MODE_CONTINUOUS, PARA_ALARM_MODE_DISCRET, PARA_ALARM_MODE_MULTIINSTANCE
+{
+  if(iAlarmMode == PARA_ALARM_MODE_DISCRET)
+    setMultiValue(\"t2\", \"visible\", true,
+                  \"t3\", \"visible\", true,
+                  \"pbUserBits\", \"visible\", true,
+                  \"karte\", \"registerVisible\", USERBITS_TAB, (!chbImpulseAlert.state(0))?true:false,
+                  \"ptTextWent\", \"visible\", true,
+                  \"chbImpulseAlert\", \"visible\", true,
+                  \"borderBitAlarm\", \"size\", 581, 111,
+                  \"RB_GutBer\", \"visible\", true);
+  else if(iAlarmMode == PARA_ALARM_MODE_CONTINUOUS)
+    setMultiValue(\"t2\", \"visible\", false,
+                  \"t3\", \"visible\", false,
+                  \"pbUserBits\", \"visible\", false,
+                  \"karte\", \"registerVisible\", USERBITS_TAB, false,
+                  \"ptTextWent\", \"visible\", false,
+                  \"chbImpulseAlert\", \"visible\", true,
+                  \"borderBitAlarm\", \"size\", 305, 111,
+                  \"RB_GutBer\", \"visible\", true);
+  else if(iAlarmMode == PARA_ALARM_MODE_MULTIINSTANCE)
+  {
+    setMultiValue(\"t2\", \"visible\", false,
+                  \"t3\", \"visible\", false,
+                  \"pbUserBits\", \"visible\", false,
+                  \"karte\", \"registerVisible\", USERBITS_TAB, false,
+                  \"ptTextWent\", \"visible\", false,
+                  \"chbImpulseAlert\", \"visible\", false,
+                  \"borderBitAlarm\", \"size\", 305, 111,
+                  \"RB_GutBer\", \"number\", 1,
+                  \"RB_GutBer\", \"visible\", false,
+                  \"q1\",\"backCol\",\"Red\",
+                  \"q0\",\"backCol\",\"Green\");
+    
+    
+    //to allow to reset the alarmclass, add alarmclass \"\"
+    dyn_string dsAlarmClasses = k1.items();
+    if (dynContains(dsAlarmClasses, \"\")<1)
+      k1.appendItem(\"\");
+    fillMultiinstanceDefaultAlarmTexts();
+  }
+}
+
+void enableInput(bool enable)
+{
+  setMultiValue(\"ok\", \"enabled\", enable,
+                \"cancel\", \"enabled\", true,
+                \"save\", \"enabled\", enable,
+                \"Button1\", \"enabled\", enable,
+                \"cmb_alarmmode\", \"enabled\", enable,
+                \"CB_ori\", \"enabled\", enable,
+                \"t0\", \"enabled\", enable,
+                \"t1\", \"enabled\", enable,
+                \"t2\", \"enabled\", enable,
+                \"t3\", \"enabled\", enable,
+                \"RB_GutBer\", \"enabled\", enable,
+                \"chbImpulseAlert\", \"enabled\", enable,
+                \"k1\", \"enabled\", enable,
+                \"PB_sel1\", \"enabled\", enable,
+                \"TB_Panel\", \"enabled\", enable,
+                \"dyn_list\", \"enabled\", enable,
+                \"dyn_input\", \"enabled\", enable,
+                \"hilfe\", \"enabled\", enable,
+                \"PB_Panel\", \"enabled\", enable,
+                \"pb_editor\", \"enabled\", enable,
+                \"pb_after\", \"enabled\", enable,
+                \"pb_before\", \"enabled\", enable,
+                \"pb_modify\", \"enabled\", enable,
+                \"pb_delete\", \"enabled\", enable,
+                \"pb_select\", \"enabled\", enable,
+                \"langtexteditor\", \"enabled\", enable);
+  enableUserBits(enable);
+}
+
+void enableUserBits(bool bEnable)
+{
+  int i = 1, j = 1;
+
+  setMultiValue(\"cb_user\"+    (string)i, \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,/*
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"enabled\", bEnable,
+                \"cb_user\"+(string)(++i), \"state\", 0, getBit(d64UserBit, i - 1)*/
+//                \"ptUserBits\", \"enabled\", bEnable,
+                \"b\"+(string)j, \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable,
+                \"b\"+(string)(++j), \"enabled\", bEnable
+                );
+}
+
+void fillMultiinstanceDefaultAlarmTexts()
+{
+  if (t0.text==\"\" && t1.text==\"\" && t2.text==\"\" && t3.text==\"\") //default texts for multi instance alarms
+  {
+    dyn_string dsAlarmtextKeys = makeDynString(\"multiinstance_ok_came_alarmtext\", \"multiinstance_not_ok_came_alarmtext\", 
+                                               \"multiinstance_ok_went_alarmtext\", \"multiinstance_not_ok_went_alarmtext\");
+    dyn_langString dslTexts;
+    dyn_string dsTexts;
+    langString lsTmp;
+    for (int i=1; i<=2; i++)  //for every came text
+    {
+      for (int j=1; j<=getNoOfLangs(); j++)  //for every language
+      {
+        setLangString(lsTmp, j-1, getCatStr(\"para\", dsAlarmtextKeys[i], j-1));
+        dsTexts[j] = getCatStr(\"para\", dsAlarmtextKeys[i], j-1);
+      }
+      dslTexts[i]=lsTmp;
+      setMultiValue(\"t\"+(i-1),\"text\",lsTmp,
+                    \"langliste\"+(i-1),\"items\",dsTexts);
+    }
+  }
+}
+
+
+
+
+void setRangeUserBits(string sRangeStateBits)
+{
+  langString lsTmp;
+  
+  for (int j=1; j<=getNoOfLangs(); j++)  //for every language
+  {
+    setLangString(lsTmp, j-1, sRangeStateBits);
+  }
+
+  setValue(\"tfUserBits\", \"text\", lsTmp);
+}
+
+void getRangeUserBits(string &sRangeStateBits)
+{
+  getValue(\"tfUserBits\", \"text\", sRangeStateBits);
+}
+
+
+
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+4 46
+"Line1"
+""
+1 0 0 E E E 1 E 1 E N {255,255,255} E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  0 0 620 0
+4 49
+"Line2"
+""
+1 0 480 E E E 1 E 1 E N {255,255,255} E N "_Window" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 0 1 E  0 480 0 0
+2 67
+"Text1"
+""
+1 34 10 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 35 10 180 30
+0 2 0 "0s" 0 0 0 192 0 0  35 10 1
+4
+LANG:10001 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,18,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,18,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Alarm handling
+LANG:10004 12 报警处理
+LANG:10000 15 Meldebehandlung
+LANG:10027 33 Обработка алармов
+1 117 1 "" 0
+0
+1 115 0 "" 0
+0
+14 86
+"am"
+""
+1 347.8448275862069 404 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  348 403 477 430
+2 "0s" 0 0 0 0 0 -1  E E E
+14 85
+"az"
+""
+1 482.8275862068966 404 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  483 403 613 430
+2 "0s" 0 0 0 0 0 -1  E E E
+1 119 2 "0" 0
+0
+13 60
+"quitt"
+""
+1 248 443 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  248 443 336 471
+
+T 
+4
+LANG:10001 11 Acknowledge
+LANG:10004 6 确认
+LANG:10000 10 Quittieren
+LANG:10027 22 Квитировать
+"main()
+{
+  if ( !paCheckAcknowledgePermission($1) )
+  {
+    return;
+  }
+
+  if ( isFunctionDefined(\"isAckable\") )
+  {
+    dyn_string dsDps;
+    dsDps[1] = $1+\":_alert_hdl.._ack\";
+    int iReturnValue;
+    isAckable( 1, dsDps, iReturnValue );
+    if ( iReturnValue == 0 || dynlen (dsDps ) < 1 ) //noting to ack! Driver will do it!
+    {
+      return;
+    }
+  }
+  
+  dpSetWait($1+\":_alert_hdl.._ack\",2);
+}" 0
+ E E E
+22 59
+"CB_ori"
+""
+1 83 404 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  83 403 212 430
+2
+4
+LANG:10001 15 _online.._value
+LANG:10004 15 _online.._value
+LANG:10000 15 _online.._value
+LANG:10027 15 _online.._value
+
+1
+4
+LANG:10001 17 _original.._value
+LANG:10004 17 _original.._value
+LANG:10000 17 _original.._value
+LANG:10027 17 _original.._value
+
+0
+
+E
+"main()
+{
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+}" 0
+
+E
+ 0 0
+20 58
+"aktiv"
+""
+1 8 403 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 403 86 431
+1
+T 
+4
+LANG:10001 10 active for
+LANG:10004 12 激活报警
+LANG:10000 10 aktiv für
+LANG:10027 13 акт.для
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main()
+{
+  int    Id=paMyModuleId();
+  bool   a,allright=true;
+  string dpe=dpSubStr(globalOpenConfig[Id],DPSUB_SYS_DP_EL);
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  getValue(\"aktiv\",\"state\",0,a);
+  if (a)
+    paSaveAllAttributes(globalOpenConfig[Id],allright);
+  a&=allright;
+  dpSetWait(dpe+\":_alert_hdl.._active\",a);
+ 
+  enableInput(!a); //because if chaged from/to discret Alert the dpConnect was made to old (deleted) alter_hdl Config
+}
+" 0
+
+EE28 79
+"karte"
+""
+1 8 38 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 38 616 403
+E3 "5Reg" 4
+LANG:10001 6 Ranges
+LANG:10004 6 范围
+LANG:10000 8 Bereiche
+LANG:10027 18 Диапазоны
+1 "para\\alert_hdl_bit_1.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1
+"$1""$1"
+
+"Param" 4
+LANG:10001 10 Parameters
+LANG:10004 12 参数配置
+LANG:10000 9 Parameter
+LANG:10027 18 Параметры
+1 "para\\alert_hdl_2.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+1
+"$1""$1"
+
+"User Bits" 4
+LANG:10001 10 State Bits
+LANG:10004 15 状态立比特
+LANG:10000 11 Status Bits
+LANG:10027 27 Биты состояния
+1 "para/alert_hdl_3.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+20 96
+"cb_InitDiscretState"
+""
+1 199 18 E E E 0 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 22 discret alert handling
+LANG:10004 24 舍弃报警处理属性
+LANG:10000 24 diskrete Meldebehandlung
+LANG:10027 71 Обработка алармов дискретных значений
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  198 18 272 46
+1
+T 
+4
+LANG:10001 8 discrete
+LANG:10004 9 离散式
+LANG:10000 16 initDiscretState
+LANG:10027 15 дискрет.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+EE20 105
+"chbImpulseAlert"
+""
+1 108.8285714285714 443 E E E 1 E 1 E N "_3DText" E N "_ButtonBarBackground" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 Impulse alert
+LANG:10004 12 脉冲报警
+LANG:10000 11 Impulsalarm
+LANG:10027 31 Импульсный аларм
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  108 443 194 471
+1
+T 
+4
+LANG:10001 7 Impulse
+LANG:10004 6 脉冲
+LANG:10000 6 Impuls
+LANG:10027 7 Имп.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  
+  int iAlarmMode = getUserDataOfSelectedPos(\"cmb_alarmmode\");
+  
+  setAlarmModeShapes(iAlarmMode);
+}" 0
+22 114
+"cmb_alarmmode"
+""
+1 220 405 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  218 403 342 429
+0
+
+E
+"main()
+{
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  
+  //change to discret, continuous or multiinstance alerts 
+  int iAlarmMode = getUserDataOfSelectedPos(\"cmb_alarmmode\");  
+  
+  setAlarmModeShapes(iAlarmMode);
+  if (iAlarmMode==PARA_ALARM_MODE_DISCRET)
+  {
+    enableUserBits(true);
+    
+    //refresh icon of range bits
+    string sTmp = tfUserBits.text;
+    tfUserBits.text=\"\";
+    tfUserBits.text=sTmp;
+  }
+  else
+    setMultiValue(\"rcUserBitsConfigurated\", \"visible\", false);
+  
+  if(iAlarmMode==PARA_ALARM_MODE_MULTIINSTANCE)
+  {
+    setValue(\"CB_ori\",\"visible\",0); 
+  }
+  else
+  {
+    setValue(\"CB_ori\",\"visible\",1); 
+  }
+}
+" 0
+
+E
+ 0 0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/dpe.ref" 308 10 T 2 1 0 1 2 0
+1
+"$DPE""$1"
+3 1 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/lock_unlock.ref" 5 12 T 1 1 0 1 5 -3
+1
+"$1""$1"
+3 2 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"para/buttons.ref" 225 444 T 9 1 0 1 -215 1
+0
+0

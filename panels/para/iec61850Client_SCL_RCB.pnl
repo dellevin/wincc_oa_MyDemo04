@@ -1,0 +1,1313 @@
+V 14
+4
+LANG:10001 23 IEC 61850/61400 scl rcb
+LANG:10004 23 IEC 61850/61400 scl rcb
+LANG:10000 23 IEC 61850/61400 scl rcb
+LANG:10027 23 IEC 61850/61400 scl rcb
+PANEL,-1 -1 1000 655 N "_3DFace" 0
+"main()
+{
+  initMapping();
+  connectDrvData();
+}
+" 0
+ E E E E 1 -1 -1 0  8.000000000000009 -2
+""0  1
+E "#uses \"CtrlXml\"
+
+string sSys;
+
+dyn_string dsRcbAsgn;
+dyn_string dsIedKeys;
+
+dyn_string dsClientIedNames;
+dyn_string dsClientIedNums;
+
+string sSclFilePath;
+string sDrvInst;
+
+string sClient;
+int iActReg;
+bool bRsvEna, bRun, bAll;
+
+int iDbgCount = 0;
+
+const int COLUMN_IED = 0;
+const int COLUMN_AP  = 1;
+const int COLUMN_DRV = 2;
+const int COLUMN_CLN = 3;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initMapping()
+{
+  sSys = getSystemName();
+  dsIedKeys = g_mIec61850SclData[\"IedKeys\"];
+  sSclFilePath = g_mIec61850SclData[\"Scl\"];
+  iec61850_readCfgClientIedData(dsClientIedNames, dsClientIedNums);
+
+  dynInsertAt(dsClientIedNames, getCatStr(\"iec61850\", \"DeviceSclAllInst\"), 1);
+  dynInsertAt(dsClientIedNums, getCatStr(\"iec61850\", \"DeviceSclAllInst\"), 1);
+
+  cmbDrvInst.items = dsClientIedNums;
+  sDrvInst = cmbDrvInst.selectedText;
+  bRsvEna = cbRsvEna.state(0);
+  bAll = ( cmbDrvInst.selectedPos() == 1 );
+
+  setMultiValue(\"tfStateDrv\",       \"visible\", !bAll,
+                \"ptClientIedName\",  \"visible\", !bAll,
+                \"ptClientIedValue\", \"visible\", !bAll);
+
+  getDrvData();
+
+  setTableView();
+
+  initTreeAdd();
+  initTreeDel();
+  checkChildCount();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void connectDrvData()
+{
+  dpConnect(\"cbDrvData\", sSys + IEC61850_IDP_CONNECTIONS              + \".Driver.ManNums\",
+                         sSys + IEC61850_IDP_CONNECTIONS + IEC61850_2 + \".Driver.ManNums\");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void cbDrvData(string sDp1, dyn_int diCDMN,
+               string sDp2, dyn_int diCDMN_2)
+{
+  dyn_int diNums;
+
+  for ( int i = 1; i <= dynlen(diCDMN); i++ )
+  {
+    string sDrv;
+
+    if ( dpExists(sSys + IEC61850_IDP_DRIVER + diCDMN[i]) )
+      dpGet(sSys + IEC61850_IDP_DRIVER + diCDMN[i] + \".DT\", sDrv);
+
+    if ( sDrv == \"IEC61850\" )
+      dynAppend(diNums, diCDMN[i]);
+  }
+
+  if ( isRedundant() )
+  {
+    for ( int i = 1; i <= dynlen(diCDMN_2); i++ )
+    {
+      string sDrv_2;
+
+      if ( dpExists(sSys + IEC61850_IDP_DRIVER + diCDMN_2[i] + IEC61850_2) )
+        dpGet(sSys + IEC61850_IDP_DRIVER + diCDMN_2[i] + IEC61850_2 + \".DT\", sDrv_2);
+
+      if ( sDrv_2 == \"IEC61850\" )
+        dynAppend(diNums, diCDMN_2[i]);
+    }
+  }
+
+  dynSort(diNums);
+
+  bRun = dynContains(diNums, (int)sDrvInst);
+  setMultiValue(\"tfStateDrv\", \"text\",    ( bRun ? \"RUNNING\" : \"STOPPED\" ),
+                \"tfStateDrv\", \"backCol\", ( bRun ? \"green\"   : \"red\"     ),
+                \"tfStateDrv\", \"foreCol\", ( bRun ? \"black\"   : \"white\"   ));
+
+  checkChildCount();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getDrvData()
+{
+  ptClientIedValue.text = dsClientIedNames[dynContains(dsClientIedNums, (string)sDrvInst)];
+
+  dyn_int diDrvNums = iec61850_checkDrvNums();
+  bRun = dynContains(diDrvNums, (int)sDrvInst);
+  setMultiValue(\"tfStateDrv\", \"text\",    ( bRun ? \"RUNNING\" : \"STOPPED\" ),
+                \"tfStateDrv\", \"backCol\", ( bRun ? \"green\"   : \"red\"     ),
+                \"tfStateDrv\", \"foreCol\", ( bRun ? \"black\"   : \"white\"   ));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initTreeAdd()
+{
+  string sKey, sIed, sIedDp, sRcb, sRcbDp, sAp, sClientIedName;
+  bool bAsgn;
+  int iDrvNum;
+
+  for ( int j = 1; j <= dynlen(dsIedKeys); j++ )
+  {
+    sIedDp = g_mIec61850SclData[dsIedKeys[j] + \"_Dp\"];
+    sAp    = g_mIec61850SclData[dsIedKeys[j] + \"_Ap\"];
+    bAsgn  = g_mIec61850SclData[dsIedKeys[j] + \"_Asgn\"];
+
+    string sApDp;
+    if ( dpExists(sIedDp) )
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME, sApDp);
+
+    if ( dpExists(sIedDp) && bAsgn && sAp == sApDp )
+    {
+      dynClear(dsRcbAsgn);
+      sIed      = g_mIec61850SclData[dsIedKeys[j] + \"_Name\"];
+      dsRcbAsgn = g_mIec61850SclData[dsIedKeys[j] + \"_Rcbs\"];
+
+      sKey = dsIedKeys[j];
+
+      iec61850_getRcbsToAdd(sIedDp, dsRcbAsgn);
+
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+
+      sClientIedName = \"\";
+
+      if ( dynContains(dsClientIedNums, (string)iDrvNum) > 0 )
+        sClientIedName = dsClientIedNames[dynContains(dsClientIedNums, (string)iDrvNum)];
+
+      if ( sClientIedName == \"\" )
+        continue;
+
+      bool bVis;
+      if ( bAll )
+        bVis = true;
+      else
+        bVis = (iDrvNum == (int)sDrvInst);
+
+      if ( !treeAdd.itemExists(sKey) )
+      {
+        treeAdd.appendItem(\"\", sKey, sIed);
+        treeAdd.setOpen(sKey, true);
+        treeAdd.setVisible(sKey, bVis);
+        treeAdd.setText(sKey, COLUMN_AP,  sAp);
+        treeAdd.setText(sKey, COLUMN_DRV, iDrvNum);
+        treeAdd.setText(sKey, COLUMN_CLN, sClientIedName);
+
+        if ( IEC61850_INOA + sIed != sIedDp )
+          treeAdd.setText(sKey, COLUMN_IED, sIed + \" (\" + sIedDp + \")\");
+      }
+
+      for ( int i = 1; i <= dynlen(dsRcbAsgn); i++ )
+      {
+        if ( !treeAdd.itemExists(dsRcbAsgn[i]) )
+        {
+          treeAdd.appendItem(sKey, dsRcbAsgn[i], substr(dsRcbAsgn[i], 0, strlen(dsRcbAsgn[i])-2));
+          treeAdd.setVisible(dsRcbAsgn[i], bVis);
+
+          sRcb = getItemData(dsRcbAsgn[i], sIedDp, sRcbDp);
+
+//           if ( dpExists(sRcbDp) )
+//             treeAdd.removeItem(dsRcbAsgn[i]);
+//           else
+            treeAdd.setForeColor(dsRcbAsgn[i], 0, \"STD_state\");
+
+          iDbgCount++;
+        }
+      }
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsIedKeys); i++ )
+  {
+    if ( treeAdd.itemExists(dsIedKeys[i]) )
+    {
+      dyn_string dsChildren = treeAdd.children(dsIedKeys[i]);
+      if ( dynlen(dsChildren) == 0 )
+        treeAdd.removeItem(dsIedKeys[i]);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void initTreeDel()
+{
+  string sKey, sIed, sIedDp, sRcb, sRcbDp, sAp, sClientIedName;
+  bool bAsgn;
+  int iDrvNum;
+
+  for ( int j = 1; j <= dynlen(dsIedKeys); j++ )
+  {
+    sIedDp = g_mIec61850SclData[dsIedKeys[j] + \"_Dp\"];
+    sAp    = g_mIec61850SclData[dsIedKeys[j] + \"_Ap\"];
+    bAsgn  = g_mIec61850SclData[dsIedKeys[j] + \"_Asgn\"];
+
+    string sApDp;
+    if ( dpExists(sIedDp) )
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_APNAME, sApDp);
+
+    if ( dpExists(sIedDp) && bAsgn && sAp == sApDp )
+    {
+      dynClear(dsRcbAsgn);
+      sIed      = g_mIec61850SclData[dsIedKeys[j] + \"_Name\"];
+      dsRcbAsgn = g_mIec61850SclData[dsIedKeys[j] + \"_Rcbs\"];
+
+      sKey = dsIedKeys[j];
+
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+
+      sClientIedName = \"\";
+
+      if ( dynContains(dsClientIedNums, (string)iDrvNum) > 0 )
+        sClientIedName = dsClientIedNames[dynContains(dsClientIedNums, (string)iDrvNum)];
+
+      if ( sClientIedName == \"\" )
+        continue;
+
+      bool bVis;
+      if ( bAll )
+        bVis = true;
+      else
+        bVis = (iDrvNum == (int)sDrvInst);
+
+      dyn_string dsRcbDel;
+      bool bDeleteAsgn = iec61850_getRcbsToRemove(sIedDp, dsRcbAsgn, dsRcbDel);
+
+      for ( int i = 1; i <= dynlen(dsRcbDel); i++ )
+      {
+        string sRcbDp = iec61850_getRcbDpName(sIedDp, dsRcbDel[i]);
+        dpGet(sRcbDp + IEC61850_DPE_RCB_ASSIGNED, bDeleteAsgn);
+
+        if ( bDeleteAsgn )
+          break;
+      }
+
+
+      if ( bDeleteAsgn )
+      {
+        if ( dynlen(dsRcbDel) && !treeDel.itemExists(sKey) )
+        {
+          treeDel.appendItem(\"\", sKey, sIed);
+          treeDel.setOpen(sKey, true);
+          treeDel.setVisible(sKey, bVis);
+          treeDel.setText(sKey, COLUMN_AP,  sAp);
+          treeDel.setText(sKey, COLUMN_DRV, iDrvNum);
+          treeDel.setText(sKey, COLUMN_CLN, sClientIedName);
+
+          if ( IEC61850_INOA + sIed != sIedDp )
+            treeDel.setText(sKey, COLUMN_IED, sIed + \" (\" + sIedDp + \")\");
+        }
+
+        for ( int i = 1; i <= dynlen(dsRcbDel); i++ )
+        {
+          bool bRcbAsgn;
+          string sRcbDp = iec61850_getRcbDpName(sIedDp, dsRcbDel[i]);
+          dpGet(sRcbDp + IEC61850_DPE_RCB_ASSIGNED, bRcbAsgn);
+
+          if ( !treeDel.itemExists(dsRcbDel[i]) && bRcbAsgn )
+          {
+            treeDel.appendItem(sKey, dsRcbDel[i], dsRcbDel[i]);
+            treeDel.setVisible(dsRcbDel[i], bVis);
+            sRcb = getItemData(dsRcbDel[i], sIedDp, sRcbDp, 1);
+            treeDel.setForeColor(dsRcbDel[i], 0, \"STD_alert\");
+          }
+        }
+      }
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string getItemData(string sItem, string &sIedDp, string &sRcbDp, int iTree = 0)
+{
+  string sKey, sIed, sRcb, sAp;
+
+  if ( iTree == 0 )
+  {
+    sKey = treeAdd.parent(sItem);
+    sIed = treeAdd.getText(sKey, COLUMN_IED);
+    sAp  = treeAdd.getText(sKey, COLUMN_AP);
+    sRcb = substr(sItem, 0, strlen(sItem)-2);
+  }
+  else
+  {
+    sKey = treeDel.parent(sItem);
+    sIed = treeDel.getText(sKey, COLUMN_IED);
+    sAp  = treeDel.getText(sKey, COLUMN_AP);
+    sRcb = sItem;
+  }
+
+  sIedDp = g_mIec61850SclData[sKey + \"_Dp\"];
+  sRcbDp = iec61850_getRcbDpName(sIedDp, sRcb);
+  return sRcb;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void checkChildCount()
+{
+  int iChildCountAdd;
+  int iChildCoundDel;
+
+  getMultiValue(\"treeAdd\", \"childCount\", iChildCountAdd,
+                \"treeDel\", \"childCount\", iChildCoundDel);
+
+  setMultiValue(\"pbCreate\",    \"enabled\", ( iChildCountAdd > 0 ),
+                \"cbRsvEna\",    \"enabled\", ( iChildCountAdd > 0 ),
+                \"pbDelete\",    \"enabled\", ( iChildCoundDel > 0 ));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setTableView(int iOpt = 0)
+{
+  if ( iOpt == 0 )
+  {
+    treeAdd.clear();
+
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"DeviceSclAsgnRcb\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"AccessPoint\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"Driverinstance\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"ClientLN\"));
+
+    treeDel.clear();
+
+    treeDel.addColumn(getCatStr(\"iec61850\", \"DeviceSclDelRcb\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"AccessPoint\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"Driverinstance\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"ClientLN\"));
+  }
+  else
+  {
+    treeAdd.removeColumn(COLUMN_CLN);
+    treeAdd.removeColumn(COLUMN_DRV);
+    treeAdd.removeColumn(COLUMN_AP);
+    treeAdd.removeColumn(COLUMN_IED);
+
+    treeAdd.clear();
+
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"DeviceSclAsgnRcb\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"AccessPoint\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"Driverinstance\"));
+    treeAdd.addColumn(getCatStr(\"iec61850\", \"ClientLN\"));
+
+    treeDel.removeColumn(COLUMN_CLN);
+    treeDel.removeColumn(COLUMN_DRV);
+    treeDel.removeColumn(COLUMN_AP);
+    treeDel.removeColumn(COLUMN_IED);
+
+    treeDel.clear();
+
+    treeDel.addColumn(getCatStr(\"iec61850\", \"DeviceSclDelRcb\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"AccessPoint\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"Driverinstance\"));
+    treeDel.addColumn(getCatStr(\"iec61850\", \"ClientLN\"));
+
+    if ( iOpt == 1 )
+    {
+      treeAdd.hideColumn(COLUMN_CLN, false);
+      treeAdd.hideColumn(COLUMN_DRV, false);
+
+      treeDel.hideColumn(COLUMN_CLN, false);
+      treeDel.hideColumn(COLUMN_DRV, false);
+    }
+    else if ( iOpt >= 1 )
+    {
+      treeAdd.hideColumn(COLUMN_CLN);
+      treeAdd.hideColumn(COLUMN_DRV);
+
+      treeDel.hideColumn(COLUMN_CLN);
+      treeDel.hideColumn(COLUMN_DRV);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void showWaitModule(bool bVisible)
+{
+  dyn_int diBcSize = makeDynInt(990, 600);
+  dyn_int diBcPos  = makeDynInt(  5,   5);
+  dyn_int diAeSize = makeDynInt(200, 200);
+  dyn_int diAePos  = makeDynInt(420, 390);
+
+  ewoBc.size(diBcSize[1], diBcSize[2]);
+  ewoBc.position(diBcPos[1], diBcPos[2]);
+
+  ewoAe.size(diAeSize[1], diAeSize[2]);
+  ewoAe.position(diAePos[1], diAePos[2]);
+
+  if ( bVisible )
+  {
+    ewoBc.visible(true);
+    ewoAe.visible(true);
+    ewoAe.start();
+  }
+  else
+  {
+    delay(0, 500);
+    ewoAe.stop();
+    ewoAe.visible(false);
+    ewoBc.visible(false);
+  }
+
+  setMultiValue(\"cmdHelp\", \"enabled\", !bVisible,
+                \"pbClose\", \"enabled\", !bVisible);
+}
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+13 23
+"pbDelete"
+""
+1 880 531 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  853 559 981 587
+
+T 
+4
+LANG:10001 11 Delete RCBs
+LANG:10004 10 删除RCBs
+LANG:10000 13 RCBs löschen
+LANG:10027 11 Delete RCBs
+"main(mapping event)
+{
+  if ( !iec61850_ChildPanelOn_getUserInput(getCatStr(\"iec61850\", \"DeviceRcbDelConfirm\")) )
+    return;
+
+  showWaitModule(1);
+
+  string sIedDp, sRcb, sRcbDp;
+
+
+  dyn_string dsIeds = treeDel.children(\"\");
+
+  dyn_string dsRcbs;
+  for ( int i = 1; i <= dynlen(dsIeds); i++ )
+    dynAppend(dsRcbs, treeDel.children(dsIeds[i]));
+
+  for ( int i = dynlen(dsRcbs); i >= 1; i-- )
+  {
+    sRcb = getItemData(dsRcbs[i], sIedDp, sRcbDp, 1);
+    bool bCurrentInstRun;
+
+    if ( !bAll )
+    {
+      int iDrvNum;
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+      bCurrentInstRun = (iDrvNum == (int)sDrvInst);
+
+      if ( !bCurrentInstRun )
+        continue;
+    }
+
+    if ( sRcbDp != \"\" && dpExists(sRcbDp) && ( bAll || bCurrentInstRun ) )
+    {
+      if ( iec61850_deleteRcbDp(sIedDp, sRcb) )
+      {
+        if ( treeDel.itemExists(dsRcbs[i]) )
+          treeDel.removeItem(dsRcbs[i]);
+      }
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsIeds); i++ )
+  {
+    dyn_string dsChildren = treeDel.children(dsIeds[i]);
+    if ( dynlen(dsChildren) == 0 && treeDel.itemExists(dsIeds[i]) )
+      treeDel.removeItem(dsIeds[i]);
+  }
+
+  checkChildCount();
+  showWaitModule(0);
+}
+
+
+" 0
+ E E E
+20 14
+"cbRsvEna"
+""
+1 -200.9999999999999 299 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Automatically enable RCBs
+LANG:10004 15 自动激活RCB
+LANG:10000 27 RCBs automatisch aktivieren
+LANG:10027 25 Automatically enable RCBs
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  27 561 290 585
+1
+T 
+4
+LANG:10001 25 Automatically enable RCBs
+LANG:10004 15 自动激活RCB
+LANG:10000 27 RCBs automatisch aktivieren
+LANG:10027 25 Automatically enable RCBs
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+E"main(int button, bool state)
+{
+  bRsvEna = state;
+}
+" 0
+13 15
+"_pbDeleteObject"
+""
+1 769.7500000000007 684.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  767.7500000000007 617.5 796.8283208020055 646.5
+
+P 
+12632256
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 16
+"_pbAddObject"
+""
+1 709.5000000000005 619.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  707.5000000000005 617.5 736.5000000000005 646.5
+
+P 
+12632256
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 17
+"_pbEditObject"
+""
+1 740.0000000000009 684.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  738.0000000000009 617.5 767.0000000000009 646.5
+
+P 
+4294967295
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 18
+"_pbDeleteAllObjects"
+""
+1 797.696663533835 683.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  797.7029291979952 617.5 826.7812500000002 646.5
+
+P 
+12632256
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 19
+"_pbCreateDps"
+""
+1 829.5625000000003 619.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Create preview tags
+LANG:10004 16 创建预览tags
+LANG:10000 22 Preview-Tags erstellen
+LANG:10027 19 Create preview tags
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  827.5625000000003 617.5 856.5625000000002 646.5
+
+P 
+12632256
+"pictures/StandardIcons/Vision_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 20
+"_pbPreview"
+""
+1 859.5312500000002 619.5 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 28 Create tags and open preview
+LANG:10004 25 创建tags并打开预览
+LANG:10000 34 Tags erstellen und Preview öffnen
+LANG:10027 28 Create tags and open preview
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  857.5312500000002 617.5 886.5312500000001 646.5
+
+P 
+12632256
+"pictures/StandardIcons/Zoom_in_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+30 0
+"frmRcb"
+""
+1 10 63 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+0 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E 1.579032258064518 0 1.172582304435218 -5.790322580645171 -68.87268517941871 0 E 10 63 631 571
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Pre-assigned RCBs
+LANG:10004 17 Pre-assigned RCBs
+LANG:10000 17 Pre-assigned RCBs
+LANG:10027 17 Pre-assigned RCBs
+13 2
+"pbClose"
+""
+1 895.000000000001 629 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 11 Close panel
+LANG:10004 12 关闭面板
+LANG:10000 16 Panel schließen
+LANG:10027 27 Закрыть панель
+
+2
+"sizePolicy" "Minimum Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  893.000000000001 618 991.000000000001 646
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+
+" 0
+ E E E
+1 32 0 "" 0
+0
+13 5
+"cmdHelp"
+""
+1 9.978723404256129 618 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8.000000000000899 618 106.0000000000009 646
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"scd_file_browse\", TRUE, \"WinCC_OA_IEC61850.chm\");
+}
+" 0
+ E E E
+28 7
+"regRcb"
+""
+1 16.98983981578806 -24.99999999999989 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"selchangedcb" "main()
+{
+  getValue(\"regRcb\", \"activeRegister\", iActReg);
+
+  setMultiValue(\"pbCreate\",    \"visible\", iActReg == 0,
+                \"cbRsvEna\",    \"visible\", iActReg == 0,
+                \"pbDelete\",    \"visible\", iActReg == 1);
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  15 73 983 551
+E2 "#1" 4
+LANG:10001 8 Add RCBs
+LANG:10004 9 添加RCB
+LANG:10000 16 RCBs hinzufügen
+LANG:10027 8 Add RCBs
+1 "para/iec61850Client_SCL_RCB_Add.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"#2" 4
+LANG:10001 11 Delete RCBs
+LANG:10004 10 删除RCBs
+LANG:10000 13 RCBs löschen
+LANG:10027 11 Delete RCBs
+1 "para/iec61850Client_SCL_RCB_Del.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+13 10
+"pbCreate"
+""
+1 880 531 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+8
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  853 559 981 587
+
+T 
+4
+LANG:10001 11 Create RCBs
+LANG:10004 10 创建RCBs
+LANG:10000 14 RCBs erstellen
+LANG:10027 11 Create RCBs
+"main(mapping event)
+{
+  showWaitModule(1);
+
+  string sIedDp, sRcb, sRcbDp;
+
+  dyn_string dsIeds = treeAdd.children(\"\");
+  dyn_string dsRcbs;
+  dyn_string dsNotRun;
+
+  dyn_int diNeededDrvNums;
+
+  for ( int i = 1; i <= dynlen(dsIeds); i++ )
+  {
+    dynAppend(dsRcbs, treeAdd.children(dsIeds[i]));
+    dynAppend(diNeededDrvNums, treeAdd.getText(dsIeds[i], COLUMN_DRV));
+  }
+
+  dynSort(diNeededDrvNums);
+  dynUnique(diNeededDrvNums);
+
+  for ( int i = 1; i <= dynlen(dsRcbs); i++ )
+  {
+    sRcb = getItemData(dsRcbs[i], sIedDp, sRcbDp);
+    bool bCurrentInstRun;
+
+    dyn_int diInst;
+    for ( int j = 1; j <= dynlen(dsClientIedNums); j++ )
+      diInst[j] = (int)dsClientIedNums[j];
+
+    if ( dynlen(diInst) )
+      dynRemove(diInst, dynContains(diInst, 0));
+
+    dyn_int diNums = iec61850_checkDrvNums();
+    dynSort(diInst);
+    dynSort(diNums);
+
+    if ( bAll )
+    {
+      if ( diNeededDrvNums != diNums )
+      {
+        for ( int j = 1; j <= dynlen(diNeededDrvNums); j++ )
+          if ( !dynContains(diNums, diNeededDrvNums[j]) )
+            dynAppend(dsNotRun, diNeededDrvNums[j]);
+
+        if ( dynlen(dsNotRun) )
+          dynRemove(dsNotRun, dynContains(dsNotRun, \"0\"));
+
+        if ( dynlen(dsNotRun) )
+        {
+          string sDrv = dynStringToString(dsNotRun);
+          strreplace(sDrv, \"|\", \", \");
+          string sMsg = getCatStr(\"iec61850\", \"DeviceSclDrvNotRun\") + sDrv;
+
+          iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+          showWaitModule(0);
+          return;
+        }
+      }
+    }
+    else
+    {
+      int iDrvNum;
+      dpGet(sIedDp + IEC61850_DPE_IDP_CONFIG_DRVNUM, iDrvNum);
+      bCurrentInstRun = (iDrvNum == (int)sDrvInst);
+
+      if ( !bCurrentInstRun )
+        continue;
+
+      if ( !dynContains(diNums, iDrvNum) )
+      {
+        string sMsg = getCatStr(\"iec61850\", \"DeviceSclDrvNotRun\") + iDrvNum;
+        iec61850_ChildPanelOnInfoPopUpMessage(sMsg);
+        showWaitModule(0);
+        return;
+      }
+    }
+
+    if ( sRcbDp != \"\" && !dpExists(sRcbDp) && ( bAll || bCurrentInstRun ) )
+    {
+      if ( iec61850_createRcbDp(sIedDp, sRcb, \"A\") )
+      {
+        if ( treeAdd.itemExists(dsRcbs[i]) )
+          treeAdd.removeItem(dsRcbs[i]);
+
+        iec61850_checkDriverResponseCreateRcb(sRcbDp, bRsvEna);
+      }
+    }
+  }
+
+  for ( int i = 1; i <= dynlen(dsIeds); i++ )
+  {
+    dyn_string dsChildren = treeAdd.children(dsIeds[i]);
+    if ( dynlen(dsChildren) == 0 && treeAdd.itemExists(dsIeds[i]) )
+      treeAdd.removeItem(dsIeds[i]);
+  }
+
+  checkChildCount();
+  showWaitModule(0);
+}
+
+
+" 0
+ E E E
+2 26
+"ptDrvInst"
+""
+1 25.4257322994988 40.04210176464176 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 25.4257322994988 40.04210176464176 120.4257322994988 55.04210176464176
+0 2 2 "0s" 0 0 0 64 0 0  25.4257322994988 40.04210176464176 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Driver instance:
+LANG:10004 12 驱动实例
+LANG:10000 15 Treiberinstanz:
+LANG:10027 16 Driver instance:
+22 27
+"cmbDrvInst"
+""
+1 -431.2069207617256 -525.9306578540908 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  128.4257322994988 34.54210176464176 196.4257322994988 60.54210176464176
+0
+
+E
+"main()
+{
+  bAll = ( cmbDrvInst.selectedPos() == 1 );
+  sDrvInst = cmbDrvInst.selectedText;
+
+  setMultiValue(\"tfStateDrv\",       \"visible\", !bAll,
+                \"ptClientIedName\",  \"visible\", !bAll,
+                \"ptClientIedValue\", \"visible\", !bAll);
+
+  getDrvData();
+  setTableView(cmbDrvInst.selectedPos());
+  initTreeAdd();
+  initTreeDel();
+  checkChildCount();
+}
+" 0
+
+E
+ 0 0
+2 28
+"ptClientIedName"
+""
+1 390.2771968984964 40.04210176464176 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 390.2771968984964 40.04210176464176 505.4257322994988 55.04210176464176
+0 2 2 "0s" 0 0 0 64 0 0  390.2771968984964 40.04210176464176 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Client IED name:
+LANG:10004 21 客户端IED名称：
+LANG:10000 16 Client IED-Name:
+LANG:10027 16 Client IED name:
+2 29
+"ptClientIedValue"
+""
+1 500.2771968984964 40.04210176464176 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+"transformable" "0"
+E E 0 1 1 2 1 E 4.013273432228035 0 1 -1503.391325215703 0 0 E 500.2771968984964 40.04210176464176 615.4257322994988 55.04210176464176
+0 2 2 "0s" 0 0 0 64 0 0  500.2771968984964 40.04210176464176 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 <client ied name>
+LANG:10004 17 <client ied name>
+LANG:10000 17 <client ied name>
+LANG:10027 17 <client ied name>
+14 31
+"tfStateDrv"
+""
+1 230.208340995151 13.80323172022996 E E E 1 E 1 E N "_Window" E N "_ButtonBarBackground" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  213.4257322994988 35.04210176464176 336.4257322994988 60.04210176464176
+2 "0s" 0 0 0 9 0 -1  E E E
+29 12
+"ewoAe"
+""
+1 19.75000000000071 75.04585371674017 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"effectType" "enum 2"
+"color1" "color {63,63,63,131}"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  4.750000000000711 5.045853716740174 103.7500000000007 104.0458537167401
+19 AttentionEffect.ewo
+0
+E29 13
+"ewoBc"
+""
+1 4.750000000000711 5.045853716740174 E E E 1 E 0 E N "_3DText" E N {63,63,63,131} E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  5 5.038349812543191 104 104.0458537167401
+19 BackgroundCover.ewo
+0
+E0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 65 T 2 2.002345967558388 0 1 8.988365607365269e-13 545
+0
+0

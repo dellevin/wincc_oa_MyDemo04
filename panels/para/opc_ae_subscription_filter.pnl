@@ -1,0 +1,2037 @@
+V 14
+4
+LANG:10001 27 Event subscription - filter
+LANG:10004 30 正在运行的订阅 - 过滤
+LANG:10000 27 Event Subscription - Filter
+LANG:10027 53 Подписка на события — фильтр
+PANEL,-1 -1 755 609 N "_3DFace" 2
+"$server"
+"$subscription"
+"main()
+{ 
+  dyn_string dsEventCategoryNames;
+  string server = $server;
+  dyn_string dsTransfer;
+  dyn_string dsIsSelected ;
+  int i, j;
+  int pos;
+  string sServerCondition;
+  dyn_string ds;
+  string sConfigFile = getPath(CONFIG_REL_PATH + \"config\");
+
+  gSourceSeparator = paCfgReadValueDflt(sConfigFile, \"opcae\", \"sourceSeparator\", \".\"); 
+ 
+  dpConnect(\"workCB\", $subscription + \".FilterLowSeverity:_online.._value\",
+  										$subscription + \".FilterHighSeverity:_online.._value\",
+  										$subscription + \".FilterEventType:_online.._value\",
+  										$subscription + \".FilterCategories:_online.._value\" 										 	);
+
+ 	dpGet($subscription + \".FilterSources:_online.._value\",  dsIsSelected	);
+
+
+  dpGet(server+\".EventCategories.EventCategoryNames:_online.._value\", dsEventCategoryNames,
+        server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsValues);   // !!!
+  dyn_input.items = dsEventCategoryNames;
+  
+  dynSortAsc(dsValues); 
+  dynSortAsc( dsIsSelected);
+
+ 
+  for ( i=1; i<= dynlen( dsValues); i++)         // remove ServerCondition
+  {
+     ds = strsplit( dsValues[i], gSourceSeparator);
+     sServerCondition = ds[1];
+     dsValues[i]=ds[2];
+     for ( j = 3; j<= dynlen( ds); j++)
+     {
+       dsValues[i] = dsValues[i]+\".\"+ ds[j];
+     }
+     if (dynContains(dsServerCondition, sServerCondition) <= 0)
+       dynAppend( dsServerCondition, sServerCondition);
+     
+  }
+  
+
+  for ( i=1; i<= dynlen( dsIsSelected); i++)
+  {
+     ds = strsplit( dsIsSelected[i], gSourceSeparator);
+     sServerCondition = ds[1];
+//     dsIsSelected[i]=ds[2];
+//     for ( j = 3; j<= dynlen( ds); j++)
+//     {
+//       dsIsSelected[i] = dsIsSelected[i]+\".\"+ ds[j];
+//     }
+     if (dynContains(dsServerCondition, sServerCondition) <= 0)
+       dynAppend( dsServerCondition, sServerCondition);
+  }
+
+  dynSortAsc(dsValues); 
+  dynSortAsc( dsIsSelected);
+  dynUnique (dsValues); 
+  dynUnique (dsIsSelected); 
+
+  dsTransfer = dsValues;
+  
+  for ( i= 1; i<= dynlen( dsIsSelected); i++)   // all exept selected !!!
+  {
+    pos = dynContains(dsTransfer, dsIsSelected[i]);
+    if ( pos > 0)
+       dynRemove( dsTransfer, pos);
+  }
+
+  
+  lstNotSelected.items = dsTransfer;
+  lstSelected.items = dsIsSelected;
+
+
+}
+
+workCB( string dp, int LowSeverity,
+				string dp1, int HighSeverity,
+				string dp2, int EventType,
+				string dp3, dyn_string ds
+				
+				)
+{
+  bool b0, b1, b2;
+  bit32 b32;
+
+  txtFilterHighSeverity.text = HighSeverity;
+  txtFilterLowSeverity.text = LowSeverity;
+
+  b32 =   EventType;
+  
+  b0 = getBit(b32, 0);
+  b1 = getBit(b32, 1);
+  b2 = getBit(b32, 2);
+  
+  cbEventType.state(0)     = b0;
+  cbEventType.state(1)     = b1;
+  cbEventType.state(2)     = b2;
+  cbEventType.state(3)     = b0&&b1&&b2;
+  dyn_list.items = ds;
+}				
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  10 49
+""0  1
+E "#uses \"CtrlPv2Admin\"
+#uses \"OPCAElib.ctl\"
+
+// global values
+dyn_string dsValues;
+dyn_string dsServerCondition;
+dyn_dyn_string gTransferData;
+string     gSourceSeparator;
+
+dpSetValues()
+{
+ int LowSeverity;
+ int HighSeverity;
+ int EventType;
+ dyn_string FilterCategories, dsServerItems;
+  bool b0, b1, b2;
+  bit32 b32;
+  int i; 
+  dyn_anytype da;
+  dyn_string Items;
+  int max = items.lineCount();
+  time tServer, tSubscrition;
+  dyn_string dsSourceConditionName;
+  string sSearchString;
+  dyn_string dsSelectedItemsForEventSubscription;
+  int j;
+  dyn_string dsClientNameFromSource, dsQualifiedSourceName, dsClientNameChanged;
+  int pos;
+
+  setBit(b32, 0, cbEventType.state(0));
+  setBit(b32, 1, cbEventType.state(1));
+  setBit(b32, 2, cbEventType.state(2));
+ 
+  EventType = b32;
+  HighSeverity = txtFilterHighSeverity.text ;
+  LowSeverity = txtFilterLowSeverity.text;
+  FilterCategories = dyn_list.items;
+  dsServerItems = lstSelected.items;
+
+ 	items.enabled = FALSE;
+
+	for (i=1; i<= max; i++)
+	{
+	   dyn_anytype da;
+	   da = items.getLineN(i-1); 
+	   dsSelectedItemsForEventSubscription[i] = da[1];
+	}
+	items.enabled = TRUE;;
+
+
+  dpGet( $server + \".SourceIdentification.ClientNameFromSource:_online.._value\", dsClientNameFromSource,
+     //    $server + \".SourceIdentification.QualifiedSourceName:_online.._value\",  dsQualifiedSourceName,  //
+         $server + \".SourceIdentification.ClientNameChanged:_online.._value\",    dsClientNameChanged);
+
+	
+ for ( j = 1; j<= dynlen(dsSelectedItemsForEventSubscription); j++)
+ { 
+	     sSearchString = dsSelectedItemsForEventSubscription[j];
+
+
+	     pos = dynContains( dsClientNameFromSource, sSearchString);
+	
+	     if ( pos > 0)
+	     {
+            if ( dsClientNameChanged[pos] != \"\")
+               dynAppend( Items ,  dsClientNameChanged[pos]);
+            else
+ 	           dynAppend( Items ,  dsClientNameFromSource[pos]+\".\");      
+	     }
+	}
+
+	
+  dpSet( $subscription + \".FilterLowSeverity:_original.._value\",LowSeverity,
+  			 $subscription + \".FilterHighSeverity:_original.._value\",HighSeverity,
+  			 $subscription + \".FilterEventType:_original.._value\",EventType,
+  			 $subscription + \".FilterCategories:_original.._value\", FilterCategories,
+  			 $subscription + \".FilterSources:_original.._value\",  dsServerItems,
+  			 $subscription + \".Items:_original.._value\",  Items	);
+  			 
+  dpGet(  $server + \".SourceIdentification.ClientNameChanged:_online.._value\",    dsClientNameChanged);
+  dpSet(  $server + \".SourceIdentification.ClientNameChanged:_original.._value\",    dsClientNameChanged); // Hotlink IM 54896
+  			 
+  if ( tServer < tSubscrition)   // created after server flag
+    dpSet($server+\".AddSubscription:_original.._value\", TRUE);
+    
+}
+
+setOKState(bool b)
+{
+ 
+ txtNoOfItems.text = \"(\"+items.lineCount+\")\";
+
+ if (!(b && txtNoOfItems.text	!= \"()\" &&  txtNoOfItems.text	!= \"(0)\"))
+   b= false;
+ ok.enabled = b;
+ modify.enabled = b;
+}
+
+void textField2_command()
+{
+  dyn_string dsIsSelected = lstSelected.items;
+  dyn_string dsTransfer;
+  int i;
+  dyn_bool db;
+  string pattern = this.text;
+  int pos;
+  
+  if (pattern == \"\")
+    pattern = \"*\";
+  
+  dsTransfer = dsValues;
+  
+  for ( i= 1; i<= dynlen( dsIsSelected); i++)   // all exept selected !!!
+  {
+    pos = dynContains(dsTransfer, dsIsSelected[i]);
+    if ( pos > 0)
+       dynRemove( dsTransfer, pos);
+  }
+
+  db = patternMatch(pattern, dsTransfer);
+  
+  for ( i= dynlen( db); i>0; i--)   // all exept selected !!!
+  {
+     if ( !db[i])
+       dynRemove(  dsTransfer, i);
+  
+  }
+  
+  lstNotSelected.items = dsTransfer;
+  
+}
+" 0
+ 4
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+25 93
+"items"
+""
+1 -14.66216216216216 162.25 E E E 1 E 0 E N "_3DText" E N {255,204,0} E E
+ "main()
+{
+  this.visible = FALSE;
+}" 0
+ E
+85 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 288 742 467
+EE 0 0 1 3 3 "items" 24 1 0 "s" 4
+LANG:10001 5 items
+LANG:10004 6 项目
+LANG:10000 5 items
+LANG:10027 9 эл-ты
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 "dps" 24 1 0 "s" 4
+LANG:10001 3 dps
+LANG:10004 3 dps
+LANG:10000 3 dps
+LANG:10027 3 dps
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 "dpt" 24 1 0 "s" 4
+LANG:10001 3 dpt
+LANG:10004 3 dpt
+LANG:10000 3 dpt
+LANG:10027 3 dpt
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+280 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+2 7
+"Text7"
+""
+1 122 173 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 25 173 122 187
+0 0 0 "0s" 0 0 0 194 0 0  122 173 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 21 From filter priority:
+LANG:10004 22 从过滤器优先级:
+LANG:10000 15 von Priorität:
+LANG:10027 26 от приоритета:
+2 10
+"Text3"
+""
+1 122 203 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 41 203 122 217
+0 0 0 "0s" 0 0 0 194 0 0  122 203 1
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 19 To filter priority:
+LANG:10004 19 要过滤优先级:
+LANG:10000 15 bis Priorität:
+LANG:10027 25 до приоритета
+30 51
+"Frame1"
+""
+1 10 231 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+52 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9888579387186629 0 1.095890410958904 0.1114206128133725 -21.05479452054793 0 E 10 157 370 231
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 8 Priority
+LANG:10004 12 报警等级
+LANG:10000 10 Priorität
+LANG:10027 18 Приоритет
+30 52
+"Frame2"
+""
+1 10 150 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+53 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9888579387186631 0 1.007194244604317 0.1114206128133693 -4.071942446043165 0 E 10 10 370 150
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Event types
+LANG:10004 12 事件类型
+LANG:10000 11 Event-Typen
+LANG:10027 23 Типы событий
+30 62
+"Frame3"
+""
+1 380 232 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+55 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9783197831978321 0 1.018099547511312 8.238482384823859 -4.18099547511312 0 E 380 10 750 232
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 46 Event categories for event subscription filter
+LANG:10004 36 事件订阅过滤器的事件类别
+LANG:10000 47 Event Categories für Event Subscription Filter
+LANG:10027 89 Категории событий для фильтра подписки на событ.
+30 81
+"Frame4"
+""
+1 10 540 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+74 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 0.9891745602165087 0 0.9364548494983278 0.1082543978349137 11.25083612040133 0 E 10 240 750 540
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+2 82
+"Text2"
+""
+1 23 233 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+75 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 25 235 189 250
+0 2 0 "0s" 0 0 0 192 0 0  25 235 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 26 Server items for selection
+LANG:10004 24 服务器项目供选择
+LANG:10000 24 Server Items zur Auswahl
+LANG:10027 51 Элементы сервера для выбора
+2 83
+"Text4"
+""
+1 393 233 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+76 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 395 235 650 250
+0 2 0 "0s" 0 0 0 192 0 0  395 235 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 42 Server items for event subscription filter
+LANG:10004 36 事件订阅筛选器的服务器项
+LANG:10000 43 Server Items für Event Subscription Filter
+LANG:10027 83 Эл-ты сервера для фильтра подписки на события
+2 84
+"Text5"
+""
+1 53 476 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+77 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 478 55 493
+0 2 0 "0s" 0 0 0 194 0 0  55 478 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Filter:
+LANG:10004 7 过滤:
+LANG:10000 7 Filter:
+LANG:10027 13 Фильтр:
+2 96
+"txtNoOfItems"
+""
+1 640 528 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ "main()
+{
+  bool b;
+  b= items.visible;
+  items.visible = !b;
+}" 0
+ E
+88 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 632 528 640 543
+0 0 0 "0s" 0 0 0 194 0 0  640 528 1
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 2 ()
+LANG:10004 2 ()
+LANG:10000 2 ()
+LANG:10027 2 ()
+20 0
+"cbEventType"
+""
+1 25 30 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  23 28 252 132
+4
+T 
+4
+LANG:10001 16 OPC_SIMPLE_EVENT
+LANG:10004 16 OPC_SIMPLE_EVENT
+LANG:10000 16 OPC_SIMPLE_EVENT
+LANG:10027 16 OPC_SIMPLE_EVENT
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 18 OPC_TRACKING_EVENT
+LANG:10004 18 OPC_TRACKING_EVENT
+LANG:10000 18 OPC_TRACKING_EVENT
+LANG:10027 18 OPC_TRACKING_EVENT
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 19 OPC_CONDITION_EVENT
+LANG:10004 19 OPC_CONDITION_EVENT
+LANG:10000 19 OPC_CONDITION_EVENT
+LANG:10027 19 OPC_CONDITION_EVENT
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 14 OPC_ALL_EVENTS
+LANG:10004 14 OPC_ALL_EVENTS
+LANG:10000 14 OPC_ALL_EVENTS
+LANG:10027 14 OPC_ALL_EVENTS
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+4
+E E
+E E
+E E
+E E
+E"main(int button, bool state)
+{
+  if ( button == 3)
+  {
+    this.state(0) = state;
+    this.state(1) = state;
+    this.state(2) = state;
+  }
+//     setOKState(lstSelected.itemCount()>0);
+
+}
+" 0
+14 8
+"txtFilterLowSeverity"
+""
+1 130 170 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E "main()
+{
+//   setOKState(lstSelected.itemCount()>0);
+
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  128 168 352 194
+3 "0s" 0 0 0 2 0 -1  E E E
+14 9
+"txtFilterHighSeverity"
+""
+1 130 200 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+10 0 0 0 0 0
+E "main()
+{
+//   setOKState(lstSelected.itemCount()>0);
+
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  128 198 352 224
+3 "0s" 0 0 0 2 0 -1  E E E
+13 45
+"help"
+""
+1 489 996 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+46 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 573 96 601
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"filter_opcae_subscription_filter\" );
+}" 0
+ E E E
+13 46
+"modify"
+""
+1 564 573 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  563 573 651 601
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+dpSetValues();
+}
+" 0
+ E E E
+13 47
+"cancel"
+""
+1 655 573 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+48 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  653 573 741 601
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 48
+"ok"
+""
+1 475 573 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+49 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  473 573 561 601
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+dpSetValues();
+PanelOff();
+}
+" 0
+ E E E
+22 63
+"dyn_input"
+""
+1 395 196 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  393 194 637 220
+0
+
+E
+E
+E
+ 0 0
+13 64
+"pb_before"
+""
+1 673 138 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  673 133 701 161
+
+P 
+13421721
+"pictures/StandardIcons/Insert_before_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            pos;
+  bool           lang;
+  string         s,format=\"%s\";
+  anytype        value;
+  dyn_string     list,ds,dsl;
+  langString     ls;
+  dyn_langString dls;
+
+  getMultiValue(\"dyn_input\",\"text\",value,
+  //              \"dyn_input\",\"format\",format,
+                \"dyn_list\",\"items\",list,
+                \"dyn_list\",\"selectedPos\",pos);
+  if(pos<1) pos=1;
+  if (!lang)
+  {
+    if ( dynContains(list,  value )  > 0)
+    	return;
+
+    if (strpos(format,\"s]\")>0)
+      format=\"%\"+substr(format,1,strpos(format,\"]\")-1);
+    else
+      format=\"%\"+substr(format,1,strpos(format,\",\")-1);
+    if (strpos(value,\"#ERROR#\")==0) return;
+    s=value;
+    if (strpos(format,\"s\")<0 && strrtrim(strltrim(s))==\"\")
+      return;
+    dynInsertAt(list,s,pos);
+    setValue(\"dyn_list\",\"items\",list);
+    setValue(\"dyn_list\",\"selectedPos\",pos);
+  }
+}
+" 0
+ E E E
+13 65
+"pb_delete"
+""
+1 673 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  673 163 701 191
+
+P 
+14215660
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            pos;
+  bool           lang;
+  string         s;
+  dyn_string     list,ds,dsl;
+  langString     ls;
+  dyn_langString dls;
+
+  getMultiValue(\"dyn_input\",\"text\",s,
+                \"dyn_list\",\"items\",list,
+                \"dyn_list\",\"selectedPos\",pos);
+  if(pos>0)
+  {
+    dynRemove(list,pos);
+  }
+  if (pos>dynlen(list))
+    pos--;
+  if (pos>0)
+  {
+    setValue(\"dyn_list\",\"items\",list);
+    setValue(\"dyn_list\",\"selectedPos\",pos);
+    setValue(\"dyn_input\",\"text\",list[pos]);
+  }
+  else
+    setMultiValue(\"dyn_list\",\"items\",list,
+                  \"dyn_input\",\"text\",\"\");
+
+
+
+
+  setValue(\"dyn_list\",\"items\",list);
+  setValue(\"dyn_list\",\"selectedPos\",pos);
+}" 0
+ E E E
+13 66
+"pb_after"
+""
+1 643 138 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  643 133 671 161
+
+P 
+13421721
+"pictures/StandardIcons/Insert_after_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            pos;
+  bool           lang;
+  string         s,format=\"%s\";
+  anytype        value;
+  dyn_string     list,ds,dsl;
+  langString     ls;
+  dyn_langString dls;
+
+  getMultiValue(\"dyn_input\",\"text\",value,
+                \"dyn_list\",\"items\",list,
+                \"dyn_list\",\"selectedPos\",pos);
+  if(pos<1) pos=dynlen(list);
+  if (!lang)
+  {
+    if ( dynContains(list,  value )  > 0)
+    	return;
+  
+    if (strpos(format,\"s]\")>0)
+      format=\"%\"+substr(format,1,strpos(format,\"]\")-1);
+    else
+      format=\"%\"+substr(format,1,strpos(format,\",\")-1);
+    if (strpos(value,\"#ERROR#\")==0) return;
+    s=value;
+    if (strpos(format,\"s\")<0 && strrtrim(strltrim(s))==\"\")
+      return;
+    dynInsertAt(list,s,pos+1);
+    setValue(\"dyn_list\",\"items\",list);
+    setValue(\"dyn_list\",\"selectedPos\",pos+1);
+  }
+}
+" 0
+ E E E
+13 67
+"pb_modify"
+""
+1 643 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  643 163 671 191
+
+P 
+12632256
+"pictures/StandardIcons/apply_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int            pos;
+  bool           lang;
+  string         s;
+  dyn_string     list,ds,dsl;
+
+  getMultiValue(\"dyn_input\",\"text\",s,
+                \"dyn_list\",\"items\",list,
+                \"dyn_list\",\"selectedPos\",pos);
+  if(pos>0)
+  {
+    list[pos]=s;
+  }
+     if ( dynContains(list,  s )  > 0)
+    	return;
+
+ 
+  setValue(\"dyn_list\",\"items\",list);
+  setValue(\"dyn_list\",\"selectedPos\",pos);
+}" 0
+ E E E
+17 68
+"dyn_list"
+""
+1 395 22.74647887323943 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E E
+61 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  393 23 637 187
+0
+
+E
+"main()
+{
+  int    pos;
+  string s;
+
+  getMultiValue(\"dyn_list\",\"selectedPos\",pos);
+  if(pos!=-1)
+  {
+    getValue(\"dyn_list\",\"selectedText\",s);
+    setValue(\"dyn_input\",\"text\",s);
+  }
+}" 0
+
+E
+
+0 0
+13 70
+"pb_select"
+""
+1 643 198 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+63 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  643 193 671 221
+
+P 
+14215660
+"pictures/StandardIcons/dpeMon_tree_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int pos;
+  string s;
+
+  dpSelector(s,true,\"OWN_SYSTEM_NAME_NO_SYS\");
+  if( s != \"\" )
+  {
+    setValue( \"dyn_input\", \"text\", s );
+  }
+}
+" 0
+ E E E
+13 71
+"pb_editor"
+""
+1 643 108 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+64 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  643 103 671 131
+
+P 
+14215660
+"pictures/StandardIcons/open_script_editor_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string s;
+  dyn_string list;
+
+  getMultiValue(\"dyn_list\",\"items\",list);
+  s=paJoinString(list,\"\\n\"); 
+  stringEditor(s, false);
+  setValue(\"dyn_list\",\"items\",strsplit(s, \"\\n\"));
+}
+" 0
+ E E E
+13 72
+"Button1"
+""
+1 703 168 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  703 163 731 191
+
+P 
+14215660
+"pictures/StandardIcons/delete_all_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  bool           lang;
+
+    setMultiValue(\"dyn_list\",\"items\",makeDynString(),
+                  \"dyn_input\",\"text\",\"\");
+}" 0
+ E E E
+13 74
+"Button2"
+""
+1 485 550 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 34 Test and create missing datapoints
+LANG:10004 26 测试和创建丢失的DP
+LANG:10000 39 Teste und erstelle fehlende Datenpunkte
+LANG:10027 87 Проверить и создать отсутствующие точки данных
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  653 523 741 551
+
+T 
+4
+LANG:10001 10 Create DPs
+LANG:10004 8 创建DP
+LANG:10000 13 DPs erstellen
+LANG:10027 17 Создать DP
+"main()
+{
+	dyn_string  dsSelectedItemsForEventSubscription;
+	dyn_string dsConditionName, dstempMasterNameFromCondition,dstempMasterNameChanged ;
+	dyn_dyn_string ddsMasterNameFromCondition;
+	int i, j, pos;
+	dyn_string dsMasterDps, dsSourceDps;
+	dyn_string dsSourceConditionName,dsSourceMasterNameFromCondition,   dsSourceMasterNameChanged, dsSourceTypes;
+	string server = $server;
+	string dp, type, prefix;
+	dyn_string dsConditionsEventCategoryNames, dsConditionsConditionNames;
+	dyn_string Items;
+	string sSearchString;
+	dyn_string ds; 
+	dyn_float df;       
+
+ string s;
+	
+	dsSelectedItemsForEventSubscription = lstSelected.items;
+	
+        
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+    getCatStr(\"para\",\"warning\"),
+    makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ok.enabled	     = FALSE;
+  modify.enabled  = FALSE;
+  cancel.enabled	 = FALSE;
+ 
+  //Lade den gesamten Namensraum vom Server.
+  //Achtung: simpleEvents sind darin nicht enthalten
+   dpGet(server+\".ConditionIdentification.ConditionName:_online.._value\",          dsConditionName,
+        server+\".ConditionIdentification.MasterNameFromCondition:_online.._value\", dstempMasterNameFromCondition,
+        server+\".ConditionIdentification.MasterNameChanged:_online.._value\",       dstempMasterNameChanged);
+   dpGet(server+\".Prefix:_online.._value\",prefix);
+
+  //Lade alle Conditions.
+  //Achtung: simpleEvents sind darin nicht enthalten.
+	 for ( i=1; i<= dynlen( dsConditionName); i++)
+	 {
+	   if ( dstempMasterNameChanged[i] != \"\")
+	         dsMasterDps[i] = dstempMasterNameChanged[i];
+	   else
+	         dsMasterDps[i] = dstempMasterNameFromCondition[i];
+	
+	 } 
+
+//  dsMasterDps[dynlen(dsConditionName)+1] = \"_mp_\" + prefix + \"SimpleEventNotification\";  //wir tun so, als ob es diesen Masterdatenpunkt gibt.      
+
+  //prüfe auf zulässige Zeichen in den Namen  
+  for ( i= 1; i<=dynlen(dsMasterDps); i++)
+  {
+    //dpNameCheck(dsMasterDps[i]);  //alte Funktion, die nicht mehr verwendet werden sollte.
+    nameCheck(dsMasterDps[i]);      //wvlasitz    
+    
+  }
+
+
+
+//DebugN(\"MasterDPS:\", dsConditionName, dsMasterDps);
+
+  //Achtung:  Hier sind simple Events berücksichtigt
+  dpGet(server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsSourceConditionName,
+        server+\".SourceIdentification.ClientNameFromSource:_online.._value\", dsSourceMasterNameFromCondition,
+        server+\".SourceIdentification.ClientNameChanged:_online.._value\",    dsSourceMasterNameChanged);
+
+  //Achtung:  Hier sind simple Events nicht berücksichtigt  
+  dpGet( server+\".Conditions.EventCategoryNames:_online.._value\", dsConditionsEventCategoryNames,
+         server+\".Conditions.ConditionNames:_online.._value\",     dsConditionsConditionNames);
+  
+//        server+\".SourceIdentification.QualifiedSourceName:_online.._value\",  dsValues);   // !!!
+//        dsServerCondition
+
+  //dsServerConditions haltet alle Conditions (inkl. SimpleEvent). Jede condition kommt nur einmal vor.
+  //dsSelectedItemsForEventSubscription = alle ausgewählten Items zum Anlegen, i.e. AE_TestCondition_test_1_int
+  for ( i = 1; i<= dynlen( dsServerCondition); i++)
+  {
+     for ( j = 1; j<= dynlen(dsSelectedItemsForEventSubscription); j++)
+     { 
+        sSearchString = dsServerCondition[i] + \".\" + dsSelectedItemsForEventSubscription[j];
+        if ( dynContains( dsSourceConditionName, sSearchString) > 0)
+          dynAppend( ds, sSearchString);
+     }
+  }
+  
+
+  //merke alle Items, die angelegt werden müssen (inkl. den einen für simple Events)
+  dsSelectedItemsForEventSubscription = ds;
+
+  
+  //dsSourceDps = anzulegenden Datenpunkte, und zwar entweder der automatisch zugewiesene name
+  //              oder der überparametrierte Name
+  //dsSourceTypes = Condition, auf die sich das Item bezieht
+  //SimpleEvents sind berücksichtigt.
+  for ( i=1; i<= dynlen( dsSourceConditionName); i++)
+  {
+   if ( dsSourceMasterNameFromCondition[i] != \"\")
+         dsSourceDps[i] = dsSourceMasterNameFromCondition[i];
+   else
+         dsSourceDps[i] = dsSourceMasterNameChanged[i];
+
+
+   ds = strsplit(dsSourceConditionName[i], gSourceSeparator);
+   dsSourceTypes[i] = ds[1];
+  } 
+
+  //Prüfen, ob die masterdatenpunkte existieren.
+  for ( i= 1; i<= dynlen(dsSelectedItemsForEventSubscription); i++)   // for all selected server items (inkl. den einen für simple event)
+  {
+     string sTemp, masterDP; 
+     pos = dynContains(dsSourceConditionName, dsSelectedItemsForEventSubscription[i])  ;      // find position
+     if (pos <= 0)
+        continue;
+   
+     type = dsSourceTypes[pos];
+     dp = dsSourceDps[pos];
+     int p = dynContains(dsMasterDps,type);
+
+     if (p>0)
+     {
+       masterDP = dsMasterDps[p];
+       //masterDP = dsMasterDps[dynContains(dsConditionName, type)];  //Berechnung des index ist falsch (out of range) 
+  
+       strreplace(type , \" \", \"_\"); 
+ 
+       //DebugN(i, dsSelectedItemsForEventSubscription[i], dp, type ,  dpExists( \"_mp_\" + type));
+ 
+       if ( ! dpExists( masterDP) )
+       {
+         string s = getCatStr(\"para\", \"masterDpDoesNotExist\");
+         strreplace( s, \"§\", masterDP);
+         DebugN(\"MasterDP does not exist: _mp_\", masterDP);
+
+		     ChildPanelOnCentralModal(\"vision/MessageWarning\",
+	                                paGetCatStr(\"para\",\"dplListForGenerate\"),  
+ 	                                makeDynString(s));
+         break;
+       }
+     }
+
+     dynAppend(  Items, dp);
+   
+  }
+
+  tableUpdateCBx(\"\",  Items);
+
+
+  // s = gTransferData;
+
+
+
+
+ if ( dynlen( gTransferData ) > 0)
+ {
+	 for ( i= 1; i<= dynlen( gTransferData) ; i++)
+	 {
+	   if ( i > 1) s+= \" | \";
+	   s+= gTransferData[i];
+	     
+	 }
+	
+	
+	
+	 ChildPanelOnCentralModalReturn(\"para/opc_ae_subscription_filter_view.pnl\",  
+	                             getCatStr(\"para\", \"dplListForGenerate\"),  
+	                             makeDynString(\"$dpes:\"+s), df, ds);  
+	
+	 if ( dynlen( df) > 0 && df[1] > 0 )
+	 {
+	    generateMissingDatapoints();
+		  ok.enabled	    = TRUE;
+		  modify.enabled  = TRUE;
+		  cancel.enabled	= TRUE;
+//       setOKState(lstSelected.itemCount()>0);                                 // test  -> OK 
+ 	
+	 }
+   else
+   {
+        items.deleteAllLines;
+			  ok.enabled	    = TRUE;
+			  modify.enabled  = TRUE;
+			  cancel.enabled	= TRUE;
+//         setOKState(FALSE);                                 // test  -> cancle
+   }
+ }
+ else             // no datapoints to generate
+ {
+	  ok.enabled	    = TRUE;
+	  modify.enabled  = TRUE;
+	  cancel.enabled	= TRUE;
+//     setOKState(lstSelected.itemCount()>0);                                 // test  -> OK 
+ }
+
+ 
+
+
+
+}
+
+
+
+" 0
+ E E E
+17 86
+"lstNotSelected"
+""
+1 20 255 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main()
+{
+  string field;
+  int pos;
+  
+  getValue(\"lstNotSelected\", \"selectedPos\", pos, \"selectedText\", field);
+
+  if ( pos >= 0 )
+    setMultiValue(\"lstNotSelected\", \"deletePos\", pos,
+                  \"lstSelected\",    \"appendItem\", field);  
+}" 0
+
+79 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  18 253 352 467
+0
+
+E
+E
+E
+
+0 0
+17 87
+"lstSelected"
+""
+1 394.9999999999999 255 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E "main()
+{
+  string field;
+  int pos;
+  
+  getValue(\"lstSelected\", \"selectedPos\", pos, \"selectedText\", field);
+
+  if ( pos >= 0 )
+    setMultiValue(\"lstSelected\", \"deletePos\", pos,
+                  \"lstNotSelected\",    \"appendItem\", field);  
+}" 0
+
+80 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  393 253 732 502
+0
+
+E
+E
+E
+
+0 0
+13 88
+"Button9"
+""
+1 360 344 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+81 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Selected condition
+LANG:10004 12 选择条件
+LANG:10000 21 Selektierte Condition
+LANG:10027 33 Выбранные условия
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  358 343 386 371
+
+P 
+12303291
+"pictures/StandardIcons/arrow_single_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string field;
+  int pos;
+  dyn_string ds = lstSelected.items;
+  
+  getValue(\"lstNotSelected\", \"selectedPos\", pos, \"selectedText\", field);
+
+  if ( pos >= 0 )
+   {
+      lstNotSelected.deletePos(pos);
+      dynAppend( ds, field);
+      dynUnique( ds);
+      dynSortAsc( ds );
+      lstSelected.items = ds;
+   }  
+                  
+  if (pos <= (lstNotSelected.itemCount()))
+     lstNotSelected.selectedPos = pos;
+    
+  items.deleteAllLines;
+//   setOKState(lstSelected.itemCount()>0);
+                  
+}
+" 0
+ E E E
+13 89
+"Button10"
+""
+1 360 374 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+82 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Selected condition
+LANG:10004 12 选择条件
+LANG:10000 21 Selektierte Condition
+LANG:10027 33 Выбранные условия
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  358 373 386 401
+
+P 
+6737151
+"pictures/StandardIcons/arrow_single_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string field, sTemp;
+  int pos;
+  dyn_string ds = lstNotSelected.items;
+  
+  getValue(\"lstSelected\", \"selectedPos\", pos, \"selectedText\", field);
+
+  if ( pos >= 0 )
+   {
+      lstSelected.deletePos(pos);
+      sTemp = field;
+      dynAppend( ds, field);
+      dynUnique( ds);
+      dynSortAsc( ds );
+      lstNotSelected.items = ds;
+
+      dynAppend(dsValues, sTemp);   
+      dynUnique( dsValues);
+      dynSortAsc( dsValues );
+   }  
+                  
+  if (pos <= (lstSelected.itemCount()))
+     lstSelected.selectedPos = pos;
+
+  items.deleteAllLines;
+//   setOKState(lstSelected.itemCount()>0);
+
+
+}
+" 0
+ E E E
+13 90
+"Button11"
+""
+1 360 315 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+83 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 All conditions
+LANG:10004 12 所有条件
+LANG:10000 15 Alle Conditions
+LANG:10027 21 Все условия
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  358 313 386 341
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_right_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  dyn_string fields = lstSelected.items;
+  dyn_string dsNotSelected = lstNotSelected.items;
+  dyn_string dstemp = dsNotSelected;
+  
+  setValue(\"lstNotSelected\", \"deleteAllItems\");
+  
+  dynAppend ( fields,  dstemp);
+  dynSortAsc( fields ); 
+  dynUnique (fields);            
+  lstSelected.items = fields;
+    
+  dynClear(  dsValues);  
+  
+  items.deleteAllLines;
+  txtNoOfItems.text	= \"(0)\";
+//   setOKState(lstSelected.itemCount()>0);
+          
+ 
+}
+" 0
+ E E E
+13 91
+"Button12"
+""
+1 360 403 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+84 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 All conditions
+LANG:10004 12 所有条件
+LANG:10000 16 Alle Conditions 
+LANG:10027 21 Все условия
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  358 403 386 431
+
+P 
+12303291
+"pictures/StandardIcons/arrow_double_left_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int i;
+  dyn_string fields = lstSelected.items;
+  dyn_string dsNotSelected = lstNotSelected.items;
+  dyn_string dstemp = fields;
+  
+  setValue(\"lstSelected\", \"deleteAllItems\");
+  
+  dynAppend ( dsNotSelected,  dstemp);
+  dynSortAsc( dsNotSelected ); 
+  dynUnique (dsNotSelected);            
+  lstNotSelected.items = dsNotSelected;
+    
+  dynAppend(dsValues, fields);  
+  dynSortAsc(dsValues); 
+  dynUnique (dsValues);            
+
+  TextField2.text	= \"\";
+
+  items.deleteAllLines;
+//   setOKState(lstSelected.itemCount()>0);
+
+}
+" 0
+ E E E
+14 92
+"TextField2"
+""
+1 94.48275862068967 500 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+85 0 0 0 0 0
+E "main()
+{
+  textField2_command();
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  63 473 352 499
+3 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  textField2_command();
+}
+" 0
+
+6 85
+"imgReturn2"
+""
+1 1133 1138 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+78 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 2.181818181818182 0 1.090909090909091 -410.1818181818181 -75.81818181818178 2  1 3  "pictures/StandardIcons/return_32.svg" 13434828 E 353 504 364 526
+1 97 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 265 565 T 90 1.541082164328657 0 1 -413.3867735470944 0
+0
+0

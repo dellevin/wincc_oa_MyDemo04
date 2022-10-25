@@ -1,0 +1,1459 @@
+V 14
+4
+LANG:10001 15 S7+ engineering
+LANG:10004 16 S7+ 工程开发
+LANG:10000 15 S7+ Engineering
+LANG:10027 15 S7+ engineering
+PANEL,-1 -1 650 360 N "_3DFace" 0
+E E E E E 1 -1 -1 0  50 40
+""0  1
+E "////////////////////////////////////////////////////////////////////////////////////////////////////
+// s7+ driver - engineering
+
+string sCFG     = \".Config.\";
+string sCFGREDU = \".Config.ReduConnection.\";
+string sSTA     = \".State.\";
+string sBRO     = \".Browse.\";
+
+string sStationOnline = \"S7Plus$Online|Online\";
+bool bOnlineBrowsing = 0;
+bool browseRequestPending = 0;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+string sConn;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void getAutoPlcType(string sDp)
+{
+  if ( bOnlineBrowsing )
+  {
+    errDetectPlcType(4);
+    return;
+  }
+
+  string sStationName;
+  uint uiDrvNum;
+
+  // TFS 12634
+  int iReduAct = 0;
+
+  if ( isRedundant() )
+    reduActive(iReduAct);
+
+  if ( iReduAct == 2 )
+    sDp += \"_2\";
+
+  dpGet(sDp + sCFG + \"DrvNumber\",   uiDrvNum,
+        sDp + sCFG + \"StationName\", sStationName);
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if ( !dynContains(drvRunning, uiDrvNum) )
+  {
+    if ( sStationName == \"\")
+      errDetectPlcType(0);
+    else
+      errDetectPlcType(3);
+
+    return;
+  }
+
+  string sProject;
+  string sStation;
+  string sReqIdSet = \"RequestPlcType\";
+
+  if ( sStationName != \"\" && dynlen(strsplit(sStationName, \"|\")) > 1 )
+  {
+    sProject = strsplit(sStationName, \"|\")[1];
+    sStation = strsplit(sStationName, \"|\")[2];
+  }
+
+  dyn_string dsTypeData, dsTypeDataTemp;
+  string sTypeData;
+  uint uiPlcTypeNum;
+
+  if ( sProject != \"\"  )
+  {
+    int cnt = 1;
+
+    // wait in case browse request from setApGlobals is pending
+    while ( browseRequestPending )
+    {
+      // avoid infinite loop - wait for max 30 seconds
+      if ( cnt >= 600 )
+      {
+        errDetectPlcType(2);
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to autmatically detect PLC type\"));
+
+        return;
+      }
+
+      if ( cnt%20 == 0 )
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting PLC type...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // lock
+    browseRequestPending = true;
+
+    dpSetWait(sDp + sBRO + \"RequestId\", \"\");
+    dpSetWait(sDp + sBRO + \"GetBranch\", makeDynString(sReqIdSet, sProject, 1));
+
+    string sReqIdGet;
+
+    cnt = 1;
+
+    while ( sReqIdGet != sReqIdSet  && cnt++ < 600 )
+    {
+      dpGet(sDp + sBRO + \"RequestId\", sReqIdGet);
+
+      // avoid infinite loop - wait for max 30 seconds
+      if (cnt >= 600)
+      {
+        errDetectPlcType(2);
+
+        throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, \"Unable to autmatically detect PLC type\"));
+        return;
+      }
+
+      if (cnt%20 == 0)
+        throwError(makeError(\"\", PRIO_INFO, ERR_CONTROL, 0, \"Detecting PLC type...\"));
+
+      cnt++;
+      delay(0, 100);
+    }
+
+    // unlock
+    browseRequestPending = false;
+
+    if ( sReqIdGet == sReqIdSet )
+    {
+      dpGet(sDp + sBRO + \"NodePaths\", dsTypeData);
+
+      for ( int i = 1; i <= dynlen(dsTypeData); i++ )
+        dsTypeDataTemp[i] = strsplit(dsTypeData[i], \"|\")[1];
+
+      if ( dynlen(dsTypeDataTemp) && dynContains(dsTypeDataTemp, sStation) > 0 )
+        sTypeData = dsTypeData[dynContains(dsTypeDataTemp, sStation)];
+
+      dynClear(dsTypeDataTemp);
+      dsTypeDataTemp = strsplit(sTypeData, \"|\");
+
+      if ( dynlen(dsTypeDataTemp) > 1 )
+        uiPlcTypeNum = dsTypeDataTemp[2];
+
+      setMultiValue(paS7PlusGetRootShapeValue(\"tfPlcTypeNum\"), \"text\",    uiPlcTypeNum,
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"visible\", 1,
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"text\",    getCatStr(\"s7plus\", \"s7plusPlcType\" + uiPlcTypeNum),
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"enabled\", 1,
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"backCol\", \"_3DFace\",
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"foreCol\", \"black\");
+
+//       tfPlcTypeNum.text = uiPlcTypeNum;
+//       tfPlcType.visible = 1;
+//       tfPlcType.text = getCatStr(\"s7plus\", \"s7plusPlcType\"+uiPlcTypeNum);
+//       tfPlcType.enabled(1);
+//       tfPlcType.backCol(\"_3DFace\");
+//       tfPlcType.foreCol(\"black\");
+    }
+  }
+  else
+  {
+    errDetectPlcType(0);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void errDetectPlcType(int iErrType)
+{
+  setMultiValue(paS7PlusGetRootShapeValue(\"tfPlcTypeNum\"), \"text\",    0,
+                paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"visible\", 1,
+                paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"enabled\", 1,
+                paS7PlusGetRootShapeValue(\"tfPlcType\"),    \"text\",    getCatStr(\"s7plus\", \"s7plusPlcType\" + (string)iErrType));
+
+  if       ( iErrType == 0 || iErrType == 4 )
+  {
+    setMultiValue(paS7PlusGetRootShapeValue(\"tfPlcType\"), \"backCol\", \"red\",
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"), \"foreCol\", \"white\");
+  }
+  else if ( iErrType == 2 || iErrType == 3 )
+  {
+    setMultiValue(paS7PlusGetRootShapeValue(\"tfPlcType\"), \"backCol\", \"yellow\",
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"), \"foreCol\", \"black\");
+  }
+//   else
+//   {
+//     setMultiValue(paS7PlusGetRootShapeValue(\"tfPlcType\"), \"backCol\", \"_3DFace\",
+//                   paS7PlusGetRootShapeValue(\"tfPlcType\"), \"foreCol\", \"black\");
+//   }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 34
+"frmAlarm"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+111 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.116334101182839 0 0.6863407093886285 -1.21625689761826 93.02613488526288 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 19 Alarm configuration
+LANG:10004 12 报警配置
+LANG:10000 19 Alarm-Konfiguration
+LANG:10027 33 Настройка алармов
+30 121
+"frmSymb"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+330 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.116279069767442 0 1.063291139240506 -1.162790697674495 -0.6329113924050306 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 TIA configuration
+LANG:10004 10 TIA 配置
+LANG:10000 17 TIA-Konfiguration
+LANG:10027 22 Настройка TIA
+2 122
+"ptProjectName"
+""
+1 160 35 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+331 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 160 35 243 50
+0 2 2 "0s" 0 0 0 192 0 0  160 35 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Project name:
+LANG:10004 10 项目名:
+LANG:10000 12 Projektname:
+LANG:10027 22 Имя проекта:
+14 123
+"tfProjectName"
+""
+1 159.1635531377488 -145.0000000000002 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+332 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 32 Name of the selected TIA project
+LANG:10004 26 所选 TIA 项目的名称
+LANG:10000 32 Name des gewählte TIA-Projektes
+LANG:10027 46 Имя выбранного TIA-проекта
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  243 28 526 54
+2 "0s" 0 0 0 0 0 -1  E E E
+13 126
+"pbSymb"
+""
+1 535 55 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+335 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 124 Opens the TIA configuration panel. With this panel you may select the TIA project and the station (PLC) for this connection.
+LANG:10004 124 Opens the TIA configuration panel. With this panel you may select the TIA project and the station (PLC) for this connection.
+LANG:10000 137 Öffnet das TIA-Konfigurationspanel. Mit diesem Panel können Sie das TIA-Projekt, sowie die Station (SPS) für diese Verbindung wählen.
+LANG:10027 160 Открытие панели настройки для выбора TIA-проекта и станции (ПЛК) для данного подключения.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 28 621 56
+
+T 
+4
+LANG:10001 6 Select
+LANG:10004 6 Select
+LANG:10000 11 Selektieren
+LANG:10027 10 Выбор
+"main()
+{
+  sConn = paS7PlusConnName(g_s7p_conn, \"cmbPlc\");
+
+  dyn_string ds;
+  dyn_float df;
+
+  string sStation;
+  uint uiDrvNum;
+  uint uiConnState;
+
+  dpGet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation,
+        S7PLUS_INOA + sConn + sCFG + \"DrvNumber\"  , uiDrvNum,
+        S7PLUS_INOA + sConn + sSTA + \"ConnState\"  , uiConnState);
+
+  if ( sStation == sStationOnline )
+    bOnlineBrowsing = 1;
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if (  !dynContains(drvRunning, uiDrvNum) )
+  {
+    string sSymMsg = getCatStr(\"s7plus\", \"tiaDrvNumForSym\");
+    strreplace(sSymMsg, \"$1\", uiDrvNum);
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\",\"warning\"),
+                             makeDynString(sSymMsg));
+    return;
+  }
+
+//   if ( uiConnState > 1 )
+//   {
+//     ChildPanelOnCentralModal(\"vision/MessageWarning\",
+//                              getCatStr(\"para\", \"warning\"),
+//                              makeDynString(getCatStr(\"s7\", \"tiaActiveConn\")));
+//
+//     return;
+//   }
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/s7plus_symbolic.pnl\",
+                                 \"S7+ Symbolic\",
+                                 makeDynString(\"$SERVER:\"  + S7PLUS_INOA + sConn,
+                                               \"$STATION:\" + sStation),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 )
+  {
+    if ( sStation != \"\" )
+    {
+      //dpSet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation);
+
+      if ( sStation == sStationOnline )
+      {
+        setMultiValue(\"tfProjectName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                      \"tfStationName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineStation\"));
+        bOnlineBrowsing = 1;
+      }
+      else
+      {
+        setMultiValue(\"tfProjectName\", \"text\", strsplit(sStation, \"|\")[1],
+                      \"tfStationName\", \"text\", strsplit(sStation, \"|\")[2]);
+        bOnlineBrowsing = 0;
+      }
+    }
+    else
+      setMultiValue(\"tfProjectName\", \"text\",    \"\",
+                    \"tfStationName\", \"text\",    \"\",
+                    \"pbImport\",      \"enabled\", 0);
+    return;
+  }
+
+  if ( dynlen(ds) > 1 )
+  {
+    int iPos;
+    uint uiPlcType;
+    string sIp1, sIp2, sAddress, sAddressRedu;
+    dyn_string dsNP, dsStations;
+
+    bool bOverwriteData = ( (sStation == \"\") || (dynlen(ds) > 2 && ds[3] == \"1\") );
+
+    dsNP = strsplit(ds[2], \"|\");
+
+    if ( dynlen(dsNP) > 1 )
+      uiPlcType = dsNP[2];
+    if ( dynlen(dsNP) > 2 )
+      sIp1      = dsNP[3];
+    if ( dynlen(dsNP) > 3 )
+      sIp2      = dsNP[4];
+
+    if ( sIp1 != \"\" )
+      sAddress     = ( uiPlcType == 528 ) ? \"::\" + sIp1 + \":6.0:\" : sIp1;
+
+    if ( sIp2 != \"\" )
+      sAddressRedu = ( uiPlcType == 528 ) ? \"::\" + sIp2 + \":6.0:\" : sIp2;
+
+    dpSetWait(S7PLUS_INOA + sConn + sCFG + \"StationName\", ds[1],
+              S7PLUS_INOA + sConn + sCFG + \"Address\"    , sAddress,
+              S7PLUS_INOA + sConn + sCFG + \"PLCType\"    , 1);//uiPlcType);
+
+    if ( sIp2 != \"\" )
+      dpSetWait(S7PLUS_INOA + sConn + sCFGREDU + \"Address\" , sAddressRedu,
+                S7PLUS_INOA + sConn + sCFG     + \"ConnType\", 1);
+
+    int iPos;
+    if      ( uiPlcType ==   1 ) // --> auto
+      iPos = 1;
+    else if ( uiPlcType == 272 ) // --> 1200
+      iPos = 2;
+    else if ( uiPlcType ==  16 ) // --> 1500
+      iPos = 3;
+    else if ( uiPlcType == 528 ) // --> 1500 soft
+      iPos = 4;
+    else if ( uiPlcType == 768 ) // --> plc sim
+      iPos = 5;
+    else                         // --> auto
+      iPos = 1;
+
+    int iOldPos;
+    string sOldIp1, sOldIp2;
+    bool bOldReduConn;
+    getMultiValue(paS7PlusGetRootShapeValue(\"tfIp1\"),         \"text\",        sOldIp1,
+                  paS7PlusGetRootShapeValue(\"tfIp2\"),         \"text\",        sOldIp2,
+                  paS7PlusGetRootShapeValue(\"cbReduConn\"),    \"state\", 0,    bOldReduConn,
+                  paS7PlusGetRootShapeValue(\"cmbPlcType\"),    \"selectedPos\", iOldPos);
+
+    setMultiValue(\"tfProjectName\",                            \"text\",        strsplit(ds[1], \"|\")[1],
+                  \"tfStationName\",                            \"text\",        strsplit(ds[1], \"|\")[2],
+                  \"pbImport\",                                 \"enabled\",     1,
+                  paS7PlusGetRootShapeValue(\"tfIp1\"),         \"text\",        (bOverwriteData) ? sIp1         : sOldIp1,
+                  paS7PlusGetRootShapeValue(\"tfIp2\"),         \"text\",        (bOverwriteData) ? sIp2         : sOldIp2,
+                  paS7PlusGetRootShapeValue(\"cbReduConn\"),    \"state\", 0,    (bOverwriteData) ? (sIp2 != \"\") : bOldReduConn,
+                  paS7PlusGetRootShapeValue(\"cmbPlcType\"),    \"selectedPos\", (bOverwriteData) ? 1/*iPos*/    : iOldPos,
+
+                  paS7PlusGetRootShapeValue(\"tfPlcTypeNum\"),  \"text\",        uiPlcType,
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"),     \"visible\",     1,
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"),     \"text\",        getCatStr(\"s7plus\", \"s7plusPlcType\"+uiPlcType),
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"),     \"enabled\",     1,
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"),     \"backCol\",     \"_3DFace\",
+                  paS7PlusGetRootShapeValue(\"tfPlcType\"),     \"foreCol\",     \"black\",
+
+                  paS7PlusGetRootShapeValue(\"ptStation\"),     \"visible\",     (iPos == 4 || (iPos == 1 && uiPlcType == 528)),
+                  paS7PlusGetRootShapeValue(\"sbStation1\"),    \"enabled\",     (iPos == 4 || (iPos == 1 && uiPlcType == 528)),
+                  paS7PlusGetRootShapeValue(\"sbStation1\"),    \"visible\",     (iPos == 4 || (iPos == 1 && uiPlcType == 528)),
+
+                  paS7PlusGetRootShapeValue(\"tfSymbChanged\"), \"text\",        \"1\");
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+ E E E
+2 127
+"ptStationName"
+""
+1 160 65 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+336 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 160 65 243 80
+0 2 2 "0s" 0 0 0 192 0 0  160 65 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Station name:
+LANG:10004 9 站点名
+LANG:10000 13 Stationsname:
+LANG:10027 22 Имя станции:
+14 128
+"tfStationName"
+""
+1 159.1635531377488 -115.0000000000002 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+337 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 34 Name of the selected station (PLC)
+LANG:10004 24 所选站的名称 (PLC)
+LANG:10000 33 Name der gewählten Station (SPS)
+LANG:10027 49 Имя выбранной станции (ПЛК)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  243 58 526 84
+2 "0s" 0 0 0 0 0 -1  E E E
+13 130
+"pbImport"
+""
+1 421 -9 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+339 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 102 Opens the Simple TIA Importer to import types and instances from the selected TIA project to WinCC OA.
+LANG:10004 89 打开 Simple TIA Importer 以将类型和实例从选定的 TIA 项目导入 WinCC OA。
+LANG:10000 111 Öffnet den Simple TIA Importer, um Typen und Instanzen des gewählten TIA-Projekts in WinCC OA zu importieren.
+LANG:10027 102 Opens the Simple TIA Importer to import types and instances from the selected TIA project to WinCC OA.
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  533 58 621 86
+
+T 
+4
+LANG:10001 6 Import
+LANG:10004 6 导入
+LANG:10000 11 Importieren
+LANG:10027 12 Импорт
+"main()
+{
+  sConn = paS7PlusConnName(g_s7p_conn, \"cmbPlc\");
+
+  dyn_string ds;
+  dyn_float df;
+
+  uint uiDrvNum, uiAlarmMode, uiConnState, uiPlcType;
+  string sStation, sStationSaved;
+  int iSource = rbSource.number;
+
+  // 26.09.2016 gstrauhs
+  // return if the required driver is not running
+  dpGet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation,
+        S7PLUS_INOA + sConn + sCFG + \"DrvNumber\"  , uiDrvNum,
+        S7PLUS_INOA + sConn + sCFG + \"PLCType\"    , uiPlcType,
+        S7PLUS_INOA + sConn + sSTA + \"ConnState\"  , uiConnState);
+
+  sStationSaved = sStation;
+
+  if ( iSource == 1 )
+    sStation = sStationOnline;
+
+  dyn_int drvRunning = paS7PlusCheckDrvNums();
+
+  if ( !dynContains(drvRunning, uiDrvNum) )
+  {
+    string sSymMsg = getCatStr(\"s7plus\", \"tiaDrvNumForImp\");
+    strreplace(sSymMsg, \"$1\", uiDrvNum);
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(sSymMsg));
+    return;
+  }
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"general\", \"permission\")));
+    return;
+  }
+
+  if ( sStation == \"\" )
+  {
+    if ( uiConnState != 3 )
+    {
+//       ChildPanelOnCentralModalReturn(\"para/s7plus_warningOnlineSwitch.pnl\",
+//                                      getCatStr(\"para\", \"warning\"),
+//                                      makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoConn\"),
+//                                                    \"hide\",
+//                                                    getCatStr(\"general\", \"OK\")),
+//                                      df, ds);
+
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                               getCatStr(\"para\", \"warning\"),
+                               makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoConn\")));
+
+      return;
+    }
+    /*
+    else
+    {
+      // plc type: 0 == not selected & not saved; 1 == automatic
+      if ( uiPlcType <= 1 )
+      {
+        ChildPanelOnCentralModalReturn(\"para/s7plus_warningOnlineSwitch.pnl\",
+                                       getCatStr(\"para\", \"warning\"),
+                                       makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoPlcType\"),
+                                                     \"hide\",
+                                                     getCatStr(\"general\", \"OK\")),
+                                       df, ds);
+        return;
+      }
+
+      sStation = sStationOnline;
+      dpSet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStationOnline);
+
+      setMultiValue(\"tfProjectName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                    \"tfStationName\", \"text\", getCatStr(\"s7plus\", \"s7plusOnlineStation\"));
+    }
+    */
+  }
+
+
+  if ( uiConnState != 3 && iSource == 1 )
+  {
+//     ChildPanelOnCentralModalReturn(\"para/s7plus_warningOnlineSwitch.pnl\",
+//                                    getCatStr(\"para\", \"warning\"),
+//                                    makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoConn\"),
+//                                                  \"hide\",
+//                                                  getCatStr(\"general\", \"OK\")),
+//                                    df, ds);
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoConn\")));
+
+    return;
+  }
+
+
+
+  if ( uiAlarmMode == 1 && iSource == 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+                             getCatStr(\"para\", \"warning\"),
+                             makeDynString(getCatStr(\"s7plus\", \"s7plusOnlineNoAlarm\")));
+  }
+
+  /*
+  if ( uiConnState == 3 && sStation != sStationOnline )
+  {
+    getValue(paS7PlusGetRootShapeValue(\"cbAlarmMode\"), \"state\", 0, uiAlarmMode);
+    string sMsg = getCatStr(\"s7plus\", \"s7plusOnlineSwitch\");
+    strreplace(sMsg, \"$1\", strsplit(sStation, \"|\")[1]);
+
+    if ( uiAlarmMode == 1 )
+      sMsg += \"\\n\" + getCatStr(\"s7plus\", \"s7plusOnlineNoAlarm\");
+
+    ChildPanelOnCentralModalReturn(\"para/s7plus_warningOnlineSwitch.pnl\",
+                                   getCatStr(\"para\", \"warning\"),
+                                   makeDynString(sMsg,
+                                                 getCatStr(\"para\", \"yes\"),
+                                                 getCatStr(\"para\", \"no\")),
+                                   df, ds);
+
+    if ( dynlen(df) < 1 && dynlen(ds) < 1 )
+      return;
+
+    if ( dynlen(df) > 0 && df[1] == 1 && dynlen(ds) > 0 && ds[1] == \"true\" )
+    {
+      sStation = sStationOnline;
+
+      string sPlcTypeNum;
+      getValue(paS7PlusGetRootShapeValue(\"tfPlcTypeNum\"), \"text\", sPlcTypeNum);
+
+      uiPlcType = (uint)sPlcTypeNum;
+      int iPos;
+
+      if      ( uiPlcType == 272 ) // --> 1200
+        iPos = 2;
+      else if ( uiPlcType ==  16 ) // --> 1500
+        iPos = 3;
+      else if ( uiPlcType == 528 ) // --> 1500 soft
+        iPos = 4;
+      else if ( uiPlcType == 768 ) // --> plc sim
+        iPos = 5;
+
+      dpSet(S7PLUS_INOA + sConn + sCFG + \"PLCType\", uiPlcType);
+
+      setMultiValue(\"tfProjectName\",            \"text\",        getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                    \"tfStationName\",            \"text\",        getCatStr(\"s7plus\", \"s7plusOnlineStation\"),
+                    paS7PlusGetRootShapeValue(\"tfPlcType\"),  \"visible\",     0,
+                    paS7PlusGetRootShapeValue(\"cmbPlcType\"), \"selectedPos\", iPos);
+    }
+  }
+  */
+
+  ChildPanelOnCentralModalReturn(\"para/s7plus_import.pnl\",
+                                 \"S7+ TIA import\",
+                                 makeDynString(\"$SERVER:\"  + S7PLUS_INOA + sConn,
+                                               \"$STATION:\" + sStation,
+                                               \"$DRVNUM:\"  + uiDrvNum,
+                                               \"$SOURCE:\"  + iSource),
+                                 df, ds);
+
+  //if ( dynlen(df) < 1 || df[1] == 0 )
+  //{
+  //
+  //}
+
+  if ( dynlen(ds) > 0 && ds[1] != sStationSaved )
+  {
+    dpSet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation);
+  }
+}
+
+" 0
+ E E E
+30 131
+"frmErrorStats"
+""
+1 10 84 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+340 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.117048639701575 0 1.443037974683545 -1.170486397015736 145.5696202531645 0 E 10 10 570 90
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 15 PLC information
+LANG:10004 9 PLC信息
+LANG:10000 17 SPS-Informationen
+LANG:10027 27 Информация ПЛК
+2 132
+"ptSysVers"
+""
+1 25 185 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+341 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 25 185 100 200
+0 2 2 "0s" 0 0 0 192 0 0  25 185 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 PLC version:
+LANG:10004 11 PLC 版本:
+LANG:10000 12 SPS-Version:
+LANG:10027 20 Версия ПЛК:
+14 133
+"tfSysVers"
+""
+1 113.4945255474453 59 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ "main(mapping event)
+{
+  dyn_string dsStruct = makeDynString(\"PUSH_BUTTON, \"+getCatStr(\"s7plus\", \"s7plusCopyPlcVersion\")+\", 1, 1\");
+  int iAnswer;
+  popupMenu(dsStruct, iAnswer);
+
+  if ( iAnswer == 1 )
+    setClipboardText(tfSysVers.text);
+}
+" 0
+ E
+342 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 58 Right-click to copy System version of the PLC to clipboard
+LANG:10004 58 Right-click to copy System version of the PLC to clipboard
+LANG:10000 79 Systemversion der SPS kann mit Rechtsklick in die Zwischenablage kopiert werden
+LANG:10027 58 Right-click to copy System version of the PLC to clipboard
+
+2
+"transparentForMouse" ""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  23 208 331 234
+2 "0s" 0 0 0 0 0 -1  E E E
+2 134
+"ptMaxSubs"
+""
+1 350 184.9777400888237 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+343 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 350 184.9777400888237 466 200
+0 2 2 "0s" 0 0 0 192 0 0  350 184.9777400888237 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 19 Max. subscriptions:
+LANG:10004 21 最大的订阅数：
+LANG:10000 19 Max. Subscriptions:
+LANG:10027 39 Макс. кол-во подписок:
+2 135
+"ptMaxSubVals"
+""
+1 350 215 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+344 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 350 215 531 230
+0 2 2 "0s" 0 0 0 192 0 0  350 215 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 30 Max. data values subscribable:
+LANG:10004 30 可订阅的最大数据值：
+LANG:10000 28 Max. Werte in Subscriptions:
+LANG:10027 47 Макс. значений в подписке:
+2 136
+"ptMaxValsPerReq"
+""
+1 350 245 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+345 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 350 245 523 260
+0 2 2 "0s" 0 0 0 192 0 0  350 245 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 29 Max. data values per request:
+LANG:10004 33 每个请求的最大数据值：
+LANG:10000 27 Max. Werte pro Anforderung:
+LANG:10027 45 Макс. значений на запрос:
+14 137
+"tfMaxSubs"
+""
+1 283.964602729394 60.0445198223527 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+346 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 56 The maximum number of subscriptions supported by the PLC
+LANG:10004 56 The maximum number of subscriptions supported by the PLC
+LANG:10000 62 Die maximale Anzahl der auf der SPS verfügbaren Subscriptions
+LANG:10027 90 Максимальное кол-во подписок, поддерживаемых ПЛК
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 178 621 204
+3 "0.0f" 1 0 0 2 0 -1  E E E
+14 138
+"tfMaxSubVals"
+""
+1 284 90 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+347 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 75 The maximum number of data values that can be transmitted via subscriptions
+LANG:10004 75 The maximum number of data values that can be transmitted via subscriptions
+LANG:10000 81 Die maximale Anzahl von Werten, die mittels Subscriptions übertragen werden kann
+LANG:10027 138 Максимальное кол-во значений, которое может передаваться в рамках подписки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 208 621 234
+3 "0.0f" 1 0 0 2 0 -1  E E E
+14 139
+"tfMaxValsPerReq"
+""
+1 283.964602729394 120.0445198223527 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+348 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 71 The maximum number of values that can be put into a single read request
+LANG:10004 71 The maximum number of values that can be put into a single read request
+LANG:10000 99 Die maximale Anzahl von Werten, die innerhalb einer einzelnen Leseanforderung abgefragt werden kann
+LANG:10027 166 Максимальное кол-во значений, которое может возвращаться в ответе на один запрос на чтение
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 238 621 264
+3 "0.0f" 1 0 0 2 0 -1  E E E
+2 140
+"ptFullText"
+""
+1 25 125 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+349 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 25 125 121 140
+0 2 2 "0s" 0 0 0 192 0 0  25 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Full text alarms:
+LANG:10004 15 全文本报警
+LANG:10000 16 Volltext Alarme:
+LANG:10027 17 Full text alarms:
+2 141
+"ptClassFilter"
+""
+1 350 125 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+350 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 1 2 1 E U  0 E 350 125 462 140
+0 2 2 "0s" 0 0 0 192 0 0  350 125 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 21 Display class filter:
+LANG:10004 18 显示类过滤器
+LANG:10000 21 Anzeigeklasse-Filter:
+LANG:10027 21 Display class filter:
+20 143
+"cbFullText"
+""
+1 -87.34169075115949 256.7380952380951 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+352 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 59 S7+ PLC shall send alarm texts online or not (Default true)
+LANG:10004 56 S7+ PLC 是否在线发送报警文本（默认为真）
+LANG:10000 63 S7+ SPS soll Alarmtexte online oder nicht senden (Default true)
+LANG:10027 59 S7+ PLC shall send alarm texts online or not (Default true)
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  133 120.8690476190475 211 144.8690476190475
+1
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+EE13 145
+"pbCopyPlcVersion"
+""
+1 283 486.9999999999999 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+354 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 41 Copy PLC version information to clipboard
+LANG:10004 41 Copy PLC version information to clipboard
+LANG:10000 54 SPS-Versionsinformation in die Zwischenablage kopieren
+LANG:10027 41 Copy PLC version information to clipboard
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  303 238 331 266
+
+P 
+4294967295
+"pictures/StandardIcons/copy_20.png"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  setClipboardText(tfSysVers.text);
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+13 147
+"pbClassFilter"
+""
+1 513 366.9999999999999 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+356 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 27 Select display class filter
+LANG:10004 24 选择显示类过滤器
+LANG:10000 32 Anzeigeklasse-Filter selektieren
+LANG:10027 27 Select display class filter
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  533 118 561 146
+
+T 
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main()
+{
+  string sClassFilter = tfClassFilter.text;
+  dyn_string ds;
+  dyn_float df;
+  ChildPanelOnCentralModalReturn(\"para/s7plus_displayclassfilter.pnl\",
+                                 \"Display Class Filter\",
+                                 makeDynString(\"$ClassFilter:\" + sClassFilter),
+                                 df, ds);
+
+  if ( dynlen(df) < 1 || df[1] == 0 || dynlen(ds) < 1 )
+    return;
+  else
+    tfClassFilter.text = ds[1];
+}
+
+
+
+
+
+
+
+
+" 0
+ E E E
+14 148
+"tfClassFilter"
+""
+1 674.5 440.9542013223218 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+357 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 328 34 354
+2 "0s" 0 0 0 0 0 -1  E E E
+6 149
+"rctSysVers"
+""
+1 35 210 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ "main(mapping event)
+{
+  dyn_string dsStruct = makeDynString(\"PUSH_BUTTON, \"+getCatStr(\"s7plus\", \"s7plusCopyPlcVersion\")+\", 1, 1\");
+  int iAnswer;
+  popupMenu(dsStruct, iAnswer);
+
+  if ( iAnswer == 1 )
+    setClipboardText(tfSysVers.text);
+}
+" 0
+ E
+358 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 58 Right-click to copy system version of the PLC to clipboard
+LANG:10004 58 Right-click to copy system version of the PLC to clipboard
+LANG:10000 79 Systemversion der SPS kann mit Rechtsklick in die Zwischenablage kopiert werden
+LANG:10027 58 Right-click to copy system version of the PLC to clipboard
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1 0 1 -10 0 1 E 35 210 339 232
+19 150
+"rbSource"
+""
+1 23 284 E E E 0 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+359 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 28 151 86
+2
+T 
+4
+LANG:10001 11 TIA project
+LANG:10004 10 TIA 项目
+LANG:10000 11 TIA-Projekt
+LANG:10027 16 TIA-проект
+
+1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+T 
+4
+LANG:10001 13 Online device
+LANG:10004 12 在线设备
+LANG:10000 13 Online-Gerät
+LANG:10027 33 Устройства онлайн
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E "main(int button)
+{
+  sConn = paS7PlusConnName(g_s7p_conn, \"cmbPlc\");
+
+  string sStation;
+  uint uiPlcType;
+  dpGet(S7PLUS_INOA + sConn + sCFG + \"StationName\", sStation);
+
+  bool bCheckStation = ( sStation == \"\" || sStation == sStationOnline );
+
+  string sPlcTypeNum;
+  getValue(paS7PlusGetRootShapeValue(\"tfPlcTypeNum\"), \"text\", sPlcTypeNum);
+  uint uiPlcType = (uint)sPlcTypeNum;
+
+  int iPos;
+  getValue(paS7PlusGetRootShapeValue(\"cmbPlcType\"), \"selectedPos\", iPos);
+
+  if ( button == 0 )
+  {
+    bOnlineBrowsing = 0;
+    pbSymb.enabled = 1;
+
+    setMultiValue(\"tfProjectName\", \"text\",    (!bCheckStation)?strsplit(sStation, \"|\")[1]:\"\",
+                  \"tfStationName\", \"text\",    (!bCheckStation)?strsplit(sStation, \"|\")[2]:\"\",
+                  \"pbImport\",      \"enabled\", (!bCheckStation));
+
+//     if ( iPos == 1 )
+//     {
+//       if ( bCheckStation )
+//         errDetectPlcType(2);
+//       else
+//         errDetectPlcType(uiPlcType);
+//     }
+  }
+  else
+  {
+    bOnlineBrowsing = 1;
+    pbSymb.enabled = 0;
+
+    setMultiValue(\"tfProjectName\", \"text\",    getCatStr(\"s7plus\", \"s7plusOnlineProject\"),
+                  \"tfStationName\", \"text\",    getCatStr(\"s7plus\", \"s7plusOnlineStation\"),
+                  \"pbImport\",      \"enabled\", 1);
+
+//     if ( iPos == 1 )
+//       errDetectPlcType(4);
+  }
+
+  if ( iPos == 1 )
+    getAutoPlcType(S7PLUS_INOA + sConn);
+
+}
+
+" 0
+
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

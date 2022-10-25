@@ -1,0 +1,2620 @@
+V 13
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 558 166 N "_3DFace" 1
+"$dp"
+E E E E E 1 -1 -1 0  190 30
+""0  1
+E "
+// When adding some shapes that are handled like TSPP they have to be added here.
+dyn_string g_dsTSPPShapes = makeDynString(\".cbo1\", \".cbo2\", \".cbo3\", \".cbo4\", \".cbo5\", \".Text1\", \".cbu6\", \".cbo2_redu\", \".cbo5_redu\", \".Text7\", \".Text10\");
+int referenceIdx;
+
+checkRange(int min = 0, int max = 255)
+{
+  int value = this.text;
+  int oldValue = value;
+  
+  if (value < min )
+    value = min;
+  if (value > max)
+    value = max;
+  if (value != oldValue)
+    this.text	= value;
+}
+
+setTSPPValue()
+{
+  string cbo1Text, cbo3Text, cbo4Text;
+  int i1, i2, i3, i4, i5, i6, i7, i8, i9, connType;    //IM 119950 S7-200 Erweiterungen
+  bool isVisible;
+  
+  getMultiValue($dp + \".ConnType1\",\"selectedPos\",connType,
+                $dp + \".ConnType1\",\"visible\",isVisible,
+                $dp + \".cbo1\", \"text\", cbo1Text,
+                $dp + \".cbo11\",\"selectedPos\", i9, 
+                $dp + \".cbo2\", \"selectedPos\", i2, 
+                $dp + \".cbo3\", \"text\", cbo3Text, 
+                $dp + \".cbo4\", \"text\", cbo4Text, 
+                $dp + \".cbo5\", \"selectedPos\", i5,
+                $dp + \".cbu6\", \"state\", 0, i6,  
+                $dp + \".cbo2_redu\", \"selectedPos\", i7, 
+                $dp + \".cbo5_redu\", \"selectedPos\", i8);
+
+  i1 = (int)cbo1Text;
+  i3 = (int)cbo3Text;
+  i4 = (int)cbo4Text;
+  
+  // zero-based!
+  i2--;
+  i5--;
+  i7--;
+  i8--;
+  
+  string stemp;
+  
+  if ( i2 < 0)
+    i2 = 0;
+  if ( i5 < 0)
+    i5 = 0;
+
+  if((connType == 4) && isVisible)    //IM 119950 S7-200 Erweiterungen
+    stemp = \"1\"	+\".\"+i2	+\".\"+	i3+\".\"+i4	+\".\"+i5 +\".\" +i9;
+  else
+    stemp = i1	+\".\"+i2	+\".\"+	i3+\".\"+i4	+\".\"+i5 +\".\" + i6;
+  if ( isRedundant() && dpExists(dpSubStr($dp, DPSUB_SYS_DP) + \"_2\") )
+    stemp += \".\" + i7 + \".\" + i8;
+  
+  setValue($dp + \".TSPPExtras\" , \"text\",  stemp);
+}
+
+string mergeExceptLastPart(dyn_string ds)
+{
+  if ( dynlen(ds) == 0 )
+    return \"\";
+
+  string s = ds[1];
+  
+  for ( int i = 2; i < dynlen(ds); i++ )
+    s += \".\" + ds[i];
+  
+  return s;
+}
+
+void overrideShapeValue(dyn_string nameParts)
+{
+  // get value to override first
+  string value;
+  if (dynlen(nameParts) < 2)
+    return;
+  
+  getValue(mergeExceptLastPart(nameParts) + \".\" + nameParts[dynlen(nameParts)], \"text\", value);
+ 
+  dyn_string shapePrefixes = makeDynString(nameParts[1], nameParts[1] + \".ReduConn\", nameParts[1] + \".ReduCP\", nameParts[1] + \".ReduCP.ReduConn\");
+  dynRemove(shapePrefixes, mergeExceptLastPart(nameParts));
+  
+  for (int i = 1; i <= dynlen(shapePrefixes); i++)
+  {
+    // is shape marked to be overriden (because of just initialization values)?
+    bool override = false;
+    getValue(myModuleName() + \".\" + gS7PanelName + \":\" + shapePrefixes[i] + \".OverrideTSPP\", \"state\", 0, override);
+    
+    if (override)
+    {
+      // IM 105506:
+      // Timing problem; wait for 3 seconds maximum this to have all shapes the correct name...
+      int cnt = 0;
+      
+      while (!shapeExists(myModuleName() + \".\" + gS7PanelName + \":\" + shapePrefixes[i] + \".\" + nameParts[dynlen(nameParts)]))
+      {
+        delay(0, 100);
+        if ( ++cnt >= 30 )
+          break;
+      }
+      
+      if ( cnt != 30 )
+        setValue(myModuleName() + \".\" + gS7PanelName + \":\" + shapePrefixes[i] + \".\" + nameParts[dynlen(nameParts)], \"text\", value);
+    }
+  }
+}
+
+void distributeIniValue(string sh)
+{
+  dyn_string nameParts = strsplit(sh, '.');
+  if (dynlen(nameParts) < 2 || dynlen(nameParts) > 4)
+    return; // improper call; shapename expected as <dp>.<shapename>
+  
+  overrideShapeValue(nameParts);
+  
+  // the given shape was changed by a user, so the overriding flag
+  // must be taken back to make sure adaptations on other connections
+  // do not override the original (this) one
+  // BUT: never do this when distributing *.TSPPExtras because changes 
+  // to this are never done by a user but caused by other (distributing) shapes!
+  if (strpos(nameParts[dynlen(nameParts)], \"TSPPExtras\") <  0)
+    setValue(myModuleName() + \".\" + gS7PanelName + \":\" + mergeExceptLastPart(nameParts) + \".OverrideTSPP\", \"state\", 0, false);
+}
+
+    //IM 119950 S7-200 Erweiterungen
+synchronized distributeSelectedPos(string sShape,anytype aValue,string attribute = \"selectedPos\")
+{
+  string dp = dpSubStr($dp,DPSUB_SYS_DP);
+  dyn_string dsShapes = makeDynString(dp+sShape,dp+\".ReduConn\"+sShape,
+                                      dp+\".ReduCP\"+sShape,dp+\".ReduCP.ReduConn\"+sShape);
+  int i = dynContains(dsShapes,this.name());
+  
+  if(i > 0) dynRemove(dsShapes,i);
+  
+  for(i = 1; i <= dynlen(dsShapes); i++)
+  {
+    if(shapeExists(myModuleName() + \".\" + gS7PanelName + \":\" + dsShapes[i]))
+    {
+      setValue(myModuleName() + \".\" + gS7PanelName + \":\" + dsShapes[i],attribute,aValue);
+    }
+  }
+}
+
+int getReferenceIdx(string dp)
+{
+  if(patternMatch(\"*.ReduCP.ReduConn\",dp))
+    return 4;
+  else if(patternMatch(\"*.ReduCP\",dp))
+    return 3;
+  else if(patternMatch(\"*.ReduConn\",dp))
+    return 2;
+  return 1;
+}
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+22 44
+"cbo5"
+""
+1 349.9999999999999 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+43 0 0 0 0 0
+E "main()
+{
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  348 88 395 114
+0
+
+"shape testShape;
+
+main()
+{
+  this.enabled	= FALSE;
+  
+  while (!globalExists(\"gHexMapping256\" ) || dynlen(gHexMapping256)<256)
+    delay(0,10);
+  
+  this.enabled	= TRUE;
+  this.items = gHexMapping256;
+ 
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo5\";
+}
+
+
+
+" 0
+
+"main()
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+E
+ 1 1
+30 1
+"Frame1"
+""
+1 10 115 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+2 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.013232514177694 0 1.055045871559633 -0.1323251417769399 -4.550458715596339 0 E 10 10 540 120
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 10  Settings 
+LANG:10004 6 设置
+LANG:10000 15  Einstellungen 
+LANG:10027 20  Настройки 
+2 25
+"txtErrorCodeTxt"
+""
+1 63 131 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 30 133 65 148
+0 2 0 "0s" 0 0 0 194 0 0  65 133 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 6 State:
+LANG:10004 7 状态:
+LANG:10000 8 Zustand:
+LANG:10027 19 Состояние:
+2 29
+"Text3"
+""
+1 18 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 20 25 43 40
+0 2 0 "0s" 0 0 0 192 0 0  20 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 Dev
+LANG:10004 6 设备
+LANG:10000 10 Gerätenr.
+LANG:10027 9 Устр.
+2 30
+"Text4"
+""
+1 73 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+
+   delay(0,1);
+ 
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   this.name = dp + \".ConnectionTypeText\"; 
+
+}" 0
+ E 0 1 1 0 1 E U  0 E 75 25 171 40
+0 2 0 "0s" 0 0 0 192 0 0  75 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 15 Connection type
+LANG:10004 12 连接类型
+LANG:10000 14 Verbindungstyp
+LANG:10027 29 Тип подключения
+2 33
+"txtIP"
+""
+1 198 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+ 
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+  
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   this.name = dp + \".IPAddressText\"; 
+
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 200 25 264 40
+0 2 0 "0s" 0 0 0 192 0 0  200 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 IP address
+LANG:10004 11 IP地址：
+LANG:10000 10 IP Adresse
+LANG:10027 13 IP-адрес
+2 35
+"Text6"
+""
+1 348 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   this.name = dp + \".RackText\";
+}
+
+
+" 0
+ E 0 1 1 0 1 E U  0 E 350 25 382 40
+0 2 0 "0s" 0 0 0 192 0 0  350 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Rack
+LANG:10004 6 机架
+LANG:10000 4 Rack
+LANG:10027 14 Корзина
+2 37
+"Text8"
+""
+1 398 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   this.name = dp + \".SlotText\";
+}
+
+
+
+" 0
+ E 0 1 1 0 1 E U  0 E 400 25 425 40
+0 2 0 "0s" 0 0 0 192 0 0  400 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Slot
+LANG:10004 6 插槽
+LANG:10000 4 Slot
+LANG:10027 8 Слот
+2 39
+"Text9"
+""
+1 448 23 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ "main()
+{
+  
+}
+
+" 0
+ E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   this.name = dp + \".TimeoutText\"; 
+
+}" 0
+ E 0 1 1 0 1 E U  0 E 450 25 528 40
+0 2 0 "0s" 0 0 0 192 0 0  450 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 Timeout [ms]
+LANG:10004 10 超时[ms]
+LANG:10000 12 Timeout [ms]
+LANG:10027 21 Таймаут [мс]
+2 42
+"Text1"
+""
+1 73 68 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".Text1\";
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 75 70 394 85
+0 2 0 "0s" 0 0 0 192 0 0  75 70 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 59 Conn.Id      CPId          PC-Rack      PC-Slot        PCId
+LANG:10004 59 Conn.Id      CPId          PC-Rack      PC-Slot        PCId
+LANG:10000 60 Verb.Id         CPId        PC-Rack      PC-Slot        PCId
+LANG:10027 78 ИД подкл.   ИД СP      Корз.ПК       Слот ПК   ИД ПК
+2 65
+"Text5"
+""
+1 198 23 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   this.name = dp + \".MPIText\"; 
+
+}" 0
+ E 0 1 1 0 1 E U  0 E 200 25 451 40
+0 2 0 "0s" 0 0 0 192 0 0  200 25 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 53   COM Port                                     MPI   
+LANG:10004 53   COM Port                                     MPI   
+LANG:10000 50 COM Port                                    MPI   
+LANG:10027 54  COM-порт                                   MPI   
+2 68
+"Text7"
+""
+1 393 83 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+65 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".Text7\";
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 395 85 431 121
+0 2 0 "0s" 0 0 0 66 0 0  395 85 2
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Redu-
+LANG:10004 6 冗余
+LANG:10000 5 Redu-
+LANG:10027 8 Рез.-
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Host
+LANG:10004 6 主机
+LANG:10000 4 Host
+LANG:10027 8 Хост
+2 69
+"Text10"
+""
+1 439 70 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".Text10\";
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 441 72 534 88
+0 2 0 "0s" 0 0 0 64 0 0  441 72 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 13 CPId     PCId
+LANG:10004 13 CPId     PCId
+LANG:10000 13 CPId     PCId
+LANG:10027 18 ИД CP  ИД ПК
+2 71
+"txtErrorCodeTxt_redu"
+""
+1 298 124 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+67 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 300 126 336 162
+0 2 0 "0s" 0 0 0 66 0 0  300 126 2
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 5 Redu-
+LANG:10004 6 冗余
+LANG:10000 5 Redu-
+LANG:10027 8 Рез.-
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 4 Host
+LANG:10004 6 主机
+LANG:10000 4 Host
+LANG:10027 8 Хост
+20 7
+"CheckButton2"
+""
+1 20 90 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ "main()
+{
+  //DebugN(this.name());
+}
+" 0
+ E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 29 Set equipment active/inactive
+LANG:10004 22 设备激活/不激活
+LANG:10000 27 Gerät aktiv/inaktiv setzen
+LANG:10027 77 Назначить устройство активным/неактивным
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 88 82 112
+1
+T 
+4
+LANG:10001 6 Active
+LANG:10004 6 激活
+LANG:10000 5 Aktiv
+LANG:10027 7 Акт.
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"main()
+{
+   string dp = $dp;
+   dpConnect(\"setDp\",dp + \".Active:_online.._value\");
+   this.name = dp + \".Active\"; 
+
+}
+setDp(string dp, bool value)
+{
+  this.state(0) = value;
+}" 0
+E14 28
+"txtStatus"
+""
+1 70 130 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  68 128 287 154
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  dpConnect(\"s7Work\",$dp+\".ConnState:_online.._value\");
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+s7Work( string dp1, int  ConnState )
+{
+  txtStatus.text = getCatStr(\"s7\", \"ConnState\"+ConnState);
+}
+
+
+
+" 0
+ E
+14 32
+"TextField1"
+""
+1 16 46 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+//  DebugN(this.name());
+}
+" 0
+ E
+33 0 0 0 0 0
+E "main()
+{
+  /*
+  string dp = $dp;
+  dyn_string dsIPAddress;
+  string sObject = dp + \".IPAddress\", sIPAddress; 
+  int value;
+      
+  checkRange(1,DRVS_S7_MAX_DEVICES);
+    
+  getValue( sObject, \"text\", sIPAddress); 
+      
+  if (sIPAddress != \"\")
+    dpGet( dpSubStr(dp, DPSUB_SYS)+\"_S7_Config.IPAddress:_online.._value\", dsIPAddress);
+  
+  distributeIniValue(this.name);
+  */
+}
+
+
+
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 44 68 70
+2 "3d" 3 0 0 2 0 -1  E "main()
+{
+   string dp = $dp;
+   this.name = dp + \".DevNr\"; 
+
+   dpConnect(\"setDp\",//dp + \".DevNr:_online.._value\", 
+                    dpSubStr(dp, DPSUB_SYS)+\"_S7_Config.IPAddress:_online.._value\", 
+                    dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\",
+                    dpSubStr(dp, DPSUB_SYS_DP) + \".DevNr:_online.._value\",
+                    dpSubStr(dp, DPSUB_SYS_DP) + \".ReduConn.DevNr:_online.._value\",
+                    dpSubStr(dp, DPSUB_SYS_DP) + \".ReduCP.DevNr:_online.._value\",
+                    dpSubStr(dp, DPSUB_SYS_DP) + \".ReduCP.ReduConn.DevNr:_online.._value\");
+}
+
+setDp(string dp2, dyn_string dsIPAddress, 
+      string dp3, bool refresh,
+      string dp4, int iDevNr1,
+      string dp5, int iDevNr2,
+      string dp6, int iDevNr3,
+      string dp7, int iDevNr4)
+{
+
+ string dp = $dp + \".DevNr:_online.._value\";
+ int value;
+ int iOffset;
+ 
+ if ( dp == dp4)
+ {
+   value = iDevNr1;
+   iOffset = (iDevNr1 == 0 ? 1 : 0) ;   
+ }
+ else if ( dp == dp5)
+ {
+   value = iDevNr2;
+   iOffset = (iDevNr1 == 0 ? 1 : 0) +   (iDevNr2 == 0 ? 1 : 0) ;
+ }
+ else if ( dp == dp6)
+ {
+   value = iDevNr3;
+   iOffset = (iDevNr1 == 0 ? 1 : 0) +   (iDevNr2 == 0 ? 1 : 0) +   (iDevNr3 == 0 ? 1 : 0) ;
+ }
+ else if ( dp == dp7)
+ {
+   value = iDevNr4;
+   iOffset = (iDevNr1 == 0 ? 1 : 0) +   (iDevNr2 == 0 ? 1 : 0) +   (iDevNr3 == 0 ? 1 : 0) +   (iDevNr4 == 0 ? 1 : 0) ;
+ }
+
+ if (value == 0)
+ {
+    int i = 1;
+    while ( i<= dynlen(dsIPAddress) && iOffset>0)
+    {
+ 
+      if (dsIPAddress[i] == \"\")
+        iOffset--;
+      i++;
+    }
+    value = i - 1;  
+    this.backCol = \"{255,204,0}\"; 
+ }
+ else
+   this.backCol = \"\";
+  
+ this.text = value;
+
+ this.enabled = TRUE;
+}
+" 0
+ E
+14 34
+"TextField2"
+""
+1 200 45 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+35 0 0 0 0 0
+E "main()
+{
+ string sText = getCatStr(\"para\",\"noitem\");
+ string sT;
+ 
+ getValue( $dp + \".IPAddressText\", \"text\", sT); 
+ 
+ strreplace(sText, \"§Item\", \" \"+sT);
+
+ if (this.text == \"\")
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(sText));
+
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 43 342 70
+3 "0s" 0 0 0 2 0 -1  E "shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+ 
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+  
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.IPAddress:_online.._value\", dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+   this.name = dp + \".IPAddress\"; 
+
+}
+setDp(string dp, int pos, string dp2, dyn_string diIPAddress, string dp3, bool refresh)
+{
+ string value = \"localhost\";
+
+ if (!refresh)
+   pos = testShape.text;
+
+ if ( pos != 0 && pos <= dynlen(diIPAddress))
+   value = diIPAddress[pos];
+ 
+ this.text = value;
+}
+
+" 0
+ "main()
+{
+ string sText = getCatStr(\"para\",\"noitem\");
+ string sT;
+ 
+ getValue( $dp + \".IPAddressText\", \"text\", sT); 
+ 
+ strreplace(sText, \"§Item\", \" \"+sT);
+
+ if (this.text == \"\")
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", // dp name empty
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(sText));
+
+}" 0
+
+14 36
+"TextField3"
+""
+1 350 45 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  //DebugN(this.name()); 
+}
+
+" 0
+ E
+37 0 0 0 0 0
+E "main()
+{
+  checkRange();
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  348 43 392 69
+3 "3d" 3 0 0 2 0 -1  E "shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.Rack:_online.._value\", dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+   this.name = dp + \".Rack\";
+}
+
+setDp(string dp, int pos, string dp2, dyn_string diRack, string dp3, bool refresh)
+{
+ int value = 0;
+
+ if (!refresh)
+   pos = testShape.text;
+
+ if ( pos != 0 && pos <= dynlen( diRack))
+ {
+   value = diRack [pos];
+ }
+ 
+ this.text = value;
+}
+
+
+
+" 0
+ "main()
+{
+  checkRange();
+}
+" 0
+
+14 38
+"TextField4"
+""
+1 400 46 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  //DebugN(this.name()); 
+}
+
+" 0
+ E
+39 0 0 0 0 0
+E "main()
+{
+  checkRange();
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  398 43 442 69
+3 "3d" 3 0 0 2 0 -1  E "shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.Slot:_online.._value\", dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+   this.name = dp + \".Slot\"; 
+}
+
+setDp(string dp, int pos, string dp2, dyn_string diSlot, string dp3, bool refresh)
+{
+ int value = 0;
+
+ if (!refresh)
+   pos = testShape.text;
+
+ if ( pos != 0 && pos <= dynlen( diSlot))
+ {
+   value = diSlot [pos];
+ }
+ 
+ this.text = value;
+}
+
+
+
+" 0
+ "main()
+{
+  checkRange();
+
+}
+" 0
+
+14 40
+"TextField5"
+""
+1 451.4545454545454 46 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  //DebugN(this.name()); 
+}
+
+" 0
+ E
+41 0 0 0 0 0
+E "main()
+{
+  checkRange(1,9999999);
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 43 532 69
+3 "10d" 10 0 0 2 0 -1  E "shape testShape; 
+
+main()
+{
+   string dp = $dp;
+   delay(0,1);
+   
+   testShape= getShape(dp + \".DevNr\");
+ 
+   while (!testShape.enabled)
+     delay(0,10);
+   this.name = dp + \".Timeout\"; 
+ 
+   dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.Timeout:_online.._value\", dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+
+}
+setDp(string dp, int pos, string dp2, dyn_int diTimeout, string dp3, bool refresh)
+{
+ int value = 5000;
+
+
+ if (!refresh)
+   pos = testShape.text;
+
+ if ( pos != 0 && pos <= dynlen( diTimeout))
+ {
+   value = diTimeout [pos];
+ }
+ 
+ this.text = value;
+}
+" 0
+ E
+14 41
+"tsppExtras"
+""
+1 210 0 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"textChangedCB" "main(string newText)
+{
+  distributeIniValue(this.name);
+}"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  208 -2 492 25
+3 "0s" 0 0 0 2 0 -1  E "shape testShape; 
+
+main()
+{
+  string dp = $dp;
+  bool  oldgUseTSPP = true,    //IM 119950 S7-200 Erweiterungen
+        oldgUseProj = true; 
+ 
+  delay(0,1);
+
+  referenceIdx = getReferenceIdx($dp);  
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled) delay(0,10);
+
+  delay(0, 200);
+  
+  // wait for all shapes to be renamed
+  g_dsTSPPShapes = makeDynString(\".cbo1\", \".cbo2\", \".cbo3\", \".cbo4\", \".cbo5\", \".Text1\", \".cbu6\", \".cbo2_redu\", \".cbo5_redu\", \".Text7\", \".Text10\");
+  for (int i = 1; i <= dynlen(g_dsTSPPShapes); i++)
+  {
+    testShape = getShape(dp + g_dsTSPPShapes[i]);
+    while (testShape == 0)
+      delay(0,10);
+  }
+ 
+  this.name = dp + \".TSPPExtras\"; 
+
+  while (!globalExists(\"gHexMapping256\" ))
+  {
+    delay(0,10);
+  }
+  delay(0,1);
+  while ( dynlen(gHexMapping256)<256)
+  {
+    delay(0,10);
+  }
+
+  dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.TSPPExtras:_online.._value\", dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+
+  bool bUseTSPP,bUseProjConn;    //IM 119950 S7-200 Erweiterungen
+  while (TRUE)
+  {
+    // gUseTSPP will be removed by S7.pnl - so this polling cycle might end with an \"Variable not defined\" error
+    // (when closing the panel and therefore killing this loop). By checking if the global still exists and copying 
+    // its value locally the chances of getting the error message are still existing but at least minimized.
+    if (globalExists(\"gUseTSPP\") && globalExists(\"gUseProjConn\") )     //IM 119950 S7-200 Erweiterungen
+    {
+      bUseTSPP = gUseTSPP;    
+      bUseProjConn = (dynlen(gUseProjConn) >= referenceIdx)?gUseProjConn[referenceIdx]:FALSE;
+    }
+    else
+      return;
+    
+    if ( (bUseTSPP != oldgUseTSPP) || (bUseProjConn != oldgUseProj))    //IM 119950 S7-200 Erweiterungen
+    {
+      setMultiValue(dp + \".cbo1\",\"visible\", bUseTSPP,
+                    dp + \".cbo11\",\"visible\", bUseProjConn,
+                    dp + \".cbo2\",\"visible\", bUseTSPP || bUseProjConn,
+                    dp + \".cbo3\",\"visible\", bUseTSPP || bUseProjConn,
+                    dp + \".cbo4\",\"visible\", bUseTSPP || bUseProjConn,
+                    dp + \".cbo5\",\"visible\", bUseTSPP || bUseProjConn,
+                    dp + \".Text1\",\"visible\", bUseTSPP,
+                    dp + \".Text11\",\"visible\", bUseProjConn,
+                    dp + \".cbu6\",\"visible\", false); 
+      
+      if ( (isRedundant() && dpExists(dpSubStr(dp, DPSUB_SYS_DP) + \"_2\")) || (!bUseTSPP && !bUseProjConn) )
+        setMultiValue(dp + \".cbo2_redu\",\"visible\", bUseTSPP || bUseProjConn,
+                      dp + \".cbo5_redu\",\"visible\", bUseTSPP || bUseProjConn,
+                      dp + \".Text7\",\"visible\", bUseTSPP || bUseProjConn,
+                      dp + \".Text10\",\"visible\", bUseTSPP || bUseProjConn);
+      
+      oldgUseTSPP = bUseTSPP;
+      oldgUseProj = bUseProjConn;
+    }
+    
+    if(gMode != 0)    //IM 119950 S7-200 Erweiterungen
+    {
+      int value;
+      getValue(dp + \".ConnType1\",\"selectedPos\",value);
+      
+      if(value == 4)
+      {
+        value = 3;
+        setValue(dp + \".ConnType1\",\"selectedPos\",value);
+        //distributeSelectedPos(\".ConnType1\",value);
+      }
+    }
+    delay(0,100); 
+  }
+}
+
+setDp(string dp, int pos, string dp2, dyn_string dsTSPPExtras, string dp3, bool refresh)
+{
+  string value = \"localhost\";
+  int i1,i2,i3,i4,i5,i6, i7, i8;
+  bool b1;
+  dyn_string ds;
+
+  if (!refresh)
+    pos = testShape.text;
+
+  if ( pos != 0 && pos <= dynlen( dsTSPPExtras))
+    value = dsTSPPExtras [pos];
+ 
+  this.text = value;
+  string prefix = mergeExceptLastPart(strsplit(dpSubStr(dp, DPSUB_SYS_DP_EL), '.'));
+  bool bUseProjConn = (dynlen(gUseProjConn) >= referenceIdx)?gUseProjConn[referenceIdx]:FALSE;
+  
+  if ( dpExists(dpSubStr($dp, DPSUB_SYS_DP)) )
+    setMultiValue(prefix + \".cbo1\",\"visible\", gUseTSPP,    //IM 119950 S7-200 Erweiterungen
+                  prefix + \".cbo11\",\"visible\", bUseProjConn,
+                  prefix + \".cbo2\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".cbo3\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".cbo4\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".cbo5\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".Text1\",\"visible\", gUseTSPP,
+                  prefix + \".Text11\",\"visible\", bUseProjConn,
+                  prefix + \".cbu6\",\"visible\", false);
+
+  if ( (isRedundant() && dpExists(dpSubStr($dp, DPSUB_SYS_DP) + \"_2\")) || (dpExists(dpSubStr($dp, DPSUB_SYS_DP)) && !gUseTSPP && !bUseProjConn) ) //IM 119950 S7-200 Erweiterungen
+    setMultiValue(prefix + \".cbo2_redu\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".cbo5_redu\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".Text7\",\"visible\", gUseTSPP || bUseProjConn,
+                  prefix + \".Text10\",\"visible\", gUseTSPP || bUseProjConn);
+ 
+  ds = strsplit (value, \".\"); 
+   
+  if (dynlen( ds ) == 5)  // add automaticl S7-300 flag
+    ds[6] = \"0\";
+    
+   
+  if (dynlen( ds ) == 6)  // add ReduHost Default
+  {
+    ds[7] = \"Default\";
+    ds[8] = \"Default\";
+  }
+      
+  if ( dynlen(ds) != 8 )
+    ds = makeDynString(\"0\",\"0\",\"0\",\"0\",\"0\",\"0\",\"0\",\"0\");
+   
+  if ( dynlen(ds) == 8 )
+  {
+    i1 = (int)ds[1];
+    i2 = (int)ds[2]+1;
+    i3 = ds[3];
+    i4 = ds[4];
+    i5 = (int)ds[5]+1;
+      
+    if ( ds[6] == \"1\")
+      b1 = TRUE;
+   
+    if ( ds[7] == \"Default\" )
+      i7 = i2+1;
+    else
+      i7 = (int) ds[7]+1;
+   
+    if ( ds[8] == \"Default\" )
+      i8 = i5+1;
+    else
+      i8 = (int) ds[8]+1;
+      
+    i6 = (int)ds[6];
+    i6++;
+   
+    if ( dpExists(dpSubStr($dp, DPSUB_SYS_DP)) )
+      setMultiValue(prefix + \".cbo1\", \"text\", i1, 
+                    prefix + \".cbo2\", \"selectedPos\", i2, 
+                    prefix + \".cbo11\", \"selectedPos\", i6, 
+                    prefix + \".cbo3\", \"text\", i3, 
+                    prefix + \".cbo4\", \"text\", i4, 
+                    prefix + \".cbo5\", \"selectedPos\", i5, 
+                    prefix + \".cbu6\", \"state\", 0, b1, 
+                    prefix + \".cbo2_redu\", \"selectedPos\", i7, 
+                    prefix + \".cbo5_redu\", \"selectedPos\", i8);
+  } 
+}
+
+
+
+" 0
+ E
+22 43
+"cbo2"
+""
+1 136.4444444444445 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+42 0 0 0 0 0
+E "main()
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  143 88 202 114
+0
+
+"shape testShape;
+
+main()
+{
+  this.enabled = FALSE;
+  
+  while ( !globalExists(\"gHexMapping256\") || dynlen(gHexMapping256) < 256 )
+    delay(0,10);
+  
+  this.enabled	= TRUE;
+  this.items = gHexMapping256;
+ 
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo2\";
+}
+
+" 0
+
+"main()
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+E
+ 1 1
+14 51
+"cbo1"
+""
+1 74.99999999999997 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+50 0 0 0 0 0
+E "main()
+{
+  checkRange(0,65535);
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  73 88 127 114
+3 "5d" 5 0 0 2 0 -1  E "shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo1\";
+}
+
+" 0
+ "main()
+{
+  checkRange(0,65535);
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+14 52
+"cbo3"
+""
+1 199.1863636363636 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+51 0 0 0 0 0
+E "main()
+{
+  checkRange();
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  208 88 272 114
+3 "3d" 3 0 0 2 0 -1  E "shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo3\";
+}
+
+" 0
+ "main()
+{
+  checkRange();
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+14 53
+"cbo4"
+""
+1 280 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+52 0 0 0 0 0
+E "main()
+{
+  checkRange();
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  278 88 347 114
+3 "3d" 3 0 0 2 0 -1  E "shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo4\";
+}
+
+" 0
+ "main()
+{
+  checkRange();
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+20 54
+"cbu6"
+""
+1 20 70 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+53 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 68 82 92
+1
+T 
+4
+LANG:10001 6 S7-300
+LANG:10004 6 S7-300
+LANG:10000 6 S7-300
+LANG:10027 6 S7-300
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+1
+E E
+"shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".cbu6\";
+}
+" 0
+"main(int button, bool state)
+{
+  setTSPPValue(); 
+}" 0
+22 62
+"cboPort"
+""
+1 197 46 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ "main()
+{
+  //DebugN(this.name()); 
+}
+" 0
+ E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  198 43 392 70
+4
+4
+LANG:10001 4 COM1
+LANG:10004 4 COM1
+LANG:10000 4 COM1
+LANG:10027 4 COM1
+
+1
+4
+LANG:10001 4 COM2
+LANG:10004 4 COM2
+LANG:10000 4 COM2
+LANG:10027 4 COM2
+
+0
+4
+LANG:10001 4 COM3
+LANG:10004 4 COM3
+LANG:10000 4 COM3
+LANG:10027 4 COM3
+
+0
+4
+LANG:10001 4 COM4
+LANG:10004 4 COM4
+LANG:10000 4 COM4
+LANG:10027 4 COM4
+
+0
+
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+ 
+   delay(0,1);
+   
+   testShape = getShape(dp + \".DevNr\");
+  
+   while (!testShape.enabled)
+     delay(0,10);
+ 
+   dpConnect(\"setDp\",dp + \".DevNr:_online.._value\",dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.IPAddress:_online.._value\", 
+                     dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.DoConfigAcconAGLink:_online.._value\" , 
+                     dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.ProtocolExtras:_online.._value\", 
+                     dpSubStr(dp, DPSUB_SYS)  +\"_S7_Config.Slot:_online.._value\");
+   
+   this.name = dp + \".MPISerialIndex\"; 
+}
+
+
+setDp(string dp, int pos, string dp2, dyn_string diIPAddress, string dp3, bool refresh, string dp4, dyn_string ds, string dp5, dyn_int di)
+{
+  string value = \"COM1\";
+  
+  if ( !refresh )
+    pos = testShape.text;
+  
+  if ( pos != 0 && pos <= dynlen(diIPAddress) )
+    value = diIPAddress[pos];
+  
+  this.text = value;
+}
+
+" 0
+
+E
+E
+ 1 0
+22 66
+"cbo2_redu"
+""
+1 435 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+63 0 0 0 0 0
+E "main()
+{
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  433 88 482 114
+0
+
+"shape testShape;
+
+main()
+{
+  this.enabled	= FALSE;
+  
+  while (!globalExists(\"gHexMapping256\" ) || dynlen(gHexMapping256)<256)
+    delay(0,10);
+  
+  this.enabled	= TRUE;
+  this.items = gHexMapping256;
+ 
+  string dp = $dp;
+  delay(0,1);
+  testShape = getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo2_redu\";
+}
+
+" 0
+
+"main()
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+E
+ 1 0
+22 67
+"cbo5_redu"
+""
+1 485 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+64 0 0 0 0 0
+E "main()
+{
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  483 88 532 114
+0
+
+"shape testShape;
+
+main()
+{
+  this.enabled	= FALSE;
+  
+  while (!globalExists(\"gHexMapping256\" ) || dynlen(gHexMapping256)<256)
+    delay(0,10);
+  
+  this.enabled	= TRUE;
+  this.items = gHexMapping256;
+ 
+  string dp = $dp;
+  delay(0,1);
+  testShape= getShape(dp + \".DevNr\");
+  
+  while (!testShape.enabled)
+    delay(0,10);
+  
+  this.name = dp + \".cbo5_redu\";
+}
+
+
+
+" 0
+
+"main()
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+
+E
+ 1 0
+14 70
+"txtStatus_redu"
+""
+1 345 130 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  343 128 547 154
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+
+  if ( isRedundant() && dpExists(dpSubStr($dp, DPSUB_SYS_DP) + \"_2\") )
+  {
+    string dp_redu, sTemp;
+
+    dp_redu=dpSubStr($dp, DPSUB_SYS_DP_EL);
+    sTemp=dpSubStr(dp_redu, DPSUB_SYS_DP);
+
+    strreplace(dp_redu, sTemp, sTemp + \"_2\");
+
+    this.enabled = false;
+    txtErrorCodeTxt_redu.enabled=true;
+    dpConnect(\"s7Work\",dp_redu+\".ConnState:_online.._value\");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+s7Work( string dp1, int  ConnState )
+{
+  txtStatus_redu.text = getCatStr(\"s7\", \"ConnState\"+ConnState);
+}
+
+
+
+
+" 0
+ E
+20 72
+"chkOverrideTSPP"
+""
+1 515 5 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+68 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  513 3 547 22
+1
+T 
+4
+LANG:10001 13 Override TSPP
+LANG:10004 10 覆盖TSPP
+LANG:10000 13 Override TSPP
+LANG:10027 21 Отменить TSPP
+
+0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E
+0 0 0 0 0
+0
+"shape testShape;
+
+main()
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".OverrideTSPP\";
+
+  bool useTspp;
+  time tsppChangeTime;
+  dpGet(dpSubStr($dp, DPSUB_SYS_DP) + \".UseTSPP:_online.._value\", useTspp,
+        dpSubStr($dp, DPSUB_SYS_DP) + \".UseTSPP:_online.._stime\", tsppChangeTime);
+ 
+  if (!useTspp && year(tsppChangeTime) == 1970)
+  {
+    // very 1st call of this panel for that connection
+    // -> Initialize this as overridable (ini values from 
+    // other connection may become ini value for this).
+    this.state(0, true);
+  }
+}
+
+
+
+
+" 0
+E22 73
+"cmb1"
+""
+1 71.61764705882354 46 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+69 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  73 43 192 69
+4
+4
+LANG:10001 2 PG
+LANG:10004 11 PG编程器
+LANG:10000 2 PG
+LANG:10027 2 PG
+
+0
+4
+LANG:10001 2 OP
+LANG:10004 8 OP面板
+LANG:10000 2 OP
+LANG:10027 2 OP
+
+0
+4
+LANG:10001 5 Other
+LANG:10004 6 其他
+LANG:10000 6 Andere
+LANG:10027 12 Другое
+
+0
+4
+LANG:10001 9 Projected
+LANG:10004 9 Projected
+LANG:10000 12 Projektierte
+LANG:10027 28 Настр.пром.Ethernet
+
+0
+
+"shape testShape; 
+
+main()
+{
+  string dp = $dp;
+   
+  delay(0, 1);
+    
+  testShape = getShape(dp + \".DevNr\");
+    
+  while ( !testShape.enabled )
+    delay(0, 10);
+    
+  dpConnect(\"setDp\", dp + \".DevNr:_online.._value\",
+                     dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.ConnectionType:_online.._value\",
+                     dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+      
+  this.name = dp + \".ConnType1\";
+  this.visible = !gUseTSPP;
+}
+
+setDp(string dp,  int pos,
+      string dp2, dyn_int diConnType,
+      string dp3, bool refresh)
+{
+  if ( !refresh )
+    pos = testShape.text;
+
+  int value;
+ 
+  if ( pos != 0 && pos <= dynlen(diConnType) )
+    value = diConnType[pos] + 1; 
+  
+  // default
+  if ( value == 0 )
+    value = 1;
+  
+  if ( value >= 512 ) // mpi
+    value -= 512;
+
+  if ( value == 5 )
+    value = 4;
+  
+  this.selectedPos() = value;
+  gUseProjConn[referenceIdx] |= (value==4) && (gMode==0);    //IM 119950 S7-200 Erweiterungen
+  //DebugN(\"Setting gUseProjConn to \",gUseProjConn,value,gMode,$dp);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+" 0
+
+"main()    //IM 119950 S7-200 Erweiterungen
+{
+  int value = this.selectedPos();
+  
+  if ( gMode != 0 )
+    if ( value == 4 )
+      value = 3;
+  
+  gUseProjConn[referenceIdx] = (value==4);
+  this.selectedPos = value;
+  //distributeSelectedPos(\".ConnType1\",this.selectedPos() );
+}
+
+
+
+" 0
+
+E
+ 0 0
+22 74
+"cmb2"
+""
+1 72 46 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+70 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  73 43 192 69
+1
+4
+LANG:10001 7 TSPP S7
+LANG:10004 7 TSPP S7
+LANG:10000 7 TSPP S7
+LANG:10027 7 TSPP S7
+
+0
+
+"shape testShape ; 
+
+main()
+{
+  string dp = $dp;
+   
+  delay(0,1);
+    
+  testShape = getShape(dp + \".DevNr\");
+    
+  while ( !testShape.enabled )
+    delay(0, 10);
+      
+  this.name = dp + \".ConnType2\";
+  this.visible = gUseTSPP;
+   
+}
+
+
+
+
+
+
+
+" 0
+
+E
+E
+ 0 0
+22 31
+"ComboBox1"
+""
+1 100.6176470588235 -41 E E E 0 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,11,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0  533 23 556 46
+4
+4
+LANG:10001 2 PG
+LANG:10004 11 PG编程器
+LANG:10000 2 PG
+LANG:10027 2 PG
+
+0
+4
+LANG:10001 2 OP
+LANG:10004 8 OP面板
+LANG:10000 2 OP
+LANG:10027 2 OP
+
+0
+4
+LANG:10001 5 Other
+LANG:10004 6 其他
+LANG:10000 6 Andere
+LANG:10027 12 Другое
+
+0
+4
+LANG:10001 7 TSPP S7
+LANG:10004 7 TSPP S7
+LANG:10000 7 TSPP S7
+LANG:10027 7 TSPP S7
+
+0
+
+"shape testShape ; 
+
+main()
+{
+   string dp = $dp;
+
+   delay(0,1);
+ 
+   testShape = getShape(dp + \".DevNr\");
+ 
+   while ( !testShape.enabled )
+     delay(0, 10);
+ 
+   dpConnect(\"setDp\", dp + \".DevNr:_online.._value\",
+                      dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.ConnectionType:_online.._value\",
+                      dpSubStr(dp, DPSUB_SYS) + \"_S7_Config.DoConfigAcconAGLink:_online.._value\" );
+   
+   this.name = dp + \".ConnectionType\"; 
+}
+
+setDp(string dp,  int pos,
+      string dp2, dyn_int diConnType,
+      string dp3, bool refresh)
+{
+  if ( !refresh )
+    pos = testShape.text;
+
+  int value;
+ 
+  if ( pos != 0 && pos <= dynlen(diConnType) )
+    value = diConnType[pos] + 1; 
+  
+  // default
+  if ( value == 0 )
+    value = 1;
+  
+  if ( value >=  512 ) // mpi
+    value -=  512; 
+ 
+  if ( gUseTSPP )
+  {
+    value = 4;
+    this.enabled = FALSE;
+  }
+  else
+  {
+    this.enabled = TRUE;
+    this.backCol = \"\";
+  } 
+
+  this.selectedPos() = value;
+}
+
+
+
+
+
+
+
+
+
+" 0
+
+"main()
+{
+  int pos = this.selectedPos();
+	if ( pos > 3 )
+	 {
+	   if ( !gUseTSPP )
+	      this.selectedPos() = 3;
+	 }
+}" 0
+
+E
+ 0 0
+22 75
+"cbo11"
+""
+1 62.32738095238102 90 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+71 0 0 0 0 0
+E "main()    //IM 119950 S7-200 Erweiterungen
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  71 88 140 114
+3
+4
+LANG:10001 6 Others
+LANG:10004 6 其他
+LANG:10000 6 Andere
+LANG:10027 12 Другое
+
+0
+4
+LANG:10001 6 S7-200
+LANG:10004 6 S7-200
+LANG:10000 6 S7-200
+LANG:10027 6 S7-200
+
+0
+4
+LANG:10001 4 LOGO
+LANG:10004 4 LOGO
+LANG:10000 4 LOGO
+LANG:10027 4 LOGO
+
+0
+
+"shape testShape;
+
+main()    //IM 119950 S7-200 Erweiterungen
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".cbo11\";
+}
+" 0
+
+"main()    //IM 119950 S7-200 Erweiterungen
+{
+  setTSPPValue(); 
+  distributeIniValue(this.name);
+  distributeSelectedPos(\".cbo11\",this.selectedPos() );
+}
+" 0
+
+E
+ 1 1
+2 76
+"Text11"
+""
+1 72.75 68 E E E 1 E 0 E N "_WindowText" E N "_Transparent" E E
+ E E
+72 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"shape testShape;
+
+main()    //IM 119950 S7-200 Erweiterungen
+{
+  string dp = $dp;
+
+  delay(0,1);
+
+  testShape= getShape(dp + \".DevNr\");
+  while (!testShape.enabled)
+    delay(0,10);
+  this.name = dp + \".Text11\";
+}
+" 0
+ E 0 1 1 0 1 E U  0 E 74.75 70 390 85
+0 2 0 "0s" 0 0 0 192 0 0  74.75 70 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 59 PLC             CPId        PC-Rack       PC-Slot      PCId
+LANG:10004 59 PLC             CPId        PC-Rack       PC-Slot      PCId
+LANG:10000 60 SPS              CPId        PC-Rack       PC-Slot      PCId
+LANG:10027 77 ПЛК           ИД СP      Корз.ПК       Слот ПК    ИД ПК
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

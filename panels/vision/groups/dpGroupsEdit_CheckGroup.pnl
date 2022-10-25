@@ -1,0 +1,931 @@
+V 13
+4
+LANG:10001 19 Check configuration
+LANG:10004 12 检查配置
+LANG:10000 25 Überprüfe Konfiguration
+LANG:10027 41 Проверка конфигурации
+PANEL,-1 -1 790 605 N "_3DFace" 1
+"$dp_Group"
+"main()
+{
+	showOverview();
+}
+" 0
+ E E E E 1 -1 -1 0  20 30
+""0  1
+E "showOverview(bool bWithDuplicates = FALSE)
+{
+  int        count=0,
+  			 i,
+  			 j,
+  			 k,
+  			 pos,
+  			 dup,
+  			 overflow=0;
+  string     sArchivConfig, 
+  			 sSelectedArchiv;
+  dyn_int    dupl;
+  dyn_float  df;
+  dyn_string ds, 
+  			 dsItemsInFilter, 
+  			 res_dpfilter, 
+  			 res_typfilter, 
+  			 dps, 
+  			 typ, 
+  			 dpe, 
+  			 archive, 
+  			 duplicate,
+			 dsAliases,
+  			 dsAliasFilters; 
+  
+//WEGEN OPC A&E Start
+
+  dyn_string dp_group_names,source_items; // server items
+  langString groupname_lang;
+  string groupname;
+
+  groupname_lang=groupDpNameToName($dp_Group); // condition in all languages
+  groupname=groupname_lang;  // condition in current language
+  
+//WEGEN OPC A&E Ende
+
+  dps=makeDynString();
+  typ=makeDynString();
+  dpe=makeDynString();
+  archive=makeDynString();
+  duplicate=makeDynString();
+  List.visible=false; 
+  List.deleteAllLines(); 
+
+
+  groupGetFilterItems($dp_Group, res_typfilter, res_dpfilter);
+  
+  for (i=1;i<=dynlen(res_typfilter);i++)
+  {
+    // reading DP(E)-Items
+    dsItemsInFilter=makeDynString();
+    groupGetFilteredDps(res_typfilter[i], res_dpfilter[i], dsItemsInFilter, overflow);
+    if (overflow==-1)
+    {
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+        getCatStr(\"para\",\"warning\"),
+        makeDynString(getCatStr(\"groups\",\"leveloverflow\")),df,ds);
+      PanelOff();
+      return;
+    }
+    
+    // calculate no of items in group (including duplicates)
+    count += dynlen(dsItemsInFilter); 
+    
+    // examine each filter item
+    for (j=1;j<=dynlen(dsItemsInFilter);j++)
+    {
+      // add each item in this filter to list of all dps in this dpgroup
+      dynAppend(dps,dsItemsInFilter[j]);
+
+      // WEGEN OPC A&E
+      if (groupname == \"OPC_AE\")
+        checkIfServerItem(res_typfilter[i],
+        				  dsItemsInFilter[j],
+        				  dp_group_names,
+        				  source_items); 
+      // WEGEN OPC A&E
+
+	  // get alias for each dpe
+      dynAppend(dsAliases,dpGetAlias(dsItemsInFilter[j]));
+	  
+	  // dp-filter contains alias filter
+      if ( substr(res_dpfilter[i],0,1) == \"@\" ) 
+      {
+      	// show filter in alias column instead of dpe-filter
+        dynAppend(dpe,\"\");
+        dynAppend(dsAliasFilters,substr(res_dpfilter[i],1));
+      }
+      else
+      {
+      	// add dpe and dpt-filter to respective columns
+        dynAppend(dpe,res_dpfilter[i]);
+        dynAppend(dsAliasFilters,\"\");
+      }
+      
+      // filter is not a dpgroup
+	  if(groupDpNameToName(res_typfilter[i])==\"\")
+	  {
+	  	// dpt-filter
+		dynAppend(typ,res_typfilter[i]);
+	  }
+	  else
+	  {
+	  	// filter is dpgroup
+	    dynAppend(typ,groupDpNameToName(res_typfilter[i]));
+	  }
+
+      dynAppend(duplicate,0);
+      dynAppend(archive,\"\");
+    }
+  }
+  
+  
+  // checking duplicates
+  if(bWithDuplicates)
+  {
+	ds=dps;
+	dsItemsInFilter=makeDynString();
+	dupl=makeDynInt();
+	int ispecial;
+	
+	dynSortAsc(ds);
+
+	// check all unsorted dps	
+	for (i=1;i<=dynlen(dps);i++)
+	{
+	  
+      if (pos=dynContains(dsItemsInFilter,dps[i]))
+	  {
+	    // found dp in list of counted dps
+	    // add to list of counted
+	    duplicate[i]=dupl[pos];
+	  }
+	  else
+	  {
+	  	// not found in list of counted dps	
+	  	// count number of occurances in sorted list
+	    duplicate[i]=dynCount(ds,dps[i]);
+
+	    ispecial = dynOccurance(ds,dps[i]);
+  	    duplicate[i] = ispecial;
+	    // append dp to list of counted dpes
+	    dynAppend(dsItemsInFilter,dps[i]);
+	    
+	    // append number of occurances for this dpe to list
+	    dynAppend(dupl,duplicate[i]);
+	  }
+	  delay(0);
+	}
+  }
+  
+  List.appendLines(count,\"duplicate\",  duplicate,
+                         \"Items\",      dps, 
+                         \"Alias\",      dsAliases, 
+                         \"DP-Filter\",  dpe,
+                         \"Alias-Filter-Anzeige\",  dsAliasFilters, 
+                         \"Typ-Filter\", typ,
+                         \"archive\",    archive );
+	
+  // show number of items in group
+  Count.text = count;
+  txtCount.text = count;
+  if (List.lineCount>0)
+  {
+    List.lineVisible()=0;
+  }
+  List.visible=true;
+  
+  
+// WEGEN OPC A&E Start
+
+  if (groupname == \"OPC_AE\")
+  {
+    // set server items in datasource
+    dpSet(\"_AEServer1.ServerItems.DpGroupNames\",dp_group_names);
+    dpSet(\"_AEServer1.ServerItems.SourceItems\",source_items);  
+  }
+
+// WEGEN OPC A&E Ende
+
+  List.columnVisibility(0, bWithDuplicates);
+  List.columnVisibility(1,TRUE);
+  List.columnVisibility(2,TRUE);
+  List.columnVisibility(3,TRUE);
+  List.columnVisibility(4,TRUE);
+  List.columnVisibility(5,TRUE);
+  List.columnVisibility(6,FALSE);
+  List.columnVisibility(7,FALSE);
+  
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Checks whether given filter includes a condition, whose meldebehandlung has exactly the same amount 
+// of melde blocks, identical meldetexte and identical meldeklassen as the meldebehandlung of this 
+// filter. If this is the case, this condition name and the meldebehandlung from the filter are added 
+// into the condition and dps tables.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+void checkIfServerItem(string filter,string alert_dp,dyn_string &conditions,dyn_string &dps)
+{
+  int m,n,s=1;
+  string condition; // name of the condition in selected language
+  langString condition_lang; // name of the condition in all languages
+  dyn_string condition_names,alert_dps; // condition names and alert datapoints as written in the datasource
+  dyn_string category_names,simple_event_dps;
+  dyn_uint   category_types;
+  int index=0; // informs the index of alertDps of current condition
+  unsigned bereiche1, // number of alarm blocks of meldebehaldlung defined by condition
+  		   bereiche2; // number of alarm blocks of filtered meldebehandlung
+  int type1,type2; // informs whether datasource includes Meldebehandlung (value 0 means no Meldebehandlung) 
+  string temp;
+ 
+  condition_lang=groupDpNameToName(filter); // condition in all languages
+  condition=condition_lang;  // condition in current language
+
+  //// BEGIN OPC_AE_Simple //////////////////////////////////////////////////////////////////////////////////
+  if (condition == \"OPC_AE_Simple\")
+  {
+    dpGet(alert_dp+\":_alert_hdl.._type\",type2); // check the type of meldebehandlung that condition includes
+
+    if (type2 == DPCONFIG_ALERT_BINARYSIGNAL)  // binary meldebehandlung
+      bereiche2=2;
+
+    else // non-binary meldebehandlung
+      dpGet(alert_dp+\":_alert_hdl.._num_ranges\",bereiche2);
+
+    //check for sum alert
+    if (bereiche2 == 0)
+    {
+      string dp;
+      dyn_string ds;
+      dpGet(alert_dp+\":_alert_hdl.._dp_list\",ds,
+            alert_dp+\":_alert_hdl.._dp_pattern\",dp);
+      if (dp != \"\"  || dynlen(ds) > 0)
+        bereiche2 = 2;
+    }
+
+    if (bereiche2 == 2)
+    {
+      dpGet(\"_AEServer1.EventCategories.EventCategoryNames\",category_names,
+            \"_AEServer1.EventCategories.EventTypes\",        category_types);
+
+      uint categoryType = 1; //1..simple
+
+      int index = dynContains(category_types, categoryType);
+      if (index < 1)
+        return;
+
+      dynAppend(conditions, condition+\":\"+category_names[index]); // add condition to server items
+      dynAppend(dps,alert_dp); // add meldebehandlung to server items
+      return;
+    } // if
+
+  }
+  //// END OPC_AE_Simple //////////////////////////////////////////////////////////////////////////////////
+  else if (condition == \"OPC_AE_Dynamic\")
+  {
+    if (dpElementType(alert_dp) == DPEL_DYN_STRING)
+    {
+      if (dynContains(dps, alert_dp) == 0)
+      {
+        dynAppend(conditions, condition); // add condition to server items
+        dynAppend(dps,alert_dp);          // add dyn_string dp to server items
+      }
+    }
+  }
+  //// END OPC_AE_Dynamic//////////////////////////////////////////////////////////////////////////////////
+  else  // a condition and not OPC_AE_Simple
+  {
+    dpGet(\"_AEServer1.Conditions.ConditionNames\",condition_names);
+    dpGet(\"_AEServer1.Conditions.AlertDps\",alert_dps);
+    
+    condition=substr(condition,7); // cut \"OPC_AE_\" from the beginning of condition
+    index=dynContains(condition_names,condition);
+  
+    if (index > 0) // condition found
+    {
+      dpGet(alert_dps[index]+\":_alert_hdl.._type\",type1); // check the type of meldebehandlung that condition includes
+
+      if (type1 == DPCONFIG_ALERT_BINARYSIGNAL)  // binary meldebehandlung
+        bereiche1=2;
+
+      else // non-binary meldebehandlung
+        dpGet(alert_dps[index]+\":_alert_hdl.._num_ranges\",bereiche1);
+     
+      dpGet(alert_dp+\":_alert_hdl.._type\",type2); // check the type of meldebehandlung that condition includes  
+
+      if (type2 == DPCONFIG_ALERT_BINARYSIGNAL)  // binary meldebehandlung
+        bereiche2=2;
+
+      else // non-binary meldebehandlung
+        dpGet(alert_dp+\":_alert_hdl.._num_ranges\",bereiche2);
+       
+      if (bereiche1 == bereiche2)
+      {
+        dynAppend(conditions, \"OPC_AE_\"+condition); // add condition to server items
+        dynAppend(dps,alert_dp); // add meldebehandlung to server items
+      }         
+
+    } // if (condition found)
+  } // else (normal condition and not OPC_AE_Simple
+  
+}
+" 0
+ 2
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}" 0
+
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 22
+"Text1"
+""
+1 15 525 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 17 527 63 542
+0 2 0 "0s" 0 0 0 192 0 0  17 527 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 7 Number:
+LANG:10004 7 编号:
+LANG:10000 7 Anzahl:
+LANG:10027 12 Кол-во:
+2 23
+"Count"
+""
+1 75 525 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 77 527 86 542
+0 2 0 "0s" 0 0 0 192 0 0  77 527 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+6 57
+"RECTANGLE1"
+""
+1 510 480 E E E 1 E 1 E N "_Transparent" E N "_Transparent" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 2.384615384615385 0 1.409090909090909 -493.4615384615385 -93.1818181818182 2  1 3  "pictures/Animation/hour_glass_ani.gif" 4294967295 E 360 240 373 262
+2 59
+"txtCount"
+""
+1 175 525 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 177 527 186 542
+0 2 0 "0s" 0 0 0 192 0 0  177 527 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 1 0
+LANG:10004 1 0
+LANG:10000 1 0
+LANG:10027 1 0
+13 11
+"Button3"
+""
+1 950 1080 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  688 568 776 596
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"// SimpleCtrlScriptStart {invalid}
+main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 24
+"help"
+""
+1 1683 1758 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  13 568 101 596
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"dpGroupsEdit_CheckGroup\");
+}" 0
+ E E E
+13 25
+"archive"
+""
+1 1480 1535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  688 523 776 551
+
+T 
+4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 7 Archive
+LANG:10027 12 Архивы
+"main()
+{
+  int        i, count = 0;
+  string     sArchivConfig, sSelectedArchiv,old=\"\";
+  dyn_string result, res_dpfilter;
+
+  List.visible=false;
+
+  for (i=1;i<=List.lineCount;i++)
+  {
+    result=List.getLineN(i-1);
+    if (result[2]==old)
+    {
+      List.cellValueRC(i-1,\"Items\",result[2]);
+      List.cellValueRC(i-1,\"DP-Filter\",result[3]);
+      List.cellValueRC(i-1,\"Typ-Filter\",result[4]);
+      List.cellValueRC(i-1,\"archive\",sSelectedArchiv);
+      List.cellValueRC(i-1,\"duplicate\",result[1]);
+    }
+    else
+    {
+      sSelectedArchiv=\"\";
+      sArchivConfig=\"\";
+      if (strpos(result[2],\".\")<1) result[2]+=\".\";
+      dpGet(result[2]+\":_archive.1._class\", sArchivConfig);
+      if (sArchivConfig!=\"\")
+      {
+        if (dpExists(sArchivConfig))
+        {
+          count++;
+          dpGet(sArchivConfig+\".general.arName:_online.._value\", sSelectedArchiv);
+        }
+      }
+      List.cellValueRC(i-1,\"Items\",result[2]);
+      List.cellValueRC(i-1,\"DP-Filter\",result[3]);
+      List.cellValueRC(i-1,\"Typ-Filter\",result[4]);
+      List.cellValueRC(i-1,\"archive\",sSelectedArchiv);
+      List.cellValueRC(i-1,\"duplicate\",result[1]);
+    }
+    old=result[2];
+  }  
+  
+  List.sort(\"archive\",\"Items\",\"Typ-Filter\",\"DP-Filter\");
+  List.columnVisibility(0,false);
+  List.columnVisibility(1,true);
+  List.columnVisibility(2,false);
+  List.columnVisibility(3,false);
+  List.columnVisibility(4,false);  
+  List.columnVisibility(5,false);  
+  List.columnVisibility(6,true);
+  List.columnVisibility(7,false);  
+  Count.text = count + \"/\" + txtCount.text;
+  if (List.lineCount>0)
+  {
+    List.lineVisible()=0;
+  }
+  List.visible=true;
+}
+" 0
+ E E E
+13 26
+"duplicate"
+""
+1 1730 2035 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  508 523 596 551
+
+T 
+4
+LANG:10001 10 Duplicates
+LANG:10004 6 重复
+LANG:10000 9 Duplikate
+LANG:10027 18 Дубликаты
+"main()
+{
+ showOverview(TRUE);
+}" 0
+ E E E
+13 27
+"Button1"
+""
+1 1970 2535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  418 523 506 551
+
+T 
+4
+LANG:10001 6 Normal
+LANG:10004 6 正常
+LANG:10000 6 Normal
+LANG:10027 14 Обычный
+"main()
+{
+  showOverview(); 
+}
+" 0
+ E E E
+25 40
+"List"
+""
+1 15 15 E E E 1 E 0 E N "Schwarz" E N "Weiss" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 25 Arial,8,-1,5,50,0,0,0,0,0
+0  13 13 777 514
+EE 1 0 1 8 1 "duplicate" 5 0 0 "s" 4
+LANG:10001 4 Occ.
+LANG:10004 4 Occ.
+LANG:10000 5 Vork.
+LANG:10027 4 Occ.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+50 "Items" 32 1 0 "s" 4
+LANG:10001 5 Items
+LANG:10004 6 条目
+LANG:10000 5 Items
+LANG:10027 14 Объекты
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+270 "Alias" 12 1 0 "s" 4
+LANG:10001 5 Alias
+LANG:10004 6 别名
+LANG:10000 5 Alias
+LANG:10027 18 Псевдоним
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+110 "DP-Filter" 14 1 0 "s" 4
+LANG:10001 12 DP(E) Filter
+LANG:10004 5 DP(E)
+LANG:10000 12 DP(E)-Filter
+LANG:10027 23 Фильтр по DP(E)
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "Alias-Filter-Anzeige" 13 1 0 "s" 4
+LANG:10001 12 Alias Filter
+LANG:10004 6 别名
+LANG:10000 12 Alias-Filter
+LANG:10027 29 Фильтр по псевд.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+112 "Typ-Filter" 15 1 0 "s" 4
+LANG:10001 12 DPT/DP Group
+LANG:10004 9 DPT/DP组
+LANG:10000 13 DPT/DP-Gruppe
+LANG:10027 19 DPT/DP-группа
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+129 "archive" 57 1 0 "s" 4
+LANG:10001 7 Archive
+LANG:10004 6 归档
+LANG:10000 6 Archiv
+LANG:10027 10 Архив
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+471 "alert" 0 0 0 "s" 4
+LANG:10001 5 Alert
+LANG:10004 5 Alert
+LANG:10000 5 Alarm
+LANG:10027 10 Аларм
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5 
+26 26 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 25 Arial,8,-1,5,50,0,0,0,0,0
+0 0 2 1 1 7
+1 0
+13 58
+"alert"
+""
+1 1390 1535 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  598 523 686 551
+
+T 
+4
+LANG:10001 5 Alert
+LANG:10004 5 Alert
+LANG:10000 6 Alarme
+LANG:10027 12 Алармы
+"main()
+{
+  int        count=0,i,j,k,pos,dup,overflow=0;
+  bool       bAlertActive;
+  string     sArchivConfig, sSelectedArchiv,old=\"\",
+             aText = getCatStr(\"STD_Symbols\",\"Alarm\");
+  dyn_string result, res_dpfilter, res_typfilter, dps, typ, dpe, archive, duplicate;
+
+  List.visible=false;
+
+  for (i=1;i<=List.lineCount;i++)
+  {
+    result=List.getLineN(i-1);
+    if (result[2]==old)
+    {
+      List.cellValueRC(i-1,\"Items\",result[2]);
+      List.cellValueRC(i-1,\"DP-Filter\",result[3]);
+      List.cellValueRC(i-1,\"Typ-Filter\",result[4]);
+      List.cellValueRC(i-1,\"archive\",\"\");
+      List.cellValueRC(i-1,\"alert\",(bAlertActive)?aText:\"\");
+      List.cellValueRC(i-1,\"duplicate\",result[1]);
+    }
+    else
+    {
+      sSelectedArchiv=\"\";
+      bAlertActive=false;
+      if (strpos(result[2],\".\")<1) result[2]+=\".\";
+      dpGet(result[2]+\":_alert_hdl.._active\", bAlertActive);
+      if ( bAlertActive )
+      {
+        count++;
+      }
+      List.cellValueRC(i-1,\"Items\",result[2]);
+      List.cellValueRC(i-1,\"DP-Filter\",result[3]);
+      List.cellValueRC(i-1,\"Typ-Filter\",result[4]);
+      List.cellValueRC(i-1,\"archive\",\"\");
+      List.cellValueRC(i-1,\"alert\",(bAlertActive)?aText:\"\");
+      List.cellValueRC(i-1,\"duplicate\",result[1]);
+//      List.updateLine(3,\"Items\",result[2],\"DP-Filter\",result[3],\"Typ-Filter\",result[4],
+//                        \"archive\",sSelectedArchiv,\"duplicate\",result[1]);
+    }
+    old=result[2];
+  }
+//  List.sortUndo(1);
+  List.sort(\"alert\",\"Items\",\"Typ-Filter\",\"DP-Filter\");
+  List.columnVisibility(0,false);
+  List.columnVisibility(1,true);
+  List.columnVisibility(2,false);
+  List.columnVisibility(3,false);
+  List.columnVisibility(4,false);
+  List.columnVisibility(5,false);
+  List.columnVisibility(6,false);
+  List.columnVisibility(7,true);  
+  List.columnWidth(1,505);
+  List.columnWidth(7,235);
+  
+  if (List.lineCount>0)
+  {
+    List.lineVisible()=0;
+  }
+  List.visible=true;
+  Count.text = count + \"/\" + txtCount.text;
+}
+" 0
+ E E E
+1 60 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 20 560 T 52 1.581162324649299 0 1 -31.62324649298597 0
+0
+0

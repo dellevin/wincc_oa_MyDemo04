@@ -1,0 +1,1170 @@
+V 14
+4
+LANG:10001 8 (NoName)
+LANG:10004 11 (未命名)
+LANG:10000 8 (NoName)
+LANG:10027 18 (БезИмени)
+PANEL,-1 -1 620 480 N "_3DFace" 1
+"$dpe"
+"bool DEBUG;
+int  g_counter;                                                      // used for debugging Libfunction
+
+main()
+{
+  int    i, j, pos, maxPos, iNum = 0;
+  string sSelectedSheetContent, dpe = dpSubStr($dpe, DPSUB_SYS_DP_EL), sPanelName,
+         dp = dpSubStr($dpe, DPSUB_SYS_DP), Shape,
+         s;
+  bool archiveConfigExist = FALSE;
+  g_busyThread = -1;
+  DEBUG = FALSE;
+
+  
+  if ( strpos(dpe, \".\")<1) dpe += \".\";
+
+  txtDpeName.text = dpSubStr($dpe, DPSUB_DP_EL);
+
+  mpInitDaGlobals();
+
+  if (!globalExists(\"gDaConfigs\") || dynlen(gDaConfigs) == 0)
+  {
+    Polyline1.visible  = TRUE;
+    Polyline2.visible  = TRUE;
+    busyFlag.visible  = TRUE;
+    std_startBusy();
+    daReadFileHeader();
+    std_stopBusy();
+    Polyline1.visible  = FALSE;
+    Polyline2.visible  = FALSE;
+    busyFlag.visible  = FALSE;
+  }
+
+  if ( dynlen(gDpeAndConfigs) < 1 )
+  {
+    cmdApply.enabled = false;
+    cmdOk.enabled = false;
+    txtNoConfig.visible = true;
+    return;
+  }
+
+  s = dpe;
+  strreplace(s, dp, \"\");
+  
+  pos = dynContains(gDpeAndConfigs[1], s);
+
+  if ( pos < 1 )
+  {
+    cmdApply.enabled = false;
+    cmdOk.enabled = false;
+    txtNoConfig.visible = true;
+    return;
+  }
+
+  maxPos =  gDpeAndConfigs[2][pos];                             // find the number of parametrisation of this config
+
+  if (dynContains(gDpeAllredyShown, dpe) <= 0)                  // remeber all shown Elements for setting, append only if !shown
+  {
+    dynAppend(gDpeAllredyShown, dpe);
+    Shape = \"sheetPara_\"+dynContains(gDpeAllredyShown, dpe);    // generate shapename of sheetobject
+                                                                 // add correct invisible Panel
+    addSymbol(myModuleName(), myPanelName(), \"objects_parts/STD_OBJECTS/COMMON_prop_sheet.pnl\", Shape, makeDynString(\"$name:\"+Shape, \"$sem:\"), 10, 10, 0,1,1);
+    delay(0,1);                                                    // nessesary for breaking thread
+    for (j=0; j< 14; j++)                                        // show all
+    {
+      setValue(Shape,\"registerVisible\", j,(j<maxPos) );         // set visibility of sheet
+      if (j< maxPos)                                            // for all existing elements
+      {                                                          // set header of sheet
+
+        if (DEBUG) DebugN(\"config:\", gDpeAndConfigs[j+3][pos], gDpeAndConfigsDA[j+3][pos]);
+
+        if (gDpeAndConfigsDA[j+3][pos] == \"_da_none\" || gDpeAndConfigsDA[j+3][pos] == \"_da_notself\")
+        {
+          setValue(Shape,\"registerVisible\", j,0 );               // not visible !!
+        }
+        else
+        {
+          if ( useNGA() && (gDpeAndConfigs[j+3][pos] == \"_archive\") )
+          {
+            iNum++;
+            sSelectedSheetContent = \"para/archive/NGA/nga_archiveTab1.pnl\";
+            sPanelName = getCatStr(\"da\", gDpeAndConfigsDA[j + 3][pos]);
+            if ( strpos(sPanelName, \"not found\") > 0 )
+              sPanelName = getCatStr(\"da_project\", gDpeAndConfigsDA[j + 3][pos]);
+
+            if ( isMotif() )            // check maximum lenght
+              if ( strlen(sPanelName) > (80/maxPos) )
+                sPanelName = substr(sPanelName, 0, (80/maxPos)) + \".\";
+
+            setValue(Shape, \"namedColumnHeader\", \"#\" + j, sPanelName,
+                            \"registerPanel\", j, sSelectedSheetContent, makeDynString(\"$name:\" + Shape + gDpeAndConfigs[j+3][pos],
+                                                                                     \"$archiveDpe:\" + dpe));
+            archiveConfigExist = TRUE;
+            NgaParaConfigProvider::archiveDpe = $dpe;
+          }
+          else
+          {
+            iNum++;
+            sSelectedSheetContent = getPath(PANELS_REL_PATH, \"objects_parampanels/STD_OBJECTS/\"+gDpeAndConfigsDA[j+3][pos]+\".pnl\");
+
+            if (sSelectedSheetContent == \"\")
+              sSelectedSheetContent = \"objects_parts/STD_OBJECTS/COMMON_prop_sheet_content.pnl\";    // fill sheet wir correct object (use own object if nessesary !!)
+            else
+              sSelectedSheetContent = \"objects_parampanels/STD_OBJECTS/\"+gDpeAndConfigsDA[j+3][pos]+\".pnl\"; // SET RELATIVE PATH 11
+
+            strreplace(sSelectedSheetContent, \"\\\\\",\"/\");
+
+            sPanelName = getCatStr(\"da\", gDpeAndConfigsDA[j+3][pos]);
+
+            if ( strpos(sPanelName, \"not found\") > 0 )
+              sPanelName = getCatStr(\"da_project\", gDpeAndConfigsDA[j+3][pos]);
+
+            if ( isMotif() )            // check maximum lenght
+              if ( strlen(sPanelName) > (80/maxPos) )
+                sPanelName = substr(sPanelName, 0, (80/maxPos))+\".\";
+
+            setValue(Shape, \"namedColumnHeader\",\"#\"+j,sPanelName,
+                            \"registerPanel\", j,sSelectedSheetContent,makeDynString(\"$name:\"+Shape+gDpeAndConfigs[j+3][pos], \"$dpe:\"+dpe));
+
+            startThread(\"daBuildScript\",                             // thread for filling one existing sheet with read thread
+                  dp + gDpeAndConfigs[1][pos] ,                      // dpe
+                  gDpeAndConfigsDA[j+3][pos],                       // config
+                  Shape+gDpeAndConfigs[j+3][pos],                   // Shape
+                  TRUE);                                            // get from dpe
+          }
+        }
+      }
+    }
+  }
+
+  delay(0);                                                      // break thread
+  Shape = \"sheetPara_\"+dynContains(gDpeAllredyShown, dpe);      // generate shapename of sheetobject
+  for ( i= 1; i<= dynlen(  gDpeAllredyShown); i++)              // set the selected Object visible, ans all others invisible
+    setValue(\"sheetPara_\"+i,\"visible\", (\"sheetPara_\"+i == Shape ));
+
+  setMultiValue(Shape, \"visible\", (iNum > 0),
+                \"txtNoConfig\", \"visible\", (iNum < 1),
+                \"cmdApply\",\"visible\", (iNum > 0),
+                \"cmdOk\",\"visible\", (iNum > 0));
+  for(j = 1; j<= maxPos;j++)
+    if (DEBUG)     DebugN(gDpeAndConfigs[1][pos], gDpeAndConfigs[j+2][pos]);
+
+  if ( useNGA() && archiveConfigExist )
+  {
+    archiveTable = getShape(\"PROC_TABLE\");
+    startThread(\"initNgaArchive\");
+    sysConnect(\"reloadGroupsConnect\", \"dpDeleted\");
+    sysConnect(\"reloadGroupsConnect\", \"dpCreated\");
+  }
+
+  if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+  {
+    // initialize global variables 
+    paInitGlobals();
+    paInitModuleNames(\"\");
+
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+    dpConnect(\"paWork\",false,myUiDpName()+\".Para.OpenConfig:_online.._value\",
+              myUiDpName()+\".Para.ModuleName:_online.._value\");
+  }
+}
+
+paWork(string dpUi,string OpenConfig)
+{
+  paDpConnectUi(dpUi,OpenConfig,myModuleName());
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+mpInitDaGlobals()
+{
+  int            i, j, pos, count;
+  string         addString;
+  dyn_int        retI;
+  dyn_string     dpes_dpe, tempds,
+                 dynamicAttributes,
+                 dynamicText,
+                 dynamicAttributesText,
+                 ds, retS;
+  dyn_dyn_string dds;
+
+  string dp = dpSubStr($dpe, DPSUB_SYS_DP);
+  
+  dynClear(gDpeAllredyShown);
+  dynClear(gDpeAndConfigs);
+ 
+  ds = dpTypes();
+
+  dpGet(\"_dt_\" + dpTypeName(dp)+\".Leaf:_online.._value\",dpes_dpe);
+  dpGet(\"_dt_\" + dpTypeName(dp)+\".DynamicAttribute:_original.._value\",dynamicAttributes);
+  
+  for (i= 1; i<= dynlen(dpes_dpe); i++)        
+  {
+    tempds = strsplit(dpes_dpe[i],\":\");        // remove config
+    strreplace(tempds[1],\"_mp_\" + dpTypeName(dp),\"\");              // remove dp
+  
+   
+    if (i==1)                                 // special if 1st Element because dynlen(empty  dyn_dyn) is wrong
+    { 
+      dds[1][1]=tempds[1];                    // [1] = dp
+      dds[2][1]=1;                             // count of configs
+      dds[3][1]=tempds[2];                     // real config 
+      pos = 1;
+      gDpeAndConfigsDA[3][pos]= dynamicAttributes[i];  // DA (virtual) config
+  
+    }
+    else                                      // more than one element in list
+    {
+      pos = dynContains(dds[1],tempds[1]);    // find position
+      if (pos <= 0)                            // new dpe
+      {
+        dds[1][dynlen(dds[1])+1] = makeDynString(tempds[1]);  // append dp
+        pos = dynlen(dds[1]);                  // get position = last position
+         dds[2][pos]=1;                         // count of configs
+        dds[3][pos]=tempds[2];                 // real config
+        gDpeAndConfigsDA[3][pos]= dynamicAttributes[i];  // virtual DAconfig
+      }
+      else                                     //same dpe, new config
+      {
+        count =  dds[2][pos];                  // get actual coung
+        count ++;                              // add 1
+         dds[2][pos]=count;                     // put count back 
+        dds[count+2][pos]=tempds[2];           // append real config
+        gDpeAndConfigsDA[count+2][pos]= dynamicAttributes[i];  // append virtual config
+      }
+    }
+  }
+  
+  gDpeAndConfigs= dds;                        // remember 
+}
+" 0
+ E E E E 1 -1 -1 0  163 430
+""0  1
+E "#uses \"para\"
+#uses \"ngaUtils\"
+#uses \"CtrlNgaFrontend\"
+#uses \"classes/nga/NgaGroupConfigProvider\"
+#uses \"classes/nga/NgaParaConfigProvider\"
+
+global dyn_dyn_string gDpeAndConfigs;
+global dyn_dyn_string gDpeAndConfigsDA;
+global dyn_string     gDpeAllredyShown;
+global int            g_busyThread;
+shape archiveTable;
+NgaParaConfigProvider ngaPara;
+NgaGroupConfigProvider ngaGroups;
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize NGA config.
+ * @note Called only when NGA archive config is loaded.
+**/
+void initNgaArchive()
+{
+  setMultiValue(\"NEW_PROCEDURE_BUTTON\", \"visible\", FALSE,
+                \"DELETE_PROCEDURE_BUTTON\", \"visible\", FALSE);
+
+  if ( !nga_numberOfArchiveProcedures(NgaParaConfigProvider::archiveDpe) )
+    return;
+
+  reloadArchiveTab((int)archiveTabNumber::GROUPS);
+  reloadGroups();
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initializes NGA archive table.
+**/
+public initArchiveTable()
+{
+  while ( !archiveTable )  // wait while NGA archive tab is loaded
+    delay(0, 10);
+
+  setValue(archiveTable, \"tableMode\", TABLE_SELECT_BROWSE,
+                         \"selectByClick\", TABLE_SELECT_LINE,
+                         \"sortOnClick\", FALSE,
+                         \"columnHeaderVisibility\", TRUE,
+                         \"columnStretchable\", 0, 1,
+                         \"alternatingRowColors\", makeDynString(\"WF_TableAlternatingRowColor_2\", \"WF_TableAlternatingRowColor_1\"),
+                         \"selectColors\", \"_ButtonShadow\", \"_Window\",
+                         \"styleSheet\", \"TableQT QHeaderView {qproperty-highlightSections: 'FALSE';}\");
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which reads all procedure configurations from DPE.
+ * @return Error code:
+  value | description
+  ------|-------------
+  0     | SUCCESS
+  -1    | FAILED to read procedure configuration
+**/
+int readArchiveGroups()
+{
+  int errCode = 0;
+  int procCount = nga_numberOfArchiveProcedures(NgaParaConfigProvider::archiveDpe);
+  setValue(archiveTable, \"deleteAllLines\");
+
+  dyn_string groupsAll = nga_getAllGroups();
+  for (int i = 1; i <= dynlen(groupsAll); i++)
+  {
+    if ( !groupsAll[i].endsWith(\"_2\") && (groupsAll[i] !=  \"ALERT\") )
+    {
+      ngaPara.setFreeGroups(\"\", groupsAll[i]);
+    }
+  }
+
+  for (int i = 1 ; i <= procCount; i++)
+  {
+    errCode = defineNewProcedure(i);
+    if ( errCode )
+      return errCode;
+  }
+
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which define configuration for the given procedure index and
+ *        writes it to the archive table.
+ * @param procNumber is the procedure index
+ * @return Error code:
+  value | description
+  ------|-------------
+  0     | SUCCESS
+  -1    | FAILED to define procedure configuration or write it to the archive table
+**/
+int defineNewProcedure(const int &procNumber)
+{
+  string group = \"\", smoothTimeSec = \"0\", smoothTimeMilli = \"0\", smoothValTol = \"0\";
+  int smoothType = 0;
+  bool isRelative = FALSE, smoothingEnabled = FALSE;
+
+  if ( procNumber > nga_numberOfArchiveProcedures(NgaParaConfigProvider::archiveDpe) )
+  {
+    if ( dynContains(ngaPara.getFreeGroups(), \"EVENT\") > 0 )
+      group = \"EVENT\";
+  }
+  else
+    nga_getArchiveProcedure(NgaParaConfigProvider::archiveDpe, procNumber, group, smoothTimeSec, smoothTimeMilli, smoothValTol,
+                            smoothType, isRelative, smoothingEnabled);
+
+  smoothValTol += \" \" + ngaPara.defineUnits(isRelative);
+  if ( !group.isEmpty() )
+  {
+    ngaPara.setFreeGroups(group);
+  }
+
+  setValue(archiveTable, \"appendLine\", \"GROUP\", ( group.isEmpty() ? group : ngaGroups.getDisplayName(groups_IDpNamePrefix + group)));
+  ngaPara.setProcedureConfig(procNumber, procedureConfigKey::GROUP, group);
+  int lines;
+  getValue(archiveTable, \"lineCount\", lines);
+  if ( group.isEmpty() &&
+       !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"GROUP\", \"Value\", getCatStr(\"NGA\",\"group_not_assigned\"),
+                                 \"Font\", \"Arial,-1,13,5,50,1,0,0,0,0,Kursiv\", \"ForeCol\", \"grey\")) )
+  {
+    return -1;
+  }
+
+  getValue(archiveTable, \"lineCount\", lines);
+  if ( smoothingEnabled )
+  {
+    if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"SMOOTHING\",
+                                   \"Value\", nga_getArchiveSmoothingDescription(smoothType))) )
+      return -1;
+
+    switch (smoothType)
+    {
+      case DPATTR_VALUE_SMOOTH:  // the types that consider only value
+      {
+        if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"TIME_SECONDS\", \"Value\", \" ---. ---\", \"ForeCol\", \"grey\")) ||
+             !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"VALUE_TOLERANCE\", \"Value\", smoothValTol)) )
+          return -1;
+
+        break;
+      }
+
+      case DPATTR_TIME_SMOOTH:
+      case DPATTR_OLD_NEW_AND_TIME_SMOOTH:
+      case DPATTR_OLD_NEW_OR_TIME_SMOOTH:  //the types that consider only time
+      {
+        if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"VALUE_TOLERANCE\", \"Value\", \" --- ---\", \"ForeCol\", \"grey\")) ||
+             !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"TIME_SECONDS\", \"Value\", smoothTimeSec + \".\" + smoothTimeMilli)) )
+          return -1;
+
+        break;
+      }
+
+      case DPATTR_TIME_AND_VALUE_SMOOTH:
+      case DPATTR_TIME_OR_VALUE_SMOOTH:  // the types that consider  value  and time
+      {
+        if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"VALUE_TOLERANCE\", \"Value\", smoothValTol)) ||
+             !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"TIME_SECONDS\", \"Value\", smoothTimeSec + \".\" + smoothTimeMilli)) )
+          return -1;
+
+        break;
+      }
+
+      case DPATTR_COMPARE_OLD_NEW:
+      {
+        if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"VALUE_TOLERANCE\", \"Value\", \" ---. ---\", \"ForeCol\", \"grey\")) ||
+             !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"TIME_SECONDS\", \"Value\", \" --- ---\", \"ForeCol\", \"grey\")) )
+          return -1;
+
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+  else if ( !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"SMOOTHING\", \"Value\", getCatStr(\"NGA\",\"no_smoothing\"))) ||
+            !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"VALUE_TOLERANCE\", \"Value\", \" --- ---\", \"ForeCol\", \"grey\")) ||
+            !setTableCell(makeMapping(\"line\", lines - 1, \"column\", \"TIME_SECONDS\", \"Value\", \" ---. ---\", \"ForeCol\", \"grey\")) )
+  {
+    return -1;
+  }
+
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which opens NGA groups settings panel.
+ * @note If user does not have high enough permission, the function will be aborted
+**/
+public editGroups()
+{
+  if ( !paCheckAdminPermission() )
+    return;
+
+  if ( isModuleOpen(\"ngaRuntime;_WF_ngaRuntime\") )
+  {
+    moduleRestore(\"ngaRuntime;_WF_ngaRuntime\");  // if minimized
+    moduleRaise(\"ngaRuntime;_WF_ngaRuntime\");
+    return;
+  }
+
+  wf_openWizard(\"_WF_ngaRuntime\", 100, 100, 1, 1, \"None\");
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize NGA config.
+ * @note Called only when NGA archive config is loaded.
+**/
+public bool setArchiveState(bool state)
+{
+  while ( !archiveTable ) // wait while NGA archive tab is loaded
+    delay(0, 10);
+
+  ngaPara.setArchiveState(state);
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which reloads requested tab.
+ * @param tabNum is the index of the tab which needs reloading
+ * @return Error code:
+  value | description
+  ------|-------------
+  0     | SUCCESS
+  -1    | FAILED to reload tab
+**/
+int reloadArchiveTab(const int &tabNum)
+{
+  int errCode = -1;
+  if ( tabNum == (int)archiveTabNumber::GROUPS )
+  {
+    if ( ngaPara.procedureConfigEmpty() )
+    {
+      errCode = readArchiveGroups();
+    }
+    else
+    {
+      errCode = ngaPara.loadArchiveGroups(getSelectedProcedure());
+      procedureConfigKey key;
+      dyn_string keys = enumKeys(getTypeName(key));
+      const int SMOOTHING_TYPE = ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::SMOOTHING) - (int)( VERSION_NUMERIC < 400000 );
+      for (int i = 1; i <= dynlen(keys); ++i)
+      {
+        string value = \"\";
+        key = i;
+        if ( key == procedureConfigKey::SMOOTHING )
+        {
+          int smooth_type = ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::SMOOTHING);
+          if ( !smooth_type )
+          {
+            value = getCatStr(\"NGA\",\"no_smoothing\");
+          }
+          else
+          {
+            if ( VERSION_NUMERIC < 400000 )  // in Hawkeye smoothing type starts from 1, in WinCC OA from 0
+              smooth_type -= 1;
+
+            value = nga_getArchiveSmoothingDescription(smooth_type);
+          }
+        }
+        else if ( key == procedureConfigKey::VALUE_TOLERANCE )
+        {
+          if ( SMOOTHING_TYPE == DPATTR_VALUE_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_TIME_AND_VALUE_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_TIME_OR_VALUE_SMOOTH )
+          {
+            value = ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::VALUE_TOLERANCE) + \" \" +
+                    ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::VALUE_UNITS);
+          }
+          else
+          {
+            value = \"--- ---\";
+          }
+        }
+        else if ( key == procedureConfigKey::TIME_SECONDS )
+        {
+          if ( SMOOTHING_TYPE == DPATTR_TIME_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_TIME_AND_VALUE_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_TIME_OR_VALUE_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_OLD_NEW_AND_TIME_SMOOTH ||
+               SMOOTHING_TYPE == DPATTR_OLD_NEW_OR_TIME_SMOOTH )
+          {
+            value = ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::TIME_SECONDS) + \".\" +
+                    ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::TIME_MILISECONDS);
+          }
+          else
+          {
+            value = \"--- ---\";
+          }
+        }
+
+        if ( !value.isEmpty() )
+          setTableCell(makeMapping(\"line\", getSelectedProcedure() - 1, \"column\", keys[i], \"Value\", value, \"Font\", \"\", \"ForeCol\", \"\"));
+      }
+    }
+  }
+
+  return errCode;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which returns selected procedure index.
+ *
+ * @note Procedure index is always the archive table line + 1
+ * @return procedure index, -1 in case of an error
+**/
+int getSelectedProcedure()
+{
+  if ( !archiveTable )
+    return -1;
+
+  dyn_int lines;
+  getValue(archiveTable, \"getSelectedLines\", lines);
+  if ( !dynlen(lines) )
+    return -1;
+
+  return lines[1] + 1;  // procedures start from 1, table lines from 0
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which reloads free group on the panel.
+**/
+reloadGroups()
+{
+  shape groupList = getShape(\"groupList\");
+  dyn_string freeGroupsNames, groupsDpeNames = ngaPara.getFreeGroups();
+  for (int i = 1; i <= dynlen(groupsDpeNames); ++i)
+  {
+    langString displayName = ngaGroups.getDisplayName(groups_IDpNamePrefix + groupsDpeNames[i]);
+    ngaPara.setGroupDisplayName(displayName);
+    dynAppend(freeGroupsNames, displayName);
+  }
+
+  setValue(groupList, \"items\", freeGroupsNames);
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which reloads free group if any group gots created/deleted.
+**/
+synchronized reloadGroupsConnect(string event, mapping data)
+{
+  if ( mappingHasKey(data, \"dpType\") && (data[\"dpType\"] == groups_IDpTypeName) )
+  {
+    string groupUnderCreation = \"\";
+    dyn_string oldGroups = ngaPara.getFreeGroups();
+    dyn_string groupsAll = nga_getAllGroups();
+
+    // check if any group is deleted
+    if ( event == \"dpDeleted\" )
+    {
+      for (int i = 1; i <= dynlen(oldGroups); ++i)
+      {
+        if ( !dynContains(groupsAll, oldGroups[i]) )
+        {
+          ngaPara.setFreeGroups(oldGroups[i], \"\");
+        }
+      }
+
+      for (int l = 1; l <= ngaPara.getProcedureNumber(); ++l)
+      {
+        if ( !dynContains(groupsAll, ngaPara.getProcedureConfig(l, procedureConfigKey::GROUP)) )
+        {
+          ngaPara.setProcedureConfig(l, procedureConfigKey::GROUP, \"\");
+          setTableCell(makeMapping(\"line\", l - 1, \"column\", \"GROUP\", \"Value\", getCatStr(\"NGA\",\"group_not_assigned\"),
+                                   \"Font\", \"Arial,-1,13,5,50,1,0,0,0,0,Kursiv\", \"ForeCol\", \"grey\"));
+          if ( getSelectedProcedure() == l )
+          {
+            shape groupList = getShape(\"groupList\");
+            setValue(groupList, \"text\", getCatStr(\"NGA\", \"group_not_assigned\"));
+          }
+
+          break;
+        }
+      }
+    }
+
+    //check if any group is created
+    if ( event == \"dpCreated\" )
+    {
+      for (int i = 1; i <= dynlen(groupsAll); ++i)
+      {
+        if ( !groupsAll[i].endsWith(\"_2\") && (groupsAll[i] !=  \"ALERT\") &&
+             !dynContains(oldGroups, groupsAll[i]) )
+        {
+          bool skipIt = FALSE;
+          for (int l = 1; l <= nga_numberOfArchiveProcedures(NgaParaConfigProvider::archiveDpe); ++l)
+          {
+            if ( ngaPara.getProcedureConfig(l, procedureConfigKey::GROUP) == groupsAll[i] )
+            {
+              skipIt = TRUE;
+              break;
+            }
+          }
+
+          if ( skipIt )  // group is already assigned, don't set it as free
+            continue;
+
+          groupUnderCreation = groupsAll[i];
+          ngaPara.setFreeGroups(\"\", groupsAll[i]);
+        }
+      }
+    }
+
+    // group creation might take a while, check if it is done when display name is set
+    if ( !groupUnderCreation.isEmpty() )
+    {
+      langString displayName;
+      while ( displayName.text() == \"\" )
+      {
+        displayName = ngaGroups.getDisplayName(groups_IDpNamePrefix + groupUnderCreation);
+        delay(0, 100);
+      }
+    }
+
+    reloadGroups();
+  }
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which updates procedure configuration for the archive table.
+ * @@param data - mapping with the dialog procedure config data:
+ * + line - line number in the archive table
+ * + column - column name in the archive table
+ * + Value - is the procedure configuration value
+ * + Font - is the font for the requested value. Default value: empty string - default font.
+ * + ForeCol - is the foreground colot for the requested value. Default value: empty string - default foreCol.
+ * @return TRUE if the value is updated for the archive table, otherwise FALSE
+**/
+bool setTableCell(const mapping &data)
+{
+  if ( !mappingHasKey(data, \"line\") || !mappingHasKey(data, \"column\") )
+    return FALSE;
+
+  for (int i = 1; i <= mappinglen(data); i++)
+  {
+    if ( mappingGetKey(data, i) == \"line\" || mappingGetKey(data, i) == \"column\" )
+      continue;
+
+    setValue(archiveTable, \"cell\" + mappingGetKey(data, i) + \"RC\", data[\"line\"], data[\"column\"], data[mappingGetKey(data, i)]);
+  }
+
+  return TRUE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which is triggered on the line selection change.
+ * @param line is the current selected line in the archive table.
+**/
+public lineSelected(const int line)
+{
+  if ( line < 0 )  // nothing selected
+    return;
+
+  shape groupList = getShape(\"groupList\");
+  if ( ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::GROUP) < 0 )  // group is not specified
+  {
+    setValue(groupList, \"text\", getCatStr(\"NGA\", \"group_not_assigned\"));
+  }
+  else
+  {
+    string groupDpeName = ngaPara.getProcedureConfig(getSelectedProcedure(), procedureConfigKey::GROUP);
+    setValue(groupList, \"text\", ngaGroups.getDisplayName(groups_IDpNamePrefix + groupDpeName));
+    reloadGroups();
+  }
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which sets the selected group for the procedure.
+ * @param groupName is the group name to be set.
+**/
+public groupChanged(const string groupName)
+{
+  string groupDpeName = ngaGroups.getDpeName(ngaPara.getGroupDisplayName(groupName), groups_IDpTypeName);
+  groupDpeName.replace(groups_IDpNamePrefix, \"\");
+  int procNum = ngaPara.setGroup(groupDpeName, getSelectedProcedure());
+  if ( procNum < 0 )
+    return;
+
+  setTableCell(makeMapping(\"line\", procNum - 1, \"column\", \"GROUP\", \"Value\", ngaGroups.getDisplayName(groups_IDpNamePrefix + groupDpeName),
+                           \"Font\", \"\", \"ForeCol\", \"\"));
+
+  reloadGroups();
+}" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+10 1
+"Polyline1"
+""
+1 163 440 E E E 1 E 0 E N "_Window" E N "_Transparent" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 3 163 440
+163 469
+10 469
+ 0
+10 2
+"Polyline2"
+""
+1 11 468 E E E 1 E 0 E N "_ButtonShadow" E N "_Transparent" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 2 1 0 1 E U  0 E 3 11 468
+11 441
+161 441
+ 0
+6 3
+"busySize"
+""
+1 15 444 E E E 1 E 0 E N "_3DFace" E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 15 444 157 461
+6 4
+"busyFlag"
+""
+1 17 445 E E E 1 E 0 E N {0,0,153} E N {0,0,153} E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 17 445 53 464
+2 8
+"txtNoConfig"
+""
+1 115 200 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 159 202 479 216
+0 2 0 "0s" 0 0 0 193 0 0  319 202 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 43 There are no active configs to parametrize!
+LANG:10004 34 参数配置没有有效的配置!
+LANG:10000 51 Es wurden keine Konfigs zum Parametrieren gefunden!
+LANG:10027 89 Нет активных конфигураций для параметрирования!
+2 10
+"txtDpeName"
+""
+1 10 5 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 12 7 331 21
+0 2 0 "0s" 0 0 0 192 0 0  12 7 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 43 There are no configs active to parametrize!
+LANG:10004 40 没有配置正在运行的参数配置!
+LANG:10000 51 Es wurden keine Konfigs zum parametrieren gefunden!
+LANG:10027 89 Нет активных конфигураций для параметрирования!
+13 5
+"cmdCancel"
+""
+1 896 880 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  508 438 612 468
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+  {
+    paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName(),makeDynString(\"\"));  
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+    delay(0,500);
+  }
+  else
+    PanelOff();
+}" 0
+ E E E
+13 6
+"cmdApply"
+""
+1 1213 1326 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  398 438 502 468
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"bool DEBUG;
+int  g_counter;
+
+main()
+{
+  int    i, j, pos;
+  string Shape, s;
+  
+  DEBUG = FALSE;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  addGlobal(\"g_busyThread\",INT_VAR);
+  g_busyThread = -1;
+  Polyline1.visible  = TRUE;
+  Polyline2.visible  = TRUE;
+  busyFlag.visible  = TRUE;
+  
+  std_startBusy();
+
+  for (i = 1; i<= dynlen(gDpeAllredyShown);i++)
+  {
+    s = gDpeAllredyShown[i];
+    strreplace(s, dpSubStr($dpe, DPSUB_SYS_DP), \"\");
+    Shape = \"sheetPara_\"+i;
+//    pos = dynContains(gDpeAndConfigs[1], gDpeAllredyShown[i]);
+    pos = dynContains(gDpeAndConfigs[1], s);
+    for(j= 0; j< gDpeAndConfigs[2][pos]; j++)
+    {
+      if ( useNGA() && (gDpeAndConfigs[j+3][pos] == \"_archive\") )
+      {
+        if ( paCheckAdminPermission() )
+          ngaPara.saveProcedures(getSelectedProcedure());
+      }
+      else if (gDpeAndConfigsDA[j+3][pos] != \"_da_none\" && gDpeAndConfigsDA[j+3][pos] != \"_da_notself\")
+        startThread(\"daBuildScript\",
+                    gDpeAllredyShown[i] ,  // dpe
+                    gDpeAndConfigsDA[j+3][pos],       // config
+                    Shape+gDpeAndConfigs[j+3][pos], // Shape
+                    FALSE);                          // set to dpe
+    }
+  }
+  while (g_counter > 0)
+  {
+    delay(0,100);
+  }
+
+  Polyline1.visible  = FALSE;
+  Polyline2.visible  = FALSE;
+  busyFlag.visible  = FALSE;
+  std_stopBusy();
+}
+" 0
+ E E E
+13 9
+"cmdOk"
+""
+1 1103 1326 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  288 438 392 468
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"bool DEBUG;
+int  g_counter;
+
+main()
+{
+  int    i, j, pos;
+  string Shape, s;
+  
+  DEBUG = FALSE;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  addGlobal(\"g_busyThread\",INT_VAR);
+  g_busyThread = -1;
+  Polyline1.visible  = TRUE;
+  Polyline2.visible  = TRUE;
+  busyFlag.visible  = TRUE;
+  
+  std_startBusy();
+
+  for (i = 1; i<= dynlen(gDpeAllredyShown);i++)
+  {
+    s = gDpeAllredyShown[i];
+    strreplace(s, dpSubStr($dpe, DPSUB_SYS_DP), \"\");
+    Shape = \"sheetPara_\"+i;
+//    pos = dynContains(gDpeAndConfigs[1], gDpeAllredyShown[i]);
+    pos = dynContains(gDpeAndConfigs[1], s);
+    for(j= 0; j< gDpeAndConfigs[2][pos]; j++)
+    {
+      if ( useNGA() && (gDpeAndConfigs[j+3][pos] == \"_archive\") )
+      {
+        if ( paCheckAdminPermission() )
+          ngaPara.saveProcedures(getSelectedProcedure());
+      }
+      else if (gDpeAndConfigsDA[j+3][pos] != \"_da_none\" && gDpeAndConfigsDA[j+3][pos] != \"_da_notself\")
+        startThread(\"daBuildScript\",
+                    gDpeAllredyShown[i] ,  // dpe
+                    gDpeAndConfigsDA[j+3][pos],       // config
+                    Shape+gDpeAndConfigs[j+3][pos], // Shape
+                    FALSE);                          // set to dpe
+    }
+  }
+  while (g_counter > 0)
+  {
+    delay(0,100);
+  }
+
+  Polyline1.visible  = FALSE;
+  Polyline2.visible  = FALSE;
+  busyFlag.visible  = FALSE;
+  std_stopBusy();
+  
+  // tfs 33866
+  delay(0,100);
+  
+  if ( strpos(myModuleName(),\"_paraPanel\") > 0 )
+  {
+    paRootPanelOnModule(\"para/dummy.pnl\",\"\",myModuleName(),makeDynString(\"\"));  
+    dpSetWait(myUiDpName()+\".Para.OpenConfig:_original.._value\",\"\",
+              myUiDpName()+\".Para.ModuleName:_original.._value\",myModuleName());
+    delay(0,500);
+  }
+  else
+    PanelOff();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

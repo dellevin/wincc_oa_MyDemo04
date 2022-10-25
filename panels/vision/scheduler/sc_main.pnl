@@ -1,0 +1,2056 @@
+V 14
+4
+LANG:10001 18 WinCC OA Scheduler
+LANG:10004 15 WinCC OA 调度
+LANG:10000 18 WinCC OA Scheduler
+LANG:10027 31 Планировщик WinCC OA
+PANEL,-1 -1 1008 784 N "_3DFace" 0
+"#uses \"sched.ctl\"
+main()
+{
+  int        i;
+  string     sys, activeSchedules;
+  dyn_string ds;
+  dyn_float  df;
+
+  //Check user permission
+  if(!getUserPermission(1))  //At least visualisation level
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"),
+                              makeDynString(getCatStr(\"general\",\"permission\")+\"!\"),df,ds);
+
+    PanelOff();
+  }
+  else
+  {
+    if(!getUserPermission(2) || !getUserPermission(3)) //\"Normal User Level\" or 
+      pf_userPermission2();
+    
+    if(!getUserPermission(3)) // \"Extended User Level\"
+      pf_userPermission3();
+      
+    
+    if ( !isFunctionDefined(\"sc_loadReady\") )
+    {
+      string sMessageText = getCatStr(\"scheduler\",\"loadLib\");
+      ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",getCatStr(\"general\",\"warning\"),makeDynString(sMessageText),df,ds);
+      PanelOff();
+    } 
+
+    p_iActiveRegister = 0;
+    pf_emptyTable();
+    
+    dynClear(p_dsSysNames);
+    dynClear(p_duiSysIds);
+    getSystemNames(p_dsSysNames,p_duiSysIds);
+  
+    txtLoState.text(getCatStr(\"scheduler\", \"load\"));
+    sys = getSystemName();
+
+    if ( dynlen(p_dsSysNames) > 0 )
+    {
+      //Get the right programs
+      for (i=1; i<=dynlen(p_dsSysNames); i++)
+      {
+        dpConnect(\"workCB1\", TRUE, p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\");
+        dpConnect(\"workCB2\", FALSE, p_dsSysNames[i]+\":\"+p_sScCom+\".mainState:_original.._value\");
+        dpQueryConnectSingle(\"workCB1\", FALSE,
+                                        p_dsSysNames[i] + \":\",
+                                        \"SELECT '_original.._value' FROM '*.result' WHERE _DPT = \\\"_Sc\\\"\");
+      }                               
+    }
+    buVis.visible(FALSE);
+  }
+}  
+
+//*******************************
+workCB1(string dp1, dyn_dyn_anytype value)
+{
+  int         i,
+              running      = 0,
+              active      = 0,
+              inactive      = 0,
+              sumOfAllCond = 0;
+  bool        result,
+              mode; 
+  string      type;                
+  dyn_string  dsAllProgs;
+
+  dynClear(dsAllProgs);
+
+  //Get ALL programs
+  for (i=1; i<=dynlen(p_dsSysNames); i++)
+  {
+    //Get ALL program
+    dsAllProgs = dpNames(p_dsSysNames[i]+\":*\", \"_Sc\");  //Get all UI datapoints - also from the dist systems
+  }
+    
+  //Get all overrides and states
+  for (i=1; i<=dynlen(dsAllProgs); i++)
+  {
+    if (dpExists(dsAllProgs[i]+\".result:_original.._value\"))
+    {
+      dpGet(dsAllProgs[i]+\".result:_original.._value\", result,
+            dsAllProgs[i]+\".mode:_original.._value\",   mode);
+            
+      //Number of result of conditions == TRUE
+      if(result == TRUE)
+        sumOfAllCond++;
+      //Number of activated
+      if(mode == TRUE)
+        active++;
+      //Number of deactivated
+      if(mode == FALSE)
+        inactive++;      
+      //Number of running
+      if((result && mode) == TRUE)
+        running++;
+    }
+  }
+  setMultiValue(\"txtNoOfActive\", \"text\",    active,
+                \"txtNoOfInactive\", \"text\",  inactive, 
+                \"txtNoOfRunning\", \"text\",   running,
+                \"txtNoOfAllConFullfilled\", \"text\",  sumOfAllCond,
+                \"txtNoOfSchedules\", \"text\", dynlen(dsAllProgs));
+  
+}  
+
+//*******************************
+workCB2(string dp1, string value)
+{
+  int     i;
+  bool    b;
+  string  sl1, sl2, sl3, mainState;
+
+  mainState = getSystemName()+myUiNumber();
+  if (value != mainState)
+    return;
+  
+  getValue(\"load1\", \"text\", sl1);
+  getValue(\"load2\", \"text\", sl2);
+  getValue(\"load3\", \"text\", sl3);
+  sl1 = strltrim(sl1, \"\\\"\");  sl2 = strltrim(sl2, \"\\\"\");  sl3 = strltrim(sl3, \"\\\"\");
+  sl1 = strrtrim(sl1, \"\\\"\");  sl2 = strrtrim(sl2, \"\\\"\");  sl3 = strrtrim(sl3, \"\\\"\");
+  
+  i = tabMain.activeRegister();
+  
+  if (i == 0) b = sl1;
+  if (i == 1) b = sl2;
+  if (i == 2) b = sl3;
+  
+  if (!b)
+  {
+    txtLoState.text(getCatStr(\"scheduler\", \"ready\"));
+    pf_emptyTable();
+  }
+  else
+    txtLoState.text(getCatStr(\"scheduler\", \"load\"));
+}    
+
+
+" 0
+ E E E E 1 -1 -1 0  32 20
+"refFileName"0  1
+E "// ============================================================================
+// Panel Global Variables
+// ============================================================================
+  int        p_iActiveRegister;
+  string     p_sScCom = \"_ScCom\";
+  dyn_string p_para_register,
+             p_dsSysNames;
+  dyn_uint   p_duiSysIds;
+  const int  SCHED_LIST = 0;
+  const int  LOG = 1;
+  const int  DEPENDENCIES = 2;
+
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+//Function: pf_emptyTable()
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+pf_emptyTable()
+{
+  int i;
+
+  //Schedules tab
+  switch (p_iActiveRegister)
+  {
+    case SCHED_LIST:
+      i = tabSchedules.lineCount();
+      break;
+    case LOG:
+      i = tab1.lineCount();
+      break;
+    case DEPENDENCIES:
+      i = tab2.lineCount();
+      break;
+  }
+
+  if (i <= 0)
+  {
+    cmdActivate.enabled(FALSE);
+    cmdCopy.enabled(FALSE);
+    cmdDeactivate.enabled(FALSE);
+    cmdEdit.enabled(FALSE);
+    cmdPrint.enabled(FALSE);
+    cmdDelete.enabled(FALSE);
+  }
+  else
+  {
+    if (p_iActiveRegister != LOG)
+    {
+      cmdActivate.enabled(TRUE);
+      cmdCopy.enabled(TRUE);
+      cmdDeactivate.enabled(TRUE);
+      cmdEdit.enabled(TRUE);
+      cmdPrint.enabled(TRUE);
+      cmdDelete.enabled(TRUE);
+    }
+    else
+    {
+      cmdActivate.enabled(FALSE);
+      cmdCopy.enabled(FALSE);
+      cmdDeactivate.enabled(FALSE);
+      cmdEdit.enabled(FALSE);
+      cmdPrint.enabled(TRUE);
+      cmdDelete.enabled(TRUE);
+    }
+  }
+}
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+//Function: pf_userPermission2()
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+pf_userPermission2()
+{
+  cmdActivate.enabled(FALSE);
+  cmdCopy.enabled(FALSE);
+  cmdDaySchedule.enabled(FALSE);
+  cmdDeactivate.enabled(FALSE);
+  cmdEdit.enabled(FALSE);
+  cmdFreeSchedule.enabled(FALSE);
+  cmdInfoAction.enabled(FALSE);
+  cmdPrint.enabled(FALSE);
+  cmdReactionProg.enabled(FALSE);
+  cmdRefresh.enabled(FALSE);
+  cmdSpecDays.enabled(FALSE);
+  cmdWeekSchedule.enabled(FALSE);
+}
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+//Function: pf_userPermission3()
+//** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+pf_userPermission3()
+{
+  cmdDelete.enabled(FALSE);
+}
+
+" 0
+ 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer0
+LANG:10004 6 Layer0
+LANG:10000 6 Layer0
+LANG:10027 6 Layer0
+6 0
+"Border2"
+""
+1 -200 -53 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+898 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -200 -110 1126 -53
+6 1
+"Border4"
+""
+1 -180 -19 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+899 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -180 -120 1250 -19
+6 2
+"Border5"
+""
+1 -200 -53 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+907 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -200 -110 1126 -53
+6 3
+"Border6"
+""
+1 -180 -19 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+908 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -180 -120 1250 -19
+6 4
+"Border8"
+""
+1 -200 -53 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+916 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -200 -110 1126 -53
+6 5
+"Border9"
+""
+1 -180 -19 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+917 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E -180 -120 1250 -19
+30 6
+"Frame1"
+""
+1 -100 47 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+989 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1 0 1 0 -5 0 E -100 5 1020 47
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 6 Frame1
+LANG:10004 6 Frame1
+LANG:10000 6 Frame1
+LANG:10027 6 Frame1
+2 7
+"Text1"
+""
+1 339 703 E E E 0 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+1005 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 341 705 482 724
+0 2 0 "0s" 0 0 0 66 0 0  341 705 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 25 All conditions fulfilled:
+LANG:10004 18 满足全部条件
+LANG:10000 26 Alle Bedingungen erfüllt:
+LANG:10027 36 Все условия выполн.:
+2 8
+"Text2"
+""
+1 160 703 E E E 0 E 0 E N {0,0,0} E N "_3DFace" E E
+ E E
+1006 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 162 705 298 724
+0 2 0 "0s" 0 0 0 66 0 0  162 705 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 8 Running:
+LANG:10004 9 运行：
+LANG:10000 19 Laufende Programme:
+LANG:10027 23 Выполняется:
+14 10
+"txtLoState"
+""
+1 14.99999999999999 706 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+962 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 13 Loading state
+LANG:10004 12 加载状态
+LANG:10000 10 Ladestatus
+LANG:10027 29 Статус загрузки
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 704 202 726
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  //this.text(\"Ready\");
+}" 0
+ E
+28 11
+"tabMain"
+""
+1 15 50 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+888 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignCenter"
+"selchangedcb" "main()
+{
+  p_iActiveRegister = this.activeRegister();
+  
+  pf_emptyTable();
+}"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 48 997 692
+E3 "schedules_overview" 4
+LANG:10001 18 Schedules overview
+LANG:10004 12 调度总览
+LANG:10000 18 Programmübersicht
+LANG:10027 31 Обзор расписаний
+1 "vision\\scheduler\\sc_schedules.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"actionLog_overview" 4
+LANG:10001 10 Action LOG
+LANG:10004 12 动作日志
+LANG:10000 11 Aktions-LOG
+LANG:10027 29 Журнал действия
+1 "vision\\scheduler\\sc_actionsLog.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"schedule_dependances" 4
+LANG:10001 21 Schedule dependencies
+LANG:10004 12 调度依赖
+LANG:10000 15 Abhängigkeiten
+LANG:10027 43 Зависимости расписаний
+1 "vision\\scheduler\\sc_scheduleDependances.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+
+26 12
+"CascadeButton4"
+""
+1 310 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+904 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 PVSS II Help
+LANG:10004 12 PVSS II Help
+LANG:10000 20 Hilfe ich habe Angst
+LANG:10027 17 Справка II
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 -82 402 -58
+ 0 4
+LANG:10001 1 ?
+LANG:10004 1 ?
+LANG:10000 1 ?
+LANG:10027 1 ?
+"" 0 0 0 0 0
+ 1 1 4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"1" 0 0 0 0 0
+ E E0 
+26 13
+"CascadeButton5"
+""
+1 -145 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+905 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  -147 -82 -33 -58
+ 0 4
+LANG:10001 7 Options
+LANG:10004 6 选项
+LANG:10000 8 Optionen
+LANG:10027 10 Опции
+"" 0 0 0 0 0
+ 5 1 4
+LANG:10001 20 Create configuration
+LANG:10004 12 创建配置
+LANG:10000 23 Konfiguration erstellen
+LANG:10027 39 Создать конфигурацию
+"3" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Load configuration
+LANG:10004 12 加载配置
+LANG:10000 19 Konfiguration laden
+LANG:10027 43 Загрузить конфигурацию
+"1" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Edit configuration
+LANG:10004 12 编辑配置
+LANG:10000 24 Konfiguration bearbeiten
+LANG:10027 51 Редактировать конфигурацию
+"2" 0 0 0 0 0
+ 1 4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+"4" 0 0 0 0 0
+ 1 4
+LANG:10001 14 Print protocol
+LANG:10004 12 打印记录
+LANG:10000 17 Protokoll Drucken
+LANG:10027 29 Протокол печати
+"5" 0 0 0 0 0
+ E E0 
+26 14
+"CascadeButton2"
+""
+1 310 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+913 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 12 PVSS II Help
+LANG:10004 12 PVSS II Help
+LANG:10000 20 Hilfe ich habe Angst
+LANG:10027 17 Справка II
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 -82 402 -58
+ 0 4
+LANG:10001 1 ?
+LANG:10004 1 ?
+LANG:10000 1 ?
+LANG:10027 1 ?
+"" 0 0 0 0 0
+ 1 1 4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"1" 0 0 0 0 0
+ E E0 
+26 15
+"CascadeButton3"
+""
+1 -145 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+914 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  -147 -82 -33 -58
+ 0 4
+LANG:10001 7 Options
+LANG:10004 6 选项
+LANG:10000 8 Optionen
+LANG:10027 10 Опции
+"" 0 0 0 0 0
+ 5 1 4
+LANG:10001 20 Create configuration
+LANG:10004 12 创建配置
+LANG:10000 23 Konfiguration erstellen
+LANG:10027 39 Создать конфигурацию
+"3" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Load configuration
+LANG:10004 12 加载配置
+LANG:10000 19 Konfiguration laden
+LANG:10027 43 Загрузить конфигурацию
+"1" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Edit configuration
+LANG:10004 12 编辑配置
+LANG:10000 24 Konfiguration bearbeiten
+LANG:10027 51 Редактировать конфигурацию
+"2" 0 0 0 0 0
+ 1 4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+"4" 0 0 0 0 0
+ 1 4
+LANG:10001 14 Print protocol
+LANG:10004 12 打印记录
+LANG:10000 17 Protokoll Drucken
+LANG:10027 29 Протокол печати
+"5" 0 0 0 0 0
+ E E0 
+26 16
+"CascadeButton6"
+""
+1 310 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+922 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 13 WinCC OA Help
+LANG:10004 15 WinCC OA 帮助
+LANG:10000 13 WinCC OA Help
+LANG:10027 23 Справка WinCC OA
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  308 -82 402 -58
+ 0 4
+LANG:10001 1 ?
+LANG:10004 1 ?
+LANG:10000 1 ?
+LANG:10027 1 ?
+"" 0 0 0 0 0
+ 1 1 4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"1" 0 0 0 0 0
+ E E0 
+26 17
+"CascadeButton7"
+""
+1 -145 -80 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+923 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  -147 -82 -33 -58
+ 0 4
+LANG:10001 7 Options
+LANG:10004 6 选项
+LANG:10000 8 Optionen
+LANG:10027 10 Опции
+"" 0 0 0 0 0
+ 5 1 4
+LANG:10001 20 Create configuration
+LANG:10004 12 创建配置
+LANG:10000 23 Konfiguration erstellen
+LANG:10027 39 Создать конфигурацию
+"3" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Load configuration
+LANG:10004 12 加载配置
+LANG:10000 19 Konfiguration laden
+LANG:10027 43 Загрузить конфигурацию
+"1" 0 0 0 0 0
+ 1 4
+LANG:10001 18 Edit configuration
+LANG:10004 12 编辑配置
+LANG:10000 24 Konfiguration bearbeiten
+LANG:10027 51 Редактировать конфигурацию
+"2" 0 0 0 0 0
+ 1 4
+LANG:10001 20 Delete configuration
+LANG:10004 12 删除配置
+LANG:10000 22 Konfiguration löschen
+LANG:10027 39 Удалить конфигурацию
+"4" 0 0 0 0 0
+ 1 4
+LANG:10001 14 Print protocol
+LANG:10004 12 打印记录
+LANG:10000 17 Protokoll Drucken
+LANG:10027 29 Протокол печати
+"5" 0 0 0 0 0
+ E E0 
+13 18
+"cmdEdit"
+""
+1 248 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+939 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 23 Edit selected  schedule
+LANG:10004 21 编辑选择的调度
+LANG:10000 29 Gewähltes Programm editieren
+LANG:10027 56 Изменить выбранное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  208 10 236 38
+
+P 
+12303291
+"pictures/StandardIcons/edit_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     type, dpe, dpe1;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      if (Row1.text() == \"\")
+      {
+        sc_nolineselected();  return;
+      }
+      tabSchedules.currentCell(Row1.text(),1);
+      dpe = tabSchedules.cellValue();
+      tabSchedules.currentCell(Row1.text(),3);
+      type = tabSchedules.cellValue();
+      break;
+      
+    case LOG:
+      if (Row2.text() == \"\")
+      {
+        sc_nolineselected();  return;
+      }      
+      tab1.currentCell(Row2.text(),1);
+      dpe  = tab1.cellValue();
+      dpe1 = dpSubStr(dpe, DPSUB_SYS_DP);
+      dpGet(dpe1+\".type:_online.._value\", type);
+      break;
+      
+    case DEPENDENCIES:
+      if (Row3.text() == \"\")
+      {
+        sc_nolineselected();  return;
+      }  
+      tab2.currentCell(Row3.text(),1);
+      dpe = tab2.cellValue();
+      tab2.currentCell(Row3.text(),2);
+      type = tab2.cellValue();
+      break;
+      
+    default:
+      return;
+  }  
+  
+  type = strtoupper(type);  
+  sc_editCas(type, dpe);
+}" 0
+ E E E
+14 19
+"txtNoOfAllConFullfilled"
+""
+1 485 704 E E E 0 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+952 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 24 All conditions fulfilled
+LANG:10004 18 满足全部条件
+LANG:10000 25 Alle Bedingungen erfüllt
+LANG:10027 40 Все условия выполнены
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  483 702 527 728
+3 "0s" 0 0 0 0 0 -1  E E E
+14 20
+"txtNoOfRunning"
+""
+1 301 704 E E E 0 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+953 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 25 Actually running programs
+LANG:10004 18 当前运行程序
+LANG:10000 26 Aktuell laufende Programme
+LANG:10027 45 Выполняющиеся программы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  299 702 343 728
+3 "0s" 0 0 0 0 0 -1  E E E
+14 21
+"txtNoOfSchedules"
+""
+1 680 704 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+960 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 19 Number of schedules
+LANG:10004 12 调度数量
+LANG:10000 20 Anzahl der Programme
+LANG:10027 31 Число расписаний
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  678 702 722 728
+3 "0s" 0 0 0 0 0 -1  E E E
+14 22
+"txtNoOfInactive"
+""
+1 780 704 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+977 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Set on inactive mode
+LANG:10004 21 设置不激活模式
+LANG:10000 19 Gesperrte Programme
+LANG:10027 55 Установить в неактивный режим
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  778 702 822 728
+3 "0s" 0 0 0 0 0 -1  E E E
+13 23
+"cmdCopy"
+""
+1 278 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+985 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 22 Copy selected schedule
+LANG:10004 21 复制已选的调度
+LANG:10000 28 Gewähltes Programm kopieren
+LANG:10027 60 Копировать выбранное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  238 10 266 38
+
+P 
+12303291
+"pictures/StandardIcons/copy_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     sRow, tab, d;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      sRow = Row1.text();
+      tab  = \"tabSchedules\";
+      d    = \"dpe\";
+      break;
+    case DEPENDENCIES:
+      sRow = Row3.text();
+      tab  = \"tab2\";
+      d    = \"dpe1\";
+      break;
+    case LOG:
+    default:
+      return;
+  }  
+  sc_copy(tab, sRow, d);
+}" 0
+ E E E
+13 24
+"cmdDelete"
+""
+1 318 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+979 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 24 Delete selected schedule
+LANG:10004 21 删除选定的调度
+LANG:10000 31 Ausgewähltes Programm löschen
+LANG:10027 54 Удалить выбранное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  278 10 306 38
+
+P 
+12303291
+"pictures/StandardIcons/delete_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     r, v;
+  dyn_int    sl;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      getValue(\"Row1\", \"text\",r);
+      getValue(\"Value1\", \"text\",v);
+      getValue(\"tabSchedules\", \"getSelectedLines\", sl);
+    break;
+    case LOG:
+      sc_delAcLog();
+      pf_emptyTable();
+    return;
+    case DEPENDENCIES:
+      getValue(\"Row3\", \"text\",r);
+      getValue(\"Value3\", \"text\",v);
+      getValue(\"tab2\", \"getSelectedLines\", sl);
+    break;
+    default:
+      return;
+  }  
+  
+  sc_delScDp(r, v, sl);
+  pf_emptyTable();
+}" 0
+ E E E
+13 25
+"cmdPrint"
+""
+1 787 751 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+936 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Print table data
+LANG:10004 18 打印表格数据
+LANG:10000 26 Druckt die gesamte Tabelle
+LANG:10027 40 Печать данных таблицы
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  818 748 906 776
+
+T 
+4
+LANG:10001 5 Print
+LANG:10004 6 打印
+LANG:10000 7 Drucken
+LANG:10027 12 Печать
+"main()
+{
+  char       c = \"|\";
+  string     shapeName, title;
+  dyn_string header, footer;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:          // schedulers
+      shapeName = \"tabSchedules\";
+      title     = getCatStr(\"scheduler\", \"p1\");
+      break;
+    case LOG:         // action log
+      shapeName = \"tab1\";
+      title     = getCatStr(\"scheduler\", \"p3\");
+      break;
+    case DEPENDENCIES:        // dependencies
+      shapeName = \"tab2\";
+      title     = getCatStr(\"scheduler\", \"p2\");
+      break;
+    default:
+      return;
+  } 
+
+  //Printing
+  header[1] = \"\\\\left{\"+getCatStr(\"scheduler\", \"p4\")+\"\"+title+\"} \\\\right{\"+getCatStr(\"scheduler\", \"p5\")+\"\\\\user}\";
+  header[2] = \"\";
+  footer[1] = \"\";
+  footer[2] = \"\\\\left{\\\\date / \\\\time} \\\\center{WinCC OA Scheduler} \\\\right{\"+getCatStr(\"scheduler\", \"p6\")+\"\\\\page\"+getCatStr(\"scheduler\", \"p7\")+\"\\\\numpages}\" ;
+  
+  if (!isMotif())
+  {    printTable(shapeName,              //shapeName
+               TRUE,                      //showDialog
+               header,                    //dyn_string header
+               footer,                    //dyn_string footer
+               PT_VISIBLECOLUMNS,         //int columnsType
+               \"\",                        //dyn_string | dyn_int columns
+               TRUE,                      //fitToPage
+               TRUE,                      //landscape
+               FALSE,                     //gridLines
+               TRUE);                     //gridBackground
+  }
+  else
+  {
+    setValue (shapeName,                     //shape
+              \"printTable\",                  //feature
+              header,                        //header
+              makeDynString(),               // no special column attributes
+              footer,                        //footer
+              \"AS_UNIX.cfg\",                 //printer config
+              PAPER_FORMAT_A4,               //paper
+              TRUE,                          //landscape
+              FALSE,                         //show all
+              c,                           //separator
+              1,                             //left space                  
+              1);                            //line space
+  }             
+}
+" 0
+ E E E
+13 26
+"cmdDaySchedule"
+""
+1 63 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+963 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 16 New day schedule
+LANG:10004 15 新建日调度
+LANG:10000 27 Neues Tagesprogramm anlegen
+LANG:10027 46 Новое дневное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  23 10 51 38
+
+P 
+4294967295
+"pictures/day_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_day_scheduler\"));
+}" 0
+ E E E
+13 27
+"cmdWeekSchedule"
+""
+1 93 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+966 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 17 New week schedule
+LANG:10004 15 新建周调度
+LANG:10000 28 Neues Wochenprogramm anlegen
+LANG:10027 52 Расписание следующей недели
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  53 10 81 38
+
+P 
+12632256
+"pictures/week_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+ sc_newCas(\"/vision/scheduler/sc_daySchedule.pnl\", getCatStr( \"scheduler\", \"sc_week_scheduler\"), \"\", \"W\"); 
+}" 0
+ E E E
+13 28
+"cmdFreeSchedule"
+""
+1 123 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+968 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 17 New free schedule
+LANG:10004 18 新建自由调度
+LANG:10000 29 Neues freies Programm anlegen
+LANG:10027 50 Новое свободное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  83 10 111 38
+
+P 
+4294967295
+"pictures/StandardIcons/Calendar_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_newCas(\"/vision/scheduler/sc_freeSchedule.pnl\", getCatStr(\"scheduler\", \"panelName\"));
+}" 0
+ E E E
+13 29
+"cmdReactionProg"
+""
+1 153 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+975 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 20 New reaction program
+LANG:10004 18 新建响应程序
+LANG:10000 31 Neues Reaktionsprogramm anlegen
+LANG:10027 36 Новый план действия
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  113 10 141 38
+
+P 
+12303291
+"pictures/reaction_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_newCas(\"/vision/scheduler/sc_reactionProg.pnl\", getCatStr(\"scheduler\", \"panelNameReact\"));
+}" 0
+ E E E
+13 30
+"cmdInfoAction"
+""
+1 183 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+971 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 15 New info action
+LANG:10004 12 新建动作
+LANG:10000 24 Neue Info-Aktion anlegen
+LANG:10027 35 Новое инф. действие
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  143 10 171 38
+
+P 
+12632256
+"pictures/info_action_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_newInfoAction();
+}" 0
+ E E E
+13 31
+"cmdSpecDays"
+""
+1 213 11 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+973 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 25 Parameterize special days
+LANG:10004 6 参数
+LANG:10000 24 Sondertage parametrieren
+LANG:10027 50 Параметризация особых дней
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  173 10 201 38
+
+P 
+4294967295
+"pictures/special_day_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  sc_newCas(\"/vision/scheduler/sc_specialDays.pnl\", getCatStr(\"scheduler\", \"panelNameSpecial\"));
+}" 0
+ E E E
+13 32
+"cmdHelp"
+""
+1 15 750 E E E 1 E 1 E N "STD_button_text" E N "STD_pushbutton_back" E E
+ E E
+993 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 29 Открыть справку
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 748 101 776
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help(\"sc_main\");
+}" 0
+ E E E
+13 33
+"Button2"
+""
+1 200 11 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+994 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  198 9 212 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 34
+"Button4"
+""
+1 265 11 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+994 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  263 9 277 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 35
+"Button7"
+""
+1 347 10 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+997 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  303 9 317 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 36
+"cmdActivate"
+""
+1 353 11 E E E 1 E 1 E N "STD_button_text" E N "STD_pushbutton_back" E E
+ E E
+999 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 26 Activate selected schedule
+LANG:10004 21 激活选定的调度
+LANG:10000 30 Gewähltes Programm aktivieren
+LANG:10027 64 Активировать выбранное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  313 10 341 38
+
+P 
+12303291
+"pictures/start_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     sRow, tab, d;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      sRow = Row1.text();
+      tab  = \"tabSchedules\";
+      d    = \"dpe\";
+      break;
+    case DEPENDENCIES:
+      sRow = Row3.text();
+      tab  = \"tab2\";
+      d    = \"dpe1\";
+      break;
+    case LOG:
+    default:
+      return;
+  }  
+  sc_actDeact(tab, sRow, d, \"TRUE\");
+}" 0
+ E E E
+13 37
+"cmdDeactivate"
+""
+1 383 11 E E E 1 E 1 E N "STD_button_text" E N "STD_pushbutton_back" E E
+ E E
+1000 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 28 Deactivate selected schedule
+LANG:10004 21 禁用选择的调度
+LANG:10000 35 Ausgewähltes Programm deaktivieren
+LANG:10027 68 Деактивировать выбранное расписание
+
+2
+"hoverbclr" "N \"weiss\""
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  343 10 371 38
+
+P 
+12303291
+"pictures/stop_en.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     sRow, tab, d;
+  
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      sRow = Row1.text();
+      tab  = \"tabSchedules\";
+      d    = \"dpe\";
+      break;
+    case DEPENDENCIES:
+      sRow = Row3.text();
+      tab  = \"tab2\";
+      d    = \"dpe1\";
+      break;
+    case LOG:
+    default:
+      break;
+  }  
+  sc_actDeact(tab, sRow, d, \"FALSE\");
+}" 0
+ E E E
+13 38
+"Button12"
+""
+1 410 10 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1002 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  368 9 382 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+13 39
+"Button8"
+""
+1 960 15 E E E 1 E 0 E N {204,0,0} E N "_Button" E E
+ E E
+1003 0 0 0 0 0
+"main()
+{
+}" 0
+ "main()
+{
+}" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  958 9 986 39
+
+T 
+4
+LANG:10001 3 OBJ
+LANG:10004 3 OBJ
+LANG:10000 3 OBJ
+LANG:10027 3 OBJ
+"main()
+{
+  //dyn_string objects;
+  //sc_getAllGraphObj(\"D:/pvss/PVSS_II_Scheduler/panels/vision/sc_main.pnl\", objects); //??????
+  // Button is invisible!
+}
+
+" 0
+ E E E
+14 40
+"txtNoOfActive"
+""
+1 730 704 E E E 0 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+1003 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Set on active mode
+LANG:10004 18 设置激活模式
+LANG:10000 22 Freigegebene Programme
+LANG:10027 51 Установить в активный режим
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  728 702 772 728
+3 "0s" 0 0 0 0 0 -1  E E E
+13 41
+"cmdRefresh"
+""
+1 920 15 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+1008 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 13 Refresh table
+LANG:10004 12 更新表格
+LANG:10000 21 Tabelle aktualisieren
+LANG:10027 31 Обновить таблицу
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  918 9 946 39
+
+P 
+10862530
+"pictures/StandardIcons/refresh_20.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int        i;
+  string     transfer;
+  dyn_string aLog;
+    
+  switch (tabMain.activeRegister())
+  {
+    case SCHED_LIST:
+      if (dynlen(p_dsSysNames) > 0 )
+      {
+        for (i=1; i<=dynlen(p_dsSysNames); i++)
+        {
+          dpGet(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_online.._value\", transfer);
+          dpSet(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\", transfer); 
+        }                       
+      }  
+      break;
+    case DEPENDENCIES:
+      if (dynlen(p_dsSysNames) > 0 )
+      {
+        for (i=1; i<=dynlen(p_dsSysNames); i++)
+        {
+          dpGet(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_online.._value\", transfer);
+          dpSet(p_dsSysNames[i]+\":\"+p_sScCom+\".transfer:_original.._value\", transfer); 
+        }                       
+      }  
+      break;
+      
+    case LOG:
+      if (dynlen(p_dsSysNames) > 0 )
+      {
+        for (i=1; i<=dynlen(p_dsSysNames); i++)
+        {
+          dpGet(p_dsSysNames[i]+\":\"+p_sScCom+\".actionLog:_online.._value\", aLog);
+          dpSet(p_dsSysNames[i]+\":\"+p_sScCom+\".actionLog:_original.._value\", aLog); 
+        }                       
+      }
+      break;
+  }  
+}" 0
+ E E E
+13 42
+"Button6"
+""
+1 949 11 E E E 0 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+1009 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  947 9 957 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+15 43
+"Clock2"
+""
+1 840 700 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+1010 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  838 698 992 732
+E 1 1 "%X" "%x"
+1 1 1 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 
+13 44
+"close"
+""
+1 385 751 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1010 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 41 Panel schließen, ohne Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  908 748 996 776
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 45
+"Button3"
+""
+1 15 11 E E E 0 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1012 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0  13 9 27 39
+
+P 
+12303291
+"pictures/separator_v.gif"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+1 49 0 "" 0
+0
+2 9
+"Text3"
+""
+1 534 705 E E E 0 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+1007 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 536 707 677 722
+0 2 0 "0s" 0 0 0 66 0 0  536 707 1
+4
+LANG:10001 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 20 Number of schedules:
+LANG:10004 12 调度数量
+LANG:10000 21 Anzahl der Programme:
+LANG:10027 32 Число расписаний:
+13 48
+"buVis"
+""
+1 5 10 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1016 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0  3 8 477 40
+
+T 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+E E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 80 755 T 1015 2.045518220907836 0 1 -173.0686421386464 -15
+0
+0

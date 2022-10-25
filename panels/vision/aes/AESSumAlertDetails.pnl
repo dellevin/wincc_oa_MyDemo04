@@ -1,0 +1,1052 @@
+V 14
+4
+LANG:10001 15 Sumalertdetails
+LANG:10004 15 Sumalertdetails
+LANG:10000 18 Summenalarmdetails
+LANG:10027 74 Детальная информация о групповом аларме
+PANEL,-1 -1 1254 380 N "_3DFace" 1
+"$dpid"
+"main()
+{
+ dyn_string _sumalerts;       // Liefert die Liste der zugeordneten Summenalarme. Diese Liste wird zur Laufzeit berechnet, und kann nicht verändert werden (read-only)
+ dyn_langString _summed_abbr; // Liste der anstehenden Kurzzeichen
+ dyn_atime _summed_alerts;    // Liste der anstehenden Alarme (DPE + Alarmzeit)
+ dyn_string _summed_colors;   // Liste der anstehenden Meldefarben
+ dyn_string _summed_classes;  // Liste der anstehenden Meldeklassen 
+ dyn_char _summed_prios;      // Liste der anstehenden Prioritäten
+ dyn_int _summed_states;      // Liste der anstehenden Alarmzustände (kam quittiert, etc)
+ dyn_bool _summed_filtered;
+ dyn_bool _summed_force_filtered;
+
+ string ls;
+ 
+ string  dpe = $dpid;
+ 
+ dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+ 
+ dpGet(   dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+          dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+          dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+          dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+          dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+          dpe+\":_alert_hdl.._summed_states\", _summed_states);
+
+ bool filtered, force_filtered;
+ string adpe, dpdetail=\"_alert_hdl.\";
+ dyn_string adpes;
+ int count;
+ time ti;
+
+ for ( int i=1; i<= dynlen(_summed_abbr); i++)
+ {
+  adpe =  getAIdentifier(_summed_alerts[i]);
+  count = getACount (_summed_alerts[i]);
+  ti = (time) _summed_alerts[i];
+  
+  if (strpos(adpe, \"._class\")>0)
+    strreplace(adpe, \"._class\", \"\");
+  
+   if (!aes_getFiltered_and_ForceFiltered_Attribute( adpe, dpdetail+aes_getDpDetail(adpe), ti, count, filtered, force_filtered ))
+   {
+     dynAppend(_summed_filtered, false);
+     dynAppend(_summed_force_filtered, false);
+   }
+   else
+   {
+     dynAppend(_summed_filtered, filtered);
+     dynAppend(_summed_force_filtered, force_filtered);
+   }
+ }
+ 
+ showAlertsCB(  dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+                dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+                dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+                dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+                dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+                dpe+\":_alert_hdl.._summed_states\", _summed_states,
+                dpe+\":_alert_hdl.._force_filtered\", _summed_force_filtered,
+                dpe+\":_alert_hdl.._filtered\", _summed_filtered);
+
+
+// dpConnect(\"showAlertsCB\",dpe+\"_summed_abbr\",
+//											    dpe+\"_summed_alerts\",
+//											    dpe+\"_summed_colors\",
+//											    dpe+\"_summed_classes\",
+//											    dpe+\"_summed_prios\",
+//											    dpe+\"_summed_states\");
+
+
+      
+ dpConnect(\"colorAlertCB\",  dpe + \":_alert_hdl.._act_state_color\",
+                            dpe + \":_alert_hdl.._abbr_pattern\");
+
+/* 
+ if (dpe== \"\")
+  dpe = \"1.\";
+ 
+ dpConnect(\"showAlertsCB\",dpe+\":_alert_hdl.._summed_abbr\",
+											    dpe+\":_alert_hdl.._summed_alerts\",
+											    dpe+\":_alert_hdl.._summed_colors\",
+											    dpe+\":_alert_hdl.._summed_classes\",
+											    dpe+\":_alert_hdl.._summed_prios\",
+											    dpe+\":_alert_hdl.._summed_states\");
+
+
+      
+ dpConnect(\"colorAlertCB\",  dpe + \":_alert_hdl.._act_state_color\",
+                            dpe + \":_alert_hdl.._abbr_pattern\");
+*/
+}
+
+
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  20 20
+""0  1
+E "const string AES_SUMALERTDETAILS_ACK = \"!!!\";
+const string AES_SUMALERTDETAILS_NOACK = \"< >\";
+const int AES_SUMALERTDETAILS_FORCE_FILTER_COLUMN = 1;
+const int AES_SUMALERTDETAILS_ACK_COLUMN = 7;
+const int AES_SUMALERTDETAILS_ATIME_COLUMN = 9;
+
+colorAlertCB(string dpe, string color, string dp2, string ls)
+{
+ if (dpGetAlias(dpe) != \"\")
+    te_sumAlertDP.text=dpGetDescription(dpe) + \" - \" + dpGetAlias(dpe); 
+ else
+    te_sumAlertDP.text=dpGetDescription(dpe) ;
+
+ te_sumAlertDPAbr.backCol	= color;
+ te_sumAlertDPAbr.text = ls;
+
+}
+
+showAlertsCB( string dp,   dyn_langString _summed_abbr,
+							string dp1,  dyn_atime _summed_alerts,
+							string dp2,  dyn_string _summed_colors,
+							string dp3,  dyn_string _summed_classes, 
+							string dp4,  dyn_char _summed_prios,
+							string dp5,  dyn_int _summed_states,
+       string dp6,  dyn_bool _force_filtered,
+       string dp7,  dyn_bool _filtered)
+{
+  int i;
+  string dirStr, sAlert;
+  time t;
+  int iAlert;
+  string dpe, select, fullDetailName;
+  bool bAckable,bOldest;
+  int iAckable;
+  dyn_string dsAckCell;
+  int iCount, iRange;
+  time t1, t2;
+  dyn_dyn_anytype tab;
+  
+  
+  // IM 106373 - MN: neu Anfang
+  //dyn_atime _summed_alerts_original;
+  for(int iiii=1;iiii<=dynlen(_summed_alerts);iiii++)
+  {
+    time partner;
+    int partnerId;
+    string sClass;
+    string dpe=dpSubStr(getAIdentifier(_summed_alerts[iiii]),DPSUB_DP_EL);
+   
+    //_summed_alerts_original[iiii]=_summed_alerts[iiii];
+   
+    alertGet(_summed_alerts[iiii],getACount(_summed_alerts[iiii]),dpe +\":_alert_hdl.._partner\",partner);
+    alertGet(_summed_alerts[iiii],getACount(_summed_alerts[iiii]),dpe +\":_alert_hdl.._partn_idx\",partnerId);
+   
+    if( partner > 0 )
+    {
+      //DebugN(\"Diese Meldung geht eigentlich:\",_summed_alerts[iiii],partner,partnerId,dpe);
+      _summed_alerts[iiii] = makeATime(partner,partnerId,dpe+\":_alert_hdl.._class\"); 
+      _summed_states[iiii]= 0; // muss man noch prüfen, ob es wirklich so einfach geht
+      alertGet(_summed_alerts[iiii],getACount(_summed_alerts[iiii]),dpe +\":_alert_hdl.._class\",sClass);
+      _summed_classes[iiii]=sClass; // muss man noch prüfen, ob es wirklich so einfach auch bei analogen Meldungen geht
+    }
+  }  
+  // IM 106373 - MN: neu Ende
+	
+	Table1.deleteAllLines;
+	
+	txtTime.text	= formatTime(\"%c\", getCurrentTime(), \" (%d)\");
+               
+        if ( !isAlertFilteringActive() )
+        {
+          setValue (\"Table1\", \"columnEditable\", 0, false,
+                              \"columnVisibility\", 0, false,
+                              \"columnVisibility\", 1, false,
+                              \"columnWidth\", 4, 465);
+        }
+        
+	 for ( i=1; i<= dynlen(_summed_abbr); i++)
+	 {
+    dpe =  getAIdentifier(_summed_alerts[i]);
+    iCount = getACount(_summed_alerts[i]);   
+    t1 = (time)_summed_alerts[i];
+
+    
+    if (useRDBArchive())      //Problem with RDB IM 80422
+      t2 = t1 + 0.001;  // we have to use a time-range
+    else
+      t2 = t1;
+      
+    fullDetailName = dpe;    
+	   if (substr(dpe, strlen(dpe)-1, 1) == \".\")
+	     dpe = substr(dpe, 0, strlen(dpe)- 1);
+	 
+	   if ( !isDistributed())
+	     dpe = dpSubStr(dpe, DPSUB_DP_EL);
+	   else
+	     dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+	  
+    dyn_string tmpDpe;
+    tmpDpe = makeDynString(dpe);
+//    isAckable(DPATTR_ACKTYPE_SINGLE, tmpDpe, iAckable); //IM 101189 avoid ack by driver at that place
+
+    select =  \"SELECT ALERT \"+
+                \"'_alert_hdl.._ackable', '_alert_hdl.._oldest_ack'\"+
+                \" FROM \" + \"'\"+dpSubStr(dpe,DPSUB_DP_EL) +\"'\" +
+                (dpSubStr(dpe, DPSUB_SYS) != getSystemName() ? \" REMOTE '\"+dpSubStr(dpe, DPSUB_SYS)+\"'\":\"\")+
+               \" TIMERANGE(\\\"\" + (string)t1 + \"\\\",\\\"\" + (string)t2 + \"\\\",1,0)\";
+    dpQuery( select, tab );
+
+    //new feature 'userdepending alarm display' IM #117931
+    int iAckAble = 1;    
+    
+    if(isFunctionDefined(\"aes_prepareAlertDetailDisplay\"))
+    {
+      //to keep the interface identical with alarm detail panel
+      dyn_string dsAbbr  = makeDynString(_summed_abbr[i]);
+      dyn_int    diPrior = makeDynInt((int)_summed_prios[i]);
+      dyn_bool   dbAck   = makeDynBool((dynlen(tab)>=2)?tab[2][3]:FALSE);
+      dyn_string dsClass = makeDynString(_summed_classes[i]);
+      //same function call as with alarm detail panel
+      aes_prepareAlertDetailDisplay(dsAbbr, diPrior, dbAck, dsClass);
+      
+      _summed_abbr[i]    = dsAbbr;
+      _summed_prios[i]   = (char)diPrior[1];
+      _summed_classes[i] = dsClass[1];
+      iAckAble = dbAck[1];
+    }
+    //// 'userdepending alarm display' 
+    
+	   if ( _summed_states[i])
+	     dirStr = getCatStr(\"sc\", \"entered\");
+	   else
+	     dirStr = getCatStr(\"sc\", \"left\");
+	  
+	   t = _summed_alerts[i];
+	   iAlert = _summed_prios[i];
+	  
+	   sprintf(sAlert, \"%03d\", iAlert);
+	   sAlert = sAlert + \"_\"+dpSubStr(_summed_classes[i], DPSUB_DP_EL);
+    	   
+    if (useRDBArchive())  //because in RDB we have to ask for a timeperiod -> we must remove the wrong entries
+    {
+      for (int i=dynlen(tab); i>=2; i--)  //only to second row, because first row is description
+      {
+        if (((time)((atime)tab[i][2])) != t1)
+        {
+          dynRemove(tab, i);
+        }
+      }
+    }
+        
+    iRange=aes_getRangeOfTab(tab, fullDetailName /* function expects config and detail */, t1, iCount);
+//    DebugN(fullDetailName ,iRange,iAckable,bAckable,tab[iRange][3]);
+    
+    if(iRange == -1)
+    {
+      bOldest = false;
+      bAckable = false;
+      iAckable = true;
+    }
+    else
+    {
+      iAckable = bAckable = tab[iRange][3];//IM 101189
+      bOldest = tab[iRange][4];
+    }
+ //   Debug(fullDetailName ,iRange,iAckable,bAckable,tab[iRange][3]);
+
+    if(iAckAble == 1)
+    {
+//      DebugN(\"1\",bAckable?AES_SUMALERTDETAILS_ACK:\"\");
+      dsAckCell[1] = bAckable?AES_SUMALERTDETAILS_ACK:\"\";
+    }
+    else
+    {
+//      DebugN(\"2\",bAckable?AES_SUMALERTDETAILS_NOACK:\"\");
+      dsAckCell[1] = bAckable?AES_SUMALERTDETAILS_NOACK:\"\";//basically ackable but with user defined mapping of alarm class acknowledge is denied
+    }
+      
+    dsAckCell[2] = (bOldest&&iAckable)?\"white\":\"_3DFace\";
+    dsAckCell[3] = \"red\";
+    
+	  dpe = dpGetDescription(dpe);
+    
+	  Table1.appendLine(\"_force_filtered\", _force_filtered[i],
+                     \"_filtered\", _filtered[i],
+                     \"_summed_abbr\", makeDynString( _summed_abbr[i], _summed_colors[i]),
+	                    \"_summed_alerts_time\",formatTime(\"%c\", t, \" (%d)\"),
+	                    \"_summed_alerts_dpe\",dpe,
+	                    \"_summed_prios\",sAlert ,
+	                    \"_summed_states\", dirStr,
+                     \"_acknowledge\", dsAckCell,
+                     // IM 106373 - MN: neu Anfang
+                     \"_atime\", _summed_alerts[i]);
+                     //\"_atime\", _summed_alerts_original[i]);
+                     // IM 106373 - MN: neu Ende
+	
+	}
+}
+
+refreshFilterColumns(string dpId, int row, atime alertTime)
+{
+  bool filtered, force_filtered;
+  
+  aes_getFiltered_and_ForceFiltered_Attribute( dpId, \"_alert_hdl.\"+aes_getDpDetail(dpId),
+                                               ((time)alertTime),getACount(alertTime), filtered, force_filtered );
+  Table1.cellValueRC(row, \"_filtered\", filtered);  
+  Table1.cellValueRC(row, \"_force_filtered\", force_filtered);    //to change Checkbox, if in Detail panel changed  
+}
+
+refreshTable()
+{
+ dyn_string _sumalerts;       // Liefert die Liste der zugeordneten Summenalarme. Diese Liste wird zur Laufzeit berechnet, und kann nicht verändert werden (read-only)
+ dyn_langString _summed_abbr; // Liste der anstehenden Kurzzeichen
+ dyn_atime _summed_alerts;    // Liste der anstehenden Alarme (DPE + Alarmzeit)
+ dyn_string _summed_colors;   // Liste der anstehenden Meldefarben
+ dyn_string _summed_classes;  // Liste der anstehenden Meldeklassen 
+ dyn_char _summed_prios;      // Liste der anstehenden Prioritäten
+ dyn_int _summed_states;      // Liste der anstehenden Alarmzustände (kam quittiert, etc)
+ dyn_bool _summed_filtered;   // Liste der Filtered-bits anstehenden Alarme
+ dyn_bool _summed_force_filtered;   // Liste der Force-Filtered-bits anstehenden Alarme 
+
+ string  dpe = $dpid;
+ 
+ dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+ 
+ if (dpe== \"\")
+  dpe = \"1.\";
+ 
+
+ dpGet(dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+       dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+       dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+       dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+       dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+       dpe+\":_alert_hdl.._summed_states\", _summed_states);
+ bool filtered, force_filtered;
+ string dpdetail=\"_alert_hdl.\";
+ string adpe;
+
+ for ( int i=1; i<= dynlen(_summed_abbr); i++)
+ {
+  adpe =  getAIdentifier(_summed_alerts[i]);
+  
+  string tmp1 = dpSubStr(adpe, DPSUB_CONF_DET);
+  string tmp = substr(tmp1, strlen(tmp1)-1);  //getDetailNumber
+  string therange=\"\";
+  if (tmp>=0 && tmp<=9)
+    therange = tmp;  
+  	  
+  if (substr(adpe, strlen(adpe)-1, 1) == \".\")
+    adpe = substr(adpe, 0, strlen(adpe)- 1);
+	 
+  if ( !isDistributed())
+    adpe = dpSubStr(adpe, DPSUB_DP_EL);
+  else
+    adpe = dpSubStr(adpe, DPSUB_SYS_DP_EL);
+  
+
+  
+  adpe = dpGetDescription(adpe);   
+  if (!aes_getFiltered_and_ForceFiltered_Attribute( getAIdentifier(_summed_alerts[i]), dpdetail+therange, ((time)_summed_alerts[i]), getACount(_summed_alerts[i]), filtered, force_filtered ))
+  {
+    dynAppend(_summed_filtered, false);
+    dynAppend(_summed_force_filtered, false);
+  }
+  else
+  {
+    dynAppend(_summed_filtered, filtered);
+    dynAppend(_summed_force_filtered, force_filtered);
+  }
+ }
+ showAlertsCB(  dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+                dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+              	dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+              	dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+              	dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+              	dpe+\":_alert_hdl.._summed_states\", _summed_states,
+                dpe+\":_alert_hdl.._force_filtered\", _summed_force_filtered,
+                dpe+\":_alert_hdl.._filtered\", _summed_filtered);
+
+}
+
+
+
+
+
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"StartAllInitCB" "0"
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 1
+"Text6"
+""
+1 10 10 E E E 1 E 1 E N {0,0,0} E N "_3DFace" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_3DFace"
+"antiAliased" "0"
+E E 0 1 1 0 0 E U  1 E 12 12 133 30
+0 2 0 "0s" 0 0 0 66 0 0  12 12 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Sumalert DP :
+LANG:10004 17 报警汇总的DP
+LANG:10000 16 Summenalarm DP :
+LANG:10027 27 DP групп. аларма
+2 11
+"Text1"
+""
+1 103 295 E E E 1 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 16 297 105 312
+0 2 0 "0s" 0 0 0 194 0 0  105 297 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 13 Refresh time:
+LANG:10004 6 刷新
+LANG:10000 16 aktualisiert um 
+LANG:10027 25 Время обновл.:
+14 2
+"te_sumAlertDP"
+""
+1 190 10 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  188 8 1237 34
+2 "40s" 40 0 0 0 0 -1  E E E
+25 6
+"Table1"
+""
+1 10 45 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 43 1242 284
+"main()
+{
+  this.tableMode=TABLE_SELECT_BROWSE;
+  this.selectByClick=TABLE_SELECT_LINE;
+}" 0
+"main(int row, string column, string value)
+{
+  string backCol, foreCol;
+  dyn_anytype line;
+  getValue(\"Table1\", \"getLineN\", row, line);  //read the selected Line  
+  getValue(\"Table1\", \"cellForeColRC\", row, this.columnName(AES_SUMALERTDETAILS_ACK_COLUMN-1), foreCol);  //read the ACK cell color  
+  getValue(\"Table1\", \"cellBackColRC\", row, this.columnName(AES_SUMALERTDETAILS_ACK_COLUMN-1), backCol); 
+  string cutDpid = getAIdentifier(line[AES_SUMALERTDETAILS_ATIME_COLUMN]);  //getAIdentifier returns dp with ending '.' so we remove it
+  if (cutDpid[strlen(cutDpid)-1]=='.')
+      cutDpid=substr(cutDpid,0,strlen(cutDpid)-1);
+  
+  string sAlertType = cutDpid;  // \"Sys:dp.:_alert_hdl.._class\"
+  int iType;
+  
+  // IM 104316
+  if (strpos(cutDpid, \"._class\")>0)
+    strreplace(cutDpid, \"._class\", \"\");  
+  
+  dpGet( dpSubStr(sAlertType, DPSUB_SYS_DP_EL) + \":_alert_hdl.._type\", iType);   
+
+  if (column == \"_force_filtered\")  
+  {
+    if (DPCONFIG_SUM_ALERT != iType) //if not a sumAlert
+    {
+      alertSet( (time)line[AES_SUMALERTDETAILS_ATIME_COLUMN], getACount(line[AES_SUMALERTDETAILS_ATIME_COLUMN]),
+                dpSubStr(cutDpid,DPSUB_SYS_DP_EL_CONF_DET)+\"._force_filtered\", line[AES_SUMALERTDETAILS_FORCE_FILTER_COLUMN]);  
+    }
+    else  
+      alertSet( (time)line[AES_SUMALERTDETAILS_ATIME_COLUMN], getACount(line[AES_SUMALERTDETAILS_ATIME_COLUMN]),
+                dpSubStr(cutDpid,DPSUB_SYS_DP_EL_CONF_DET)+\"._force_filter_active\", line[AES_SUMALERTDETAILS_FORCE_FILTER_COLUMN]);
+  
+    refreshFilterColumns(cutDpid, row, line[AES_SUMALERTDETAILS_ATIME_COLUMN]);
+  }
+  else if (column == \"_acknowledge\")
+  {
+    //if row can be ACK'ed
+    if(line[AES_SUMALERTDETAILS_ACK_COLUMN] == AES_SUMALERTDETAILS_ACK)
+    {
+      if(backCol == \"white\")
+      {
+        int result,iAckable;//IM 101189
+        dyn_string dsDPs = makeDynString(dpSubStr(cutDpid,DPSUB_SYS_DP_EL_CONF_DET)+\"._ack_state\");
+        string dpname = dpSubStr(cutDpid,DPSUB_SYS_DP_EL_CONF_DET)+\"._ack_state\";
+
+        atime at = makeATime(((time)line[AES_SUMALERTDETAILS_ATIME_COLUMN]), getACount(line[AES_SUMALERTDETAILS_ATIME_COLUMN]), dpname);
+        dyn_atime dat = makeDynATime(at);
+        isAckable(DPATTR_ACKTYPE_SINGLE,dat,iAckable);
+        //iAckable becomes 0 when acknowledged by driver, otherwise 1 
+        if(iAckable)
+        {
+          result = alertSet( (time)line[AES_SUMALERTDETAILS_ATIME_COLUMN], getACount(line[AES_SUMALERTDETAILS_ATIME_COLUMN]),
+                            dpSubStr(cutDpid,DPSUB_SYS_DP_EL_CONF_DET)+\"._ack_state\", DPATTR_ACKTYPE_SINGLE); 
+          if(result < 0)
+            aec_warningDialog( AEC_WARNINGID_SUMALERTDETAILSACKFAILED );        
+        }
+      }
+      else
+        aec_warningDialog( AEC_WARNINGID_NOTTHEOLDESTALERT );
+      
+      refreshTable();
+    }    
+  }
+  else  //open AS_detail Panel on left-Click
+  {
+    string refName;
+    dyn_string dollars, values;
+  
+    dyn_float dreturnf;
+    dyn_string dreturns;
+ 
+    atime t=line[AES_SUMALERTDETAILS_ATIME_COLUMN];
+    string theTime= ((time)t);
+    
+    if (DPCONFIG_SUM_ALERT != iType) //if not a sumAlert
+    {
+
+      ChildPanelOnCentralModalReturn(\"vision/aes/AS_detail.pnl\", \"xxx\",
+                          makeDynString(\"$dpid:\" + cutDpid,
+                                        \"$time:\" + theTime,
+                                        \"$count:\" + getACount(line[AES_SUMALERTDETAILS_ATIME_COLUMN])), dreturnf, dreturns);        
+    }
+    else
+    {
+      ChildPanelOnCentralModalReturn(\"vision/aes/AESSumAlertDetails.pnl\", \"yyy\" + cutDpid,
+                          makeDynString(\"$dpid:\" + cutDpid), dreturnf, dreturns);  
+    }
+    
+    refreshTable();
+  }
+}
+
+
+
+
+" 0
+ 1 0 1 9 12 "_force_filtered" 11 1 1 "s" 4
+LANG:10001 14 Force Filtered
+LANG:10004 12 强制过滤
+LANG:10000 20 Erzwungene Filterung
+LANG:10027 27 Фильтр активен
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+135 "_filtered" 10 1 0 "s" 4
+LANG:10001 8 Filtered
+LANG:10004 6 过滤
+LANG:10000 9 Gefiltert
+LANG:10027 30 Отфильтрованный
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "_summed_prios" 9 1 0 "s" 4
+LANG:10001 14 Priority/class
+LANG:10004 16 优先级/类型
+LANG:10000 17 Priorität/Klasse
+LANG:10027 29 Приоритет/класс
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+110 "_summed_alerts_time" 17 1 0 "s" 4
+LANG:10001 4 Time
+LANG:10004 6 时间
+LANG:10000 4 Zeit
+LANG:10027 10 Время
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+200 "_summed_alerts_dpe" 32 1 0 "s" 4
+LANG:10001 22 DP element/Description
+LANG:10004 10 DPE/描述
+LANG:10000 16 DPE/Beschreibung
+LANG:10027 20 DPE/Описание
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+362 "_summed_states" 7 1 0 "s" 4
+LANG:10001 9 Direction
+LANG:10004 6 方向
+LANG:10000 8 Richtung
+LANG:10027 22 Направление
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+90 "_acknowledge" 7 1 0 "s" 4
+LANG:10001 11 Acknowledge
+LANG:10004 6 确认
+LANG:10000 11 Quittierung
+LANG:10027 24 Квитирование
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+95 "_summed_abbr" 8 1 0 "s" 4
+LANG:10001 10 Short sign
+LANG:10004 9 缩略词
+LANG:10000 11 Kurzzeichen
+LANG:10027 22 Кратк.обозн.
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "_atime" 26 0 0 "s" 4
+LANG:10001 11 Kurzzeichen
+LANG:10004 12 确认时间
+LANG:10000 6 _atime
+LANG:10027 6 _atime
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+300 
+18 18 "" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+8 30
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 8
+"buClose"
+""
+1 1155 344 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 26 Close panel without action
+LANG:10004 12 关闭面板
+LANG:10000 46 Panel schließen, ohne eine Aktion auszulösen
+LANG:10027 52 Закрыть без выполн. операции
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1153 343 1241 371
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}" 0
+ E E E
+13 9
+"cmdHelp"
+""
+1 10 345 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 343 96 371
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+ std_help(\"AESSumAlertDetails.pnl\", TRUE);
+}
+" 0
+ E E E
+14 10
+"te_sumAlertDPAbr"
+""
+1 140 10 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 8 182 34
+2 "40s" 40 0 0 0 0 -1  E E E
+14 12
+"txtTime"
+""
+1 110 295 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+12 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  108 293 312 319
+2 "0s" 0 0 0 0 0 -1  E E E
+13 13
+"buActualize"
+""
+1 1065 345 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  1063 343 1151 371
+
+T 
+4
+LANG:10001 7 Refresh
+LANG:10004 6 刷新
+LANG:10000 12 Aktualisiere
+LANG:10027 16 Обновить
+"main()
+{
+ dyn_string _sumalerts;       // Liefert die Liste der zugeordneten Summenalarme. Diese Liste wird zur Laufzeit berechnet, und kann nicht verändert werden (read-only)
+ dyn_langString _summed_abbr; // Liste der anstehenden Kurzzeichen
+ dyn_atime _summed_alerts;    // Liste der anstehenden Alarme (DPE + Alarmzeit)
+ dyn_string _summed_colors;   // Liste der anstehenden Meldefarben
+ dyn_string _summed_classes;  // Liste der anstehenden Meldeklassen 
+ dyn_char _summed_prios;      // Liste der anstehenden Prioritäten
+ dyn_int _summed_states;      // Liste der anstehenden Alarmzustände (kam quittiert, etc)
+ dyn_bool _summed_filtered;   // Liste der Filtered-bits anstehenden Alarme
+ dyn_bool _summed_force_filtered;   // Liste der Force-Filtered-bits anstehenden Alarme 
+
+ string  dpe = $dpid;
+ 
+ dpe = dpSubStr(dpe, DPSUB_SYS_DP_EL);
+ 
+ if (dpe== \"\")
+   dpe = \"1.\";
+ 
+
+ dpGet(dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+       dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+       dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+       dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+       dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+       dpe+\":_alert_hdl.._summed_states\", _summed_states);
+ bool filtered, force_filtered;
+ string dpdetail=\"_alert_hdl.\";
+ string adpe;
+
+ for ( int i=1; i<= dynlen(_summed_abbr); i++)
+ {
+  adpe =  getAIdentifier(_summed_alerts[i]);
+  
+  string tmp1 = dpSubStr(adpe, DPSUB_CONF_DET);
+  string tmp = substr(tmp1, strlen(tmp1)-1);  //getDetailNumber
+  string therange=\"\";
+  if (tmp>=0 && tmp<=9)
+    therange = tmp;  
+  	  
+  if (substr(adpe, strlen(adpe)-1, 1) == \".\")
+    adpe = substr(adpe, 0, strlen(adpe)- 1);
+	 
+  if ( !isDistributed())
+    adpe = dpSubStr(adpe, DPSUB_DP_EL);
+  else
+    adpe = dpSubStr(adpe, DPSUB_SYS_DP_EL);
+  
+
+  
+  adpe = dpGetDescription(adpe);   
+  if (!aes_getFiltered_and_ForceFiltered_Attribute( getAIdentifier(_summed_alerts[i]), dpdetail+therange, ((time)_summed_alerts[i]), getACount(_summed_alerts[i]), filtered, force_filtered ))
+  {
+    dynAppend(_summed_filtered, false);
+    dynAppend(_summed_force_filtered, false);
+  }
+  else
+  {
+    dynAppend(_summed_filtered, filtered);
+    dynAppend(_summed_force_filtered, force_filtered);
+  }
+ }
+ showAlertsCB(  dpe+\":_alert_hdl.._summed_abbr\",_summed_abbr,
+                dpe+\":_alert_hdl.._summed_alerts\",_summed_alerts,
+                dpe+\":_alert_hdl.._summed_colors\",_summed_colors,
+                dpe+\":_alert_hdl.._summed_classes\",_summed_classes,
+           	dpe+\":_alert_hdl.._summed_prios\",_summed_prios,
+              	dpe+\":_alert_hdl.._summed_states\", _summed_states,
+                dpe+\":_alert_hdl.._force_filtered\", _summed_force_filtered,
+                dpe+\":_alert_hdl.._filtered\", _summed_filtered);
+
+}" 0
+ E E E
+1 14 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 90 285 T 14 2.525050100200401 0 1 -232.254509018036 50
+0
+0

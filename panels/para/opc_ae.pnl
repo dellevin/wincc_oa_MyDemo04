@@ -1,0 +1,998 @@
+V 13
+4
+LANG:10001 31 OPC Alert & Event configuration
+LANG:10004 24 OPC报警和事件配置
+LANG:10000 30 OPC-Alarm&Event Parametrierung
+LANG:10027 61 Конфигурация алармов и событий OPC
+PANEL,-1 -1 648 538 N "_3DFace" 1
+"$1"
+"main()
+{
+  int        i,j=0;
+  bool       root=( rootPanel()==myPanelName() &&
+                    strpos(myModuleName(),\"paraPanel\")<0 );
+  string     server,old;
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCAEServer\");
+
+  Tab1.namedRegisterEnabled(\"karte2\", false);
+
+  if (getUserPermission(4))
+  {
+    if (!dpExists(\"_Conn_event_0_1_to_device_1_1\"))
+    {
+      dpCreate(\"_Conn_event_0_1_to_device_1_1\", \"_ManagerConnections\");
+      dpSetDescription(\"_Conn_event_0_1_to_device_1_1.\", \"OPC A&E\"); 
+    }  
+    if (isRedundant() && !dpExists(\"_Conn_event_0_2_to_device_1_2\"))
+    {
+      dpCreate(\"_Conn_event_0_2_to_device_1_2\", \"_ManagerConnections\");
+      dpSetDescription(\"_Conn_event_0_2_to_device_1_2.\", \"OPC A&E\"); 
+    }  
+  }
+ 
+  for (i=dynlen(ds);i>0;i--)
+  {
+//    if (isReduDp(ds[i]))
+//    {
+//       dynRemove(ds, i);
+//       continue;
+//    }
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if (strpos(ds[i],\"_\")==0)
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  if (root)
+  {
+    setMultiValue(\"servername\",\"enabled\",true,
+                  \"servername\",\"backCol\",\"_Window\",
+                  \"buDelete\",\"visible\",true,
+                  \"modify\",\"visible\",true);
+    setValue(\"servername\",\"text\",(dynlen(servers)>0)?servers[1]:\"\",
+                          \"items\",servers);
+    getValue(\"servername\",\"text\",server);
+    server=strltrim(strrtrim(server));
+    while (true)
+    {
+      ds=dpNames(\"*\",\"_OPCAEServer\"); j=0; servers=makeDynString();
+      for (i=1;i<=dynlen(ds);i++)
+      {
+//		    if (isReduDp(ds[i]))
+//		    {
+//		       dynRemove(ds, i);
+//		       continue;
+//		    }
+        ds[i]=dpSubStr(ds[i],DPSUB_DP);
+        if (strpos(ds[i],\"_\")==0)
+        {
+          j++;
+          servers[j]=strltrim(ds[i],\"_\");
+        }
+      }
+      getMultiValue(\"servername\",\"text\",server,
+                    \"oldname\",\"text\",old);
+
+      if ( (server==\"\" || dynContains(servers,server)) && server!=old )
+      {
+        setValue(\"servername\",\"text\",server,
+                              \"items\",servers);
+        connectDisconnectOPC(server,old);
+      }
+      delay(0,500);
+    }
+  }
+  else
+  {
+    server=$1;
+    setMultiValue(\"servername\",\"enabled\",false,
+                  \"servername\",\"backCol\",\"_3DFace\",
+                  \"servername\",\"text\",server,
+                  \"ga\",\"position\",150,350,
+                  \"ok\",\"position\",400,420,
+                  \"modify\",\"visible\",false,
+                  \"buDelete\",\"visible\",false);
+    while (true)
+    {
+      getMultiValue(\"servername\",\"text\",server,
+                    \"oldname\",\"text\",old);
+      if (server!=old)
+      {
+        setValue(\"servername\",\"text\",server,
+                              \"items\",servers);
+        connectDisconnectOPC(server,old);        
+      }
+      
+      delay(0,500);
+    }
+  }
+
+//  setValue(\"delete\",\"visible\",false);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
+connectDisconnectOPC(string server,string old)
+{
+  int      statetimer,reconnecttimer;
+  unsigned qualinfo,qualinfodetail,quality,userbit;
+  bool     invalidmapping;
+  dyn_uint du;
+
+  setValue(\"oldname\",\"text\",server);
+  if (old!=\"\")
+  {
+    paErrorHandlingOpc(\"disconnect\",
+      dpDisconnect(\"connectOpcCB\",\"_\"+old+\".StartTime:_online.._value\",
+                                  \"_\"+old+\".FilterMask:_online.._value\",
+                                  \"_\"+old+\".ServerState:_online.._value\",
+                                  \"_\"+old+\".ServerStateText:_online.._value\",
+                                  \"_\"+old+\".VendorInfo:_online.._value\",
+                                  \"_\"+old+\".MajorVersion:_online.._value\",
+                                  \"_\"+old+\".MinorVersion:_online.._value\",
+                                  \"_\"+old+\".BuildNumber:_online.._value\",
+ //                                 \"_\"+old+\".BandWidth:_online.._value\",
+//                                  \"_\"+old+\".GroupCount:_online.._value\",
+                                  \"_\"+old+\".LastUpdateTime:_online.._value\",
+                                  \"_\"+old+\".Connected:_online.._value\") );
+    delay(0,200);
+  }
+  if (server==\"\")
+  {
+    Tab1.namedRegisterEnabled(\"karte2\", false);
+    return;
+  }
+  dpGet(\"_\"+server+\".StateTimer:_online.._value\",statetimer,
+        \"_\"+server+\".ReconnectTimer:_online.._value\",reconnecttimer,
+        \"_\"+server+\".QualInfoFilter.QualInfo:_online.._value\",qualinfo,
+        \"_\"+server+\".QualInfoFilter.QualInfoDetail:_online.._value\",qualinfodetail,
+        \"_\"+server+\".InvalidMapping:_online.._value\",invalidmapping);
+
+  if (qualinfodetail>7 && qualinfodetail<11)
+  {
+    quality=1;
+    du=makeDynUInt(1,2,3);
+    userbit=qualinfodetail-7;
+  }
+  else
+  if (qualinfodetail>15 && qualinfodetail<23)
+  {
+    quality=3;
+    du=makeDynUInt(1,2,3,4,5,6,7);
+    userbit=qualinfodetail-15;
+  }
+  else
+  if (qualinfodetail>31 && qualinfodetail<37)
+  {
+    quality=2;
+    du=makeDynUInt(1,2,3,4,5);
+    userbit=qualinfodetail-31;
+  }
+  else
+  {
+    quality=0;
+    du=makeDynUInt(1,2,3);
+    userbit=1;
+  }
+  setMultiValue(\"statetimer\",\"text\",statetimer,
+                \"reconnecttimer\",\"text\",reconnecttimer,
+                \"bits\",\"number\",qualinfo,
+                \"quality\",\"visible\",(qualinfo==1),
+                \"quality\",\"number\",quality,
+                \"userbits\",\"visible\",(quality>0 && qualinfodetail>0),
+                \"userbits_txt\",\"visible\",(quality>0 && qualinfodetail>0),
+                \"userbits\",\"text\",userbit,
+                \"userbits\",\"items\",du,
+                \"invalidmapping\",\"state\",0,invalidmapping);
+
+   Tab1.namedRegisterEnabled(\"karte2\", true);
+   Tab1.registerPanel(1, \"para/opc_ae_subscription.pnl\", makeDynString(\"$server:_\"+server)); 
+
+  paErrorHandlingOpc(\"connect\",
+    dpConnect(\"connectOpcCB\",\"_\"+server+\".StartTime:_online.._value\",
+                             \"_\"+server+\".FilterMask:_online.._value\",
+                             \"_\"+server+\".ServerState:_online.._value\",
+                             \"_\"+server+\".ServerStateText:_online.._value\",
+                             \"_\"+server+\".VendorInfo:_online.._value\",
+                             \"_\"+server+\".MajorVersion:_online.._value\",
+                             \"_\"+server+\".MinorVersion:_online.._value\",
+                             \"_\"+server+\".BuildNumber:_online.._value\",
+//                             \"_\"+server+\".BandWidth:_online.._value\",
+//                             \"_\"+server+\".GroupCount:_online.._value\",
+                             \"_\"+server+\".LastUpdateTime:_online.._value\",
+                             \"_\"+server+\".Connected:_online.._value\") );
+}
+
+connectOpcCB(string dp3,  time     starttime,
+             string dp4,  unsigned uFilterMask,
+             string dp5,  unsigned serverstate,
+             string dp6,  string   ServerStateText,
+             string dp7,  string   vendorinfo,
+             string dp8,  unsigned majorversion,
+             string dp9,  unsigned minorversion,
+             string dp10, unsigned buildnumber,
+//             string dp11, unsigned bandwidth,
+//             string dp12, unsigned groupcount,
+             string dp13, time     lastupdatetime,
+             string dp16, bool     connected)
+{
+  setMultiValue(\"starttime\",\"text\",starttime,
+                \"FilterMask\",\"text\",uFilterMask,
+                \"serverstate\",\"text\",serverstate,
+                \"ServerStateText\",\"text\",ServerStateText,
+                \"vendorinfo\",\"text\",vendorinfo,
+                \"majorversion\",\"text\",majorversion,
+                \"minorversion\",\"text\",minorversion,
+                \"buildnumber\",\"text\",buildnumber,
+//                \"bandwidth\",\"text\",bandwidth,
+//                \"groupcount\",\"text\",groupcount,
+                \"lastupdate\",\"text\",lastupdatetime,
+                \"connected\",\"state\",0,connected,
+                \"opc_ae_server\", \"text\", dpSubStr(dp3, DPSUB_SYS_DP));
+}
+
+
+
+
+" 0
+ E E E E 1 -1 -1 0  18 18
+""0  1
+E "OPCSetParameters()
+{
+  int        i,j=0,von,bis;
+  bool       invalidmapping;
+  unsigned   statetimer,reconnecttimer,qualinfo,qualinfodetail,quality,userbit;
+  string     server,s,ServerStateText,vendorinfo;
+  dyn_float  df=makeDynFloat(1);
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCAEServer\"),
+             dss;
+
+  unsigned  MaxSizeAct    = max_ist.text ;
+  unsigned  MaxSizeReq    = max_soll.text	;
+  unsigned  BuferTimeAct  = pollrate_ist.text	;
+  unsigned  BufferTimeReq = pollrate_soll.text ; 
+  bool      Active        = state.number;
+  string    sSubcondition = \"_\" + groupname.text;
+   time tSubscrition, tServer;
+
+
+
+	
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if (strpos(ds[i],\"_\")==0)
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  getMultiValue(\"servername\",\"text\",server,
+                \"statetimer\",\"text\",statetimer,
+                \"reconnecttimer\",\"text\",reconnecttimer,
+                \"bits\",\"number\",qualinfo,
+                \"quality\",\"number\",quality,
+                \"userbits\",\"text\",userbit,
+                \"invalidmapping\",\"state\",0,invalidmapping);
+  if (strltrim(strrtrim(server))==\"\")
+  {
+    PanelOff();
+    return;
+  }
+	
+
+	  if (statetimer<0)
+	  {
+	    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+	                             paGetCatStr(\"para\",\"warning\"),
+	                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nStateTimer\"));
+	      return;
+	  }
+	  if (reconnecttimer<0)
+	  {
+	    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+	                             paGetCatStr(\"para\",\"warning\"),
+	                             makeDynString(paGetCatStr(\"para\",\"wrongnegativ\")+\"\\nReconnectTimer\"));
+	      return;
+	  }
+	
+
+
+
+	  if (qualinfo==1)
+	  {
+	    if (quality==1)
+	    {
+	      von=1;bis=3;
+	    }
+	    if (quality==2)
+	    {
+	      von=1;bis=5;
+	    }
+	    if (quality==3)
+	    {
+	      von=1;bis=7;
+	    }
+	    if ( (quality==1 && (userbit<1 || userbit>3)) ||
+	         (quality==2 && (userbit<1 || userbit>5)) ||
+	         (quality==3 && (userbit<1 || userbit>7)) )
+	    {
+	      ChildPanelOnCentralModal(\"vision/MessageWarning\",
+	                               paGetCatStr(\"para\",\"warning\"),
+	                               makeDynString(paGetCatStr(\"para\",\"wronguserbit\")+\" \"+von+\"-\"+bis));
+	      return;
+	    }
+	    if (quality==1)
+	      quality=userbit+7;
+	    if (quality==3)
+	      quality=userbit+15;
+	    if (quality==2)
+	      quality=userbit+31;
+	  }
+	  if (!dynContains(servers,server))
+	  {
+	    dynAppend(servers,server);
+	    paErrorHandlingOpc(\"create\", dpCreate(\"_\"+server,\"_OPCAEServer\") );
+	  }
+	  paErrorHandlingOpc(\"set\",
+	    dpSetWait(\"_\"+server+\".StateTimer:_original.._value\",statetimer,
+	              \"_\"+server+\".ReconnectTimer:_original.._value\",reconnecttimer,
+	              \"_\"+server+\".QualInfoFilter.QualInfo:_original.._value\",qualinfo,
+	              \"_\"+server+\".QualInfoFilter.QualInfoDetail:_original.._value\",quality,
+	              \"_\"+server+\".InvalidMapping:_original.._value\",invalidmapping) );
+	
+	
+	
+	   if (dpExists(sSubcondition))
+	   {
+	      dpSet  (sSubcondition + \".Active:_original.._value\",Active, 
+								sSubcondition + \".BufferTimeReq:_original.._value\",BufferTimeReq,
+								sSubcondition + \".MaxSizeReq:_original.._value\",MaxSizeReq);
+	 
+	     dpGet(\"_\"+server+\".AddSubscription:_online.._stime\", tServer,
+	           sSubcondition + \".OPCAEServer:_online.._stime\", tSubscrition);
+	
+	 			 
+	     if ( tServer < tSubscrition)   // created after server flag
+	        dpSet(\"_\"+server+\".AddSubscription:_original.._value\", TRUE);
+	
+	    }
+
+
+
+
+}" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  PanelOff();
+}
+" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 17
+"Frame1"
+""
+1 10 85 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+17 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.011308562197092 0 1.122448979591837 -0.1130856219709171 -33.2857142857143 0 E 10 35 630 85
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 11 Server name
+LANG:10004 15 服务器名称
+LANG:10000 10 Servername
+LANG:10027 21 Имя сервера
+28 6
+"Tab1"
+""
+1 7.987117552334944 75 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  8 73 637 482
+E2 "karte1" 4
+LANG:10001 10 Serverinfo
+LANG:10004 15 服务器信息
+LANG:10000 6 Server
+LANG:10027 12 Сервер
+1 "para\\opc_ae_server.pnl" 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+
+"karte2" 4
+LANG:10001 18 Event subscription
+LANG:10004 12 事件订阅
+LANG:10000 18 Event Subscription
+LANG:10027 36 Подписка на события
+0
+
+22 14
+"servername"
+""
+1 18.2463465553236 24 E E E 1 E 1 E N {0,0,0} E N "_Window" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 23 442 50
+0
+
+E
+E
+E
+ 0 0
+14 15
+"oldname"
+""
+1 563 22.99999999999999 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  538 23 608 49
+2 "0s" 0 0 0 0 0 -1  E E E
+13 16
+"create"
+""
+1 537 22.99999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  538 23 626 51
+
+T 
+4
+LANG:10001 6 Create
+LANG:10004 6 创建
+LANG:10000 9 Erstellen
+LANG:10027 14 Создать
+"main()
+{
+  int        i, j=0;
+  string     server, s, ServerStateText, vendorinfo, sText;
+  dyn_float  dfAnswer;
+  dyn_string servers = servername.items,  dsAnswer;
+  string     serverString;
+  string     sSubscription;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  ChildPanelOnCentralModalReturn(\"para/opc_newServer.pnl\",
+    \"OPC Server\",
+    makeDynString(\"$OPCAE:TRUE\"),
+    dfAnswer, dsAnswer);
+
+  if ( dfAnswer[1] )
+  {
+    dynAppend(servers,dsAnswer[1]);
+    servername.items = servers;
+    servername.text = dsAnswer[1];
+
+
+    if ( dsAnswer[4] == \"\" )
+      serverString = dsAnswer[2];
+    else
+      serverString =  dsAnswer[4] + \"/\" + dsAnswer[2];
+
+
+
+    setValue(\"vendorinfo\", \"text\", \"\");
+    paErrorHandlingOpc(\"create\", dpCreate(\"_\" + dsAnswer[1], \"_OPCAEServer\") );
+    dpSet(\"_\" + dsAnswer[1] + \".StateTimer:_original.._value\", 10,
+          \"_\" + dsAnswer[1] + \".ReconnectTimer:_original.._value\", 10,
+          \"_\" + dsAnswer[1] + \".RegServerName\", serverString);
+          
+    if (isRedundant())
+    {
+	    paErrorHandlingOpc(\"create\", dpCreate(\"_\" + dsAnswer[1]+\"_2\", \"_OPCAEServer\") );
+	    dpSet(\"_\" + dsAnswer[1]+\"_2\" + \".StateTimer:_original.._value\", 10,
+	          \"_\" + dsAnswer[1]+\"_2\" + \".ReconnectTimer:_original.._value\", 10,
+	          \"_\" + dsAnswer[1]+\"_2\" + \".RegServerName\", serverString);
+    }
+
+
+    sSubscription = \"_ALL_\"+dsAnswer[1];
+
+    paErrorHandlingOpc(\"create\", dpCreate(sSubscription, \"_OPCAEEventSubscription\") );
+
+    dpSet(sSubscription + \".OPCAEServer:_original.._value\", \"_\"+dsAnswer[1],
+          sSubscription + \".FilterLowSeverity:_original.._value\", 1,
+          sSubscription + \".FilterHighSeverity:_original.._value\", 1000,
+          sSubscription + \".FilterEventType:_original.._value\", 7);
+
+
+
+    statetimer.text = 10;
+    reconnecttimer.text = 10;
+    sText = getCatStr(\"para\",\"newopcaeserver\");
+    strreplace(sText, \"%server\", dsAnswer[1]);
+
+    ChildPanelOnCentralModal(\"para/mp_messageInfo.pnl\",
+      getCatStr(\"para\",\"information\"),
+      makeDynString(sText));
+  }
+
+
+}
+" 0
+ E E E
+13 18
+"buDelete"
+""
+1 448 23 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 23 536 51
+
+T 
+4
+LANG:10001 6 Delete
+LANG:10004 6 删除
+LANG:10000 9 Entfernen
+LANG:10027 14 Удалить
+"main()
+{
+  int        i,j=0;
+  string     server, sText, sTemp;
+  dyn_float  df;
+  dyn_string servers,ds=dpNames(\"*\",\"_OPCAEServer\"),
+             sPara;
+
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if (strpos(ds[i],\"_\")==0)
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+      }
+    }
+  getValue(\"servername\",\"text\",server);
+  if (server==\"\" || !dynContains(servers,server) || !dpExists(\"_\"+server) || dpTypeName(\"_\"+server) != \"_OPCAEServer\" )
+  {
+    sPara=makeDynString(paGetCatStr(\"para\",\"dpnotexists\"));
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",  
+                             paGetCatStr(\"para\",\"warning\"),  
+                             sPara);  
+    return;
+  }
+	
+  sPara=makeDynString(paGetCatStr(\"para\",\"areyousure\"),
+                      paGetCatStr(\"para\",\"yes\"),
+                      paGetCatStr(\"para\",\"no\"));
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+                                 paGetCatStr(\"para\",\"deletedp\"),  
+                                 sPara,df,ds);
+    
+  if (dynlen(df) < 1)
+    return;
+  if (df[1]==0)
+    return;
+  setValue(\"servername\",\"text\",\"\");
+  delay(0,500);
+
+  dpSetWait(\"_\"+server+\".DeleteServer:_original.._value\",1);
+  dpDelete(\"_\"+server);
+  delay(0,500);
+
+  ds=dpNames(\"*.OPCAEServer:_online.._value\",\"_OPCAEEventSubscription\"); 
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    dpGet(ds[i], sTemp);
+    if ( sTemp ==  \"_\"+server)
+      dpDelete(dpSubStr(ds[i], DPSUB_SYS_DP));
+  }
+
+  ds=dpNames(\"*\",\"_OPCAEServer\"); j=0; servers=makeDynString();
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if (strpos(ds[i],\"_\")==0)
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+  setMultiValue(\"servername\",\"items\",servers,
+                \"oldname\",\"text\",\"\",
+                \"vendorinfo\",\"text\",\"\");
+
+  sText = getCatStr(\"para\",\"removeopcaeserver\");
+  strreplace(sText, \"%server\", server);
+  ChildPanelOnCentralModal(\"para/mp_messageInfo.pnl\",
+                           getCatStr(\"para\",\"information\"),
+                           makeDynString(sText));
+}" 0
+ E E E
+13 19
+"ok"
+""
+1 368 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+19 0 0 0 16777221 0
+E E E
+0
+4
+LANG:10001 30 Accept changes and close panel
+LANG:10004 15 保存并关闭
+LANG:10000 44 Änderungen übernehmen und Panel schließen
+LANG:10027 64 Принять изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  368 503 456 531
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main()
+{
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  OPCSetParameters();
+  PanelOff();
+}
+" 0
+ E E E
+13 20
+"cancel"
+""
+1 548 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+20 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 31 Discard changes and close panel
+LANG:10004 27 放弃更改并关闭面板
+LANG:10000 42 Änderungen verwerfen und Panel schließen
+LANG:10027 66 Отменить изменения и закрыть панель
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  548 503 636 531
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+13 21
+"modify"
+""
+1 459 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Accept changes
+LANG:10004 12 接受更改
+LANG:10000 23 Änderungen übernehmen
+LANG:10027 37 Применить изменения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  459 503 547 531
+
+T 
+4
+LANG:10001 5 Apply
+LANG:10004 6 应用
+LANG:10000 11 Übernehmen
+LANG:10027 18 Применить
+"main()
+{
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+  OPCSetParameters(); 
+ 
+}
+" 0
+ E E E
+13 22
+"help"
+""
+1 955 1349 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+22 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 16 Open online help
+LANG:10004 18 打开在线帮助
+LANG:10000 20 Online Hilfe öffnen
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 503 96 531
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help( \"address_opc_ae_server\" );
+}" 0
+ E E E
+13 23
+"Button1"
+""
+1 278 503 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  278 503 366 531
+
+T 
+4
+LANG:10001 6 Update
+LANG:10004 6 更新
+LANG:10000 6 Update
+LANG:10027 16 Обновить
+"main()
+{
+  int        i,j=0;
+  string     server = servername.text;
+  dyn_string servers, sPara, ds;
+  dyn_float  df;
+
+  if ( !getUserPermission(4) )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"general\",\"permission\")));
+    return;
+  }
+
+  sPara=makeDynString(paGetCatStr(\"para\",\"opcaeupdatewarning\"),
+	              paGetCatStr(\"para\",\"yes\"),
+	              paGetCatStr(\"para\",\"no\"));
+  ChildPanelOnCentralModalReturn(\"vision/MessageInfo\",
+	                         getCatStr(\"para\",\"warning\"),  
+	                         sPara,df,ds);
+
+  if (dynlen(df) == 0 || df[1]==0)
+    return;
+
+  ds=dpNames(\"*\",\"_OPCAEServer\");     
+  for (i=1;i<=dynlen(ds);i++)
+  {
+    ds[i]=dpSubStr(ds[i],DPSUB_DP);
+    if (strpos(ds[i],\"_\")==0)
+    {
+      j++;
+      servers[j]=strltrim(ds[i],\"_\");
+    }
+  }
+
+
+
+  if (server==\"\" || !dynContains(servers,server) || !dpExists(\"_\"+server) || dpTypeName(\"_\"+server) != \"_OPCAEServer\" )
+  {
+    sPara=makeDynString(paGetCatStr(\"para\",\"dpnotexists\"));
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",  
+                             paGetCatStr(\"para\",\"warning\"),  
+                             sPara);  
+    return;
+  }
+     
+  dpSet(\"_\"+server+\".Update:_original.._value\", TRUE);  // generate hotlink 
+ 
+ }
+" 0
+ E E E
+1 24 0 "" 0
+0
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "PANEL_REF0" -1
+"" ""
+"objects_parts/STD_OBJECTS/ButtonBarBackground.pnl" 0 510 T 24 1.322645290581163 0 1 -5 -15.00000000000001
+0
+0

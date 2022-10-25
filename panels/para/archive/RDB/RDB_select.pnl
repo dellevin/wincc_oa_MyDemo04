@@ -1,0 +1,1506 @@
+V 13
+4
+LANG:10001 20 RDB - File selection
+LANG:10004 18 RDB - 文件选择
+LANG:10000 19 RDB - Archivauswahl
+LANG:10027 29 RDB — выбор файла
+PANEL,-1 -1 517 475 N "_3DFace" 0
+E E E E E 1 -1 -1 0  25 25
+"refFileName"0  1
+E "#uses \"impexp.ctl\"
+#uses \"udag.ctl\"
+
+//Tabelle neu befüllen
+void loadGroups()
+{
+  int iManNum;
+  string sTemplate, sGroup, sPath;
+  dyn_string dsDp;
+  bool isAlert, isUserDefined;
+  bool bForward;
+  
+  table.deleteAllLines();
+  dsDp=dpNames(\"*\",\"_RDBArchiveGroups\");
+
+  for(int i=1;i<=dynlen(dsDp);i++)
+  {
+    dpGet(dsDp[i] + \".templateName\", sTemplate,
+          dsDp[i] + \".groupName\",    sGroup,
+          dsDp[i] + \".isAlert\",      isAlert,
+          dsDp[i] + \".isUserDefined\",isUserDefined,
+          dsDp[i] + \".managerNr\",    iManNum,
+          dsDp[i] + \".forwardFlag\",  bForward);
+    table.appendLine(\"templateName\", sTemplate,
+                     \"groupName\",    sGroup,
+                     \"groupDp\",      dsDp[i],
+                     \"managerNr\",    iManNum + 2,
+                     \"isAlert\",      isAlert,
+                     \"isUserDefined\",isUserDefined,
+                     \"forwardFlag\",  bForward);
+  }
+}
+
+void compareArchiveGroups()
+{
+  dyn_float df;
+  dyn_string ds;  
+
+  // oracle db - archive groups  
+  dyn_dyn_anytype ddaDbArc; 
+  dynClear(ddaDbArc); 
+
+  string sDbSqlSelect = \"SELECT GROUP_NAME, TEMPLATE_NAME, UDAG   FROM ARC_GROUP\";// WHERE STATUS = 'CURRENT'\";
+  runRealSQLQuery(sDbSqlSelect, ddaDbArc);
+  
+  dyn_string dsDbArc;
+  for(int i=1;i<=dynlen(ddaDbArc);i++)
+  {
+    dsDbArc[i] = ddaDbArc[i][1];
+  }
+  //dynSortAsc(dsDbArc);
+
+  // system db - archive groups
+  dyn_string dsDp, dsSysArc;
+
+  dsDp=dpNames(\"*\",\"_RDBArchiveGroups\");
+  for(int i=1;i<=dynlen(dsDp);i++)
+  {
+    dpGet(dsDp[i] + \".groupName\", dsSysArc[i]);
+  }
+  dynSortAsc(dsSysArc);
+  
+  
+  //IM106848 create DPs in WinCC_OA
+  if (dynlen(dsDbArc) > dynlen(dsSysArc))
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", \"RDBArchive\",
+                                   makeDynString(getCatStr(\"RDBArchive\", \"groupsDifferentIDP\"),
+                                                 getCatStr(\"para\",\"yes\"),
+                                                 getCatStr(\"para\",\"no\")),
+                                                 df, ds);
+    if ( dynlen(df) == 0 || df[1] <= 0 )
+        return;
+
+    openProgressBar(getCatStr(\"RDBArchive\", \"groupsSyncHeader\"),
+      \"delay.gif\", getCatStr(\"RDBArchive\", \"groupsSync\"), \"\", \"\", 1);
+    
+    for (int i = dynlen(dsDbArc); i >= 1; i--)
+    {
+      if (dynContains(dsSysArc, dsDbArc[i]) <= 0)
+      {
+        string idp = \"_\" + dsDbArc[i];
+        DebugN(ddaDbArc);
+        dpCreate(idp, \"_RDBArchiveGroups\");
+        int err = dpSetWait(idp+\".templateName:_original.._value\",  ddaDbArc[i][2],
+                        idp+\".groupName:_original.._value\",     dsDbArc[i],
+                        idp+\".managerNr:_original.._value\",     97,
+                        idp+\".isAlert:_original.._value\",       \"ALERT\" == ddaDbArc[i][2],
+                        idp+\".isUserDefined:_original.._value\", ddaDbArc[i][3]);
+        if (err)
+        {
+          DebugN(\"create IDPE for _RDBArchiveGroups.\", \"could not set properties I\", idp);          
+          return;
+        }
+      }
+    }
+    loadGroups(); 
+    closeProgressBar();   
+  }
+  
+  //IM106848 more IDPs than ArhiveGroups
+  if (dynlen(dsDbArc) < dynlen(dsSysArc))
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", \"RDBArchive\",
+                                   makeDynString(getCatStr(\"RDBArchive\", \"groupsDifferentCrGrp\"),
+                                                 getCatStr(\"para\",\"yes\"),
+                                                 getCatStr(\"para\",\"no\")),
+                                                 df, ds);
+    if ( dynlen(df) == 0 || df[1] <= 0 )
+      return;
+    
+    for (int i = dynlen(dsSysArc); i >= 1; i--)
+    {
+      if (dynContains(dsDbArc, dsSysArc[i]) <= 0)
+      {
+        //idThread = startProgressBarEx(this.text, getCatStr(\"ImportExport\",\"creatingNewGroup\"));
+        openProgressBar(dsSysArc[i], \"copy.gif\", getCatStr(\"ImportExport\",\"creatingNewGroup\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+
+        int iManNum;
+     	  string sTemplate;
+     	  string sGroup;
+        string sPath;
+        bool isAlert;
+        bool isUserDefined;
+        bool bForward;
+        
+        dpGet(\"_\" + dsSysArc[i] + \".templateName\", sTemplate,
+          \"_\" + dsSysArc[i] + \".groupName\",    sGroup,
+          \"_\" + dsSysArc[i] + \".isAlert\",      isAlert,
+          \"_\" + dsSysArc[i] + \".isUserDefined\",isUserDefined,
+          \"_\" + dsSysArc[i] + \".managerNr\",    iManNum,
+          \"_\" + dsSysArc[i] + \".forwardFlag\",  bForward);
+//        DebugN(sTemplate, sGroup, isAlert, isUserDefined, iManNum, bForward);
+    	  
+        if (isUserDefined)
+        {
+          DebugN(sTemplate, sGroup, isAlert, isUserDefined, iManNum, bForward, \"user defined Archive Groups are not supported!\");
+        }
+        else
+        {          
+          //Gruppe erzeugen
+    	     int iErr = ag_createGroup(iManNum + 2, sTemplate, sGroup, \"\", isAlert, isUserDefined);
+
+          if ( iErr < 0 )
+          {
+            if(iErr != -99)  // -99 is nothing was created because it already exists in DB and User has cancled
+            {
+              string errmsg = getCatStr(\"ImportExport\", \"errorCreatingGroup\");
+              strreplace(errmsg, \"<%1>\", iErr);
+              if (isDbgFlag(DBGFLAG_IMPEXP))
+                  DebugN(\"new error: \"+iErr);
+              ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"), makeDynString(errmsg));
+            }
+          	//closeProgressBarEx(idThread);
+            closeProgressBar();
+            return;
+          }
+        }
+        closeProgressBar();
+      }
+    }
+  }    
+  else if (dsDbArc == dsSysArc)
+  {
+    return;
+  }
+}
+
+
+
+
+
+
+
+
+
+" 0
+ 3
+"CBRef" "0"
+"EClose" "main()
+{
+  setUseOnlyThisDbName(\"\");
+  PanelOff();
+}" 0
+
+"dpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+30 17
+"Frame1"
+""
+1 10 390 E E E 1 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+11 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E 1.001757469244288 0 1.105548786000543 -0.01757469244288079 18.94451213999457 0 E 10 10 500 390
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+25 0
+"table"
+""
+1 20 49.99999999999999 E E E 1 E 1 E N "_3DText" E N "_Window" E E
+ E "main()
+
+{
+
+  string     module = \"RDB GRP\",
+
+             dp1, UI = \"RDB GRP\", dp,
+
+             FileName = \"para/archive/RDB/RDB_groupConfig.pnl\", Parameter = \"\"; 
+
+  dyn_string diSelectedLines;
+
+  bool      _MOTIF = isMotif();
+
+
+
+  if ( !getUserPermission(4) ) return;
+
+
+
+
+
+  getValue(\"table\",\"getSelectedLines\",diSelectedLines);
+
+  if ( dynlen(diSelectedLines) < 1 )
+
+  {
+
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+
+    return;
+
+  }
+
+  
+
+
+
+//  if ( isModuleOpen(module) == false ) 
+
+  {
+
+    getValue(\"table\",\"cellValueRC\",diSelectedLines[1],\"groupDp\",Parameter);
+
+  
+
+    Parameter = \"$1:\"+dpSubStr(Parameter,DPSUB_SYS_DP);
+
+
+
+    ModuleOnWithPanel(module, 100, 110, (620 + (!_MOTIF?8:4)), (480 + (!_MOTIF?32:4)),
+
+                      1, 1, \"None\", 
+
+                      FileName, 
+
+                      \"\", makeDynString(Parameter));
+
+
+
+  }
+
+}" 0
+
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  18 48 442 439
+"main()
+{
+  int        dummy;
+
+  this.deleteAllLines();
+  setValue(\"\",\"selectByClick\",TABLE_SELECT_LINE ,
+              \"selectColors\",\"darkgrey\",\"_Window\",
+              \"tableMode\", TABLE_SELECT_BROWSE,
+              \"sortOnClick\",TRUE);
+//              \"sort\",\"groupName\",dummy);
+
+  loadGroups();
+  compareArchiveGroups();
+  loadGroups();
+  
+  cmdNew.enabled = getUserPermission(4);
+  //cmdNewTable.enabled = getUserPermission(4);
+  cmdAction.enabled = getUserPermission(4);
+  //cmdConfig.enabled = getUserPermission(4);
+  cmdPara.enabled = getUserPermission(4);
+  cmdSite.enabled = getUserPermission(4);
+  cmdDelete.enabled = getUserPermission(4);
+}
+
+
+" 0
+"main(int row, string column, string value)
+{
+  setUseOnlyThisDbName(cmbDB.selectedText());
+}" 0
+ 1 0 1 7 17 "groupName" 12 1 0 "s" 4
+LANG:10001 18 RDB archive groups
+LANG:10004 12 RDB归档组
+LANG:10000 17 RDB Archivgruppen
+LANG:10027 33 Архивные группы RDB
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+150 "groupDp" 4 0 0 "s" 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+56 "templateName" 12 1 0 "s" 4
+LANG:10001 8 Template
+LANG:10004 6 模板
+LANG:10000 15 Archiv-Template
+LANG:10027 12 Шаблон
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+140 "managerNr" 8 1 0 "s" 4
+LANG:10001 10 ManagerNo.
+LANG:10004 15 管理器num号
+LANG:10000 10 ManagerNr.
+LANG:10027 22 № менеджера
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+100 "isAlert" 0 0 0 "s" 4
+LANG:10001 7 isAlert
+LANG:10004 7 isAlert
+LANG:10000 7 isAlert
+LANG:10027 7 isAlert
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+12 "isUserDefined" 0 0 0 "s" 4
+LANG:10001 7 isAlert
+LANG:10004 7 isAlert
+LANG:10000 7 isAlert
+LANG:10027 7 isAlert
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+12 "forwardFlag" 7 0 0 "s" 4
+LANG:10001 7 isAlert
+LANG:10004 7 isAlert
+LANG:10000 12 Forward Flag
+LANG:10027 7 isAlert
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+85 
+18 18 "" 1 4
+LANG:10001 2 #1
+LANG:10004 2 #1
+LANG:10000 2 #1
+LANG:10027 2 #1
+"" 1 4
+LANG:10001 2 #2
+LANG:10004 2 #2
+LANG:10000 2 #2
+LANG:10027 2 #2
+"" 1 4
+LANG:10001 2 #3
+LANG:10004 2 #3
+LANG:10000 2 #3
+LANG:10027 2 #3
+"" 1 4
+LANG:10001 2 #4
+LANG:10004 2 #4
+LANG:10000 2 #4
+LANG:10027 2 #4
+"" 1 4
+LANG:10001 2 #5
+LANG:10004 2 #5
+LANG:10000 2 #5
+LANG:10027 2 #5
+"" 1 4
+LANG:10001 2 #6
+LANG:10004 2 #6
+LANG:10000 2 #6
+LANG:10027 2 #6
+"" 1 4
+LANG:10001 2 #7
+LANG:10004 2 #7
+LANG:10000 2 #7
+LANG:10027 2 #7
+"" 1 4
+LANG:10001 2 #8
+LANG:10004 2 #8
+LANG:10000 2 #8
+LANG:10027 2 #8
+"" 1 4
+LANG:10001 2 #9
+LANG:10004 2 #9
+LANG:10000 2 #9
+LANG:10027 2 #9
+"" 1 4
+LANG:10001 3 #10
+LANG:10004 3 #10
+LANG:10000 3 #10
+LANG:10027 3 #10
+"" 1 4
+LANG:10001 3 #11
+LANG:10004 3 #11
+LANG:10000 3 #11
+LANG:10027 3 #11
+"" 1 4
+LANG:10001 3 #12
+LANG:10004 3 #12
+LANG:10000 3 #12
+LANG:10027 3 #12
+"" 1 4
+LANG:10001 3 #13
+LANG:10004 3 #13
+LANG:10000 3 #13
+LANG:10027 3 #13
+"" 1 4
+LANG:10001 3 #14
+LANG:10004 3 #14
+LANG:10000 3 #14
+LANG:10027 3 #14
+"" 1 4
+LANG:10001 3 #15
+LANG:10004 3 #15
+LANG:10000 3 #15
+LANG:10027 3 #15
+"" 1 4
+LANG:10001 3 #16
+LANG:10004 3 #16
+LANG:10000 3 #16
+LANG:10027 3 #16
+"" 1 4
+LANG:10001 3 #17
+LANG:10004 3 #17
+LANG:10000 3 #17
+LANG:10027 3 #17
+8 88
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 0 2 0 1 7
+1 0
+13 22
+"cmdTemplates"
+""
+1 450 283 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 16 Manage Templates
+LANG:10004 12 管理模板
+LANG:10000 20 Verwaltung Templates
+LANG:10027 39 Управление шаблонами
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 283 487 322
+
+P 
+13434828
+"pictures/template_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string template;
+  dyn_string selectedLines;
+
+  getValue(\"table\",\"getSelectedLines\",selectedLines);
+  if ( dynlen(selectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"para/archive/RDB/RDB_allTemplates.pnl\", getCatStr(\"RDBArchive\", \"paneltemplateoverview\"),
+      makeDynString(\"\"));
+  }
+  else
+  {
+    getValue(\"table\",\"cellValueRC\",selectedLines[1],\"templateName\",template);
+    if (isDbgFlag(DBGFLAG_IMPEXP))
+      DebugN(\"Selection\", selectedLines, template);
+    ChildPanelOnCentralModal(\"para/archive/RDB/RDB_allTemplates.pnl\", getCatStr(\"RDBArchive\", \"paneltemplateoverview\"),
+      makeDynString(template));
+  }
+}
+" 0
+ E E "main()
+
+{
+
+//  this.visible = getUserPermission(4);
+
+}" 0
+
+13 19
+"cmdConfig"
+""
+1 450 322 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 18 Configure Database
+LANG:10004 15 配置数据库
+LANG:10000 23 Konfiguration Datenbank
+LANG:10027 29 Конфигурация БД
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 322 487 361
+
+P 
+13434828
+"pictures/config_db_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+
+{
+
+  string     module = \"RDB CFG\",
+
+             FileName = \"para/archive/RDB/RDB_configuration.pnl\"; 
+
+  bool       _MOTIF = isMotif();
+
+
+
+  ModuleOnWithPanel(module, 100, 110, (620 + (!_MOTIF?8:4)), (480 + (!_MOTIF?32:4)),
+
+                    1, 1, \"None\", 
+
+                    FileName, 
+
+                    \"\", makeDynString());
+
+}" 0
+ E E "main()
+
+{
+
+  this.visible = getUserPermission(4);
+
+}" 0
+
+13 4
+"langtextedit"
+""
+1 8 407.9991666666667 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 408 122 438
+
+T 
+4
+LANG:10001 6 Rename
+LANG:10004 9 重命名
+LANG:10000 10 Umbenennen
+LANG:10027 26 Переименовать
+"main()
+
+{
+
+  langString ls;
+
+  dyn_string ds;
+
+  string sArchivDp,sArchivText;
+
+  dyn_string dsSelectedElements;
+
+  dyn_int diSelectedLines;
+
+  dyn_float dfReturn;
+
+  dyn_string dsReturn;
+
+  int i;
+
+  string s;
+
+  string sHeader, sLine1, sLine2, sButton1, sButton2;	// Stings für Mehrsprachigkeit
+
+
+
+  sHeader=getCatStr(\"va\", \"remArchiveHeader\");
+
+  sLine1=getCatStr(\"va\",\"renArchiveLine1\");
+
+  sButton1=getCatStr(\"general\",\"OK\");
+
+  sButton2=getCatStr(\"va\",\"cancel\");
+
+
+
+
+
+  getValue(\"table\",\"getSelectedLines\",diSelectedLines);
+
+  
+
+  if (dynlen(diSelectedLines)>0)
+
+  {
+
+      getValue(\"table\",\"cellValueRC\",diSelectedLines[1],\"archiveDp\",sArchivDp,
+
+  		 \"cellValueRC\",diSelectedLines[1],\"archiveName\",sArchivText);
+
+      dpGet(dpSubStr(sArchivDp,DPSUB_SYS_DP)+\".general.arName:_online.._value\",ls);  
+
+  
+
+      ds=ls;
+
+      s=ds;
+
+      strreplace(s,\" | \", \"°\");
+
+      ChildPanelOnCentralModalReturn(\"para/archive/archive_input_lang.pnl\",sHeader,makeDynString(sLine1, \"%s\", sArchivText, sButton1, sButton2, \"$LANG:\"+s), dfReturn, dsReturn);
+
+  
+
+      ls = dsReturn;
+
+      if (dynlen(dsReturn)>0 )
+
+         if (dsReturn[1] != \"FALSE\" )
+
+              dpSet(dpSubStr(sArchivDp,DPSUB_SYS_DP)+\".general.arName:_original.._value\",ls);   // Löschen setzen !!!
+
+   }
+
+
+
+/*
+
+  getValue(\"langtextliste\",\"items\",ds);
+
+  ls=ds;
+
+  langEditor(ls);
+
+  ds=ls;
+
+  setMultiValue(\"langtext\",\"text\",ls,
+
+                \"langtextliste\",\"items\",ds);
+
+*/
+
+}
+
+" 0
+ E E E
+13 20
+"cmdSite"
+""
+1 450 361 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 14 Configure Site
+LANG:10004 12 配置站点
+LANG:10000 18 Konfiguration Site
+LANG:10027 45 Конфигурация размещения
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 361 487 400
+
+P 
+13434828
+"pictures/config_site_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+
+{
+
+  string     module = \"RDB SCFG\",
+
+             FileName = \"para/archive/RDB/RDB_siteConfig.pnl\"; 
+
+  bool       _MOTIF = isMotif();
+
+
+
+  ModuleOnWithPanel(module, 100, 110, (620 + (!_MOTIF?8:4)), (480 + (!_MOTIF?32:4)),
+
+                    1, 1, \"None\", 
+
+                    FileName, 
+
+                    \"\", makeDynString());
+
+
+
+}" 0
+ E E "main()
+
+{
+
+  this.visible = getUserPermission(4);
+
+}" 0
+
+13 16
+"cmdHelp"
+""
+1 450 400 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+9 0 0 0 112 0
+E E E
+0
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 400 487 439
+
+P 
+13434828
+"pictures/help_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+
+{
+
+  
+
+  std_help(\"RDB_select\");
+
+  
+
+
+
+}
+
+" 0
+ E E E
+13 12
+"cmdAction"
+""
+1 450 244 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Manual Export/Import
+LANG:10004 19 手动导出/导入
+LANG:10000 24 Manuelles Aus-/Einlagern
+LANG:10027 40 Ручной экспорт/импорт
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 244 487 283
+
+P 
+13434828
+"pictures/swapinout_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     module = \"RDB ACT\",
+             FileName = \"para/archive/RDB/RDB_action.pnl\", Parameter = \"\", 
+             usedDbName = cmbDB.selectedText(); 
+  dyn_string diSelectedLines;
+  bool       _MOTIF = isMotif();
+
+  setUseOnlyThisDbName(usedDbName);
+  
+  getValue(\"table\",\"getSelectedLines\",diSelectedLines);
+  if ( dynlen(diSelectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+  
+//  if ( isModuleOpen(module) == false ) 
+  {
+    getValue(\"table\",\"cellValueRC\",diSelectedLines[1],\"groupDp\",Parameter);
+
+    Parameter = \"$1:\"+dpSubStr(Parameter,DPSUB_SYS_DP);
+
+    ModuleOnWithPanel(module, 100, 110, (620 + (!_MOTIF?8:4)), (480 + (!_MOTIF?32:4)),
+                      1, 1, \"None\", 
+                      FileName, 
+                      \"\", makeDynString(Parameter, \"$2:\"+usedDbName));
+
+  }
+}" 0
+ E E E
+13 11
+"cmdPara"
+""
+1 450 165 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 23 Configure Archive Group
+LANG:10004 15 配置归档组
+LANG:10000 26 Konfiguration Archivgruppe
+LANG:10027 54 Конфигурация архивной группы
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 165 487 204
+
+P 
+13434828
+"pictures/config_params_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  string     module = \"RDB GRP\",
+             FileName = \"para/archive/RDB/RDB_groupConfig.pnl\", Parameter = \"\"; 
+  dyn_string diSelectedLines;
+  bool      _MOTIF = isMotif();
+
+  setUseOnlyThisDbName(cmbDB.selectedText());
+
+  getValue(\"table\",\"getSelectedLines\",diSelectedLines);
+  if ( dynlen(diSelectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+  
+//  if ( isModuleOpen(module) == false ) 
+  {
+    getValue(\"table\",\"cellValueRC\",diSelectedLines[1],\"groupDp\",Parameter);
+  
+    Parameter = \"$1:\"+dpSubStr(Parameter,DPSUB_SYS_DP);
+
+    ModuleOnWithPanel(module, 100, 110, (620 + (!_MOTIF?8:4)), (480 + (!_MOTIF?32:4)),
+                      1, 1, \"None\", 
+                      FileName, 
+                      \"\", makeDynString(Parameter));
+
+  }
+}" 0
+ E E E
+13 5
+"cmdDelete"
+""
+1 450 126 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 20 Delete Archive Group
+LANG:10004 15 删除归档组
+LANG:10000 21 Archivgruppe löschen
+LANG:10027 46 Удаление архивной группы
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 126 487 165
+
+P 
+13434828
+"pictures/delete_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int             lC, iErr, i;
+  bool            bIsAlert, bProgress = false;
+  string          sGroupDp, sName, sDpe;
+  dyn_int         diSelectedLines;
+  dyn_float       df;
+  dyn_string      ds;
+  dyn_dyn_anytype tab;
+  
+  getValue(\"table\", \"getSelectedLines\", diSelectedLines,
+                    \"lineCount\", lC);
+  setUseOnlyThisDbName(cmbDB.selectedText());
+
+  if ( dynlen(diSelectedLines) < 1 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"para\", \"nolineselected\")));
+    return;
+  }
+
+  sGroupDp = table.cellValueRC(diSelectedLines[1], \"groupDp\");
+  sName = table.cellValueRC(diSelectedLines[1], \"groupName\");
+  bIsAlert = table.cellValueRC(diSelectedLines[1], \"isAlert\");
+
+  if ( bIsAlert )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"alertGroupNotDeletable\")));
+    return;
+  }
+
+  if ( sName == \"EVENT\" )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"EVENTnotDeletable\")));
+    return;
+  }
+
+  if ( lC <= 2 )
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"atLeastOneEventGroup\")));
+    return;
+  }
+
+  // looking for all dpes parametrized with this archive group
+  openProgressBar(getCatStr(\"sc\", \"please_wait_db\"),
+    \"delay.gif\", getCatStr(\"ImportExport\", \"queryClasses\"), \"\", \"\", 1); 
+  //dpQuery(\"SELECT '_archive.1._class' FROM '*.**' WHERE '_archive.1._class' == \\\"\" + sGroupDp + \"\\\"\", tab);
+  dyn_string dsgr = dpNames(\"*.**:_archive.._type\");
+  closeProgressBar();
+
+  if ( dynlen(dsgr) > 1 )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", getCatStr(\"groups\", \"deleting\") + \" \" + sName,
+      makeDynString(getCatStr(\"groups\", \"deletegroup\"),
+                    getCatStr(\"para\",\"yes\"),
+                    getCatStr(\"para\", \"no\")),
+      df, ds);
+    if ( dynlen(df) == 0 || df[1] <= 0 )
+      return;
+
+    bProgress = true;
+    openProgressBar(getCatStr(\"ImportExport\", \"delGroup\"),
+      \"delay.gif\", getCatStr(\"ImportExport\", \"deletingGroup\"), \"\", \"\", 1);
+    
+    // removing archive from all dpes parametrized with this archive group
+    if (isDbgFlag(DBGFLAG_IMPEXP))
+      DebugTN(\"Removing archive from all DPEs parametrized with \"+sGroupDp);
+    for ( i = 1; i <= dynlen(dsgr); i++ )
+    {
+        if (isDbgFlag(DBGFLAG_IMPEXP))
+	  DebugN(\"check archive.._type for IndexNr: \" + i + \" of \" + dynlen(dsgr), dsgr[i]);
+	int type;
+	    dpGet(dsgr[i],type);
+	    //First filter for the dpe´s which have an archive 
+	    if (type == DPCONFIG_DB_ARCHIVEINFO)      
+	    {
+	      //DebugN(\\\"Bearbeite config\\\",ds[i]);
+	      int type1;
+	      strreplace(dsgr[i], \".._type\", \".1._type\");
+        dpGet(dsgr[i],type1);
+	    	//Filter for the dps which have already parametrized an archive class
+	      if (type1 == DPATTR_ARCH_PROC_VALARCH)
+	      {	
+	      	//only these dpes have to be changed to RDB Archive
+	        bool bArchive;
+	        strreplace(dsgr[i], \".1._type\", \".._archive\");
+	        dpGet(dsgr[i], bArchive);
+          if (isDbgFlag(DBGFLAG_IMPEXP))
+				    DebugN(\"DPC-Attribut\", dsgr[i], bArchive);
+					if (bArchive)
+					{
+					  //only active archive configs have to be deactivated
+  			    string sClass;
+  			    anytype aClass;
+ 	          strreplace(dsgr[i], \".._archive\", \".1._class\");
+  	        dpGet(dsgr[i], aClass);	 //Typ DPIDENTIFIER_VAR kommt zurück
+	          sClass = (string)aClass; //wenn kein direktes Archiv-Config vorhanden -> WARNING,54,Unexpected state, DpIdentifier, formatValue, could not convert DpIdentifier to string: (Type: 0 Sys: 1 Dp: 1944 El: 0 Conf: 0 Det: 0 Attr: 0)
+            if (isDbgFlag(DBGFLAG_IMPEXP))
+              DebugN(\"Archivklasse\", sGroupDp, sClass, aClass);
+
+			      if (sClass == sGroupDp)
+			      {
+			        //alang added 30.8.2006
+			        //deactivating - after deactivating an archive and deleting its class the combo box in archive.pnl shows the wrong class
+			        //-> deleted and setting up an empty archive-config instead of deactivating
+			        int err;
+			        sDpe = dpSubStr(dsgr[i], DPSUB_SYS_DP_EL_CONF);
+						  if (isDbgFlag(DBGFLAG_IMPEXP))
+						    DebugN(\"Deactivating:\" , sDpe);
+			        //dpSetWait(sDpe+\".._archive\", FALSE, 
+	            //          sDpe+\".1._type\", DPATTR_ARCH_PROC_NONE);  
+							err = dpSetWait(sDpe+\".._type\", DPCONFIG_NONE);
+						  if (err && isDbgFlag(DBGFLAG_IMPEXP))
+								DebugN(err, getLastError());
+              err = dpSetWait(sDpe+\".._type\", DPCONFIG_DB_ARCHIVEINFO);
+						  if (err && isDbgFlag(DBGFLAG_IMPEXP))
+								DebugN(err, getLastError());
+			      }
+			    }
+	      }
+      }
+    }
+  }
+ 
+  if ( !bProgress )
+  {
+    openProgressBar(getCatStr(\"ImportExport\", \"delGroup\"),
+      \"delay.gif\", getCatStr(\"ImportExport\", \"deletingGroup\"), \"\", \"\", 1); 
+  }
+  
+//    ChildPanelOnCentralModalReturn(\"vision/MessageInfo\", \"Continue with \" + sName,
+//      makeDynString(\"Continue with DB Delete?\",
+//                    getCatStr(\"para\",\"yes\"),
+//                    getCatStr(\"para\", \"no\")),
+//      df, ds);
+//    if ( dynlen(df) == 0 || df[1] <= 0 )
+//      return;
+
+  // removing archive group
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugTN(\"Removing archive group \"+sGroupDp+\" from DB\");
+  if ( dpExists(sGroupDp) )
+  {
+  	iErr = deleteImpExpGroup(sName);
+	
+	  if ( iErr < 0 )
+	  {
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+        makeDynString(getCatStr(\"ImportExport\", \"errorDeletingGroup\")));
+      closeProgressBar();
+      return;
+    }
+
+    dpDelete(sGroupDp);
+    table.deleteLineN(diSelectedLines[1]);
+  }
+  if (isDbgFlag(DBGFLAG_IMPEXP))
+    DebugTN(\"Removing \"+sGroupDp+\": Finished\");
+  closeProgressBar();
+}
+" 0
+ E E E
+13 6
+"cmdNew"
+""
+1 450 87 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 17 New Archive Group
+LANG:10004 12 新归档组
+LANG:10000 17 Neue Archivgruppe
+LANG:10027 40 Новая архивная группа
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 87 487 126
+
+P 
+13434828
+"pictures/new_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  int        i, iErr, idThread;
+  dyn_float  df;
+  dyn_string ds, dsDp;
+  
+  setUseOnlyThisDbName(cmbDB.selectedText());
+  
+  ChildPanelOnCentralModalReturn(\"para/archive/RDB/RDB_newGroup.pnl\",
+    getCatStr(\"RDBArchive\", \"newArchiveGroup\"), makeDynString(),
+    df, ds);
+  if ( dynlen(df) < 1 || df[1] == 0 ) return;
+
+	//idThread = startProgressBarEx(this.text, getCatStr(\"ImportExport\",\"creatingNewGroup\"));
+  openProgressBar(this.text, \"copy.gif\", getCatStr(\"ImportExport\",\"creatingNewGroup\"), getCatStr(\"ImportExport\",\"Waiting\"), \"\", 1);
+
+	//Gruppe erzeugen
+	int iManNum        = df[1];
+	string sTemplate   = ds[1];
+	string sGroup      = strtoupper( ds[2] ); //groups need upper case
+	string sPath       = ds[3];
+  bool isAlert       = (bool)df[2];
+  bool isUserDefined = (bool)df[3];
+  iErr = ag_createGroup(iManNum, sTemplate, sGroup, sPath, isAlert, isUserDefined);
+
+  if ( iErr < 0 )
+  {
+    if(iErr != -99)  // -99 is nothing was created because it already exists in DB and User has cancled
+    {
+      string errmsg = getCatStr(\"ImportExport\", \"errorCreatingGroup\");
+      strreplace(errmsg, \"<%1>\", iErr);
+      if (isDbgFlag(DBGFLAG_IMPEXP))
+        DebugN(\"new error: \"+iErr);
+      ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"), makeDynString(errmsg));
+    }
+  	//closeProgressBarEx(idThread);
+    closeProgressBar();
+    return;
+  }
+
+/* ausgelagert in udag.ctl
+	//Gruppe erzeugen
+	iManNum = df[1];
+	string sTemplate = ds[1];
+	//groups need upper case
+	string sGroup    = strtoupper( ds[2] );
+	string sPath     = ds[3];
+	iErr = createImpExpGroup(sTemplate, sGroup, sPath);
+	
+	if ( iErr < 0 )
+	{
+    ChildPanelOnCentralModal(\"vision/MessageWarning\", getCatStr(\"para\", \"warning\"),
+      makeDynString(getCatStr(\"ImportExport\", \"errorCreatingGroup\")));
+  	closeProgressBarEx(idThread);
+    return;
+	}
+
+  //Datenpunkte setzen
+  string idp = \"_\" + sGroup;
+  bool isAlert = (bool)df[2];
+  bool isUserDefined = (bool)df[3];
+  
+  dpCreate(idp, \"_RDBArchiveGroups\");
+  dpSet(idp+\".templateName:_original.._value\",  sTemplate,
+        idp+\".groupName:_original.._value\",     sGroup,
+        idp+\".managerNr:_original.._value\",     iManNum - 2,
+        idp+\".isAlert:_original.._value\",       isAlert,
+        idp+\".isUserDefined:_original.._value\", isUserDefined);
+  if (isUserDefined)
+  {
+	  string templatedp = \"_\"+ds[1];
+	  dyn_string cols, idxs;
+	  dyn_int pvsstypes;
+    dpGet(templatedp+\".column.names\", cols,
+          templatedp+\".column.types\", pvsstypes,
+          templatedp+\".indexes\",      idxs);
+    dpSet(idp+\".column.names\",   cols,
+          idp+\".column.types\",   pvsstypes,
+          idp+\".indexes\",        idxs);
+  }
+*/
+
+  loadGroups();
+
+	closeProgressBar();//Ex(idThread);
+}" 0
+ E E E
+13 15
+"cmdClose"
+""
+1 450 47.99999999999999 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+1 0 0 0 27 0
+E E E
+0
+4
+LANG:10001 11 Close Panel
+LANG:10004 6 关闭
+LANG:10000 16 Panel schließen
+LANG:10027 31 Закрытие панелей
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 48 487 87
+
+P 
+13434828
+"pictures/exit_24.bmp"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  setUseOnlyThisDbName(\"\");
+  PanelOff();
+}" 0
+ E E E
+13 23
+"cmdSynch"
+""
+1 450 204 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 42 Forward to Center - Oracle Synchronization
+LANG:10004 30 前进到中心 - Oracle同步
+LANG:10000 42 Forward to Center - Oracle Synchronisation
+LANG:10027 82 Перенаправление в центр — синхронизация Oracle
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  448 204 487 243
+
+P 
+13434828
+"pictures/SysMgm/16x16/DbConfig.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  ChildPanelOnCentralModal(\"para/archive/RDB/sync/HistSynch.pnl\", \"HistSynch\", makeDynString());
+}" 0
+ E E E
+22 24
+"cmbDB"
+""
+1 89 10 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+0
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  87 8 211 34
+0
+
+"main()
+{
+  getDatabaseHosts();
+}
+
+void getDatabaseHosts()
+{
+  string dbHosts, dbHost1, dbHost2;
+  int pos;
+  dpGet(\"_RDBArchive.db.host:_original.._value\",dbHosts); 
+  
+  strreplace(dbHosts, \" \", \"\");
+  pos = strpos(dbHosts, \",\", 0);
+  if (pos > 0)
+  {
+    cmbDB.enabled(true);
+    dbHost1 = substr(dbHosts, 0, pos);
+    dbHost2 = substr(dbHosts, pos + 1, strlen(dbHosts)- (pos+1));
+    
+    cmbDB.appendItem(dbHost1);
+    setUseOnlyThisDbName(dbHost1);
+    cmbDB.appendItem(dbHost2);    
+    
+  }  
+  else
+  {
+    cmbDB.enabled(false);
+    cmbDB.appendItem(dbHosts);
+    setUseOnlyThisDbName(\"\");
+  }
+    
+      
+}" 0
+
+"main()
+{
+  setUseOnlyThisDbName(cmbDB.selectedText());
+  compareArchiveGroups();
+}
+" 0
+
+E
+ 0 0
+2 25
+"txtDB"
+""
+1 12 13.99999999999989 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"sizePolicy" "Fixed Fixed"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 2 1 E U  0 E 12 13.99999999999989 82 27
+0 2 2 "0s" 0 0 0 192 0 0  12 13.99999999999989 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Database:
+LANG:10004 10 数据库:
+LANG:10000 10 Datenbank:
+LANG:10027 22 База данных:
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

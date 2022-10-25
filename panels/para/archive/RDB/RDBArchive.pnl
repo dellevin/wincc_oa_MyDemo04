@@ -1,0 +1,974 @@
+V 14
+4
+LANG:10001 10 RDBArchive
+LANG:10004 10 RDBArchive
+LANG:10000 10 RDBArchive
+LANG:10027 10 RDBArchive
+PANEL,-1 -1 770 619 N "_3DFace" 1
+"$manager"
+E E E E E 1 -1 -1 0  30 10
+""0  1
+E "
+//  contained functions:
+//  --------------------
+//  mapping getSystemInfo()
+//  dyn_string getActiveHost(string System)
+//  dyn_string getActiveSystems(string System, string activeHost)
+//  dyn_string getReduHostNames(string System)
+//  int getNumberBySystemName(string System, mapping mSysInfo)
+//  void cmbChangedIndex(string s_System)
+//  split(string dpRMSM, bool split, string dpRMSA, bool active)
+//  split_2(string dpRMSM, bool split, string dpRMSA, bool active)
+//  setErrors(string dpVAEN, int errNum, string dpVAEDP, string errDp)
+//  setErrors_2(string dpVAEN, int errNum, string dpVAEDP, string errDp)
+//*****************************************************************************
+
+bool displayRedu, first;
+string s_System, System, sys, manager;
+
+mapping g_mSysInfo;
+
+//** Function Header **********************************************************
+//  description: CB Function of the SplitManagerDP:
+//                           sets the splitMode and the manualState of the RDBArchive DP
+//               input: string dpRMSM //DPE from the Splitmanager
+//                      bool split //shows if the splitmode is active
+//                      string dpRMSA //DPE from the Splitmanager
+//                      bool active //shows if the first System hast the Active State
+//
+//  Thomas Schirk ; 23.07.2003
+//*****************************************************************************
+split(string dpRMSM, bool split,
+      string dpRMSA, bool active)
+{
+  dpSet($manager + \".splitMode.splitActive:_original.._value\",split,
+        $manager + \".splitMode.splitManualState:_original.._value\",(split?active:false));
+}
+
+//** Function Header **********************************************************
+//  description: CB Function of the SplitManagerDP_2:
+//                           sets the splitMode and the manualState of the RDBArchive_2 DP
+//               input: string dpRMSM //DPE from the Splitmanager_2
+//                      bool split //shows if the splitmode is active
+//                      string dpRMSA //DPE from the Splitmanager
+//                      bool active //shows if the second System hast the Active State
+//
+//  Thomas Schirk ; 23.07.2003
+//*****************************************************************************
+split_2(string dpRMSM, bool split,
+        string dpRMSA, bool active)
+{
+  dpSet($manager + \"_2.splitMode.splitActive:_original.._value\",split,
+        $manager + \"_2.splitMode.splitManualState:_original.._value\",(split?active:false));
+}
+
+//** Function Header **********************************************************
+//  description: CB - Function of the Error DPE from the RDBArchive DP:
+//                    writes the Errormessages in the RDBArchiveControl DP
+//               input: string dpVAEN   //DPE ErrNum
+//                      int errNum      //last ErrorCode
+//                      string dpVAEDP  //DPE errDP
+//                      string errDp    //DP that produces the last Error
+//
+//  Thomas Schirk ; 23.07.2003
+//*****************************************************************************
+setErrors(string dpVAEN, int errNum,
+          string dpVAEDP, string errDp)
+//get from _RDBArchive and append from the dyn in RDBArchiveControl
+{
+  if (errNum != 0)
+    dpSet($manager + \"Control.errNum:_original.._value\",errNum,
+          $manager + \"Control.errDp:_original.._value\",errDp);
+}
+
+//** Function Header **********************************************************
+//  description: CB - Function of the Error DPE from the RDBArchive_2 DP:
+//                    writes the Errormessages in the RDBArchiveControl_2 DP
+//               input: string dpVAEN   //DPE ErrNum
+//                      int errNum      //last ErrorCode
+//                      string dpVAEDP  //DPE errDP
+//                      string errDp    //DP that produces the last Error
+//
+//  Thomas Schirk ; 23.07.2003
+//*****************************************************************************
+setErrors_2(string dpVAEN, int errNum,
+            string dpVAEDP, string errDp)
+//get from _RDBArchive_2 and append from the dyn in RDBArchiveControl_2
+{
+  if (errNum != 0)
+    dpSet($manager + \"Control_2.errNum:_original.._value\",errNum,
+          $manager + \"Control_2.errDp:_original.._value\",errDp);
+}
+
+//** Function Header **********************************************************
+//  description: collect all system information
+//
+//  Thomas Abzieher ; 16.10.2003
+//*****************************************************************************
+mapping getSystemInfo()
+{
+ mapping mSysinfo;
+ dyn_string dsActiveSystems, dsActiveHosts, dsHosts;
+ int i=2,j=0;
+ initHosts();
+ mSysinfo[\"1_SystemName\"]=getSystemName();
+
+ dsActiveSystems=getActiveSystems(mSysinfo[\"1_SystemName\"],getActiveHost(mSysinfo[\"1_SystemName\"])[1]);
+ dsActiveHosts=getActiveHost(mSysinfo[\"1_SystemName\"]);
+ for (i=1; i<=(dynlen(dsActiveSystems)+1);i++)
+ {
+  mSysinfo[\"Entries\"]=i;
+  if(i!=1)
+  {
+   mSysinfo[i+\"_SystemName\"]=dsActiveSystems[i-1];
+  }
+  dsHosts=getReduHostNames(mSysinfo[i+\"_SystemName\"]);
+
+  switch (dynlen(dsHosts))
+  {
+   case 1: mSysinfo[i+\"_Host1\"]=dsHosts[1];
+           break;
+   case 2: mSysinfo[i+\"_Host1\"]=dsHosts[1];
+           mSysinfo[i+\"_Host2\"]=dsHosts[2];
+           dyn_string dsAct = getActiveHost(mSysinfo[i+\"_SystemName\"]);
+           //DebugN(\"dsAct\", dsAct);
+           if (dynlen(dsAct) > 0)
+             mSysinfo[i+\"_Active\"]=(getActiveHost(mSysinfo[i+\"_SystemName\"])[1]);
+           break;
+   default: throwError(makeError(\"\",PRIO_INFO, ERR_CONTROL, 0, \"No Host found!\"));
+  }
+  //i++;
+ }
+ return mSysinfo;
+}
+
+//** Function Header **********************************************************
+//  description: get active host and hostnames
+//  input:  \"Systemname\"
+//  output: \"[L|R|B] [hostname1] [hostname2]\"
+//
+//  Thomas Abzieher ; 16.10.2003
+//*****************************************************************************
+dyn_string getActiveHost(string System)
+{
+  bool bSplit,bReduAct1,bReduAct2;
+  dyn_string Hosts;
+  dyn_string dsActiveHost;
+  int iRedu=0;
+  Hosts=getReduHostNames(System);
+
+  isRemoteSystemRedundant(iRedu,System);
+  if (iRedu==1)
+  {
+    isSplitModeActive(bSplit,System);
+
+    if(bSplit == true)
+    {
+      dsActiveHost=makeDynString(\"B\");
+      dynAppend(dsActiveHost,Hosts[1]);
+      dynAppend(dsActiveHost,Hosts[2]);
+    }//if(bSplit == true)
+    else
+    {
+      int iActiveHost;
+
+      reduActive(iActiveHost,System);
+
+      if(iActiveHost == 1)
+        dsActiveHost=makeDynString(\"L\",Hosts[1]);
+      else if(iActiveHost == 2)
+        dsActiveHost=makeDynString(\"R\",Hosts[2]);
+      else
+        throwError(makeError(\"\",PRIO_WARNING, ERR_CONTROL, 0, \"Could not get information for active server\"));
+    }
+  }
+  else
+  {
+    dsActiveHost=makeDynString(\"L\",Hosts[1]);
+  }
+  return dsActiveHost;
+}
+
+//** Function Header **********************************************************
+//  description: get all current connected system
+//  input:  \"Systemname\", \"activeHos\"
+//  output: \"System1 ... SystymN\"
+//
+//  Thomas Abzieher ; 16.10.2003
+//*****************************************************************************
+dyn_string getActiveSystems(string System, string activeHost)
+{
+  dyn_string dsActiveSystems;
+  dyn_int diSystemIds;
+
+  getRemoteSystemNamesConnected(dsActiveSystems,diSystemIds);
+  return dsActiveSystems;
+}
+
+//** Function Header **********************************************************
+//  description: get the hostnames of the redu hosts
+//  input:  \"Systemname\"
+//  output: \"[Host1] [Host2]\"
+//
+//  Thomas Abzieher ; 16.10.2003
+//*****************************************************************************
+dyn_string getReduHostNames(string System)
+{
+  dyn_string dsHosts;
+
+  dsHosts = getRemoteSystemHosts(System);
+  return dsHosts;
+}
+
+//** Function Header **********************************************************
+//  description: get number for a Systemname
+//  input:  \"Systemname, mSysInfo\" <- Systemstruct
+//  output: \"[i]\"
+//
+//  Thomas Abzieher ; 16.10.2003
+//*****************************************************************************
+int getNumberBySystemName(string System, mapping mSysInfo)
+{
+ int i;
+ for (i=1;i<=mSysInfo[\"Entries\"]; i++)
+ {
+  if(mSysInfo[i+\"_SystemName\"]==System)
+  {
+   return i;
+  }
+
+ }
+ return 0;
+}
+
+cmbChangedIndex(string manDP)
+{
+  dyn_string dsSysteme, dsDistHosts;
+  dyn_string dsActiveHost; //active Host
+  dyn_uint   Id;
+  bool       bRedu1act,bRedu2act,bSplit;
+  string     Str_SystemName, s, sName;
+  int        iErrorNr,i;
+  int        isRedu;
+  string     sRedu;
+  string     sHost2;
+  bool remote;
+  bool redundant = isRedundant();
+
+  int iSystem=0, iRedu=0;
+// bool isFirst = false;
+
+
+  sName = dpGetComment(manDP);
+
+  strreplace(sName, \".\", \"\");
+  txtManager.text = sName;
+  txtManagerDp.text = dpSubStr(manDP, DPSUB_DP);
+
+  initHosts();
+  dsDistHosts = getRemoteSystemHosts(cmbDist.text);
+
+  if (dpConnect(\"split\", FALSE, \"_ReduManager.SplitMode:_online.._value\",
+                           \"_ReduManager.SplitActive:_online.._value\")== -1)
+  {
+    //DebugN(\"Error connecting to _ReduManager\");
+    throwError(makeError(\"\",PRIO_WARNING, ERR_CONTROL, 0, \"Error connecting to _ReduManager\"));
+  }
+
+  if (dpConnect(\"split_2\", FALSE, \"_ReduManager_2.SplitMode:_online.._value\",
+                           \"_ReduManager_2.SplitActive:_online.._value\")== -1)
+  {
+    //DebugN(\"Error connecting to _ReduManager_2\");
+    throwError(makeError(\"\",PRIO_WARNING, ERR_CONTROL, 0, \"Error connecting to _ReduManager_2\"));
+  }
+
+  if (dpConnect(\"setErrors\", false, manDP + \".error.errNum:_online.._value\",
+                                      manDP + \".error.errDp:_online.._value\")== -1)
+  {
+      //DebugN(\"Error connecting to \" + manDP + \".error...\");
+    throwError(makeError(\"\",PRIO_WARNING, ERR_CONTROL, 0, \"Error connecting to \" + manDP + \".error...\"));
+  }
+
+  if (dpConnect(\"setErrors_2\", false, manDP + \"_2.error.errNum:_online.._value\",
+                                        manDP + \"_2.error.errDp:_online.._value\")== -1)
+  {
+    //DebugN(\"Error connecting to \" + manDP.text + \"_2.error...\");
+    throwError(makeError(\"\",PRIO_WARNING, ERR_CONTROL, 0, \"Error connecting to \" + manDP + \"_2.error...\"));
+  }
+
+  g_mSysInfo=getSystemInfo();
+
+  for (i=1;i<=g_mSysInfo[\"Entries\"]; i++)
+  {
+    dynAppend(dsSysteme,g_mSysInfo[i+\"_SystemName\"]);
+  }
+
+
+  if(g_mSysInfo[\"Entries\"]==1)
+  {
+   cmbDist.enabled=false;
+   txtSysName.enabled=false;
+  }
+  else
+  {
+   cmbDist.enabled=true;
+   txtSysName.enabled=true;
+  }
+
+  cmbDist.items=dsSysteme;
+
+  s_System = dsSysteme[1];
+
+  iSystem=getNumberBySystemName(s_System,g_mSysInfo);
+  System=g_mSysInfo[iSystem+\"_SystemName\"];
+
+
+// removeSymbol(myModuleName(),myPanelName(),\"ValueArchiveRDB\");
+
+  isRemoteSystemRedundant(iRedu,cmbDist.text);
+  displayRedu = (iRedu>0);
+  sys = cmbDist.text;
+  first = true;
+
+  bool first_host = true;
+  manager = dpSubStr(manDP, DPSUB_DP);
+
+  setValue(\"tabRDB\", \"registerVisible\", 3, displayRedu);
+
+  dsActiveHost = getActiveHost(getSystemName());
+  if(dsActiveHost[1] == \"L\")
+    first_host = true;
+  else if(dsActiveHost[1] == \"R\")
+    first_host = false;
+
+  //mgauster 21.05.2010: If system is not redundant -> system-information system-information is always on the first host
+  if(iRedu==0)
+    first_host = true;
+
+  dpConnect(\"ErrorBit\", true, sys +manager+(first_host?\"\":\"_2\")+\".error.errBit:_online.._value\");
+  dpConnect(\"ConnError\", true, sys+manager+\".dbConnection.dbConnError:_online.._value\",
+                               sys+manager+\".dbConnection.connected:_online.._value\",
+                               sys+manager+\"_2\"+\".dbConnection.dbConnError:_online.._value\",
+                               sys+manager+\"_2\"+\".dbConnection.connected:_online.._value\");
+  dpConnect(\"SplitActive\", true, manager+(first_host?\"\":\"_2\")+\".splitMode.splitActive:_online.._value\");
+  dpConnect(\"SplitManualState\", true, manager+(first_host?\"\":\"_2\")+\".splitMode.splitManualState:_online.._value\");
+  setValue(\"tabRDB\", \"registerPanel\", 0,\"para/archive/RDB/RDBArchive_Common.pnl\",
+                         makeDynString(\"$FIRST:\"+first_host, \"$REDUNDANT:\"+displayRedu,\"$System:\"+sys,\"$manager:\"+manager),
+                     \"registerPanel\", 1,\"para/archive/RDB/RDBArchive_Config.pnl\",
+                         makeDynString(\"$FIRST:\"+first_host, \"$REDUNDANT:\"+displayRedu,\"$System:\"+sys,\"$manager:\"+manager),
+                     \"registerPanel\", 2,\"para/archive/RDB/RDBArchive_Write.pnl\",
+                         makeDynString(\"$FIRST:\"+first, \"$REDUNDANT:\"+displayRedu,\"$System:\"+sys,\"$manager:\"+manager, \"$hostName:\"+dsDistHosts[1]),
+                     \"registerPanel\", 4,\"para/archive/RDB/RDBArchive_schema.pnl\",
+                         makeDynString(\"$FIRST:\"+first_host, \"$REDUNDANT:\"+displayRedu,\"$System:\"+sys,\"$manager:\"+manager),
+                     \"registerHeader\", 2, getCatStr(\"RDBArchive\",\"hoststate\")+\" \"+dsDistHosts[1]);
+  if (displayRedu)
+  {
+    setValue(\"tabRDB\", \"registerPanel\", 3,\"para/archive/RDB/RDBArchive_Write.pnl\",
+                         makeDynString(\"$FIRST:\"+first, \"$REDUNDANT:\"+displayRedu,\"$System:\"+sys,\"$manager:\"+manager, \"$displayRedu:\"+displayRedu, \"$hostName:\"+dsDistHosts[2]),
+                         \"registerVisible\", 3, displayRedu);
+    setValue(\"tabRDB\", \"registerHeader\", 3, getCatStr(\"RDBArchive\",\"hoststate\")+\" \"+dsDistHosts[2]);
+  }
+
+}
+
+SplitActive(string dpValArchRDB, bool splitActive)
+{
+  if (splitActive)
+  {
+  //splitActive
+    txtSplitActive.text = getCatStr(\"RDBArchive\",\"splitActive\");
+    txtSplitActive.foreCol = \"_WindowText\";
+  }
+  else
+  {
+  //splitInActive
+    txtSplitActive.text = getCatStr(\"RDBArchive\",\"splitInActive\");
+    txtSplitActive.foreCol = \"_ButtonShadow\";
+  }
+}
+SplitManualState(string dpValArchRDB, bool splitManualState)
+{
+  if (splitManualState)
+  {
+  //splitManualStateTrue
+    txtSplitManual.text = getCatStr(\"RDBArchive\",\"splitManualStateTrue\");
+    txtSplitManual.foreCol = \"_WindowText\";
+  }
+  else
+  {
+  //splitManualStateFalse
+    txtSplitManual.text = getCatStr(\"RDBArchive\",\"splitManualStateFalse\");
+    txtSplitManual.foreCol = \"_ButtonShadow\";
+  }
+}
+ErrorBit(string dpValArchRDBControl, bool errorBit)
+{
+  if (errorBit)
+  {
+  //ErrorBitTrue
+    txtErrorBit.text = getCatStr(\"RDBArchive\",\"ErrorBitTrue\");
+    txtErrorBit.backCol = \"gefahrKamGingUnq\";
+  }
+  else
+  {
+  //ErrorBitFalse
+    txtErrorBit.text = getCatStr(\"RDBArchive\",\"ErrorBitFalse\");
+    txtErrorBit.backCol = \"_3DFace\";
+  }
+}
+
+ConnError(string dpValArchRDBControl, int dbConnError, string dpConnection, bool bConnection,
+          string dpValArchRDBControl2, int dbConnError2, string dpConnection2, bool bConnection2)
+{
+//  DebugN(\"...........\", bConnection);
+  int iIsRedundant;
+  string sSys = dpSubStr(dpConnection,DPSUB_SYS);
+
+  isRemoteSystemRedundant(iIsRedundant,dpSubStr(dpConnection,DPSUB_SYS));
+
+  displayConnectionState(bConnection, dbConnError, FALSE);
+
+  if (iIsRedundant)
+  {
+    displayConnectionState(bConnection2, dbConnError2, TRUE);
+    txtDbConnError.size(190, 23);
+  }
+  else
+  {
+    txtDbConnError.size(380, 23);
+  }
+}
+
+
+void displayConnectionState(bool bConnection, int dbConnError, bool bHost2=FALSE)
+{
+  shape stxtDbConnError;
+
+  if ( !bHost2 )
+  {
+    stxtDbConnError = getShape(\"txtDbConnError\");
+  }
+  else
+    stxtDbConnError = getShape(\"txtDbConnError2\");
+
+  if (bConnection==true)
+  {
+    if (dbConnError != 0)
+    {
+    //ErrorBitTrue
+      stxtDbConnError.text = getCatStr(\"RDBArchive\",\"dbConnError_\"+dbConnError);
+      stxtDbConnError.backCol = \"gefahrKamGingUnq\";
+    }
+    else
+    {
+    //ErrorBitFalse
+      stxtDbConnError.text = getCatStr(\"RDBArchive\",\"dbConnError_OK\");
+      stxtDbConnError.backCol = \"STD_device_on\";
+    }
+  }
+  else
+  {
+    stxtDbConnError.text = getCatStr(\"RDBArchive\",\"dbConnError_0\");
+    stxtDbConnError.backCol = \"gefahrKamGingUnq\";
+  }
+
+}
+" 0
+ 3
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+2 7
+"txtSysName"
+""
+1 470 10 E E E 0 E 1 E N {0,0,0} E N "_Transparent" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 472 12 568 28
+0 2 0 "0s" 0 0 0 64 0 0  472 12 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 12 System name:
+LANG:10004 13 系统名称:
+LANG:10000 11 Systemname:
+LANG:10027 22 Имя системы:
+2 8
+"Text1"
+""
+1 10 10 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 12 12 134 27
+0 2 0 "0s" 0 0 0 192 0 0  12 12 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,11,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 RDB archive manager:
+LANG:10004 19 RDB归档管理员:
+LANG:10000 18 RDB-Archivmanager:
+LANG:10027 34 Менеджер архива RDB:
+2 12
+"Text2"
+""
+1 305 10 E E E 1 E 1 E N "_WindowText" E N "_Transparent" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 307 12 331 27
+0 2 0 "0s" 0 0 0 192 0 0  307 12 1
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0 4
+LANG:10001 3 DP:
+LANG:10004 3 DP:
+LANG:10000 3 DP:
+LANG:10027 3 DP:
+13 2
+"cmdClose"
+""
+1 659 582 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 arial,-1,13,5,50,0,0,0,0,0
+0  658 581 762 611
+
+T 
+4
+LANG:10001 5 Close
+LANG:10004 6 关闭
+LANG:10000 10 Schließen
+LANG:10027 14 Закрыть
+"main()
+{
+  PanelOff();
+}
+" 0
+ E E E
+22 4
+"cmbDist"
+""
+1 560 10 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  558 8 761 35
+0
+
+E
+"main()
+{ 
+ cmbChangedIndex(this.text+\"_RDBArchive\");
+}
+" 0
+
+E
+ 0 0
+14 10
+"txtManager"
+""
+1 150 10 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  148 8 302 35
+2 "0s" 0 0 0 0 0 -1  E E E
+14 11
+"txtManagerDp"
+""
+1 330 10 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  328 8 462 35
+2 "0s" 0 0 0 0 0 -1  E E E
+28 13
+"tabRDB"
+""
+1 0 38.4047619047619 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 48 742 539
+E5 "common" 4
+LANG:10001 7 General
+LANG:10004 6 常规
+LANG:10000 9 Allgemein
+LANG:10027 10 Общее
+0
+"config" 4
+LANG:10001 8 Settings
+LANG:10004 6 设置
+LANG:10000 13 Einstellungen
+LANG:10027 18 Настройки
+0
+"Write" 4
+LANG:10001 5 state
+LANG:10004 5 state
+LANG:10000 7 Zustand
+LANG:10027 18 Состояние
+0
+"state_host2" 4
+LANG:10001 11 state right
+LANG:10004 12 状态无误
+LANG:10000 14 Zustand Rechts
+LANG:10027 31 Состояние соседа
+0
+"Schema" 4
+LANG:10001 9 DB-Schema
+LANG:10004 12 DB-表空间
+LANG:10000 9 DB-Schema
+LANG:10027 15 Схема БД
+0
+
+14 14
+"txtSplitActive"
+""
+1 10 548 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  8 546 142 572
+2 "0s" 0 0 0 0 0 -1  E E E
+14 15
+"txtSplitManual"
+""
+1 140 548 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+13 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  138 546 222 572
+2 "0s" 0 0 0 0 0 -1  E E E
+14 16
+"txtErrorBit"
+""
+1 590 548 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  588 546 741 572
+2 "0s" 0 0 0 0 0 -1  E E E
+2 18
+"txtInit"
+""
+1 370 569 E E E 1 E 0 E N {0,0,0} E N {255,255,255} E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"main()
+{
+  cmbChangedIndex($manager);
+}" 0
+ E 0 1 1 0 1 E U  1 E 372 571 508 597
+1 2 0 "0s" 0 0 0 64 0 0  372 571 1
+4
+LANG:10001 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10004 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10000 32 Courier New,-1,12,5,40,0,0,0,0,0
+LANG:10027 32 Courier New,-1,12,5,40,0,0,0,0,0
+0 4
+LANG:10001 10 initscript
+LANG:10004 15 初始化脚本
+LANG:10000 12 init script 
+LANG:10027 10 initscript
+14 19
+"txtDbConnError2"
+""
+1 226 548 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+20 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 host2
+LANG:10004 5 host2
+LANG:10000 5 Host2
+LANG:10027 9 Хост2
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  403 546 591 572
+2 "0s" 0 0 0 0 0 -1  E E E
+14 17
+"txtDbConnError"
+""
+1 210 548 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 5 host1
+LANG:10004 5 host1
+LANG:10000 5 Host1
+LANG:10027 9 Хост1
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,12,5,40,0,0,0,0,0
+LANG:10027 26 arial,-1,12,5,40,0,0,0,0,0
+0  208 546 591 572
+2 "0s" 0 0 0 0 0 -1  E E E
+13 20
+"Button5"
+""
+1 9 581 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+21 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,40,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,40,0,0,0,0,0
+0  8 581 112 611
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+//   std_help(\"RDB_manSelect\");
+  std_help(\"RDBArchive_new\");
+}
+
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+0

@@ -1,0 +1,1557 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 1263 549 N "_3DFace" 0
+"main()
+{
+  sendDpeTable = getShape(\"sendDpeAs\");
+  paramsTable = getShape(\"timeParameters\");
+  specificParamsTable = getShape(\"specificSettings\");
+
+  initTable(sendDpeTable);
+  initTable(paramsTable);
+  initTable(specificParamsTable);
+
+  initTable(getShape(\"profileTable\"));
+  initTable(getShape(\"dbSpecificTable\"));
+
+  dyn_string names = g_profile.getNames();
+  profileTable.deleteAllLines();
+  for (int i = 1; i <= names.count(); i++)
+  {
+    profileTable.appendLine(\"profile\", g_profile.getProfileDisplayName(names[i]));
+  }
+
+  profileTable.selectLineN(NgaBackendProfileConfigProvider::selectedProfilePos);
+}
+" 0
+ E E E E 1 -1 -1 0  60 50
+""0  1
+E "#uses \"classes/text/StringUtility\"
+#uses \"classes/nga/NgaBackendProfileConfigProvider\"
+
+bool g_hasChanged = false;
+shared_ptr<NgaBackendProfileConfigProvider> g_profile = new NgaBackendProfileConfigProvider();
+shape sendDpeTable, paramsTable, specificParamsTable;
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which saves all panel changes.
+ * @note The function is called from WF.
+**/
+int panelSave()
+{
+  string errText = g_profile.save();
+  if(errText == \"\")
+  {
+    notificationBar_newMsg(\"NGA\", \"profile_saved\", NOTIFICATION_BAR_PRIO_INFO, \"\",
+                           makeDynAnytype(), false,
+                           notificationBar_getUserDpName(), true);
+    g_hasChanged = false;
+    wf_bottomBar_reload();
+    return WF_PANEL_SAVE_SAVED;
+  }
+  ChildPanelOnCentralModal(\"vision/MessageWarning.pnl\", \"MessageWarning\", makeDynString(\"$1:\" + errText));
+  return WF_PANEL_SAVE_NOTHING_SAVE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which checks if the panel has unsaved changes.
+ * @note The function is called from WF.
+**/
+int isPanelChanged()
+{
+  if (g_hasChanged)
+    return WF_PANEL_CHANGED;
+  else
+    return WF_PANEL_NO_CHANGE;
+}
+
+//------------------------------------------------------------------------------
+/**
+ * @brief Function which initialize the profile tables.
+ * @param shapeObj is the table shape which needs to be initialize.
+**/
+void initTable(const shape &shapeObj)
+{
+  setValue(shapeObj, \"tableMode\", ( (shapeObj == sendDpeTable) || (shapeObj == paramsTable) || (shapeObj == specificParamsTable) ? TABLE_SELECT_NOTHING : TABLE_SELECT_BROWSE ),
+                     \"sortOnClick\", FALSE,
+                     \"hScrollBarMode\", \"ScrollBarAsNeeded\",
+                     \"stop\", true,
+                     \"columnStretchable\", ( (shapeObj == sendDpeTable) || (shapeObj == paramsTable) || (shapeObj == specificParamsTable) ? 1 : 0 ), 1,
+                     \"enableColumnResize\", false,
+                     \"alternatingRowColors\", makeDynString(\"WF_TableAlternatingRowColor_1\", \"WF_TableAlternatingRowColor_2\"),
+                     \"selectColors\", \"SiemensNaturalBlueLight\", \"_Window\",
+                     \"styleSheet\", \"TableQT QHeaderView {qproperty-highlightSections: 'FALSE';} QTableView QHeaderView::section{height: 32px;}\");
+
+  for (int i = 0; i < shapeObj.columnCount; ++i)
+        shapeObj.columnHeaderAlignment(i, \"AlignVCenter\");
+
+  if ( (shapeObj != sendDpeTable) && (shapeObj != paramsTable) && (shapeObj != specificParamsTable) )
+    setValue(shapeObj, \"selectByClick\", TABLE_SELECT_LINE);
+
+  setContent(shapeObj.name);
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which defines and configure table settings content.
+ * @param shapeName The table settings name.
+**/
+void setContent(const string &shapeName)
+{
+  profileConfigType configType;
+  dyn_string configKeys = enumKeys(getTypeName(configType));
+  dyn_string shapeKeys;
+  int keyIndex = dynContains(configKeys, shapeName);
+  if ( keyIndex < 1 )
+    return;
+
+  setValue(shapeName, \"deleteAllLines\");
+  configType = keyIndex;
+  mapping configData = g_profile.getProfileConfig(configType);
+  for (int i = 1; i <= mappinglen(configData); i++)
+  {
+    const string key = mappingGetKey(configData, i);
+    anytype value = configData[key];
+
+    string keyDescription = getCatStr(\"NGA\", key);
+    if ( dynlen(getLastError()) > 0 )  // key is not found in msgCat, use key itself
+      keyDescription = key;
+
+    setValue(shapeName, \"appendLine\", \"value\", value, \"key\", keyDescription);
+    dynAppend(shapeKeys, key);
+  }
+
+  g_profile.setShapekeys(shapeName, shapeKeys);
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which defines the selected profile index.
+ * @return int The selected profile index
+**/
+int selectedProfileIndex()
+{
+  dyn_int selection;
+  getValue(\"profileTable\", \"getSelectedLines\", selection);
+  return dynlen(selection) ? selection[1] : -1;
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which sets the config value for the given settings table.
+ * @param shapeName The table settings name.
+ * @param index The settings index in the settings table.
+ * @param value The settings value to be set.
+**/
+void setConfigValue(const string &shapeName, const int index, const string &value)
+{
+  dyn_string keys = g_profile.getShapeKeys(shapeName);
+  if ( index >= keys.count() )  // key is invalid
+  {
+    throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, getCatStr(\"NGA\", \"invalidCfgKey\")));
+    return;
+  }
+
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  g_profile.setProfileValue(profileInfo.name, keys.at(index), value);
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which defines the settings key index for the given table settings and key text.
+ * @param tableShape The table settings name.
+ * @param keyText The settings key text.
+ * @return int The index of the settings key.
+**/
+int lineIndexByText(const string &tableShape, const string &keyText)
+{
+  dyn_string allLineNames;
+  getValue(tableShape, \"getColumnN\", 1, allLineNames);
+  string displayText = getCatStr(\"NGA\", keyText);
+  if ( dynlen(getLastError()) > 0 )  // key is not found in msgCat, use key itself
+      displayText = keyText;
+
+  for (int i = 0; i < allLineNames.count(); ++i)
+  {
+    if ( allLineNames.at(i) == displayText )
+      return i;
+  }
+
+  return -1;
+}
+
+//--------------------------------------------------------------------------------
+/**
+ * @brief Function which opens multilang. editor and set name for a selected profile.
+**/
+void editName()
+{
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+
+  const langString oldName = profileInfo.displayName;
+  langString newName = oldName;
+  int err = langEditor(newName, FALSE);
+  while ( !g_profile.isProfileNameUnique(newName) )
+  {
+    if ( err || (newName == oldName) )  // error or cancel
+      return;
+
+    newName = oldName;
+    err = langEditor(newName);
+  }
+
+  g_profile.setProfileValue(profileInfo.name, displayName.name, newName);
+  inputProfileName.text = newName;
+  profileTable.cellValue = newName;
+  g_hasChanged = true;
+  wf_bottomBar_reload();
+}
+" 0
+ 4
+"CBRef" "1"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+2 1 0 0 0 0 0
+""
+DISPLAY_LAYER, 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+LAYER, 0 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+29 67
+"jsonFileError"
+""
+1 299 92.99999999999751 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+62 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"frameShape" "enum 0"
+"alignment" "enum 132"
+"layoutAlignment" "AlignHCenter"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  299 92.99999999999751 976 608.9999999999975
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+}" 0
+13 5
+"btnCreateProfile"
+"WF_Transparent"
+1 -0.2927813095969558 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 18 Create new profile
+LANG:10004 15 创建新配置
+LANG:10000 20 Neues Profil anlegen
+LANG:10027 40 Создать новый профиль
+
+4
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignTrailing|AlignVCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  -2.292781309596956 528 26.70721869040305 557
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main(mapping event)
+{
+  string newProfileName = g_profile.addProfile();
+  if ( !newProfileName.isEmpty() )
+  {
+    profileTable.deleteAllLines();
+    dyn_string profileNames = g_profile.getNames();
+    for(int i = 1; i <= dynlen(profileNames); i++)
+    {
+      profileTable.appendLine(\"profile\", g_profile.getProfileDisplayName(profileNames[i]));
+    }
+
+    profileTable.selectLineN(g_profile.getProfileIndex(newProfileName));
+
+    g_hasChanged = true;
+    wf_bottomBar_reload();
+    editName();
+  }
+}
+" 0
+ E E E
+13 6
+"btnDeleteProfile"
+"WF_Transparent"
+1 24.60755700756718 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 23 Delete selected profile
+LANG:10004 21 删除选定的配置
+LANG:10000 28 Selektiertes Profil löschen
+LANG:10027 48 Удалить выбранный профиль
+
+4
+"minimumSize" "27 27"
+"maximumSize" "27 27"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignLeading|AlignVCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  22.60755700756718 528 51.60755700756718 557
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main(mapping event)
+{
+  dyn_float resultFloat;
+  dyn_string resultString;
+  wf_dialogs_open(WF_DIALOGS_PANEL_TYPE_YES_NO,
+                  getCatStr(\"general\",\"information\"),
+                  getCatStr(\"NGA\",\"profile_deletion_msg\"),
+                  resultString, resultFloat);
+
+  if ( !dynlen(resultString) || !resultString[1] )
+    return;
+
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  if(g_profile.deleteProfile(profileInfo.name))
+  {
+    profileTable.deleteAllLines();
+    dyn_string profileNames = g_profile.getNames();
+    for(int i = 1; i <= dynlen(profileNames); i++)
+    {
+      profileTable.appendLine(\"profile\", g_profile.getProfileDisplayName(profileNames[i]));
+    }
+    profileTable.selectLineN(profileTable.lineCount - 1);
+  }
+}
+" 0
+ E E E
+25 7
+"dbSpecificTable"
+"WF"
+1 349 166.2712140644109 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"shadowOffset" "[9,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"minimumSize" "290 -1"
+"maximumSize" "290 -1"
+"sizePolicy" "Fixed Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  992 115 1284.999999999991 527.0000000000191
+E"main(int row, string column, string value)
+{
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  if(g_profile.updateDbSpecificSetting(profileInfo.name, row + 1, value))
+  {
+  g_hasChanged = true;
+  wf_bottomBar_reload();
+  }
+}
+" 0
+ 0 0 1 1 0 "config" 10 1 1 "[0s,,,AlignLeft|AlignVCenter]" 4
+LANG:10001 6 config
+LANG:10004 6 配置
+LANG:10000 6 config
+LANG:10027 6 config
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+2 9
+"txtManager"
+""
+1 16.49775133639628 9.249999999999943 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 16.49775133639628 9.249999999999943 60 24
+0 2 2 "0s" 0 0 0 192 0 0  16.49775133639628 9.249999999999943 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 7 Profile
+LANG:10004 7 Profile
+LANG:10000 7 Profile
+LANG:10027 7 Profile
+2 12
+"txtDatabaseSetting"
+""
+1 730.9144204646245 28.23561151079137 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardInactive" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "1"
+E E 0 1 1 2 1 E U  0 E 730.9144204646245 28.23561151079137 846 43
+0 2 2 "0s" 0 0 0 192 0 0  730.9144204646245 28.23561151079137 1
+4
+LANG:10001 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,75,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,75,0,0,0,0,0
+0 4
+LANG:10001 17 Database Settings
+LANG:10004 15 数据库设定
+LANG:10000 23 Datenbank Einstellungen
+LANG:10027 17 Database Settings
+14 28
+"inputProfileName"
+"WF"
+1 152.874866306008 45.84605036161375 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+4
+LANG:10001 106 Each profile needs a unique name, normally referring to the backend or database for which it will be used.
+LANG:10004 100 每个配置文件都需要一个唯一的名称，通常是指将使用它的backend或数据库。
+LANG:10000 149 Jedes Profil benötigt einen eindeutigen Namen, der sich normalerweise auf das Backend oder die Datenbank bezieht, für die es verwendet werden soll.
+LANG:10027 231 Каждому профилю необходимо уникальное имя, обычно относящееся к бэкэнду или базе данных, для которых он будет использоваться.
+
+4
+"minimumSize" "-1 26"
+"maximumSize" "-1 26"
+"sizePolicy" "MinimumExpanding Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  362 88 944.9999999999999 117
+2 "0s" 0 0 0 0 0 -1  "main(mapping event)
+{
+  editName();
+}" 0
+ E E
+13 33
+"btnAddSetting"
+"WF_Transparent"
+1 988.8302448592203 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+32 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 15 Add new setting
+LANG:10004 15 添加新设置
+LANG:10000 28 Neue Einstellung hinzufügen
+LANG:10027 46 Добавить новую настройку
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  986.8302448592203 528 1015.83024485922 557
+
+P 
+4294967295
+"pictures/wf/buttons/add.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main(mapping event)
+{
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  if(g_profile.addDbSpecific(profileInfo.name, \"...\"))
+  {
+    dbSpecificTable.appendLine(\"config\", \"...\");
+    g_hasChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+" 0
+ E E E
+13 34
+"btnDeleteSetting"
+"WF_Transparent"
+1 1013.719847662959 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+33 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 23 Delete selected setting
+LANG:10004 21 删除选定的设定
+LANG:10000 32 Selektierte Einstellung löschen
+LANG:10027 52 Удалить выбранную настройку
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1011.719847662959 528 1040.719847662959 557
+
+P 
+4294967295
+"pictures/wf/buttons/delete.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main(mapping event)
+{
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  if(dbSpecificTable.selectLineN != -1)
+  {
+    g_profile.deleteDbSpecific(profileInfo.name, dbSpecificTable.selectLineN + 1);
+    dbSpecificTable.deleteLineN(dbSpecificTable.selectLineN);
+    g_hasChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+" 0
+ E E E
+13 35
+"btnDeleteAllDbSetting"
+"WF_Transparent"
+1 1038.609923831479 538 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+34 0 0 0 0 0
+E E E
+1
+4
+LANG:10001 19 Delete all settings
+LANG:10004 18 删除全部设定
+LANG:10000 27 Alle Einstellungen löschen
+LANG:10027 40 Удалить все настройки
+
+2
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  1036.609923831479 528 1065.609923831479 557
+
+P 
+4294967295
+"pictures/wf/buttons/delete_all.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main()
+{
+  NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+  if(g_profile.deleteAllDbSpecific(profileInfo.name))
+  {
+    dbSpecificTable.deleteAllLines();
+    g_hasChanged = true;
+    wf_bottomBar_reload();
+  }
+}
+" 0
+ E E E
+2 38
+"txtName"
+"WF"
+1 25 105 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+"transformable" "0"
+E E 0 1 3 2 1 E 1.161764705882353 0 1 282.2677295217152 -2.076974819193129 0 E 25 105 65 120
+0 2 2 "0s" 0 0 0 192 0 0  25 105 1
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 4
+LANG:10001 5 Name:
+LANG:10004 5 Name:
+LANG:10000 5 Name:
+LANG:10027 7 Имя:
+25 41
+"profileTable"
+"WF"
+1 -564.0233644859813 134.6251022931455 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+8
+"shadowOffset" "[9,8]"
+"shadowColor" "_Transparent"
+"shadowRadius" "18"
+"minimumSize" "290 -1"
+"maximumSize" "290 -1"
+"sizePolicy" "Fixed Expanding"
+"layoutAlignment" "AlignNone"
+"selectionChangedCB" "synchronized main()
+{
+  if ( this.selectLineN != -1 )
+  {
+    NgaProfileInfo profileInfo = g_profile.getProfileByIndex(selectedProfileIndex());
+
+    dbSpecificTable.deleteAllLines();
+
+    profileConfigType configType;
+    dyn_string configKeys = enumKeys(getTypeName(configType));
+
+    mapping allConfigs = g_profile.getAllProfileConfigs();
+    if ( allConfigs.isEmpty() )
+    {
+      setMultiValue(\"jsonFileError\", \"visible\", TRUE,
+                    \"inputProfileName\", \"visible\", FALSE,
+                    \"sendDpeAs\", \"visible\", FALSE,
+                    \"timeParameters\", \"visible\", FALSE,
+                    \"specificSettings\", \"visible\", FALSE,
+                    \"specificSettings_frame\", \"visible\", FALSE,
+                    \"timeParameters_frame\", \"visible\", FALSE,
+                    \"sendDpeAs_frame\", \"visible\", FALSE,
+                    \"displayName\", \"visible\", FALSE);
+      return;
+    }
+
+    for (int i = 1; i <= mappinglen(allConfigs); i++)
+    {
+      const string shapeKey = mappingGetKey(allConfigs, i);
+      mapping config = allConfigs[shapeKey];
+      configType = dynContains(configKeys, shapeKey);
+      for (int k = 1; k <= mappinglen(config); k++)
+      {
+        const string cfgKey = mappingGetKey(config, k);
+        int lineN = lineIndexByText(shapeKey, cfgKey);
+        if ( lineN < 0 )
+        {
+          throwError(makeError(\"\", PRIO_WARNING, ERR_CONTROL, 0, getCatStr(\"NGA\", \"invalidCfgKey\")));
+          continue;
+        }
+
+        anytype valueToSet, value = g_profile.getProfileValue(profileInfo, cfgKey);
+        if ( getType(value) == ERRCLASS_VAR )  // value was not found -> take from config
+          valueToSet = config[cfgKey];
+        else
+          valueToSet = value;
+
+        setValue(shapeKey, \"cellValueRC\", lineN, \"value\", valueToSet);
+      }
+    }
+
+    setValue(\"inputProfileName\", \"text\", profileInfo.displayName);
+    for (int i = 1; i <= dynlen(profileInfo.dbSpecific); i++)
+      dbSpecificTable.appendLine(\"config\", profileInfo.dbSpecific[i]);
+
+    dyn_string backendsInvolved = g_profile.usedByBackends(selectedProfileIndex());
+    if ( dynlen(backendsInvolved) > 0 )
+    {
+      setMultiValue(\"dbSpecificTable\", \"enabled\", FALSE,
+                    \"sendDpeAs\", \"columnEditable\", 0, FALSE,
+                    \"timeParameters\", \"columnEditable\", 0, FALSE,
+                    \"specificSettings\", \"columnEditable\", 0, FALSE,
+                    \"btnAddSetting\", \"enabled\", FALSE,
+                    \"btnDeleteSetting\", \"enabled\", FALSE,
+                    \"btnDeleteAllDbSetting\", \"enabled\", FALSE);
+    }
+    else
+    {
+      setMultiValue(\"dbSpecificTable\", \"enabled\", TRUE,
+                    \"sendDpeAs\", \"columnEditable\", 0, TRUE,
+                    \"timeParameters\", \"columnEditable\", 0, TRUE,
+                    \"specificSettings\", \"columnEditable\", 0, TRUE,
+                    \"btnAddSetting\", \"enabled\", TRUE,
+                    \"btnDeleteSetting\", \"enabled\", TRUE,
+                    \"btnDeleteAllDbSetting\", \"enabled\", TRUE);
+    }
+
+    NgaBackendProfileConfigProvider::selectedProfilePos = this.selectLineN;
+  }
+}
+"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  -2 115 290.9999999999911 526.9999999999948
+EE 1 0 1 1 0 "profile" 10 1 0 "[0s,,,AlignLeft|AlignVCenter]" 4
+LANG:10001 4 Name
+LANG:10004 4 Name
+LANG:10000 4 Name
+LANG:10027 6 Имя
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+14 45
+"wf_txtF_answer"
+""
+1 630.6004735897358 493.5044964028781 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+44 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  628.6004735897358 485.8794964028781 691.7416397185324 512.3794964028781
+3 "0s" 0 0 0 0 0 -1  E E E
+14 46
+"wf_txtF_cmd"
+""
+1 630.6004735897362 516.8794964028781 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"layoutAlignment" "AlignNone"
+"textChangedCB" "main(string newText)
+{
+  wf_panel_cmdChanged(newText);
+}"
+4
+LANG:10001 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10004 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10000 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+LANG:10027 30 Noto Sans,-1,16,5,50,0,0,0,0,0
+0  628.6004735897362 508.6294964028781 692.5506055469549 537.6294964028781
+3 "0s" 0 0 0 0 0 -1  E "main()
+{
+  this.text = \"\";
+}" 0
+ E
+29 47
+"backendProfileLabel"
+""
+1 7.000597058766402 -1.4210854715202e-14 E E E 1 E 1 E N "_3DText" E N "white" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"frameShape" "enum 0"
+"text" "string "
+"styleSheet" "string margin-top: 5px; margin-left: 15px; margin-right: 15px; margin-bottom: 5px; border-bottom: 1px black;"
+"minimumSize" "-1 80"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  7.000597058766402 -1.4210854715202e-14 1279.000597058824 78.99999999999622
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+  this.styleSheet(\"margin-top: 5px; margin-left: 15px; margin-right: 15px; margin-bottom: 5px; border-bottom: 1px black;\");
+}
+" 0
+4 48
+"LINE2"
+""
+1 1279.000597058824 79.99999999999621 E E E 1 E 1 E N "WF_RefDiffLineDark" E N {255,255,255} E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E  1279.000597058824 79.99999999999621 7.000597058883613 79.99999999999621
+25 49
+"sendDpeAs"
+"WF"
+1 320 153.0000000000001 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"maximumSize" "-1 140"
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  312 145 971.0000000000001 230.0000000000032
+E"main(int row, string column, string value)
+{
+  if ( column != \"value\" || !this.columnEditable(0) )
+    return;
+
+  setConfigValue(this.name, row, value);
+  g_hasChanged = true;
+  wf_bottomBar_reload();
+}" 0
+ 0 0 1 2 0 "value" 10 1 1 "[0s,,,AlignHCenter|AlignVCenter]" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 5 Value
+LANG:10027 5 Value
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "key" 4 1 0 "s" 4
+LANG:10001 3 Key
+LANG:10004 3 Key
+LANG:10000 3 Key
+LANG:10027 3 Key
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+25 50
+"timeParameters"
+"WF"
+1 330 328.625 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"maximumSize" "-1 166"
+"sizePolicy" "Expanding Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  312 267 970.9999999999841 378.0000000000014
+E"main(int row, string column, string value)
+{
+  if ( column != \"value\" || !this.columnEditable(0) )
+    return;
+
+  setConfigValue(this.name, row, value);
+  g_hasChanged = true;
+  wf_bottomBar_reload();
+}" 0
+ 0 0 1 2 0 "value" 10 1 1 "[0s,,,AlignHCenter|AlignVCenter]" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 5 Value
+LANG:10027 5 Value
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "key" 4 1 0 "s" 4
+LANG:10001 3 Key
+LANG:10004 3 Key
+LANG:10000 3 Key
+LANG:10027 3 Key
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+25 51
+"specificSettings"
+"WF"
+1 330 448.5 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+2
+"sizePolicy" "Expanding Expanding"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0  312 415 970.9999999999841 552.0000000000016
+E"main(int row, string column, string value)
+{
+  if ( column != \"value\" || !this.columnEditable(0) )
+    return;
+
+  setConfigValue(this.name, row, value);
+  g_hasChanged = true;
+  wf_bottomBar_reload();
+}" 0
+ 0 0 1 2 0 "value" 10 1 1 "[0s,,,AlignHCenter|AlignVCenter]" 4
+LANG:10001 5 Value
+LANG:10004 6 数值
+LANG:10000 5 Value
+LANG:10027 5 Value
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+120 "key" 4 1 0 "s" 4
+LANG:10001 3 Key
+LANG:10004 3 Key
+LANG:10000 3 Key
+LANG:10027 3 Key
+E
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+60 
+26 26 10 0
+4
+LANG:10001 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10004 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10000 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+LANG:10027 35 Arial,-1,13,5,50,0,0,0,0,0,Standard
+0 0 2 1 1 7
+1 0
+30 52
+"specificSettings_frame"
+""
+1 460 359 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+51 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "MinimumExpanding Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.306122448979592 0 1.158415841584158 -280.8163265306122 10.12871287128716 0 E 460 359 951 461
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 22 Miscellaneous Settings
+LANG:10004 12 杂项设置
+LANG:10000 26 Verschiedene Einstellungen
+LANG:10027 31 Прочие настройки
+30 53
+"timeParameters_frame"
+""
+1 460 359 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+52 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "MinimumExpanding Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.306122448979592 0 1.069306930693068 -280.8163265306123 -77.88118811881156 0 E 460 359 951 461
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 15 Time Parameters
+LANG:10004 12 时间参数
+LANG:10000 31 Optionen zur Daten-Aufbewahrung
+LANG:10027 33 Параметры времени
+30 54
+"sendDpeAs_frame"
+""
+1 460 359 E E E 1 E 1 E N "_WindowText" E N {0,0,0} E E
+ E E
+53 0 0 0 0 0
+E E E
+1
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "MinimumExpanding Preferred"
+"layoutAlignment" "AlignNone"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 3 2 1 E 1.346938775510204 0 1.574257425742574 -309.591836734694 -434.1584158415843 0 E 460 359 951 461
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0 4
+LANG:10001 11 Send DPE as
+LANG:10004 12 发送DPE为
+LANG:10000 15 DPEs senden als
+LANG:10027 31 Отправлять DPE как
+1 68 1 "" 1
+0
+1 69 2 "" 1
+0
+32 57
+"SPACER1"
+""
+1 80 540 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+56 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+5
+"transparentForMouse" ""
+"minimumSize" "211 -1"
+"maximumSize" "211 -1"
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 66 526 276 565 1
+32 58
+"SPACER2"
+""
+1 1090 526 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+57 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"minimumSize" "180 -1"
+"sizePolicy" "Preferred Ignored"
+"layoutAlignment" "AlignNone"
+ 1090 526 1269 565 1
+32 59
+"SPACER3"
+""
+1 970 90 E E E 1 E 1 E N {0,0,0} E N {255,255,255} E E
+ E E
+58 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"transparentForMouse" ""
+"maximumSize" "1 -1"
+"sizePolicy" "Expanding Ignored"
+"layoutAlignment" "AlignNone"
+ 970 90 971 115 1
+29 60
+"profile_dbSetting"
+""
+1 994 82 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardActive" E E
+ E E
+59 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"frameShape" "enum 0"
+"text" "string Groups"
+"indent" "int 15"
+"minimumSize" "290 35"
+"maximumSize" "-1 35"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  990.0000000000001 94.07938715185939 1269.719847662959 126.7666632097544
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+}" 0
+29 61
+"profile"
+""
+1 1.128393925530043 98.19605554698221 E E E 1 E 1 E N "WF_CardInactive" E N "WF_CardActive" E E
+ E E
+60 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+7
+"frameShape" "enum 0"
+"text" "string Groups"
+"indent" "int 15"
+"minimumSize" "290 35"
+"maximumSize" "290 35"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10004 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10000 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+LANG:10027 31 Arial,-1,13,5,75,0,0,0,0,0,Fett
+0  1.128393925530043 98.19605554698221 280.8482415884888 130.8833316048772
+5 Label
+0
+"main()
+{
+  this.text(getCatStr(\"NGA\", this.name));
+}" 0
+13 64
+"displayName"
+"WF"
+1 909.8750000000005 102.1386527734912 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+61 0 0 0 0 0
+E E E
+8
+4
+LANG:10001 34 Set profile name for each language
+LANG:10004 39 为每种语言设置配置文件名称
+LANG:10000 48 Legen Sie den Profilnamen für jede Sprache fest
+LANG:10027 85 Установить название профиля для каждого языка
+
+4
+"minimumSize" "26 26"
+"maximumSize" "26 26"
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignNone"
+4
+LANG:10001 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10004 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10000 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+LANG:10027 35 MS Shell Dlg 2,-1,11,5,50,0,0,0,0,0
+0  907.8750000000005 96.13865277349122 935.8750000000005 124.1386527734912
+
+P 
+4294967295
+"pictures/langsEnDe.gif"
+4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+"main(mapping event)
+{
+  editName();
+}
+" 0
+ E E E
+0
+LAYER, 1 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 2 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 3 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 4 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 5 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 6 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+LAYER, 7 
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+0
+4 0 "LAYOUT_GROUP1" 23
+2 0 
+48 47 
+
+"S 48" "1 0 1 1"
+"S 47" "0 0 1 1"
+"" ""
+0 2 0 1 1
+3 1 "PANEL_REF1" 6
+"minimumSize" "290 40"
+"maximumSize" "290 40"
+"sizePolicy" "Preferred Preferred"
+"layoutAlignment" "AlignNone"
+"" ""
+"para/archive/NGA/objects/background.pnl" 8.853609345201537 535.5441154462474 T 54 U 
+0
+3 2 "PANEL_REF2" 5
+"minimumSize" "-1 40"
+"maximumSize" "290 40"
+"sizePolicy" "Fixed Preferred"
+"layoutAlignment" "AlignNone"
+"" ""
+"para/archive/NGA/objects/background.pnl" 997.9151224296102 535.5441154462475 T 55 1.025393826417168 0 1 -25.11233896028977 0
+0
+4 3 "LAYOUT_GROUP2" 6
+3 0 
+5 6 57 
+
+"S 5" "0 0 1 1"
+"S 6" "1 0 1 1"
+"S 57" "2 0 1 1"
+"" ""
+0 1 0 0
+4 4 "LAYOUT_GROUP4" 5
+4 0 
+58 35 34 33 
+
+"S 58" "3 0 1 1"
+"S 35" "2 0 1 1"
+"S 34" "1 0 1 1"
+"S 33" "0 0 1 1"
+"" ""
+0 1 0 0
+4 5 "LAYOUT_GROUP5" 19
+0 2 
+
+4 2 
+"G 4" "0 0 1 1"
+"G 2" "0 0 1 2"
+"" ""
+0 3 0 0
+4 6 "LAYOUT_GROUP6" 18
+0 2 
+
+3 1 
+"G 3" "0 0 1 1"
+"G 1" "0 0 1 2"
+"" ""
+0 3 0 0
+4 9 "LAYOUT_GROUP9" 20
+1 0 
+38 
+
+"S 38" "0 0 1 1"
+"" ""
+0 1 1 0 6 3 0 0
+4 11 "LAYOUT_GROUP12" 12
+1 0 
+49 
+
+"S 49" "0 0 1 1"
+"" ""
+0 1 0 0
+4 12 "LAYOUT_GROUP13" 21
+1 1 
+54 
+11 
+"G 11" "0 0 1 1"
+"" ""
+1 2 1 9 9 6 6 0
+4 13 "LAYOUT_GROUP14" 14
+1 0 
+50 
+
+"S 50" "0 0 1 1"
+"" ""
+0 1 0 0
+4 14 "LAYOUT_GROUP15" 21
+1 1 
+53 
+13 
+"G 13" "0 0 1 1"
+"" ""
+1 2 1 9 9 6 6 0
+4 15 "LAYOUT_GROUP16" 16
+1 0 
+51 
+
+"S 51" "0 0 1 1"
+"" ""
+0 1 0 0
+4 16 "LAYOUT_GROUP17" 21
+1 1 
+52 
+15 
+"G 15" "0 0 1 1"
+"" ""
+1 2 1 9 9 6 6 0
+4 18 "LAYOUT_GROUP24" 22
+2 1 
+41 61 
+6 
+"S 41" "1 0 1 1"
+"S 61" "0 0 1 1"
+"G 6" "2 0 1 1"
+"" ""
+0 2 0 1 0
+4 19 "LAYOUT_GROUP25" 22
+2 1 
+7 60 
+5 
+"S 7" "1 0 1 1"
+"S 60" "0 0 1 1"
+"G 5" "2 0 1 1"
+"" ""
+0 2 0 1 0
+4 20 "LAYOUT_GROUP26" 21
+3 1 
+28 64 59 
+9 
+"S 28" "1 0 1 1"
+"S 64" "2 0 1 1"
+"S 59" "3 0 1 1"
+"G 9" "0 0 1 1"
+"" ""
+0 1 1 11 11 0 0 1 0
+4 21 "LAYOUT_GROUP27" 22
+0 4 
+
+16 14 12 20 
+"G 16" "3 0 1 1"
+"G 14" "2 0 1 1"
+"G 12" "1 0 1 1"
+"G 20" "0 0 1 1"
+"" ""
+0 2 1 6 6 8 6 0
+4 22 "LAYOUT_GROUP28" 23
+0 3 
+
+21 19 18 
+"G 21" "1 0 1 1"
+"G 19" "2 0 1 1"
+"G 18" "0 0 1 1"
+"" ""
+0 1 0 0
+4 23 "LAYOUT_GROUP29" -1
+0 2 
+
+22 0 
+"G 22" "1 0 1 1"
+"G 0" "0 0 1 1"
+"" ""
+0 2 0 1 0
+0

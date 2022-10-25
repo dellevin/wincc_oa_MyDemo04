@@ -1,0 +1,2007 @@
+V 14
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+PANEL,-1 -1 420 456 N "_3DFace" 2
+"$dpe"
+"$dpt"
+"#uses \"wh_sc\"
+
+main()
+{
+  int          type, overflow, tolerance, scMax;
+  bool         plcAddressActive, resetAddressActive;
+  bool         moreLangs=(getNoOfLangs()>1),b;
+  float        plcFactor,defVal;
+  string       deviceName=dpSubStr($dpe,DPSUB_DP),
+               s, source,s123=substr(deviceName,0,3),
+               plcAddress=\"\";
+  langString   ls=dpGetComment(deviceName+\".\");
+  dyn_string   ds=ls, param;
+  dyn_errClass eClass;
+
+  LayerOff(2);
+  LayerOff(3);
+
+  // Device name
+  if (dpTypeName(deviceName)==\"WH_SC1\")
+  {
+    if (strpos(deviceName,\"WH_\")==0 || strpos(deviceName,\"SC_\")==0)
+      deviceName=substr(deviceName,3,strlen(deviceName)-3);
+  }
+  else
+    deviceName=\"???\";
+  txtDevice.text=deviceName;
+
+  // Description
+  txtComment.editable=!moreLangs;
+  cmdLang.visible=moreLangs;
+  txtComment.text=ls;
+  txtDPName.text=ls;
+  lstComment.items=ds;
+
+  dpGet($dpe+\".wh.value:_default.._value\",defVal);
+  dpGet($dpe+\".para.type:_online.._value\",type,
+        $dpe+\".para.plcFactor:_online.._value\",plcFactor,
+        $dpe+\".para.overflow:_online.._value\",overflow,
+        $dpe+\".para.tolerance:_online.._value\",tolerance);
+  eClass=getLastError();
+  // Error reading datapoint
+  if (dynlen(eClass)>0)
+    return;
+
+  // SC_: switch counter
+  if (s123==\"SC_\" && type!=5)
+  {
+    type=5;
+    dpSet($dpe+\".para.type:_original.._value\",type);
+  }
+  else
+  if (s123==\"WH_\" && type==5)
+  {
+    type=1;
+    dpSet($dpe+\".para.type:_original.._value\",type);
+  }
+
+  type--;
+  if (type>2) type--;
+//DebugN(\"$dpe\",$dpe,\"type in panel\",type);
+  txtWhType.visible=(type<3);
+//  txtDefaultText.visible=(type<3);
+  txtScType.visible=(type==3);
+  txtOldType.text=type;
+  txtType.text=type;
+  txtDefault.text=defVal;
+
+  if (type==0)                       LayerOn(2);
+  if (type==1 || type==2 || type==3) LayerOn(3);
+
+  // binary || analog source
+  if (type==0)
+    txtSource.text=$dpe+\".value.plcCounter\";
+  if (type==1 || type==2 || type==3)
+  {
+    dpGet(dpSubStr($dpe,DPSUB_DP)+\".value.on:_dp_fct.._param\",param);
+    eClass=getLastError();
+    if (dynlen(eClass)>0)
+    {
+      txtSource.text=\"\";
+    }
+    else
+    {
+      source=(dynlen(param)>0)?dpSubStr(param[1],DPSUB_DP_EL):\"\";
+      txtSource.text=source;
+    }
+  }
+  s=\"\";
+  if (type==0 || type==2) getValue(\"type\"+type,\"text\",s);
+  else
+  if (type==1)
+  {
+    if (strpos(source,\".state.on\")<0 && strpos(source,\".state.open\")<0)
+      getValue(\"type\"+type,\"text\",s);
+    else
+      getValue(\"type_1\",\"text\",s);
+  }
+  txtSourceType.text=s;
+  txtSourceType.visible=(type<3);
+  b=( type==2 || ((type==1 || type==3) && strpos(source,\".state.on\")<0 && strpos(source,\".state.open\")<0) );
+  setMultiValue(\"SourceText\",\"enabled\",b,
+                \"txtSource\",\"enabled\",b,
+                \"cmdSource\",\"visible\",b);
+
+  b=(type==0 || source==$dpe+\".value.plcCounter\");
+  if (b)
+  {
+    getWhAddresses();
+    getResetAddresses();
+  }
+  else
+  {
+    txtWhAddress.text=\"\";
+    txtResetAddress.text=\"\";
+  }
+  cmdWhAddress.visible=b;
+  txtWhAddress.visible=b;
+//  txtWhAdr.visible=(b && (type==0 || type==3));
+  txtWhAdr.visible=b;
+  cmdResetAddress.visible=b;
+  txtResetAddress.visible=b;
+  txtResetAdr.visible=b;
+//  Border7.visible=(b || type==1 || type==2);
+//  Border8.visible=(b || type==1 || type==2);
+  Border11.visible=b;
+  Border12.visible=b;
+  txtPlcFactor.text=plcFactor;
+  txtOverflow.text=overflow;
+  txtTolerance.text=tolerance;
+
+  txtInputAdr.visible=(cmdWhAddress.visible && (type==1 || type==2));
+}
+
+getWhAddresses()
+{
+  int    type=txtType.text;
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".value.plcCounter\";
+  dyn_errClass eClass;
+
+  if (type==1 || type==2) return;
+
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtWhAddress.text=plcAddress;
+}
+
+getResetAddresses()
+{
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".cmd.resetPLC\";
+  dyn_errClass eClass;
+
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtResetAddress.text=plcAddress;
+}
+" 0
+ E E E E 1 -1 -1 0  60 40
+""0  1
+E E 4
+"CBRef" "0"
+"EClose" E
+"dpi" "96"
+"pdpi" "96"
+0 0 0
+""
+NC
+DISPLAY_LAYER, 1 0 1 0 1 0 0 0 0 0 0 0 0 0 0 0
+LAYER, 0 
+4
+LANG:10001 6 Layer1
+LANG:10004 6 Layer1
+LANG:10000 6 Layer1
+LANG:10027 6 Layer1
+6 40
+"Border2"
+""
+1 11 151 E E E 1 E 1 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+26 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 81 411 151
+2 12
+"Text2"
+""
+1 20 92 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+16 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 92 100 106
+0 2 2 "0s" 0 0 0 192 0 0  22 92 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Device name:
+LANG:10004 13 设备名称:
+LANG:10000 12 Gerätename:
+LANG:10027 28 Имя устройства:
+2 32
+"Text3"
+""
+1 20 122 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+19 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 122 107 136
+0 2 2 "0s" 0 0 0 192 0 0  22 122 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 12 Description:
+LANG:10004 7 描述:
+LANG:10000 13 Beschreibung:
+LANG:10027 17 Описание:
+1 93 0 "" 0
+1 "message" 1 1 "main()
+{
+string s;
+
+if (dpExists($dpe))
+{
+	s= dpGetComment($dpe);
+	if (s == \"\")
+		s= dpGetComment(dpSubStr($dpe,DPSUB_DP)+\".\");
+  if (s == \"\")
+    s = dpSubStr($dpe,DPSUB_DP);
+  s=substr(s,0,50);
+  setValue(\"\",\"text\",s,
+           \"visible\",TRUE);
+}
+}
+" 0
+ 
+0
+2 38
+"Text6"
+""
+1 110 -10 E E E 1 E 0 E N {0,0,0} E N {255,204,0} E E
+ E E
+24 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 112 -8 406 22
+1 2 0 "0s" 0 0 0 192 0 0  112 -8 1
+4
+LANG:10001 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,27,5,50,0,0,0,0,0
+0 4
+LANG:10001 28 !!! Warning !!! 3 layers !!!
+LANG:10004 27 !!! 警告 !!! 3 图层 !!!
+LANG:10000 28 !!! Warning !!! 3 layers !!!
+LANG:10027 28 !!! Warning !!! 3 layers !!!
+6 39
+"Border1"
+""
+1 10 150 E E E 1 E 1 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+25 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 80 410 150
+6 52
+"Border11"
+""
+1 157 1058 E E E 1 E 0 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+32 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 231 411 311
+6 53
+"Border12"
+""
+1 130 1034 E E E 1 E 0 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+33 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 230 410 310
+2 54
+"txtWhAdr"
+""
+1 20 240 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+34 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 242 117 256
+0 2 0 "0s" 0 0 0 192 0 0  22 242 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 16 Counter address:
+LANG:10004 16 计数器地址:
+LANG:10000 16 Zähler-Adresse:
+LANG:10027 28 Адрес счетчика:
+2 57
+"txtResetAdr"
+""
+1 20 352 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+35 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 282 114 296
+0 2 0 "0s" 0 0 0 192 0 0  22 282 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Reset address:
+LANG:10004 13 重置地址:
+LANG:10000 14 Reset-Adresse:
+LANG:10027 31 Адрес при сбросе:
+6 67
+"Border15"
+""
+1 11 81 E E E 1 E 1 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+38 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 41 411 81
+6 68
+"Border16"
+""
+1 130 441 E E E 1 E 1 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+41 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 40 410 80
+2 69
+"txtInputAdr"
+""
+1 20 312 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+40 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 242 128 256
+0 2 0 "0s" 0 0 0 192 0 0  22 242 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Input address:
+LANG:10004 13 输入地址:
+LANG:10000 16 Eingang-Adresse:
+LANG:10027 28 Входящий адрес:
+2 70
+"txtScType"
+""
+1 20 50 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+39 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 52 124 66
+0 2 0 "0s" 0 0 0 192 0 0  22 52 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Switch counter
+LANG:10004 15 切换计数器
+LANG:10000 18 Schaltspielzähler
+LANG:10027 35 Счетч.переключений
+2 71
+"txtWhType"
+""
+1 20 50 E E E 1 E 0 E N {0,0,0} E N "_Transparent" E E
+ E E
+42 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 52 155 66
+0 2 0 "0s" 0 0 0 192 0 0  22 52 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 20 Working hour counter
+LANG:10004 21 工作小时计数器
+LANG:10000 22 Betriebsstundenzähler
+LANG:10027 38 Счетч.врем.наработки
+2 72
+"Text5"
+""
+1 10 400 E E E 1 E 0 E N {0,0,0} E N {255,204,0} E E
+ E E
+43 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 12 402 353 432
+1 2 0 "0s" 0 0 0 192 0 0  12 402 1
+4
+LANG:10001 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,27,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,27,5,50,0,0,0,0,0
+0 4
+LANG:10001 28 Switch layers ON in GEDI !!!
+LANG:10004 23 在GEDI中打开图层!
+LANG:10000 28 Switch layers ON in GEDI !!!
+LANG:10027 28 Switch layers ON in GEDI !!!
+2 74
+"txtDefaultText"
+""
+1 20 160 E E E 1 E 0 E N "_3DText" E N "_Transparent" E E
+ E E
+45 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 162 89 176
+0 2 0 "0s" 0 0 0 192 0 0  22 162 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 14 Default value:
+LANG:10004 10 默认值:
+LANG:10000 11 Ersatzwert:
+LANG:10027 25 Замен.значен.:
+6 78
+"Border4"
+""
+1 10 214 E E E 1 E 1 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+47 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 150 410 190
+6 76
+"Border3"
+""
+1 11 214 E E E 1 E 1 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+46 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 151 411 191
+2 87
+"txtSourceType"
+""
+1 160 52 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+48 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 162 52 175 66
+0 2 2 "0s" 0 0 0 192 0 0  162 52 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 3 ...
+LANG:10004 3 ...
+LANG:10000 3 ...
+LANG:10027 3 ...
+2 88
+"type0"
+""
+1 200 42 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+49 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 202 42 316 56
+0 2 2 "0s" 0 0 0 192 0 0  202 42 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 22 - count value from PLC
+LANG:10004 17 - 从PLC计算值
+LANG:10000 19 - Zählwert von SPS
+LANG:10027 44 - значение счетчика из PLC
+2 89
+"type1"
+""
+1 200 57 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+50 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 202 57 388 71
+0 2 2 "0s" 0 0 0 192 0 0  202 57 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 31 - count if binary value == TRUE
+LANG:10004 27 - 计算二进制值== TRUE
+LANG:10000 32 - zählen bei Binärwert == TRUE
+LANG:10027 65 - считать при двоичном значении == TRUE
+2 90
+"type2"
+""
+1 200 72 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+51 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 202 72 369 86
+0 2 2 "0s" 0 0 0 192 0 0  202 72 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 28 - count if analog value <> 0
+LANG:10004 21 - 计算模拟值<> 0
+LANG:10000 29 - zählen bei Analogwert <> 0
+LANG:10027 66 - считать при аналоговом значении <> 0
+6 45
+"Border7"
+""
+1 10 254 E E E 1 E 1 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+29 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 190 410 230
+6 46
+"Border8"
+""
+1 11 254 E E E 1 E 1 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+30 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 191 411 231
+2 7
+"SourceText"
+""
+1 20 202 E E E 0 E 1 E N "_3DText" E N "_Transparent" E E
+ E E
+15 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 22 202 123 216
+0 2 2 "0s" 0 0 0 192 0 0  22 202 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 Source datapoint:
+LANG:10004 5 DP源
+LANG:10000 16 Quelldatenpunkt:
+LANG:10027 31 Исх.точка данных:
+13 20
+"cmsServices"
+""
+1 8 418 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+10 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  8 418 102 448
+
+T 
+4
+LANG:10001 8 Services
+LANG:10004 6 服务
+LANG:10000 9 Wartungen
+LANG:10027 24 Обслуживание
+"main()
+{
+  string name=dpSubStr($dpe,DPSUB_DP_EL);
+  bool   licence=false;
+  
+  licence=whCheckLicence();
+  if (!licence)
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),
+      makeDynString(getCatStr(\"STD_Symbols\",\"nolicence\")));
+    return;
+  }
+
+// Prüfen ob wirklich ein BSZ-DP gewählt wurde
+  if ((substr(name,0,2)==\"WH\")||(substr(name,0,2)==\"SC\"))
+   {
+     //Prüfen, ob dieser DP schon vorhanden ist
+     if(dpExists(name))
+      ChildPanelOnParentModal(\"objects_parts/STD_OBJECTS/WH_paraService.pnl\",
+        getCatStr(\"STD_Symbols\",\"Wartungen\")+\" \"+name,
+        rootPanel(), makeDynString(\"$DpWH:\"+name,\"$dpt:\"+$dpt), 0, 0);
+   }
+   else
+     ChildPanelOnCentralModal(\"vision/MessageWarning\",\" \",
+       makeDynString(getCatStr(\"STD_Symbols\", \"Text6\")));
+}" 0
+ E E "main()
+{
+  this.visible=(isDollarDefined(\"$dpt\") && $dpt!=\"\");
+}" 0
+
+13 11
+"cmdOk"
+""
+1 108 418 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+11 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  108 418 202 448
+
+T 
+4
+LANG:10001 2 OK
+LANG:10004 6 确定
+LANG:10000 2 OK
+LANG:10027 2 OK
+"main() // Übernehmen
+{
+  langString textlist;            // Maschinenname
+  string dpWH=dpSubStr($dpe,DPSUB_DP); // Adresse
+  dyn_string para,ds;             // Parafeld
+  dyn_float  plcPara,df;             // SPS Parafeld
+  dyn_int    curvePara;           // Stützpunktkurve
+  string source;                  // Quelldatenpunkt
+  string comment;                 // BSZ Kommentar
+  int type, defType;              // Position in der Radio-Box
+  int i;                          // Laufvariable Tabelle lesen
+  int j;                          // Laufvariable Tabelle lesen
+  int k;                          // Laufvariable Tabelle lesen
+  bool aktiv;                     // ResetBit-Adresse ist aktiv
+  int overflow;                   // Zählerüberlauf
+  int tolerance;                  // Zählerüberlauf
+  float factor, defVal;           // SPS Faktor, Ersatzwert
+  float curveFactor;              // Kurvenfaktor
+  int   max;                      // Schaltspiele pro Stunde
+  dyn_errClass eClass;
+
+  getMultiValue(\"txtType\",\"text\",type,
+                \"lstComment\",\"items\",ds,
+                \"txtDefault\",\"text\",defVal,
+                \"txtOverflow\",\"text\",overflow,
+                \"txtTolerance\",\"text\",tolerance,
+                \"txtPlcFactor\",\"text\",factor,
+                \"txtSource\",\"text\",source);
+  type+=1; if (type>2) type++;
+  textlist=ds;
+
+  if ( type==1 && (overflow<=0 || tolerance<=0) )
+  {
+    ChildPanelOnCentralModalReturn(\"vision/MessageWarning\",
+      getCatStr(\"para\",\"warning\"),makeDynString(getCatStr(\"STD_Symbols\",\"badparawh\")),
+      df_ret,ds_ret);
+    return;
+  }
+
+  // Wenn der Quell-DP leer ist -> auf sich selbst verweisen (SPS-Zähler)
+  // if (source==\"\")
+  // {
+  //   source= dpWH+\".valuePLCFactorText.Counter\";
+  // }
+
+  // Wenn der DP nicht existiert -> Abbrechen
+  if (!dpExists(dpWH))
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",\" \",
+      makeDynString(getCatStr(\"STD_Symbols\", \"Text6\")));
+  else  // Daten übernehemen
+  {  
+    dpGet( dpWH+\".wh.value:_default.._type\", defType);
+    if (defType!=3) 
+      dpSet( dpWH+\".wh.value:_default.._type\", 3);
+    dpSet( dpWH+\".wh.value:_default.._value\", defVal , 
+           dpWH+\".para.type:_original.._value\", type , 
+           dpWH+\".para.overflow:_original.._value\", overflow , 
+           dpWH+\".para.tolerance:_original.._value\", tolerance , 
+           dpWH+\".para.plcFactor:_original.._value\", factor );
+    setDpComment(dpWH+\".\",textlist);
+    if(type==2 || type==4 || type==5)
+    {
+      if (source!=\"\")
+      {
+        dpSetWait( dpWH+\".value.on:_dp_fct.._type\",DPCONFIG_DP_FUNCTION,
+                   dpWH+\".value.on:_dp_fct.._param\",makeDynString(source+\":_online.._value\"), 
+                   dpWH+\".value.on:_dp_fct.._global\",makeDynString(), 
+                   dpWH+\".value.on:_dp_fct.._fct\",(type==5)?\"(p1!=0)?true:false\":\"p1\"); 
+        eClass=getLastError();
+        if ( dynlen(eClass) ) errorDialog(eClass);
+      }
+      else
+        ChildPanelOnCentralModal(\"vision/MessageWarning\",\" \",
+          makeDynString(getCatStr(\"STD_Symbols\", \"Text4\")+\"!\"));
+    }
+    else
+      ChildPanelOnCentralModal(\"vision/MessageWarning\",\" \",
+        makeDynString(getCatStr(\"STD_Symbols\", \"Text7\")));
+  }
+  PanelOff();
+}
+" 0
+ E E E
+13 10
+"cmdCancel"
+""
+1 208 418 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+12 0 0 0 27 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  208 418 302 448
+
+T 
+4
+LANG:10001 6 Cancel
+LANG:10004 6 取消
+LANG:10000 9 Abbrechen
+LANG:10027 16 Отменить
+"main()
+{
+  PanelOff(); 
+}
+" 0
+ E E E
+13 49
+"cmdHelp"
+""
+1 1446 2028 E E E 1 E 1 E N "_ButtonText" E N "_Button" E E
+ E E
+13 0 0 0 112 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  308 418 402 448
+
+T 
+4
+LANG:10001 4 Help
+LANG:10004 6 帮助
+LANG:10000 5 Hilfe
+LANG:10027 14 Справка
+"main()
+{
+  std_help($dpt+\"_para\");
+}
+" 0
+ E E E
+17 37
+"lstComment"
+""
+1 370 90 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+23 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 88 402 112
+0
+
+E
+E
+E
+
+0 0
+14 15
+"txtDevice"
+""
+1 139 88 E E E 1 E 1 E N "_WindowText" E N "_3DFace" E E
+ E E
+18 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 88 362 115
+2 "0s" 0 0 0 0 0 -1  E E "main()
+{
+  string Name;
+
+  getValue(\"\",\"text\",Name);
+  setValue(\"textList\",\"text\",Name);
+}" 0
+
+14 33
+"txtComment"
+""
+1 139 118 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+20 0 0 0 0 0
+E "main()
+{
+  lstComment.items=makeDynString(this.text);
+}
+" 0
+ E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 118 362 145
+2 "0s" 0 0 0 0 0 -1  E E E
+14 63
+"txtWhAddress"
+""
+1 1262 710 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+36 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 238 312 265
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+  int    type;
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".value.plcCounter\";
+  dyn_errClass eClass;
+
+  dpGet($dpe+\".para.type:_online.._value\",type);
+  if (type==2 || type==4) return;
+  
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtWhAddress.text=plcAddress;
+}
+" 0
+ E
+14 64
+"txtResetAddress"
+""
+1 1262 750 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+37 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 278 312 305
+2 "0s" 0 0 0 0 0 -1  E "main()
+{
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".cmd.resetPLC\";
+  dyn_errClass eClass;
+
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtResetAddress.text=plcAddress;
+}
+" 0
+ E
+13 16
+"cmdLang"
+""
+1 368 118 E E E 1 E 1 E N {0,0,0} E N "_Button" E E
+ E E
+1 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 118 402 145
+
+P 
+4294967295
+"pictures/langsEnDe_en.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main() // Mehrsprach Texteditor öffnen
+{
+  dyn_string ds=lstComment.items;
+  langString text=ds;
+  
+  langEditor(text);
+  ds=text;
+  lstComment.items=ds;
+  txtComment.text=text;
+}" 0
+ E E E
+14 81
+"txtDefault"
+""
+1 140 160 E E E 1 E 0 E N "_WindowText" E N "_Window" E E
+ E E
+2 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 158 362 185
+3 "15d" 15 0 0 0 0 -1  E E E
+14 9
+"txtSource"
+""
+1 140 200 E E E 0 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+3 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 198 362 225
+3 "0s" 0 0 0 0 0 -1  E E "main() // DP-Existent?
+{
+  int    type=rboType.number;
+  bool   b;
+  string dpSource;      // gewählter Quell-DP
+  string Text2;         // Text2 aus msg
+  string Text2_1;       // Text2.1 aus msg
+
+  Text2  = getCatStr(\"STD_Symbols\", \"Text2\");
+  Text2_1= getCatStr(\"STD_Symbols\", \"Text2.1\");
+
+  getValue(\"Source\", \"text\", dpSource );
+  if (!dpExists(dpSource))
+  {
+    ChildPanelOnCentralModal(\"vision/MessageWarning\",\"\",makeDynString(Text2+\" \"+dpSource+\"\\n\"+Text2_1));
+    setValue(\"Source\", \"text\", \"\" );
+  }
+
+  if(  (dpExists(dpSource)) && ( strpos(dpSource,\".\") < 0 ))
+  {
+    dpSource+=\".\" ;
+    setValue(\"Source\",\"text\",dpSource);
+  }
+
+  b=(type==0 || dpSource==$dpe+\".value.plcCounter\");
+  if (b)
+  {
+    getWhAddresses();
+    getResetAddresses();
+  }
+  else
+  {
+    txtWhAddress.text=\"\";
+    txtResetAddress.text=\"\";
+  }
+  cmdWhAddress.visible=b;
+  txtWhAddress.visible=b;
+  txtWhAdr.visible=(b && (type==0 || type==3));
+  cmdResetAddress.visible=b;
+  txtResetAddress.visible=b;
+  txtResetAdr.visible=b;
+
+  txtInputAdr.visible=(cmdWhAddress.visible && (type==1 || type==2));
+}
+
+getWhAddresses()
+{
+  int    type=rboType.number;
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".value.plcCounter\";
+  dyn_errClass eClass;
+
+  if (type==1 || type==2) return;
+  
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  txtWhAddress.text=plcAddress;
+}
+
+getResetAddresses()
+{
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".cmd.resetPLC\";
+  dyn_errClass eClass;
+
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  txtResetAddress.text=plcAddress;
+}
+" 0
+
+14 91
+"txtType"
+""
+1 370 60 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+52 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 58 402 85
+3 "0s" 0 0 0 0 0 -1  E E E
+13 66
+"cmdResetAddress"
+""
+1 714 817 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+6 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  318 278 402 305
+
+T 
+4
+LANG:10001 10 Address...
+LANG:10004 9 地址...
+LANG:10000 10 Adresse...
+LANG:10027 13 Адрес...
+"main()
+{
+  int        iPos;
+  bool       b;
+  string     dp=$dpe+\".cmd.resetPLC\",plcAddress, s;
+  bool       plcAddressActive;
+  dyn_float  df;
+  dyn_string ds, leaf, attr;
+
+  addGlobal(\"DEBUG\",BOOL_VAR);
+  dpGet(\"_dt_WH_SC1.Leaf:_online.._value\",leaf,
+        \"_dt_WH_SC1.DynamicAttribute:_online.._value\",attr);
+  
+  iPos = dynContains(leaf, \"_mp_WH_SC1.cmd.resetPLC:_address\");
+  if ( iPos < 1 ) return;
+  
+  s = attr[iPos]; strreplace(s,\"_da\",\"\");
+  ChildPanelOnCentralModalReturn(\"objects_parts/STD_OBJECTS/COMMON_prop_single.pnl\",
+    getCatStr(\"STD_Symbols\",\"PARA:\"),
+    makeDynString(\"$da_type:\"+s,\"$dpe:\"+dp),df,ds);
+
+  dpGet(dp+\":_address.._active\",plcAddressActive,
+        dp+\":_address.._reference\", plcAddress);
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtResetAddress.text=plcAddress;
+}
+
+" 0
+ E E E
+13 65
+"cmdWhAddress"
+""
+1 320 240 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+5 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  318 238 402 265
+
+T 
+4
+LANG:10001 10 Address...
+LANG:10004 9 地址...
+LANG:10000 10 Adresse...
+LANG:10027 13 Адрес...
+"main()
+{
+  int        number=txtType.text, iPos;
+  bool       plcAddressActive;
+  string     dp=$dpe+\".value.plcCounter\",plcAddress,s;
+  dyn_float  df;
+  dyn_string ds, leaf, attr;
+
+  addGlobal(\"DEBUG\",BOOL_VAR);
+  dpGet(\"_dt_WH_SC1.Leaf:_online.._value\",leaf,
+        \"_dt_WH_SC1.DynamicAttribute:_online.._value\",attr);
+  
+  iPos = dynContains(leaf, \"_mp_WH_SC1.value.plcCounter:_address\");
+  if ( iPos < 1 ) return;
+  
+  s = attr[iPos]; strreplace(s,\"_da\",\"\");
+
+  if ((number==1 || number==2) && txtOldType.text!=3) return;
+
+  ChildPanelOnCentralModalReturn(\"objects_parts/STD_OBJECTS/COMMON_prop_single.pnl\",
+    getCatStr(\"STD_Symbols\",\"PARA:\"),
+    makeDynString(\"$da_type:\"+s,\"$dpe:\"+dp),df,ds);
+
+  dpGet(dp+\":_address.._active\",plcAddressActive,
+        dp+\":_address.._reference\", plcAddress);
+  if (strrtrim(strltrim(plcAddress))!=\"\" && !plcAddressActive)
+    plcAddress=getCatStr(\"STD_Symbols\",\"inactive\")+plcAddress;
+  txtWhAddress.text=plcAddress;
+}
+" 0
+ E E E
+13 8
+"cmdSource"
+""
+1 368 198 E E E 1 E 0 E N "_ButtonText" E N "_Button" E E
+ E E
+4 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 198 402 225
+
+P 
+4294967295
+"pictures/dpeMon_tree.png"
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+"main() // DP-Auswahl
+{
+  int    type=txtType.text;
+  bool   b;
+  string s;
+  string dpName;          // DP-Name des Quell-DP
+  string dpSource;        // gewählter Quell-DP
+  string lastSource;      // alter Quell-DP
+
+  lastSource=txtSource.text;
+  
+  dpSelector(dpName, false, \"OWN_SYSTEM_NAME_NO_SYS\");
+  dpSource= dpSubStr(dpName, DPSUB_DP_EL);
+  
+  if (dpSource==\"\")
+    dpSource=lastSource;
+
+  if ( dpExists(dpSource) && strpos(dpSource,\".\")<0 )
+  {
+    dpSource+=\".\";
+  }
+
+  if (dpElementType(dpSource)==DPEL_BOOL)
+    txtType.text=1;
+  else
+    txtType.text=2;
+  type=txtType.text;
+  txtSource.text=dpSource;
+  getValue(\"type\"+type,\"text\",s);
+  txtSourceType.text=s;
+
+  b=(type==0 || dpSource==$dpe+\".value.plcCounter\");
+  if (b)
+  {
+    getWhAddresses();
+    getResetAddresses();
+  }
+  else
+  {
+    txtWhAddress.text=\"\";
+    txtResetAddress.text=\"\";
+  }
+  cmdWhAddress.visible=b;
+  txtWhAddress.visible=b;
+  txtWhAdr.visible=(b && (type==0 || type==3));
+  cmdResetAddress.visible=b;
+  txtResetAddress.visible=b;
+  txtResetAdr.visible=b;
+  txtInputAdr.visible=(cmdWhAddress.visible && (type==1 || type==2));
+}
+
+getWhAddresses()
+{
+  int    type=txtType.text;
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".value.plcCounter\";
+  dyn_errClass eClass;
+
+  if (type==1 || type==2) return;
+  
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  txtWhAddress.text=plcAddress;
+}
+
+getResetAddresses()
+{
+  bool   plcAddressActive;
+  string plcAddress,
+         dp=$dpe+\".cmd.resetPLC\";
+  dyn_errClass eClass;
+
+  dpGet(dp+\":_address.._active\",plcAddressActive);
+  eClass=getLastError();
+  if (dynlen(eClass)>0)
+    plcAddress=\"\";
+  else
+  {
+    dpGet(dp+\":_address.._reference\", plcAddress);
+    eClass=getLastError();
+    if (dynlen(eClass)>0) plcAddress=\"\";
+  }
+  txtResetAddress.text=plcAddress;
+}
+" 0
+ E E E
+0
+LAYER, 1 
+4
+LANG:10001 6 Layer2
+LANG:10004 6 Layer2
+LANG:10000 6 Layer2
+LANG:10027 6 Layer2
+2 6
+"OverflowText"
+""
+1 20 352 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+14 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 352 77 366
+0 2 2 "0s" 0 0 0 192 0 0  22 352 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 9 Overflow:
+LANG:10004 7 溢出:
+LANG:10000 10 Überlauf:
+LANG:10027 25 Переполнение:
+2 14
+"PLCFactorText"
+""
+1 22 322 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+17 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 322 65 336
+0 2 2 "0s" 0 0 0 192 0 0  22 322 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 7 Factor:
+LANG:10004 7 系数:
+LANG:10000 7 Faktor:
+LANG:10027 13 Фактор:
+2 35
+"ToleranceText"
+""
+1 20 382 E E E 1 E 1 E N "_3DText" E N "_3DFace" E E
+ E E
+22 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 22 382 131 396
+0 2 2 "0s" 0 0 0 192 0 0  22 382 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 15 Reset treshold:
+LANG:10004 13 重置阈值:
+LANG:10000 18 Rücksetzschwelle:
+LANG:10027 24 Порог сброса:
+6 43
+"Border5"
+""
+1 11 391 E E E 1 E 1 E N "STD_frame_light" E N "_Transparent" E E
+ E E
+27 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 11 311 411 411
+6 44
+"Border6"
+""
+1 10 390 E E E 1 E 1 E N "STD_frame_dark" E N "_Transparent" E E
+ E E
+28 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+3
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  0 E 10 310 410 410
+2 92
+"type_1"
+""
+1 200 27 E E E 1 E 0 E N "_3DText" E N "_3DFace" E E
+ E E
+66 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+4
+"sizePolicy" "Fixed Fixed"
+"layoutAlignment" "AlignCenter"
+"dashclr"N "_Transparent"
+"antiAliased" "0"
+E E 0 1 1 0 1 E U  1 E 202 27 324 41
+0 2 2 "0s" 0 0 0 192 0 0  202 27 1
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0 4
+LANG:10001 17 - existing device
+LANG:10004 14 - 现有设备
+LANG:10000 20 - vorhandenes Gerät
+LANG:10027 47 - существующее устройство
+14 36
+"txtTolerance"
+""
+1 138 378 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+9 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 378 312 405
+3 "12d" 12 0 0 2 0 -1  E E E
+14 13
+"txtPlcFactor"
+""
+1 138 318 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+7 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 318 312 345
+3 "9.2f" 12 0 0 2 0 -1  E E E
+14 4
+"txtOverflow"
+""
+1 138 348 E E E 1 E 1 E N "_WindowText" E N "_Window" E E
+ E E
+8 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  138 348 312 375
+3 "12d" 12 0 0 2 0 -1  E E E
+14 50
+"txtOldType"
+""
+1 370 40 E E E 1 E 0 E N "_WindowText" E N "_3DFace" E E
+ E E
+31 0 0 0 0 0
+E E E
+0
+3
+LANG:10000 0 
+LANG:10001 0 
+LANG:10027 0 
+
+1
+"layoutAlignment" "AlignCenter"
+4
+LANG:10001 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10004 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10000 26 Arial,-1,13,5,50,0,0,0,0,0
+LANG:10027 26 Arial,-1,13,5,50,0,0,0,0,0
+0  368 38 402 65
+3 "0s" 0 0 0 0 0 -1  E E E
+0
+LAYER, 2 
+4
+LANG:10001 6 Layer3
+LANG:10004 6 Layer3
+LANG:10000 6 Layer3
+LANG:10027 6 Layer3
+0
+LAYER, 3 
+4
+LANG:10001 6 Layer4
+LANG:10004 6 Layer4
+LANG:10000 6 Layer4
+LANG:10027 6 Layer4
+0
+LAYER, 4 
+4
+LANG:10001 6 Layer5
+LANG:10004 6 Layer5
+LANG:10000 6 Layer5
+LANG:10027 6 Layer5
+0
+LAYER, 5 
+4
+LANG:10001 6 Layer6
+LANG:10004 6 Layer6
+LANG:10000 6 Layer6
+LANG:10027 6 Layer6
+0
+LAYER, 6 
+4
+LANG:10001 6 Layer7
+LANG:10004 6 Layer7
+LANG:10000 6 Layer7
+LANG:10027 6 Layer7
+0
+LAYER, 7 
+4
+LANG:10001 6 Layer8
+LANG:10004 6 Layer8
+LANG:10000 6 Layer8
+LANG:10027 6 Layer8
+0
+3 0 "" -1
+"layoutAlignment" "AlignCenter"
+"" ""
+"objects/STD_PARTS/PANEL_HEADER_DPCOMMENT.pnl" 18 19 T 21 1 0 1 32 11
+1
+"$dpe""$dpe"
+0
